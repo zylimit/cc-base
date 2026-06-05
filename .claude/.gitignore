@@ -1,0 +1,10 @@
+# 运行时状态文件（stop-gate / review 闸门用，不入库）
+.needs-review
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+*.swp
+
+# Claude Code 本机特定覆盖（每台机器各自持有，不入库）
+settings.local.json

@@ -1,0 +1,31 @@
+# ============ Claude Code 运行时状态（不入库，只保留配置）============
+# review 闸门状态文件（stop-gate / mark-review-needed 用）
+.claude/.needs-review
+.claude/.needs-review.lock
+# 本机特定覆盖（每台机器各自持有，含 permissions 等）
+.claude/settings.local.json
+
+# ============ 通用 ============
+.DS_Store
+Thumbs.db
+*.swp
+*.log
+*.sock
+*.lock
+
+# ============ 前端/Node 产物（未来项目代码用）============
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.env
+.env.local
+*.local
+
+# ============ Python 产物 ============
+__pycache__/
+*.py[cod]
+.venv/
+venv/
