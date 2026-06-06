@@ -49,13 +49,16 @@
             ├── release-builder/           # 构建发布
             ├── skill-builder/             # 创建新 Skill
             ├── feedback-writer/           # 记录用户反馈
-            └── evolution-engine/          # 进化引擎扫描
+            ├── evolution-engine/          # 进化引擎扫描
+            └── progress-recorder/         # 项目记忆维护
 
 [运行模型——纯 Claude Code + Sub-Agent]
     本框架是**纯 Claude Code 方案**：所有委派一律走 Claude Code 原生的 **Sub-Agent（Task/Agent 工具）**，不依赖任何外部 Agent 编排进程（无 CCB / 无 codex/gemini 外部驱动 / 无 daemon / 无 tmux 编排）。
     - 主 Agent = 编排者：负责需求分析、任务拆分、排序、派发、验收。
     - 专职 Sub-Agent = 工人：implementer（编码）、code-reviewer（审查）、tester（测试）、deployer（部署）各司其职，每次派发都是 **fresh 实例**，互不继承上下文。
     - 派发 = 用 Task/Agent 工具启动对应 Sub-Agent，传入完整任务上下文，等其返回结构化报告后由主 Agent 验收。Sub-Agent 是同步返回的，不存在"提交后轮询"那一套。
+    - **两种派发形态**：① **直接 Task 派单**（默认）——单 Task / 一问一答，主 Agent 用 Task/Agent 工具一次派一个 Sub-Agent。② **Workflow 编排**（规模化上层）——多个无依赖单位（一个 Phase 多 Task、多审查维度、多文件批处理）时，主 Agent **写 Workflow 脚本**做 fan-out / pipeline。两者工人相同（都是 implementer/code-reviewer/tester/deployer），只是编排粒度不同。判据与铁律见 [Sub-Agent 调度规则] 的「Workflow 编排模式」。
+    - **扁平编排（铁律）**：主 Agent 是**唯一编排者**。Sub-Agent 不再拉 Sub-Agent；Workflow 也由主 Agent 编写、其内 `workflow()` 嵌套仅允许一层。纯 CC 的 Sub-Agent 本就上下文隔离（只回传最终结论进主 Agent），不需要 ccb-base 那种「coordinator 协调员」中间层——那是 CCB 为驱动外部 codex worker 才有的，纯 CC 不照搬。
 
 [总体规则]
     - 无论用户如何打断或提出新问题，完成当前回答后始终引导用户进入下一步
@@ -170,7 +173,22 @@
     - Sub-Agent 不知道之前的 Task 做了什么。如果需要上下文，主 Agent 必须显式提供
     - 这不是可选的最佳实践，是隔离保证：防止 Task A 的错误假设污染 Task B
     - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md
-    - **并行**：无依赖的 Task 可并行派发多个 Sub-Agent，但不并行修改同一文件；并行 Task 各自独立完成 review → fix 循环后再 commit，文件冲突由主 Agent 合并解决
+    - **并行（按业界结论收紧）**：**编码是最不该并行的环节**——Anthropic 实证「most coding tasks involve fewer truly parallelizable tasks than research」，Cognition「Flappy Bird」证明并行编码会因不共享上下文而决策冲突（共享类型/契约/命名各写各的）。所以：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环）；只有当多个 Task **真正独立 + 已全规格化**（接口契约、命名、文件边界都已在 DEV-PLAN/Spec 钉死）时，才并行派 implementer，且必须 worktree 隔离、不并行改同一文件、各自独立完成 review→fix 后由主 Agent 合并。同文件改动或有依赖 → 一律串行。**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。
+
+    **Workflow 编排模式（规模化 fan-out 的上层；纯 CC 专属红利）**：
+    Claude Code 的 Dynamic Workflows 用 `agent()` 原生 spawn Claude subagent。纯 CC 全是 Claude worker，这条路是开的（ccb-base 因要驱动外部 codex worker 用不了）。**Workflow 不取代 Task 直派，是它在「多个无依赖单位」时的规模化上层。**
+    - **判据轴 = 这些单元的决策要不要自洽**（不是"任务多少"）：
+      - **要自洽（共享上下文/契约）** → 编码这类 → **别用 workflow 并行**，串行直派。
+      - **不要自洽（只读/可独立汇总）** → 审查维度、测试目标、代码库探索、研究广度 → **Workflow fan-out 甜区**。
+    - **三个推荐场景**：① **code-review 多维 + 对抗验证**——`pipeline(维度, 审查, 逐条 verify)`，verify 用**多视角 lens**（correctness/security/repro），以视角多样性补回纯 CC 失去的「codex/claude 异构互照」。② **test-builder 批量写测**——`parallel` 多个高价值逻辑各派 tester（fresh 实例天然独立于 implementer 作者）。③ **代码库探索/研究**——breadth-first 普查。
+    - **集成点 `agentType`**：workflow 的 `agent(prompt, {agentType:'code-reviewer'|'tester'|'implementer', schema, isolation:'worktree'})` 从同一注册表复用框架现有专职 Agent（带其 skill+system prompt）。**编排换脚本，工人不变**，隔离/职责边界/写测独立全保住。
+    - **三铁律不动**：① **主 Agent 仍是唯一编排者**——workflow 是主 Agent 写的脚本，不是 Sub-Agent 自拉 Sub-Agent；其内 `workflow()` 嵌套仅一层。② **验收判断权留主 Agent**——workflow 用 `schema` 回传「结论 + 证据句柄」，主 Agent 凭证据定夺（= 翻证据外包/下判断自留）。③ 写测独立性靠 `agent()` 每次 fresh + 不同 agentType。
+    - **成本闸门（硬约束）**：多 Agent 耗 token **~15x**（Anthropic 实证），只对高价值任务划算。Workflow **必须用户显式 opt-in**，不静默触发——达到 fan-out 规模时主 Agent 先提议、用户确认再跑。worktree 隔离有 ~200-500ms+磁盘/agent 成本，只在并行写文件时用；单 Phase 仅 1-2 个单位时不划算，直接 Task 直派。
+
+    **Sub-Agent 回传纪律（防回传消息灌爆主 Agent 上下文）**：
+    - Sub-Agent 上下文虽自动隔离，但它的**最终回传消息**是唯一进主 Agent 上下文的东西。回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译输出位置 / 测试运行器输出位置 / 时间戳）+ 关键提炼，**不贴全文/原始长日志**。长报告压成要点。
+    - **翻证据外包，下判断自留**：读 artifact 全文、跑核查三件套这类体力活可派给 Sub-Agent，但「通过/不通过」的验收判断权留主 Agent——凭回传句柄定夺，需要时再派 fresh 实例回溯原文核实。这与 [总体规则] 验收铁律协同。
+    - **任务时长红线**：单次派单预期 **>60min 多半是任务分解不合理**——回到任务分解重切，而非让 Sub-Agent 长跑。对应 Anthropic「clear task boundaries」——每次派单都要有明确 objective / 输出格式 / 工具与文件范围 / 边界。
 
     **⚠️ feedback 和 memory 是两套不同的系统，不能混淆：**
     - feedback 记录到 .claude/feedback/ 目录，由 evolution-engine 扫描并生成进化建议，用于改进 Skill 和规则

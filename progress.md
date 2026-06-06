@@ -23,6 +23,12 @@ _Last updated: 2026-06-06_
 - 2026-06-06: 删除 2 个纯 CCB 运维 feedback（ccb-dispatch / ccb-startup-tmux）——无 CCB 后失去意义；其余 5 个 feedback 把 CCB 渠道措辞（/ask、codex/gemini、commander）改写为 Sub-Agent。
 - 2026-06-06: 丢弃 `.ccb/` 与 `tools/ccb-*`（纯 CC 无 daemon/tmux 可管，无需安装脚本）。
 - 2026-06-06: 6 个 hook 全部保留——它们本就 provider 无关（review 闸门按文件登记、commit 编译门禁、auto-push、feedback 信号检测、进化检查），与 CCB 无耦合。
+- 2026-06-06: 采纳 Dynamic Workflows 作为 Sub-Agent 之上的「规模化 fan-out 编排层」——纯 CC 全 Claude worker，workflow 的 agent() 可原生 spawn（ccb-base 因需驱动外部 codex worker 用不了，这是纯 CC 独有红利）。Workflow 不取代 Task 直派，只在多个无依赖单位时用。
+- 2026-06-06: 确立 workflow 使用判据轴 = 「单元决策要不要自洽」而非"任务多少"。只读/可汇总（审查维度、测试目标、代码库探索、研究）= 并行甜区；共享上下文/契约（编码）= 默认串行。
+- 2026-06-06: 并行 implementer 池（TODO #3）结论 = 大体上不做。编码是最不可并行环节（Anthropic《Building Effective Agents》"coding not a good fit for multi-agent"；Cognition《Don't Build Multi-Agents》并行编码决策冲突）。并行红利改用于审查/测试/研究，编码保持串行。
+- 2026-06-06: 不照搬 ccb 的 coordinator 协调员模式——纯 CC Sub-Agent 本就上下文隔离，且 Sub-Agent 不能嵌套拉 Sub-Agent；保持「主 Agent 唯一编排者」扁平编排。借鉴的只是 coordinator 提炼出的规则层纪律（回传格式/翻证据下判断/时长红线）。
+- 2026-06-06: workflow 集成方式——agent() 的 agentType 选项复用现有专职 Agent（code-reviewer/tester/implementer + 各自 skill），编排换脚本、工人不变。
+- 2026-06-06: workflow 成本闸门——多 Agent 耗约 15x token，必须用户显式 opt-in、只对高价值任务用，不静默触发。
 
 ---
 
@@ -30,7 +36,7 @@ _Last updated: 2026-06-06_
 
 - [P2][OPEN][#1] git 化：init + .gitignore 核对 + 推私有库（远端待定）
 - [P3][OPEN][#2] 实跑一轮真实项目，验证纯 Sub-Agent 编排在 dev-builder per-Task review→fix 循环下的稳定性与并行表现
-- [P3][OPEN][#3] 评估是否需要并行 implementer 池（无依赖 Task 并发）——按实际瓶颈再扩
+- [P3][RESOLVED][#3] 评估是否需要并行 implementer 池（无依赖 Task 并发）——结论：大体上不做，编码保持串行，并行红利用于审查/测试/研究（见 Decisions 2026-06-06）
 
 ---
 
@@ -42,6 +48,7 @@ _Last updated: 2026-06-06_
 
 ## Done（最近完成的放前面）
 
+- 2026-06-06: [#-] **借鉴 ccb-base 演进 + 业界实践，三处文档落地**：① CLAUDE.md 新增「Workflow 编排模式」整节 + 「Sub-Agent 回传纪律」（结论+证据句柄/翻证据外包下判断自留/任务时长>60min 红线）+ 收紧「并行」条（编码默认串行）+ [运行模型] 增「两种派发形态」与「扁平编排」铁律；② 新建 ARCHITECTURE.md（纯 CC 版全景架构，含 §4 Workflow 模式、§5 异构丢失风险、引用 3 篇业界文章）；③ README 设计要点加 Workflow 红利说明 + ARCHITECTURE.md 链接。
 - 2026-06-06: [#-] **纯 CC 版骨架完成**：重写 CLAUDE.md（删 CCB 三条铁律、派单规则全改 Sub-Agent、运行模型章节声明纯 CC）；新增 tester/deployer 两个 agent；改写 dev-builder/test-builder/release-builder 的 CCB 引用；重写/精简 5 个 feedback + 索引；新 README / progress / .gitignore。全树终检无 CCB 残留。
 
 ---
@@ -51,6 +58,7 @@ _Last updated: 2026-06-06_
 - Assumption：纯 Sub-Agent 同步派发够用，无需外部 daemon 留痕——跨 session 状态靠 progress.md + feedback 承载。（Confidence：Med）
 - Assumption：写测独立性靠"派与实现者不同的 fresh tester 实例"即可保证，无需跨进程隔离。（Confidence：High——Sub-Agent 本就 fresh 不继承上下文）
 - Risk：大规模项目下主 Agent 上下文增长，需靠 progress-recorder 自动归档（>100 条）兜底。
+- Risk：异构互照丢失——ccb 用 codex reviewer 照出过 claude reviewer 漏判的真 bug，同源模型有共同盲区；纯 CC 全 Claude worker 失去这层交叉验证。缓解（非根除）：审查用多视角对抗 verify（correctness/security/repro 不同 lens）+ 写测独立 + 高风险多轮。根除需引入异构 worker（即回到 ccb 路线），是两版本质取舍。（Confidence：High——业界实证支撑）
 
 ---
 
@@ -58,6 +66,7 @@ _Last updated: 2026-06-06_
 
 - 2026-06-06: 与 ccb-base 的核心差异 = 编排层（Sub-Agent vs CCB daemon）；技能体系/hook/feedback/进化引擎/项目记忆完全一致。
 - 2026-06-06: 无安装步骤——Claude Code 原生读 `.claude/`，无 daemon/tmux/CLI 工具要装。
+- 2026-06-06: TODO #2（实跑验证编排）仍 OPEN，现增一可验证项：实跑时验证 workflow fan-out（审查/测试场景）的实际表现。
 
 ---
 

@@ -43,7 +43,7 @@ deployer  (codex)             →   deployer       Sub-Agent（打包/部署）
 │   ├── feedback-observer.md  记录用户反馈（feedback-writer skill）
 │   ├── evolution-runner.md   扫描 feedback 生成进化建议（evolution-engine skill）
 │   └── progress-recorder.md  维护 progress.md 项目记忆
-├── skills/                   12 个 Skill（需求→设计→开发→测试→发布 + 元技能）
+├── skills/                   13 个 Skill（需求→设计→开发→测试→发布 + 元技能）
 ├── hooks/                    6 个 hook（feedback 信号 / review 闸门 / commit 检查 / auto-push）
 ├── feedback/                 经验教训库 + 索引 + 模板（进化引擎扫描源）
 ├── EVOLUTION.md              进化引擎（四层：积累→毕业→优化→生成）
@@ -76,6 +76,7 @@ claude            # 直接启动；CLAUDE.md 自动加载，SessionStart hook �
 ## 设计要点
 
 - **委派统一走原生 Sub-Agent**：每个 Task 一个 fresh 实例，主 Agent 提供完整上下文（Sub-Agent 不继承 session 历史），这是隔离保证，防止 Task A 的错误假设污染 Task B。
+- **Workflow 编排是纯 CC 红利**：全 Claude worker 让 Dynamic Workflows 的 `agent()` 可原生 fan-out（ccb-base 因要驱动外部 codex worker 用不了）。判据 = 单元决策要不要自洽：**只读广度（审查/测试/研究）才并行，编码默认串行**（Anthropic 实证编码不适合多 Agent、Cognition「Flappy Bird」）。多 Agent 耗 ~15x token，必须用户显式 opt-in。详见 [ARCHITECTURE.md](./ARCHITECTURE.md) §4。
 - **写测独立性**：tester 必须是与写该代码的 implementer 不同的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。
 - **验收以客观证据为准**：子 Agent 自报"完成/通过"只反映它跑完了，不等于结果正确；主 Agent 一律核查客观证据（编译输出 / 测试运行器真实输出 / 部署三件套）。
 - **配置入库、运行时不入库**：`.needs-review`、`settings.local.json` 等滚动/本机状态由 `.gitignore` 排除。
