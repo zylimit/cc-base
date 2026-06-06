@@ -13,11 +13,20 @@ _Last updated: 2026-06-07_
     - 2026-06-07: 作业流存储：本地 JSON 文件（用户可配置目录），不使用数据库
 
 ## TODO（权威待办清单）
-    - [P1][OPEN][#1] 开始 Phase 1：Electron + Vite 骨架迁移（现有代码为纯 Vite React 原型，需迁移至 electron-vite 结构）
+    - [P2][OPEN][#2] Phase 2：UI 界面重构（对照 Design Brief 暗夜工程台风格）
+    - [P3][OPEN][#3] Phase 3：本地配置存储 + 设置面板
+    - [P4][OPEN][#4] Phase 4：内置浏览器（WebContentsView）
+    - [P5][OPEN][#5] Phase 5：chrome-devtools-mcp + Claude API 集成
+    - [P6][OPEN][#6] Phase 6：对话驱动自动化（完整执行循环）
+    - [P7][OPEN][#7] Phase 7：录制功能（作业流捕获）
+    - [P8][OPEN][#8] Phase 8：作业流回放
+    - [P9][OPEN][#9] Phase 9：登录管理（Cookie 持久化）
+    - [P10][OPEN][#10] Phase 10：错误日志 + 截图 + 日志查看器
 
 ## In Progress
 
 ## Done（最近完成的放前面）
+    - 2026-06-07: Phase 1 完成——electron-vite 骨架迁移，Electron 启动验证通过，TypeScript 零错误，commit 28deb78
     - 2026-06-07: Design Brief 已生成（Design-Brief.md）——暗夜工程台风格，#0B0B0C 底色 + #F97316 琥珀橙强调色，紧凑密度，参考 Cursor IDE × Grafana
     - 2026-06-07: DEV-PLAN.md 已生成——10 个 Phase，覆盖 Spec 全部功能（骨架迁移 → UI重构 → 配置存储 → 内置浏览器 → MCP+Claude集成 → 对话执行 → 录制 → 回放 → 登录管理 → 错误日志）
 
