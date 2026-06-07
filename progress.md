@@ -17,7 +17,7 @@ _Last updated: 2026-06-07_
 
 ## TODO（权威待办清单）
     - [P1][DONE][#1] Phase 1：Electron 骨架迁移——electron-vite 5 + React 19 + Tailwind 4，commit a6b95b3
-    - [P2][OPEN][#2] Phase 2：内置浏览器 + IPC 基础（WebContentsView + config-store）
+    - [P2][DONE][#2] Phase 2：内置浏览器 + IPC 基础（WebContentsView + config-store）
     - [P3][OPEN][#3] Phase 3：MCP Client + Gemini Agent（主进程）
     - [P4][OPEN][#4] Phase 4：UI 绑定真实逻辑（hooks + IPC 接入）
     - [P5][OPEN][#5] Phase 5：录制功能（Recorder + workflow-store）
@@ -27,6 +27,7 @@ _Last updated: 2026-06-07_
 ## In Progress
 
 ## Done（最近完成的放前面）
+    - 2026-06-07: Phase 2 完成——WebContentsView + browser IPC + config-store，commit c670b7b
     - 2026-06-07: Phase 1 完成——electron-vite 骨架迁移，Electron 启动验证通过，TypeScript 零错误，commit a6b95b3
     - 2026-06-07: 新 DEV-PLAN.md 生成——7 个 Phase，基于 frontend/ 代码
     - 2026-06-07: frontend/ 目录首次提交（Google AI Studio 生成）
