@@ -185,6 +185,23 @@ description: 当 Design Brief 完成后、用户需要生成设计交付物时�
 
 [Phase 3：交付]
 
+    [归档]
+        在输出报告前，必须先完成以下两项归档：
+
+        **1. 截图归档**
+        用 export_nodes 将所有页面节点导出为 PNG，写入项目 design-prototype/ 目录：
+        - 调用 export_nodes(filePath, nodeIds: [所有顶层页面帧的 ID], outputDir: "<项目根目录>/design-prototype", format: "png")
+        - 每个页面/变体各导出一张，文件名用节点名称（export_nodes 默认用 nodeId 命名，可在导出后用 Bash mv 重命名为可读名称）
+        - 导出完成后用 git add design-prototype/ 纳入版本管理
+
+        **2. .pen 文件归档**
+        把活跃的 .pen 文件复制到项目根目录，纳入 git 版本管理：
+        - 调用 get_editor_state 获取当前 .pen 文件的完整路径
+        - 用 Bash cp 将其复制到项目根目录，文件名统一为 design-prototype.pen
+        - git add design-prototype.pen
+
+        归档完成后提交：git commit -m "design: add Pencil prototype screenshots and .pen file"
+
     输出完成报告：
 
     "✅ 设计交付完成
