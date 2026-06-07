@@ -10,7 +10,19 @@ description: 当 Design Brief 完成后、用户需要生成设计交付物时�
 
 [工具安装]
     **Pencil MCP**（原型图）
-    VS Code / Cursor 扩展市场搜索 `Pencil`，安装 highagency 发布的版本，重启后 MCP 自动注册。
+    - Mac / Linux：VS Code / Cursor 扩展市场搜索 `Pencil`（highagency），安装后重启自动注册 MCP。
+    - Windows：Cursor 扩展在 Windows 下无法启动（已知问题），必须改装桌面 APP。
+      1. pencil.dev 下载安装 Windows 桌面 APP
+      2. 在 `~/.claude.json` 的 `mcpServers` 里手动添加：
+         ```json
+         "pencil": {
+           "type": "stdio",
+           "command": "C:\\Users\\<username>\\AppData\\Local\\Programs\\Pencil\\resources\\app.asar.unpacked\\out\\mcp-server-windows-x64.exe",
+           "args": ["--app", "desktop", "--agent", "claudeCodeCLI"],
+           "env": {}
+         }
+         ```
+      ⚠️ Pencil 桌面 APP 必须保持运行，MCP 才能正常响应。
 
     **Open Design MCP**（DEMO 生成）
     ```
