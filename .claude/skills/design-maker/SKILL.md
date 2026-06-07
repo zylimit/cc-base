@@ -8,6 +8,17 @@ description: 当 Design Brief 完成后、用户需要生成设计交付物时�
     确保 Product Spec 中每个有 UI 的功能都有对应的设计页面，每个页面覆盖所有关键状态变体。
     分三个阶段执行，每个阶段完成后向用户确认再进入下一阶段。
 
+[工具安装]
+    **Pencil MCP**（原型图）
+    VS Code / Cursor 扩展市场搜索 `Pencil`，安装 highagency 发布的版本，重启后 MCP 自动注册。
+
+    **Open Design MCP**（DEMO 生成）
+    ```
+    npm install -g @opendesign/cli
+    od mcp install
+    ```
+    安装后在 Claude Code 的 MCP 配置里确认 `open-design` 已列出即可。
+
 [依赖检测]
     必需：Product-Spec.md → 缺失则提示先调用 /product-spec-builder
     必需：Design-Brief.md → 缺失则提示先调用 /design-brief-builder
