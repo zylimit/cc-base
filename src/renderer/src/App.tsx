@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import BrowserMock from './components/BrowserMock';
+import BrowserPanel from './components/BrowserPanel';
 import WorkflowModal from './components/WorkflowModal';
 import SettingsModal from './components/SettingsModal';
 import ErrorModal from './components/ErrorModal';
@@ -73,7 +73,7 @@ export default function App() {
         messages={messages}
         onSendMessage={handleSendMessage}
       />
-      <BrowserMock />
+      <BrowserPanel />
 
       {modals.workflow && (
         <WorkflowModal 
