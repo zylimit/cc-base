@@ -11,7 +11,7 @@ description: 当 Design Brief 完成后、用户需要生成设计交付物时�
 [工具安装]
     **Pencil MCP**（原型图）
     - Mac / Linux：VS Code / Cursor 扩展市场搜索 `Pencil`（highagency），安装后重启自动注册 MCP。
-    - Windows：Cursor 扩展在 Windows 下无法启动（已知问题），必须改装桌面 APP。
+    - Windows：Cursor 扩展在 Windows 下无法启动（已知问题：扩展依赖 node-ipc 的命名管道，Windows 上建管道失败，MCP server 连不上秒退），必须改装桌面 APP。
       1. pencil.dev 下载安装 Windows 桌面 APP
       2. 在 `~/.claude.json` 的 `mcpServers` 里手动添加：
          ```json
