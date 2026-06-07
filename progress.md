@@ -9,14 +9,14 @@ _Last updated: 2026-06-07_
 
 ## Decisions（按时间顺序追加，历史不可改）
     - 2026-06-07: 项目重置——清空旧代码，基于 frontend/ 目录重建
-    - 2026-06-07: 技术栈：electron-vite 5 + React 19 + Tailwind 4 + @google/generative-ai 2.4 + chrome-devtools-mcp
+    - 2026-06-07: 技术栈：electron-vite 5 + React 19 + Tailwind 4 + @google/generative-ai 0.24 + chrome-devtools-mcp
     - 2026-06-07: AI 分工：gemini-2.5-flash（简单操作）、gemini-2.5-pro（复杂定位）
     - 2026-06-07: 作业流存储：本地 JSON 文件（用户可配置目录）
     - 2026-06-07: 前端代码来源：Google AI Studio 生成的 frontend/ 目录
     - 2026-06-07: 浏览器嵌入：Electron WebContentsView，remote-debugging-port=9222
 
 ## TODO（权威待办清单）
-    - [P1][OPEN][#1] Phase 1：Electron 骨架迁移（frontend → electron-vite 结构）
+    - [P1][DONE][#1] Phase 1：Electron 骨架迁移——electron-vite 5 + React 19 + Tailwind 4，commit a6b95b3
     - [P2][OPEN][#2] Phase 2：内置浏览器 + IPC 基础（WebContentsView + config-store）
     - [P3][OPEN][#3] Phase 3：MCP Client + Gemini Agent（主进程）
     - [P4][OPEN][#4] Phase 4：UI 绑定真实逻辑（hooks + IPC 接入）
@@ -27,6 +27,7 @@ _Last updated: 2026-06-07_
 ## In Progress
 
 ## Done（最近完成的放前面）
+    - 2026-06-07: Phase 1 完成——electron-vite 骨架迁移，Electron 启动验证通过，TypeScript 零错误，commit a6b95b3
     - 2026-06-07: 新 DEV-PLAN.md 生成——7 个 Phase，基于 frontend/ 代码
     - 2026-06-07: frontend/ 目录首次提交（Google AI Studio 生成）
 
