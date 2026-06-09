@@ -1,22 +1,10 @@
-node_modules/
-out/
-dist/
-*.log
-.DS_Store
-.env
-.env.local
-.env.*.local
-*.local
-# === base 仓库只放框架；产品/实验代码本地可留，但不上库 ===
-/frontend/
-/src/
-/electron.vite.config.ts
-/Product-Spec.md
-/DEV-PLAN.md
-/Design-Brief.md
-/data/
-/design-prototype/
-/package.json
-/package-lock.json
-/tsconfig*.json
-*.pen
+# === cc-base 白名单：base 仓库只放框架 ===
+# 默认忽略根目录一切；只放行下面列出的框架文件/目录。
+# 实验/产品代码（frontend/src/electron/Product-Spec…）本地可留着做实验，
+# 但默认不上库——冒出任何新文件都自动挡，无需逐个加黑名单。
+/*
+!/.gitignore
+!/.claude/
+!/ARCHITECTURE.md
+!/README.md
+!/progress.md
