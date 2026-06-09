@@ -1,8 +1,0 @@
-{
-  "name": "Datalink Automation",
-  "description": "A desktop-like frontend interface for automating Datalink operations using AI-driven browser control and workflows.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

@@ -7,3 +7,16 @@ dist/
 .env.local
 .env.*.local
 *.local
+# === base 仓库只放框架；产品/实验代码本地可留，但不上库 ===
+/frontend/
+/src/
+/electron.vite.config.ts
+/Product-Spec.md
+/DEV-PLAN.md
+/Design-Brief.md
+/data/
+/design-prototype/
+/package.json
+/package-lock.json
+/tsconfig*.json
+*.pen
