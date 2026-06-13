@@ -9,8 +9,10 @@ try { $prompt = ($raw | ConvertFrom-Json).prompt } catch { exit 0 }
 if (-not $prompt) { exit 0 }
 
 # Correction signals live in a sidecar file (keeps this script pure ASCII while still matching
-# the Chinese user input). Read with explicit UTF8 so PS 5.1 does not misread it as GBK.
-$signalsFile = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/feedback-signals.txt'
+# the Chinese user input). Anchor to $PSScriptRoot (this hook's own dir) so it does not depend
+# on $env:CLAUDE_PROJECT_DIR (fail-open preserved). Read with explicit UTF8 so PS 5.1 does not
+# misread it as GBK.
+$signalsFile = Join-Path $PSScriptRoot 'feedback-signals.txt'
 if (-not (Test-Path $signalsFile)) { exit 0 }
 $signals = (Get-Content -LiteralPath $signalsFile -Encoding UTF8 -Raw).Trim()
 if (-not $signals) { exit 0 }
