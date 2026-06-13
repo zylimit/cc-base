@@ -44,21 +44,73 @@ if ($pyFiles.Count -gt 0) {
     $pyOutput = ruff check $pyFiles 2>&1
     $pyExit = $LASTEXITCODE
     $tool = 'ruff check'
-  } else {
-    # Degrade: syntax-level compile check (python3 usually available; if missing, skip the stack and do not block commit)
-    if (Get-Command python3 -ErrorAction SilentlyContinue) {
-      $pyOutput = python3 -m py_compile $pyFiles 2>&1
-      $pyExit = $LASTEXITCODE
-      $tool = 'python3 -m py_compile (ruff not installed, degraded to syntax check)'
-    } else {
-      $pyExit = 0
-      $tool = '(ruff/python3 not installed, Python check skipped)'
+    if ($pyExit -ne 0) {
+      [Console]::Error.WriteLine("[x] Python check failed ($tool), commit blocked:")
+      [Console]::Error.WriteLine(($pyOutput | Out-String))
+      $fail = 1
     }
-  }
-  if ($pyExit -ne 0) {
-    [Console]::Error.WriteLine("[x] Python check failed ($tool), commit blocked:")
-    [Console]::Error.WriteLine(($pyOutput | Out-String))
-    $fail = 1
+  } else {
+    # Degrade: syntax-level compile check via a real interpreter.
+    # The bare "python3" on Windows is often a Microsoft Store stub: it prints
+    # nothing for --version and cannot compile, so picking it would falsely
+    # block commits. Probe candidates in order and keep the first one whose
+    # --version reports "Python 3".
+    #
+    # Note: this hook sets $ErrorActionPreference='Stop'. Merging a native
+    # program's stderr with 2>&1 turns that stderr into a terminating error
+    # under Stop, which would swallow real SyntaxError text. So every native
+    # call below redirects stderr to a temp file (2>) and reads it back, which
+    # never raises, and we relax the preference to Continue for the duration.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $pyCmd = $null
+      $errFile = [System.IO.Path]::GetTempFileName()
+      foreach ($cand in @('py -3', 'python', 'python3')) {
+        $parts = $cand -split ' '
+        $exe = $parts[0]
+        $pre = @()
+        if ($parts.Count -gt 1) { $pre = $parts[1..($parts.Count - 1)] }
+        if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
+        $ver = (& $exe @pre '--version' 2> $errFile | Out-String)
+        $verExit = $LASTEXITCODE
+        $verErr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+        $verAll = "$ver`n$verErr"
+        if ($verExit -eq 0 -and $verAll -match 'Python 3') {
+          $pyCmd = @{ Exe = $exe; Pre = $pre }
+          break
+        }
+      }
+      if ($null -eq $pyCmd) {
+        # No real interpreter found -> skip Python check, do not block commit.
+        $tool = '(ruff/python not available, Python check skipped)'
+      } else {
+        # Loop per file instead of passing the whole list at once, so a large
+        # staged set cannot blow the command-line length limit (Error 206).
+        # Only a true py_compile syntax error blocks the commit; any non-syntax
+        # failure (stub, missing file, length, etc.) degrades to a skip.
+        $tool = "$($pyCmd.Exe) -m py_compile (ruff not installed, degraded to syntax check)"
+        $pyErrors = @()
+        foreach ($f in $pyFiles) {
+          $out = (& $pyCmd.Exe @($pyCmd.Pre) '-m' 'py_compile' $f 2> $errFile | Out-String)
+          $cExit = $LASTEXITCODE
+          $cErr = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+          $cAll = "$out`n$cErr"
+          if ($cExit -ne 0 -and $cAll -match 'SyntaxError') {
+            $pyErrors += "$f`n$cAll"
+          }
+          # Non-syntax non-zero exit -> degrade (skip), do not block.
+        }
+        if ($pyErrors.Count -gt 0) {
+          [Console]::Error.WriteLine("[x] Python check failed ($tool), commit blocked:")
+          [Console]::Error.WriteLine(($pyErrors -join "`n"))
+          $fail = 1
+        }
+      }
+    } finally {
+      Remove-Item $errFile -Force -ErrorAction SilentlyContinue
+      $ErrorActionPreference = $prevEAP
+    }
   }
 }
 
