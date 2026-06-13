@@ -2,7 +2,11 @@
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
 # Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force]    without -Target, defaults to the current directory ".".
 # Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
-#      and rewrite each hook command to the powershell.exe -Command form so powershell expands $env:CLAUDE_PROJECT_DIR itself.
+#      and rewrite each hook command to launch powershell.exe with a PROJECT-RELATIVE -File path.
+#      Why relative (not $env:CLAUDE_PROJECT_DIR): on Windows the hook command runs in Git Bash (sh) when
+#      installed, else PowerShell. sh and PowerShell use different variable syntax ($env:X vs ${X}), so no
+#      single in-command variable form works for both outer shells; sh eats the $env in $env:CLAUDE_PROJECT_DIR.
+#      A relative path carries no variable and resolves against the hook cwd (project root) in either shell.
 [CmdletBinding()]
 param(
   [string]$Target = '.',
@@ -52,11 +56,12 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   Copy-WithBackup $_.FullName (Join-Path $targetClaude $rel)
 }
 
-# 3. Rewrite each hook command: .sh -> powershell.exe -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
+# 3. Rewrite each hook command: .sh -> powershell.exe -File ".claude/hooks/<name>.ps1" (project-relative,
+#    forward slashes are accepted by powershell and are safe in both sh and PowerShell outer shells).
 function Convert-ToPs1Command([string]$cmd) {
   if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
     $name = $Matches[1]
-    return "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"& '`$env:CLAUDE_PROJECT_DIR\.claude\hooks\$name.ps1'`""
+    return "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `".claude/hooks/$name.ps1`""
   }
   return $cmd
 }
@@ -122,5 +127,5 @@ if ((Test-Path $targetSettings) -and -not $Force) {
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count
 Write-Host "installed: ps1_hooks=$hooksCount target=$Target" -ForegroundColor Green
-Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (powershell expands `$env:CLAUDE_PROJECT_DIR itself)."
+Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (project-relative -File path, resolved against the hook cwd = project root)."
 exit 0
