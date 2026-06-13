@@ -74,6 +74,7 @@
     - **主 Agent 职责边界（铁律）**：编码 / 审查 / 部署 / 测试四个环节，主 Agent 一律不亲自动手，只「写提示词 + 委派 + 验收」。派发目标（全部为 Claude Code Sub-Agent，用 Task/Agent 工具派发 fresh 实例）：编码=implementer；审查=code-reviewer；部署=deployer；测试=tester（写测≠被测作者，必须派与实现者不同的 fresh 实例）。仅文档类（Product-Spec / CHANGELOG / DEV-PLAN）不受此约束，主 Agent 可直接写。细则见 feedback/main-agent-no-direct-coding.md。
     - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。细则见 feedback/deploy-acceptance-independent-verification.md。
     - **Sub-Agent 派发前置自检**：派发前确认已备齐**完整任务上下文**（涉及的 Spec 条目、交付清单、涉及文件、项目结构、约束）——Sub-Agent 不继承 session 历史，缺上下文会让它瞎猜或漏做。派发时机/流程见 [Sub-Agent 调度规则] 与各工作流程章节。
+    - **授权连续执行**：除非遇到真正需要人拍板的取舍（架构选型 / 不可逆操作 / 需求本身有歧义），否则按既定流程一路走到底，不中途问「要不要继续」；发现的 P2/P3 可选缺陷默认按 red-locks 流程顺手修掉，不预先征询。
 
 [Skill 调用规则]
     匹配触发条件时，必须先调用 Skill 再输出响应。不要先回复再调用。
