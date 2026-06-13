@@ -43,7 +43,8 @@ function Copy-WithBackup($src, $dest) {
 
 # 2. 复制 .claude 框架文件（跳过运行时产物 / 待删 / 机器特定；settings.json 走专门改写）
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
-  '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review')
+  '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
+  'signals.jsonl')
 $srcRootLen = (Resolve-Path $srcClaude).Path.Length
 Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')

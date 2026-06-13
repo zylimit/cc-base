@@ -43,6 +43,7 @@ copy_claude_tree() {
       settings.local.json) continue ;;                             # 机器特定覆盖，不入装
       .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
       .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
+      signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列（任意层级 basename）
     esac
     dest="$dest_dir/$rel"
     mode=""
