@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# PreToolUse(Bash)：拦截 pkill -f 宽泛匹配，防止误杀主 Agent 进程
+set -euo pipefail
+
+HOOK_INPUT=$(cat)
+CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+
+[ -z "$CMD" ] && exit 0
+
+if echo "$CMD" | grep -qE 'pkill\s+-f'; then
+  echo "⛔ [dangerous-pkill-guard] 检测到 pkill -f 宽泛匹配，已拦截。" >&2
+  echo "宽泛 pkill -f 会误杀主 Agent 自身进程（shell wrapper 含相同关键词）。" >&2
+  echo "正确做法：先用 ps/pgrep 拿精确 PID，再 kill <PID>。" >&2
+  exit 2
+fi
+
+exit 0

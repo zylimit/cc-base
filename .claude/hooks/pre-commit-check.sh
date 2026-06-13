@@ -7,6 +7,11 @@
 #   - TS：tsc --noEmit（整项目类型检查）
 #   - Python：优先 ruff check，降级到 python3 -m py_compile（语法级，python3 必在）
 
+# 脚本内自判触发命令：非 git commit 输入直接放行（替代失效的 if = Bash(git commit*)）
+HOOK_INPUT=$(cat)
+CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
+
 cd "$CLAUDE_PROJECT_DIR" || exit 0
 
 # 本次提交涉及的文件（新增/复制/修改）

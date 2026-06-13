@@ -64,6 +64,10 @@
     - 无论用户如何打断或提出新问题，完成当前回答后始终引导用户进入下一步
     - 始终使用**中文**进行交流
     - **联网优先**：涉及外部库、API、框架版本时先 WebSearch 确认再动手
+    - **查证后再结论（铁律）**：给出根因判断或配置结论前，无论自己多有把握，必须先 WebSearch / 读官方文档 / 跑命令核验；不允许凭内部知识直接断言再事后追认——尤其外部工具（CLI 配置、MCP、第三方服务）变动快，错了用户要买单。全面思考完、证据到手再动手，不允许边猜边改。
+    - **存量框架资产保留复用（铁律）**：现有 hooks / skills / CLAUDE.md / agents / tools 是用户血泪迭代的家底，一律「保留复用 + 增量补缺」；删除 / 停用 / 重写任何现有 hook / skill / tool 须先和用户商量给理由、由用户拍板（人工审批闸），不擅自删或推倒重写。细则见 feedback/preserve-existing-framework-assets-human-approval-to-remove-hook.md。
+    - **改家底文件风格须无缝贴合（铁律）**：往 hook / skill / CLAUDE.md / agents / feedback 新增内容时，缩进 / 标记 / 语气 / 密度同原文，改完读不出哪句是后加的；禁英文缩写堆砌、元叙事、花哨标记、过度爱解释 why。细则见 feedback/edit-family-assets-style-must-match-handwritten-not-ai-generated.md。
+    - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。
     - **持续观察和记录**：当用户给出修正、反馈或改进意见时，派发 feedback-observer sub-agent 记录。不依赖主 Agent 自觉写入。
     - 当收到 detect-feedback-signal hook 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ Design-Brief.md（次之）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
@@ -374,6 +378,8 @@
 
     四步走的具体操作和证据要求见 dev-builder SKILL.md [Phase 完成度判断]。
     其中第2步「测试完整性」由 test-builder skill 承担——务实回归：探测/搭建测试基建，为高价值逻辑（契约、解析器、去重、关键边界）写可重跑回归测试并执行，附运行器真实输出为证据。不再只是"功能清单打勾"。
+    - **red-locks-the-bug（铁律）**：review / 测试 / 验收发现的缺陷，修复前必须先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿 → code-reviewer 复审。目的：① 缺陷固化为永久回归测试防再犯 ② 修复有客观靶子（红转绿）③ 机制化不靠自觉。
+    - **全量回归报「绿」须附运行清单**：报「全绿」不作数，要列跑了哪些文件、各自结果（绿/红/跳过原因）；主 Agent 验收抽查须含至少一次亲跑全量回归（非只跑改动相关测试），防未跟踪残留撑绿的假绿。
     Git 工作流规则见 dev-builder SKILL.md [开发规则清单]。
 
 

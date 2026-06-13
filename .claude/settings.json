@@ -11,7 +11,6 @@
         ]
       }
     ],
-
     "SessionStart": [
       {
         "hooks": [
@@ -19,38 +18,58 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-evolution.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-rules-banner.sh",
+            "timeout": 5
           }
         ]
       }
     ],
-
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit*)",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-commit-check.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "if": "Bash(pnpm dev*)",
-            "command": "for port in 3000 3001 4173 5173 8080; do kill -9 $(lsof -ti:$port) 2>/dev/null; done; sleep 1; exit 0",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/kill-dev-ports.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/dangerous-pkill-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/tdd-gate.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-direct-code-guard.sh",
+            "timeout": 5
           }
         ]
       }
     ],
-
     "PostToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit*)",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/auto-push.sh",
             "timeout": 15
           }
@@ -67,7 +86,6 @@
         ]
       }
     ],
-
     "Stop": [
       {
         "hooks": [
