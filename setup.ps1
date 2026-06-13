@@ -2,11 +2,13 @@
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
 # Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force]    without -Target, defaults to the current directory ".".
 # Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
-#      and rewrite each hook command to launch powershell.exe with a PROJECT-RELATIVE -File path.
-#      Why relative (not $env:CLAUDE_PROJECT_DIR): on Windows the hook command runs in Git Bash (sh) when
-#      installed, else PowerShell. sh and PowerShell use different variable syntax ($env:X vs ${X}), so no
-#      single in-command variable form works for both outer shells; sh eats the $env in $env:CLAUDE_PROJECT_DIR.
-#      A relative path carries no variable and resolves against the hook cwd (project root) in either shell.
+#      and rewrite each hook command to: powershell.exe -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
+#      Why the \$ escape: on Windows the hook command runs in Git Bash (the outer shell when git is installed - a
+#      cc-base prerequisite). A bare $env:CLAUDE_PROJECT_DIR has its $env eaten by bash (unset bash var -> empty,
+#      leaving ":CLAUDE_PROJECT_DIR", broken). Escaping as \$env keeps a literal $ through bash, so the full
+#      $env:CLAUDE_PROJECT_DIR reaches the inner powershell which expands it. -Command (not -File) is required
+#      because only inside -Command does PowerShell expand $env: (a -File path is taken literally). Verified on a
+#      real Windows machine (the SessionStart banner prints).
 [CmdletBinding()]
 param(
   [string]$Target = '.',
@@ -56,12 +58,13 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   Copy-WithBackup $_.FullName (Join-Path $targetClaude $rel)
 }
 
-# 3. Rewrite each hook command: .sh -> powershell.exe -File ".claude/hooks/<name>.ps1" (project-relative,
-#    forward slashes are accepted by powershell and are safe in both sh and PowerShell outer shells).
+# 3. Rewrite each hook command: .sh -> powershell.exe -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
+#    Built with single-quoted PowerShell literals so the \, ", and $ characters pass through verbatim into the
+#    generated command (ConvertTo-Json escapes them for the JSON file).
 function Convert-ToPs1Command([string]$cmd) {
   if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
     $name = $Matches[1]
-    return "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `".claude/hooks/$name.ps1`""
+    return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
   }
   return $cmd
 }
@@ -127,5 +130,5 @@ if ((Test-Path $targetSettings) -and -not $Force) {
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count
 Write-Host "installed: ps1_hooks=$hooksCount target=$Target" -ForegroundColor Green
-Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (project-relative -File path, resolved against the hook cwd = project root)."
+Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (hook commands use the escaped-dollar form so the project-dir env var survives the Git Bash outer shell and expands in the inner powershell)."
 exit 0
