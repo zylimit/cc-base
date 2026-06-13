@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
-# Hook: PreToolUse(Bash)（PowerShell 等价 tdd-gate.sh）
-# TDD 闸门建议提示（非硬拦截，仅提醒）：检测在没有 .red-verified / .tdd-exempt 时派 implementer 写代码。
+# Hook: PreToolUse(Bash) (PowerShell equivalent of tdd-gate.sh)
+# TDD gate advisory (not a hard block, reminder only): detect dispatching implementer to write
+# code while .red-verified / .tdd-exempt is absent.
 $ErrorActionPreference = 'Stop'
 
 $raw = [Console]::In.ReadToEnd()
@@ -10,15 +11,15 @@ if (-not $cmd) { exit 0 }
 $root = git rev-parse --show-toplevel 2>$null
 if (-not $root) { $root = (Get-Location).Path }
 
-# 只对看起来是在启动 implementer 的命令触发
-if ($cmd -match '(?i)(implementer|dev-builder|GREEN|编码实现)') {
+# Only fire for commands that look like launching implementer
+if ($cmd -match '(?i)(implementer|dev-builder|GREEN)') {
   $redVerified = Join-Path $root '.claude/.red-verified'
   $tddExempt = Join-Path $root '.claude/.tdd-exempt'
   if ((-not (Test-Path $redVerified)) -and (-not (Test-Path $tddExempt))) {
-    [Console]::Error.WriteLine("TDD 闸门：派 implementer 做 GREEN 实现前须先完成 RED。")
-    [Console]::Error.WriteLine("高价值逻辑（契约/解析器/状态机/去重/schema 校验/驱动适配层等）：先派 tester 出失败测试 → 验红 → touch .claude/.red-verified，再派 implementer 写最简实现到绿。")
-    [Console]::Error.WriteLine("若本 Task 是 UI/样式/非 TDD 逻辑：touch .claude/.tdd-exempt 显式声明豁免。")
-    # 建议性提示，不硬拦截（与文件头注释一致）
+    [Console]::Error.WriteLine("TDD gate: complete RED before dispatching implementer for the GREEN implementation.")
+    [Console]::Error.WriteLine("High-value logic (contract/parser/state-machine/dedup/schema validation/driver-adapter layer): first dispatch tester to produce a failing test -> verify red -> touch .claude/.red-verified, then dispatch implementer to write the minimal implementation to green.")
+    [Console]::Error.WriteLine("If this Task is UI/styling/non-TDD logic: touch .claude/.tdd-exempt to declare an explicit exemption.")
+    # Advisory only, not a hard block (consistent with the file header comment)
     exit 0
   }
 }

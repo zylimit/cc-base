@@ -1,9 +1,12 @@
 #!/usr/bin/env pwsh
-# Hook: PostToolUse(Edit|Write)（PowerShell 等价 mark-review-needed.sh）
-# 项目业务代码被编辑/创建后，把文件登记进待审清单（.needs-review 每行一个相对项目根路径）。
-#   - 豁免基于「相对项目根路径」并顶层锚定：仅根级 tools/ 与 .claude/ 框架自身豁免
-#   - 扩展名豁免用白名单末段
-#   - 上一轮已 clean（或文件不存在）→ 开新清单；否则去重追加
+# Hook: PostToolUse(Edit|Write) (PowerShell equivalent of mark-review-needed.sh)
+# After business source is edited/created, register the file into the review list
+# (.needs-review, one project-root-relative path per line).
+#   - Exemptions are based on the project-root-relative path, anchored at the top level:
+#     only root-level tools/ and the .claude/ framework itself are exempt
+#   - Extension exemptions use a whitelist on the final segment
+#   - If the previous round was clean (or the file does not exist) -> start a new list;
+#     otherwise dedupe and append
 $ErrorActionPreference = 'Stop'
 
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
@@ -14,24 +17,25 @@ if (-not $filePath) { exit 0 }
 $root = $env:CLAUDE_PROJECT_DIR
 $stateFile = Join-Path $root '.claude/.needs-review'
 
-# 相对项目根路径，统一正斜杠（Windows 反斜杠归一，豁免正则与 .sh 一致）
+# Project-root-relative path, normalized to forward slashes (Windows backslashes normalized,
+# so the exemption regex matches the .sh version)
 $rel = $filePath
 if ($filePath.StartsWith($root)) { $rel = $filePath.Substring($root.Length) }
 $rel = ($rel -replace '\\', '/').TrimStart('/')
 
-# 豁免 1：基础设施/框架自身（顶层锚定）
+# Exemption 1: infrastructure / framework itself (top-level anchored)
 if ($rel -match '^(tools|\.claude)/') { exit 0 }
-# 豁免 2：文档/配置类（按最终扩展名白名单）
+# Exemption 2: docs/config (by final-extension whitelist)
 if ($rel -match '\.(md|txt|json|yaml|yml|toml|lock|log|gitignore|prettierrc|eslintrc)$') { exit 0 }
 if ($rel -match '\.(env|env\.local|env\.development|env\.production|env\.test)$') { exit 0 }
 
-# 上一轮已 clean（或文件不存在）→ 开新清单
+# If the previous round was clean (or the file does not exist) -> start a new list
 $lines = @()
 if (Test-Path $stateFile) {
   $existing = @(Get-Content $stateFile -ErrorAction SilentlyContinue)
   if ($existing -notcontains 'clean') { $lines = $existing }
 }
-# 去重登记
+# Dedupe before registering
 if ($lines -notcontains $rel) { $lines += $rel }
 Set-Content -Path $stateFile -Value $lines
 exit 0

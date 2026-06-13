@@ -1,8 +1,8 @@
 #!/usr/bin/env pwsh
-# Hook: PreToolUse(Bash)（PowerShell 等价 kill-dev-ports.sh）
-# 启动 dev server 前清掉常用端口占用进程，避免端口被旧进程占住起不来。
-# Windows 用 netstat + taskkill 替代 lsof + kill。
-# 脚本内自判：命令非 pnpm dev 直接放行（exit 0）。
+# Hook: PreToolUse(Bash) (PowerShell equivalent of kill-dev-ports.sh)
+# Before starting the dev server, free up common ports so old processes do not block startup.
+# Windows uses netstat + taskkill instead of lsof + kill.
+# Self-gates: commands that are not "pnpm dev" pass through (exit 0).
 $ErrorActionPreference = 'Stop'
 
 $raw = [Console]::In.ReadToEnd()

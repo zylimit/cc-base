@@ -1,15 +1,21 @@
 #!/usr/bin/env pwsh
-# Hook: UserPromptSubmit（PowerShell 等价 detect-feedback-signal.sh）
-# 检测用户 prompt 中是否包含修正/反馈信号，有则注入 additionalContext 提醒派发 feedback-observer。
+# Hook: UserPromptSubmit (PowerShell equivalent of detect-feedback-signal.sh)
+# Detect correction/feedback signals in the user prompt; if found, inject additionalContext
+# reminding to dispatch feedback-observer.
 $ErrorActionPreference = 'Stop'
 
 $raw = [Console]::In.ReadToEnd()
 try { $prompt = ($raw | ConvertFrom-Json).prompt } catch { exit 0 }
 if (-not $prompt) { exit 0 }
 
-# 修正信号：用户指出 AI 做错了、漏了、忘了 / 不满 / 改进
-$signals = '不是这样|别这样做|你搞错|搞错了|你错了|不对|不应该|你漏了|你忘了|改一下|不合理|你理解错|我说的不是|你确定|到底在|为什么没|没有执行|没有生效|你又忘|强调了|说过了|提醒过|怎么还|一直在|每次都|我不是让你|你先.*看|再说一遍|你到底|什么意思|能不能|不要再|别再|停下|不用管|先不要'
+# Correction signals live in a sidecar file (keeps this script pure ASCII while still matching
+# the Chinese user input). Read with explicit UTF8 so PS 5.1 does not misread it as GBK.
+$signalsFile = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/feedback-signals.txt'
+if (-not (Test-Path $signalsFile)) { exit 0 }
+$signals = (Get-Content -LiteralPath $signalsFile -Encoding UTF8 -Raw).Trim()
+if (-not $signals) { exit 0 }
+
 if ($prompt -match $signals) {
-  Write-Output '{"additionalContext": "检测到用户修正信号。请在处理完用户请求后，派发 feedback-observer sub-agent 使用 feedback-writer skill 记录这条反馈。feedback 记录到 .claude/feedback/ 目录，不是 memory 目录。"}'
+  Write-Output '{"additionalContext": "Detected a user correction signal. After handling the user request, dispatch the feedback-observer sub-agent to record this feedback using the feedback-writer skill. Write the feedback into the .claude/feedback/ directory, not the memory directory."}'
 }
 exit 0

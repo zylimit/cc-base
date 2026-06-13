@@ -1,8 +1,8 @@
 #!/usr/bin/env pwsh
-# setup.ps1 — 把 cc-base 框架资产注入式安装到 target 项目（Windows / 纯 PowerShell）。
-# 用法： pwsh -File setup.ps1 [-Target <dir>] [-Force]    不给 -Target 默认当前目录 "."
-# 关键：直接写 target/.claude/settings.json（Claude Code 只认这个固定名，不认 settings-windows.json），
-#       hook command 改写为 powershell.exe -Command 形式让 powershell 自己展开 $env:CLAUDE_PROJECT_DIR。
+# setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
+# Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force]    without -Target, defaults to the current directory ".".
+# Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
+#      and rewrite each hook command to the powershell.exe -Command form so powershell expands $env:CLAUDE_PROJECT_DIR itself.
 [CmdletBinding()]
 param(
   [string]$Target = '.',
@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = $PSScriptRoot
 $srcClaude = Join-Path $root '.claude'
-if (-not (Test-Path $srcClaude)) { throw "脚本目录下无 .claude（请在 cc-base 仓库根运行）：$srcClaude" }
+if (-not (Test-Path $srcClaude)) { throw "No .claude under the script directory (run from the cc-base repo root): $srcClaude" }
 
 # target/.claude
 if (-not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target -Force | Out-Null }
@@ -20,11 +20,11 @@ $targetClaude = Join-Path $Target '.claude'
 
 Write-Host '=== cc-base setup (Windows/.ps1) ===' -ForegroundColor Cyan
 
-# 1. 检测 git / claude（提示，不硬阻断）
+# 1. Detect git / claude (advisory, not a hard block)
 if (Get-Command git -ErrorAction SilentlyContinue) { Write-Host "[ok] git: $((git --version) 2>$null)" }
-else { Write-Host '[缺] 未检测到 git（安装：https://git-scm.com/download/win）' -ForegroundColor Yellow }
-if (Get-Command claude -ErrorAction SilentlyContinue) { Write-Host '[ok] Claude Code (claude) 已安装' }
-else { Write-Host '[缺] 未检测到 Claude Code（安装：https://docs.claude.com/claude-code）' -ForegroundColor Yellow }
+else { Write-Host '[!] git not detected (install: https://git-scm.com/download/win)' -ForegroundColor Yellow }
+if (Get-Command claude -ErrorAction SilentlyContinue) { Write-Host '[ok] Claude Code (claude) installed' }
+else { Write-Host '[!] Claude Code not detected (install: https://docs.claude.com/claude-code)' -ForegroundColor Yellow }
 
 function Test-FilesEqual($a, $b) {
   if (-not (Test-Path $b)) { return $false }
@@ -41,7 +41,7 @@ function Copy-WithBackup($src, $dest) {
   Copy-Item $src $dest -Force
 }
 
-# 2. 复制 .claude 框架文件（跳过运行时产物 / 待删 / 机器特定；settings.json 走专门改写）
+# 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
   '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
   'signals.jsonl')
@@ -52,7 +52,7 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   Copy-WithBackup $_.FullName (Join-Path $targetClaude $rel)
 }
 
-# 3. 改写 hook command：.sh → powershell.exe -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
+# 3. Rewrite each hook command: .sh -> powershell.exe -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
 function Convert-ToPs1Command([string]$cmd) {
   if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
     $name = $Matches[1]
@@ -68,7 +68,7 @@ foreach ($event in $src.hooks.PSObject.Properties) {
   }
 }
 
-# 递归收集对象里所有 .command 值（merge 去重用）
+# Recursively collect every .command value in the object (for merge dedup)
 function Get-AllCommands($obj) {
   $acc = New-Object System.Collections.Generic.List[string]
   function Walk($o) {
@@ -89,7 +89,7 @@ function Get-AllCommands($obj) {
 $targetSettings = Join-Path $targetClaude 'settings.json'
 
 if ((Test-Path $targetSettings) -and -not $Force) {
-  # 4. target 已有 settings.json：只追加尚无的 hook command，不动用户其他配置
+  # 4. target already has settings.json: only append hook commands not present yet, leave other user config untouched
   $tgt = Get-Content $targetSettings -Raw | ConvertFrom-Json
   $existing = Get-AllCommands $tgt
   if (-not $tgt.hooks) { $tgt | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force }
@@ -122,5 +122,5 @@ if ((Test-Path $targetSettings) -and -not $Force) {
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count
 Write-Host "installed: ps1_hooks=$hooksCount target=$Target" -ForegroundColor Green
-Write-Host "完成。Claude Code 从 $targetClaude\settings.json 加载 .ps1 hooks（powershell 自展开 `$env:CLAUDE_PROJECT_DIR）。"
+Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (powershell expands `$env:CLAUDE_PROJECT_DIR itself)."
 exit 0

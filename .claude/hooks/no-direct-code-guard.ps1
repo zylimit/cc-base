@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
-# Hook: PreToolUse(Edit|Write)（PowerShell 等价 no-direct-code-guard.sh）
-# 检测主 Agent 是否直接写业务源码，是则警告（exit 2）；框架文件放行。
+# Hook: PreToolUse(Edit|Write) (PowerShell equivalent of no-direct-code-guard.sh)
+# Detect whether the main agent writes business source directly; if so, warn (exit 2). Framework files pass.
 $ErrorActionPreference = 'Stop'
 
 $raw = [Console]::In.ReadToEnd()
@@ -9,18 +9,18 @@ $filePath = $obj.tool_input.file_path
 if (-not $filePath) { $filePath = $obj.tool_input.path }
 if (-not $filePath) { exit 0 }
 
-# Windows 反斜杠归一后再套与 .sh 一致的正则
+# Normalize Windows backslashes, then apply the same regex as the .sh version
 $fp = $filePath -replace '\\', '/'
 
-# 框架文件放行（.claude/ / CLAUDE.md / Product-Spec / DEV-PLAN / progress / CHANGELOG / feedback / agents / skills / hooks / *.md/json/toml/sh/ps1）
+# Framework files pass (.claude/ / CLAUDE.md / Product-Spec / DEV-PLAN / progress / CHANGELOG / feedback / agents / skills / hooks / *.md/json/toml/sh/ps1)
 if ($fp -match '(\.claude/|CLAUDE\.md|Product-Spec|DEV-PLAN|progress\.md|CHANGELOG|/feedback/|/agents/|/skills/|/hooks/|\.md$|\.json$|\.toml$|\.sh$|\.ps1$)') {
   exit 0
 }
 
-# 业务源码路径（src/ / app/ / lib/ / components/ 等），相对/绝对两种形态都拦
+# Business source paths (src/ / app/ / lib/ / components/ etc.), block both relative and absolute forms
 if ($fp -match '(^|/)(src|app|lib|components|pages|api|server|client|utils|models|services)/') {
-  [Console]::Error.WriteLine("⚠️  [no-direct-code-guard] 主 Agent 不应直接写业务源码：$filePath")
-  [Console]::Error.WriteLine("请派 implementer Sub-Agent 来编写，保持职责边界。")
+  [Console]::Error.WriteLine("[!] [no-direct-code-guard] the main agent should not write business source directly: $filePath")
+  [Console]::Error.WriteLine("Dispatch the implementer Sub-Agent to write it, keeping the responsibility boundary.")
   exit 2
 }
 exit 0
