@@ -12,8 +12,8 @@ if echo "$FILE_PATH" | grep -qE '(\.claude/|CLAUDE\.md|Product-Spec|DEV-PLAN|pro
   exit 0
 fi
 
-# 业务源码路径（src/ / app/ / lib/ / components/ 等）
-if echo "$FILE_PATH" | grep -qE '/(src|app|lib|components|pages|api|server|client|utils|models|services)/'; then
+# 业务源码路径（src/ / app/ / lib/ / components/ 等），相对/绝对两种形态都拦
+if echo "$FILE_PATH" | grep -qE '(^|/)(src|app|lib|components|pages|api|server|client|utils|models|services)/'; then
   echo "⚠️  [no-direct-code-guard] 主 Agent 不应直接写业务源码：$FILE_PATH" >&2
   echo "请派 implementer Sub-Agent 来编写，保持职责边界。" >&2
   exit 2

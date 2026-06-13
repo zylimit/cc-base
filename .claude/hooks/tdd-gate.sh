@@ -16,7 +16,8 @@ if echo "$CMD" | grep -qiE '(implementer|dev-builder|GREEN|编码实现)'; then
     echo "TDD 闸门：派 implementer 做 GREEN 实现前须先完成 RED。" >&2
     echo "高价值逻辑（契约/解析器/状态机/去重/schema 校验/驱动适配层等）：先派 tester 出失败测试 → 验红 → touch .claude/.red-verified，再派 implementer 写最简实现到绿。" >&2
     echo "若本 Task 是 UI/样式/非 TDD 逻辑：touch .claude/.tdd-exempt 显式声明豁免。" >&2
-    exit 2
+    # 建议性提示，不硬拦截（与文件头注释一致）
+    exit 0
   fi
 fi
 

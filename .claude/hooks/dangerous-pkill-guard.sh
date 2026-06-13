@@ -7,7 +7,8 @@ CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); 
 
 [ -z "$CMD" ] && exit 0
 
-if echo "$CMD" | grep -qE 'pkill\s+-f'; then
+# 锚定命令起始/分隔符，只拦真实执行的 pkill -f，放过 echo/grep "pkill -f" 字符串
+if echo "$CMD" | grep -qE '(^|;|&&|\|\||`|\$\()\s*pkill\s+-f'; then
   echo "⛔ [dangerous-pkill-guard] 检测到 pkill -f 宽泛匹配，已拦截。" >&2
   echo "宽泛 pkill -f 会误杀主 Agent 自身进程（shell wrapper 含相同关键词）。" >&2
   echo "正确做法：先用 ps/pgrep 拿精确 PID，再 kill <PID>。" >&2
