@@ -3,6 +3,10 @@
 # After a commit, auto-push when local is ahead of upstream.
 # Self-gates the trigger command: non "git commit" input exits immediately (replaces the if field).
 $ErrorActionPreference = 'Stop'
+# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
+# -Stop, which bypasses the $LASTEXITCODE guards below (the git probes intentionally
+# tolerate "no upstream" / "not a repo"). Opt out to match the .sh '|| true' semantics.
+$PSNativeCommandUseErrorActionPreference = $false
 
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }

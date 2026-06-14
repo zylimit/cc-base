@@ -3,6 +3,10 @@
 # TDD gate advisory (not a hard block, reminder only): detect dispatching implementer to write
 # code while .red-verified / .tdd-exempt is absent.
 $ErrorActionPreference = 'Stop'
+# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
+# -Stop, which would make git rev-parse throw when not in a repo (the $root fallback
+# below is meant to handle that). Opt out to match the .sh '|| ...' semantics.
+$PSNativeCommandUseErrorActionPreference = $false
 
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }

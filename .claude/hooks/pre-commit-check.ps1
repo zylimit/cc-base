@@ -4,6 +4,11 @@
 #   - Only checks stacks touched by the staged changes, not the whole repo
 #   - Tool not installed -> degrade or skip that stack, never block the commit because a tool is missing
 $ErrorActionPreference = 'Stop'
+# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
+# -Stop, which would bypass the $LASTEXITCODE guards below (git diff / npx tsc / ruff all
+# tolerate non-zero and gate on the exit code). Opt out to match the .sh '|| ...'
+# semantics; the per-stack stderr-to-tempfile handling further down stays as-is.
+$PSNativeCommandUseErrorActionPreference = $false
 
 # Self-gate the trigger command: non "git commit" input passes
 $raw = [Console]::In.ReadToEnd()

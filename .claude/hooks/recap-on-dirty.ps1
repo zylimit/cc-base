@@ -4,6 +4,10 @@
 # interrupted or its context compacted, state not yet in progress.md),
 # inject a reminder to /recap and reconcile progress.md before continuing.
 $ErrorActionPreference = 'Stop'
+# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
+# -Stop, which bypasses the $LASTEXITCODE guard below (git rev-parse tolerates "not a
+# repo"). Opt out to match the .sh '|| exit 0' semantics.
+$PSNativeCommandUseErrorActionPreference = $false
 
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { exit 0 }
