@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-06-14（18:34）_
+_Last updated: 2026-06-14（18:54）_
 
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
@@ -18,7 +18,7 @@ _Last updated: 2026-06-14（18:34）_
 - 2026-06-14: **单模型质量补强**——① static-gate 补回（static-check.sh 识栈跑 shellcheck/ruff/tsc + code-review 加 Stage 0 静态闸，b3c1ed2）；③ code-reviewer 加对抗式红队立场（跨不了模型就跨立场，71b9ffa）。跨模型审查（②）按用户决定不做（Claude Code 只能 Claude，结构上不可能）。
 - 2026-06-14: **文档漂移全面修复**——全局体检（3 只读 Explore agent 交叉扫）发现并修复 3 项漂移（commit 7246478）：① CLAUDE.md + ARCHITECTURE 共 5 处「两阶段」对齐为三阶段（Stage 0 静态闸 / Stage 1 规格 / Stage 2 质量）；② ARCHITECTURE §7 hook 表 6→11 条，补回 5 个 hook + 注脚显性化 static-check.sh 非注册 hook；③ CLAUDE.md 补回 progress-recorder 触发块。顺带排除 3 处 agent 误报（static-check.sh 非 hook、FEEDBACK-INDEX 最新、recap 不走 skill）。
 - 2026-06-14: **release v1.0.1 打包发布**——make-release.sh 产物 /tmp/cc-base-v1.0.1.zip（static-gate 资产在包内 / 私人 feedback 已排除 / INDEX 重置干净 / 含最新三阶段 CLAUDE.md）。订正：远程 origin 早已有 `v1.0.1 → 59f207c`（更早发布点）；当时只查本地 `git tag`（为空）误判"无 tag/首个 tag"，补打的本地 v1.0.1 → 7246478 已删除（与远程冲突的多余 tag）。
-- 2026-06-14: **release v1.0.2 发布**——远程 tag `v1.0.2 → 1413fb9`（已 push），产物 /tmp/cc-base-v1.0.2.zip（152K）；客观核验：CoVe 进 code-review SKILL、2 个新 hook（SubagentStop + recap-on-dirty）、code-review-fanout.js 均在包内，私人 feedback 排除、INDEX 重置干净。含本轮 4 项前瞻改进，当前最新发布。
+- 2026-06-14: **release v1.0.2 发布 + GitHub Release 上线**——远程 tag `v1.0.2 → 1413fb9`（已 push），产物 /tmp/cc-base-v1.0.2.zip（152K）；GitHub Release https://github.com/zylimit/cc-base/releases/tag/v1.0.2 已上线（Latest release），附资产 cc-base-v1.0.2.zip（155KB），release notes 含安装方式（gh release download / curl 下载 → setup.sh / setup.ps1 注入安装）；客观核验：gh release download 实测可下载、解压含 setup.sh/setup.ps1/workflow；CoVe 进 code-review SKILL、2 个新 hook（SubagentStop + recap-on-dirty）、code-review-fanout.js 均在包内，私人 feedback 排除、INDEX 重置干净。含本轮 4 项前瞻改进，当前最新发布。
 - 2026-06-14: **框架前瞻性改进（基于 3 个外部调研 agent）**——① CoVe 引入 code-review SKILL：每个风险点拆成可独立判定的验证问题、逐条挂外部证据核验，作为单模型审查承重墙（5d43bfa）；② SubagentStop hook 新增（subagent-acceptance-reminder .sh/.ps1，matcher 限 implementer|code-reviewer|tester|deployer），机制化「验收以客观证据为准」铁律（5d43bfa）；③ .claude/workflows/code-review-fanout.js 新增，多维 fan-out 审查 + 逐条 CoVe 多视角对抗 verify，schema 回传结论+证据句柄，可 opt-in 调用（5d43bfa）；④ SessionStart hook recap-on-dirty（.sh/.ps1）——工作树有未提交改动时注入提醒先 /recap 校准 progress.md，补「上下文流失致状态漂移」洞（0cf8ceb）。hook 总数 11→13。
 
 ## Decisions
