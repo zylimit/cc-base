@@ -123,7 +123,7 @@
         - 用户要求代码审查、检查代码质量时
         **手动调用**：/code-review
         前置条件：Product-Spec.md 必须存在，项目代码已创建
-        执行方式：派发 code-reviewer Sub-Agent 执行两阶段审查，主 Agent 不自己审查（见 [Sub-Agent 调度规则]）
+        执行方式：派发 code-reviewer Sub-Agent 执行三阶段审查（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量），主 Agent 不自己审查（见 [Sub-Agent 调度规则]）
 
     [test-builder]
         **自动调用**：
@@ -152,6 +152,11 @@
         **自动调用**：session 初始化时自动派发 evolution-runner sub-agent
         **手动调用**：/evolution-engine
         执行方式：永远通过 evolution-runner sub-agent 执行
+
+    [progress-recorder]
+        **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
+        **手动调用**：/record /archive /recap
+        执行方式：record/archive 派 progress-recorder sub-agent 执行，recap 主 Agent 直接读 progress.md
 
 [Sub-Agent 调度规则]
     **可派发的 Sub-Agent**（全部为 Claude Code 原生 Sub-Agent，用 Task/Agent 工具派发，每次 fresh 实例）：
@@ -305,7 +310,11 @@
 
             派发 implementer 编码（执行规则见 dev-builder SKILL.md）
                 ↓
-            派发 code-reviewer 两阶段审查
+            派发 code-reviewer 三阶段审查
+                ↓
+            Stage 0 静态闸（static-check.sh 识栈跑 linter）结果：
+                → 全绿 → 进入 Stage 1
+                → 有静态错 → 停在 Stage 0，派发 bug-fixer 修绿 → 从 Stage 0 重审
                 ↓
             Stage 1 Spec Compliance 结果：
                 → 通过 → 进入 Stage 2
@@ -313,9 +322,9 @@
                 ↓
             Stage 2 Code Quality 结果：
                 → 通过 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task
-                → 失败 → 派发 bug-fixer（或 implementer）修复 → 重新派发 code-reviewer（从 Stage 1 开始）
+                → 失败 → 派发 bug-fixer（或 implementer）修复 → 重新派发 code-reviewer（从 Stage 0 开始）
 
-            循环直到两个 Stage 都通过。
+            循环直到三个 Stage 都通过。
 
             所有 Task 完成 → 进入第四步
 
@@ -332,7 +341,7 @@
         第六步：引导进入下一个 Phase，或提示可调用 /release-builder 发布
 
         补充——手动触发入口：
-        - 用户调用 /code-review → 派发 code-reviewer 两阶段审查 → 展示报告给用户 → 用户决定修复范围和下一步
+        - 用户调用 /code-review → 派发 code-reviewer 三阶段审查（Stage 0 静态闸 → Stage 1/2）→ 展示报告给用户 → 用户决定修复范围和下一步
         - 用户调用 /bug-fixer 或报告 bug → 调用 bug-fixer skill 修复 → 修完后建议 /code-review 验证
 
     [发布阶段]

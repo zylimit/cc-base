@@ -35,7 +35,7 @@
 | Agent | Skill | 职责 |
 |-------|-------|------|
 | `implementer` | dev-builder | 编码实现 + 编译验证 + 自检 |
-| `code-reviewer` | code-review | 两阶段审查（规格符合性 / 代码质量）+ 报告 |
+| `code-reviewer` | code-review | 三阶段审查（静态闸 / 规格符合性 / 代码质量）+ 报告 |
 | `tester` | test-builder | 写/跑测试（独立于实现者）+ 运行证据 |
 | `deployer` | release-builder | 打包/部署执行 + 结果 |
 | `feedback-observer` | feedback-writer | 记录用户反馈到 `.claude/feedback/` |
@@ -130,7 +130,7 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
   product-spec  design-brief  design-maker  dev-planner  dev-builder  bug-fixer  code-review  test-builder  release-builder
 ```
 
-**per-Task 闭环**（dev-builder 核心，evaluator-optimizer 模式）：编码 → code-reviewer 两阶段审查（Stage1 规格符合性 / Stage2 代码质量）→ 通过则 `echo clean > .claude/.needs-review` + commit → 下一个 Task；失败则 bug-fixer 修复后重审。
+**per-Task 闭环**（dev-builder 核心，evaluator-optimizer 模式）：编码 → code-reviewer 三阶段审查（Stage0 静态闸 / Stage1 规格符合性 / Stage2 代码质量）→ 通过则 `echo clean > .claude/.needs-review` + commit → 下一个 Task；失败则 bug-fixer 修复后重审。
 
 **Phase 完成四步走验证**：Code Review → 测试完整性（test-builder 真卡点）→ 编译验证 → 功能测试。全过才算 Phase 完成。
 
@@ -140,14 +140,23 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
+settings.json 实际注册 11 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+
 | Hook | 触发 | 作用 |
 |------|------|------|
 | `detect-feedback-signal.sh` | UserPromptSubmit | 检测用户修正信号 → 提示派 feedback-observer |
 | `check-evolution.sh` | SessionStart | 报告待处理 feedback 数 |
-| `pre-commit-check.sh` | PreToolUse(git commit) | 按技术栈编译/语法门禁（tsc / ruff / py_compile） |
+| `session-rules-banner.sh` | SessionStart | 会话开始打印框架核心铁律横幅 |
+| `pre-commit-check.sh` | PreToolUse(Bash) | git commit 前按技术栈编译/语法门禁（tsc / ruff / py_compile） |
+| `kill-dev-ports.sh` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
+| `dangerous-pkill-guard.sh` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
+| `tdd-gate.sh` | PreToolUse(Bash) | 测试相关命令前提示 TDD 工作流（red-locks-the-bug） |
+| `no-direct-code-guard.sh` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer |
 | `mark-review-needed.sh` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
+| `auto-push.sh` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
 | `stop-gate.sh` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
-| `auto-push.sh` | PostToolUse(git commit) | 本地领先上游则自动 push |
+
+> `hooks/static-check.sh` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc），同放此目录仅为聚拢。
 
 **设计要点**：所有 hook 在 jq 缺失时优雅降级；review 闸门按文件登记（非全局布尔）+ flock 防并发 + 优先级反转（clean 与待审混存时正确 block）。hook 本就 provider 无关，与 ccb-base 逐字节相同。
 
@@ -175,7 +184,7 @@ project/
     ├── CLAUDE.md                         # 主控
     ├── agents/                           # 7 个专职 Sub-Agent
     ├── skills/                           # 13 个 Skill
-    ├── hooks/                            # 6 个闸门
+    ├── hooks/                            # 11 个注册闸门 + static-check 工具
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎
 ```
