@@ -99,6 +99,18 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "implementer|code-reviewer|tester|deployer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/subagent-acceptance-reminder.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

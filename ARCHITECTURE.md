@@ -80,7 +80,7 @@ Dynamic Workflows 的 `agent()` **只能 spawn Claude subagent**。ccb-base 要�
 
 ### 4.3 三个推荐场景
 
-1. **code-review 多维 + 对抗验证**：`pipeline(维度, 审查, 逐条 verify)`，verify 用**多视角 lens**（correctness / security / repro）。以视角多样性**补回纯 CC 失去的「codex/claude 异构互照」**——这是纯 CC 对同源盲区的正面解法。
+1. **code-review 多维 + 对抗验证**：`pipeline(维度, 审查, 逐条 verify)`，verify 用**多视角 lens**（correctness / security / repro）。以视角多样性**补回纯 CC 失去的「codex/claude 异构互照」**——这是纯 CC 对同源盲区的正面解法。**已落地脚本** `.claude/workflows/code-review-fanout.js`（主 Agent 显式 opt-in 调用，schema 回传「结论 + 证据句柄」由主 Agent 定夺）。
 2. **test-builder 批量写测**：`parallel` 多个高价值逻辑（契约 / 解析器 / 边界）各派 tester。`agent()` 每次 fresh，天然独立于 implementer 作者，写测独立性免费保住。
 3. **代码库探索 / 研究**：breadth-first 普查，多 agent 各搜一个角度。
 
@@ -140,7 +140,7 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
-settings.json 实际注册 11 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+settings.json 实际注册 12 个 hook（每个均 `.sh` + `.ps1` 双平台）：
 
 | Hook | 触发 | 作用 |
 |------|------|------|
@@ -155,6 +155,7 @@ settings.json 实际注册 11 个 hook（每个均 `.sh` + `.ps1` 双平台）�
 | `mark-review-needed.sh` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
 | `auto-push.sh` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
 | `stop-gate.sh` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
+| `subagent-acceptance-reminder.sh` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
 
 > `hooks/static-check.sh` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc），同放此目录仅为聚拢。
 
@@ -184,7 +185,8 @@ project/
     ├── CLAUDE.md                         # 主控
     ├── agents/                           # 7 个专职 Sub-Agent
     ├── skills/                           # 13 个 Skill
-    ├── hooks/                            # 11 个注册闸门 + static-check 工具
+    ├── hooks/                            # 12 个注册闸门 + static-check 工具
+    ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎
 ```
