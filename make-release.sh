@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# make-release.sh <version> — 构建 release 安装包 zip，排除「私人进化内容」。
+# 排除（仅 release 包，仓库保留）：feedback/ 下积累的经验 *.md（保留 templates/，并把
+#   FEEDBACK-INDEX.md 重置为干净模板，无私人条目）。
+# 保留进化「机制」：EVOLUTION.md、evolution-engine skill、evolution-runner agent。
+# 包内容来自 git HEAD（只含已跟踪文件）；opencode 版含预置 stub+lock（防启动黑屏）。
+# 用法： bash make-release.sh v1.0.3   → 产出 /tmp/<repo>-v1.0.3.zip
+set -eu
+
+VER="${1:?usage: bash make-release.sh <version>  e.g. v1.0.3}"
+ROOT=$(git rev-parse --show-toplevel)
+REPO=$(basename "$ROOT")
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+git -C "$ROOT" archive --format=tar --prefix="$REPO/" HEAD | tar -x -C "$TMP"
+PKG="$TMP/$REPO"
+
+# 定位框架目录（.opencode 或 .claude）
+FWDIR=""
+for fw in .opencode .claude; do
+  [ -d "$PKG/$fw" ] && { FWDIR="$PKG/$fw"; break; }
+done
+
+# 排除私人进化内容：删 feedback 顶层经验 *.md（保留 templates/），重置索引为模板
+FB="$FWDIR/feedback"
+if [ -n "$FWDIR" ] && [ -d "$FB" ]; then
+  find "$FB" -maxdepth 1 -type f -name '*.md' -delete
+  TPL="$FB/templates/feedback-index-template.md"
+  [ -f "$TPL" ] && cp "$TPL" "$FB/FEEDBACK-INDEX.md"
+fi
+
+OUT="/tmp/$REPO-$VER.zip"
+rm -f "$OUT"
+# 用 python3 的 zipfile 打包（不依赖外部 zip 二进制；shutil.make_archive 自动加 .zip）
+python3 -c "import shutil; shutil.make_archive('/tmp/$REPO-$VER', 'zip', '$TMP', '$REPO')"
+echo "$OUT"
