@@ -4,11 +4,6 @@
 #   - Only checks stacks touched by the staged changes, not the whole repo
 #   - Tool not installed -> degrade or skip that stack, never block the commit because a tool is missing
 $ErrorActionPreference = 'Stop'
-# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
-# -Stop, which would bypass the $LASTEXITCODE guards below (git diff / npx tsc / ruff all
-# tolerate non-zero and gate on the exit code). Opt out to match the .sh '|| ...'
-# semantics; the per-stack stderr-to-tempfile handling further down stays as-is.
-$PSNativeCommandUseErrorActionPreference = $false
 
 # Self-gate the trigger command: non "git commit" input passes
 $raw = [Console]::In.ReadToEnd()
@@ -31,8 +26,14 @@ if ($stagedText -match '\.(ts|tsx)$') {
     Where-Object { $_.FullName -notmatch 'node_modules|\.next' } | Select-Object -First 1
   if ($tsconfig -and (Get-Command npx -ErrorAction SilentlyContinue)) {
     Push-Location $tsconfig.DirectoryName
+    # PS 5.1 + EAP=Stop turns tsc's stderr (merged via 2>&1) into a terminating error, which
+    # would swallow the compile-error text and skip the $LASTEXITCODE gate. Relax to Continue
+    # for this native call (same approach as the Python branch below); gate on the exit code.
+    $prevTsEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $tsOutput = npx --no-install tsc --noEmit 2>&1
     $tsExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevTsEAP
     Pop-Location
     if ($tsExit -ne 0) {
       [Console]::Error.WriteLine("[x] TypeScript compile check failed, commit blocked:")

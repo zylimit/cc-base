@@ -4,18 +4,17 @@
 # interrupted or its context compacted, state not yet in progress.md),
 # inject a reminder to /recap and reconcile progress.md before continuing.
 $ErrorActionPreference = 'Stop'
-# PowerShell 7.4+ raises a native command's non-zero exit as a terminating error under
-# -Stop, which bypasses the $LASTEXITCODE guard below (git rev-parse tolerates "not a
-# repo"). Opt out to match the .sh '|| exit 0' semantics.
-$PSNativeCommandUseErrorActionPreference = $false
 
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { exit 0 }
 Set-Location $env:CLAUDE_PROJECT_DIR
-git rev-parse --is-inside-work-tree 2>$null | Out-Null
+# try/catch: under Windows PowerShell 5.1 (the interpreter setup.ps1 wires hooks to) a git
+# fatal on stderr becomes an ErrorRecord that $ErrorActionPreference='Stop' promotes to a
+# terminating error (e.g. not-a-repo), bypassing the $LASTEXITCODE guard. Catch -> exit.
+try { git rev-parse --is-inside-work-tree 2>$null | Out-Null } catch { exit 0 }
 if ($LASTEXITCODE -ne 0) { exit 0 }
 
-$status = @(git status --porcelain 2>$null | Where-Object { $_ -ne '' })
+try { $status = @(git status --porcelain 2>$null | Where-Object { $_ -ne '' }) } catch { exit 0 }
 if ($status.Count -eq 0) { exit 0 }
 $count = $status.Count
 
