@@ -140,13 +140,14 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
-settings.json 实际注册 12 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+settings.json 实际注册 13 个 hook（每个均 `.sh` + `.ps1` 双平台）：
 
 | Hook | 触发 | 作用 |
 |------|------|------|
 | `detect-feedback-signal.sh` | UserPromptSubmit | 检测用户修正信号 → 提示派 feedback-observer |
 | `check-evolution.sh` | SessionStart | 报告待处理 feedback 数 |
 | `session-rules-banner.sh` | SessionStart | 会话开始打印框架核心铁律横幅 |
+| `recap-on-dirty.sh` | SessionStart | 工作树有未提交改动时注入提醒：先 /recap 校准 progress.md 再继续（防上个 session 中断/压缩致状态漂移） |
 | `pre-commit-check.sh` | PreToolUse(Bash) | git commit 前按技术栈编译/语法门禁（tsc / ruff / py_compile） |
 | `kill-dev-ports.sh` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
 | `dangerous-pkill-guard.sh` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
@@ -185,7 +186,7 @@ project/
     ├── CLAUDE.md                         # 主控
     ├── agents/                           # 7 个专职 Sub-Agent
     ├── skills/                           # 13 个 Skill
-    ├── hooks/                            # 12 个注册闸门 + static-check 工具
+    ├── hooks/                            # 13 个注册闸门 + static-check 工具
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎
