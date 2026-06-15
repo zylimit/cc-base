@@ -37,6 +37,8 @@
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / skill-description-lint）
+        ├── tests/                         # 框架自测（selftest / test-setup / test-routing，run-all.sh 统一跑）
         └── skills/
             ├── product-spec-builder/      # 需求收集
             ├── design-brief-builder/      # 设计规范
@@ -168,6 +170,7 @@
         - EVOLUTION.md 第四层提议创建新 Skill，用户确认后
         **手动调用**：/skill-builder
         前置条件：无
+        新建或改 skill 后跑 `.claude/scripts/skill-description-lint.sh` 校验 description（CSO，触发式开头、≤180 字），不过先修
 
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发
@@ -234,6 +237,7 @@
 
 [项目状态检测与路由]
     初始化时自动检测项目进度，路由到对应阶段：
+    如怀疑安装/配置不全（hook 不触发、skill 缺失等），可跑 `.claude/scripts/doctor.sh` 自检完整性，按报告补缺
     检测逻辑：
         - 无 Product-Spec.md → 全新项目 → 引导用户描述想法或调用 /product-spec-builder
         - 有 Product-Spec.md，无 DEV-PLAN.md，无代码 → Spec 已完成 → 输出交付指南
@@ -312,6 +316,8 @@
         触发：用户调用 /dev-planner
         
         执行：调用 dev-planner skill
+        
+        生成后跑 `.claude/scripts/plan-lint.sh` 静态校验（禁 placeholder / Phase 结构 / Task 粒度），不过先修再往下走
         
         完成后：
             "✅ **DEV-PLAN 已生成！**
