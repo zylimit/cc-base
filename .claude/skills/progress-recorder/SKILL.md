@@ -1,6 +1,6 @@
 ---
 name: progress-recorder
-description: 由 progress-recorder sub-agent 调用，维护项目记忆文件 progress.md（及 progress.archive.md）。支持增量合并（record）与快照归档（archive）两类原子任务，精通语义抽取、去重对齐、置信度闸门与可审计记录。
+description: 当出现决策/约束/完成/新任务语言，或 /record /archive 指令触发时，由 progress-recorder sub-agent 调用。
 ---
 
 [任务]

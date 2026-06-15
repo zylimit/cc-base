@@ -1,6 +1,6 @@
 ---
 name: dev-planner
-description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发时使用。也在 Spec 变更后用于更新已有开发计划。输出 DEV-PLAN.md。
+description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发时使用。也在 Spec 变更后用于更新已有开发计划。
 ---
 
 [任务]
@@ -39,6 +39,11 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     - 不允许："添加适当的错误处理"——指明处理什么错误、怎么处理
     - 不允许："实现相关功能"——列出具体功能名称和行为
     - 每个 Task 描述必须完整到一个没有项目上下文的工程师也能读懂并执行
+
+    **可执行性标准**：写计划时按最坏的执行者设防——假设拿到这份 Plan 的工程师对本代码库零了解、品味存疑、甚至厌恶写测试，照着也能做对、不靠悟性。
+    - 每一步给齐三样：明确的文件路径 + 具体改动（改哪个函数 / 加哪个字段 / 接哪个调用）+ 验证命令（跑什么能证明这步对了）
+    - 禁一切模糊指代：placeholder / "TBD" / "类似 Task X 处理" / "按需调整" / "做相应修改"——这些到了"最坏执行者"手里必然走偏
+    - 验证命令要具体到能直接执行（`tsc --noEmit`、`pytest tests/test_parser.py`、`curl localhost:3000/api/x`），不写"自行验证"
 
 [文件结构]
     ```
@@ -246,6 +251,8 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
             确认 Spec 中每个核心功能都有对应 Phase
             确认 Phase 顺序不违反依赖关系
             无占位符检查：扫描输出内容中是否包含 TBD、TODO、待补充、待确定、"类似 Phase/Task N"等占位符，如有则替换为具体内容
+            命名一致性检查：同一个函数 / 类型 / 字段 / 文件，跨 Phase 跨 Task 的措辞必须前后一致——不能一处叫 clearLayers 另一处叫 clearFullLayers，不能一处 user_id 另一处 userId。不一致会让执行者各写各的，统一成一种叫法
+            Spec 覆盖率检查：把 Spec 的功能逐条拉出来，确认每一条都有 Task 覆盖到，没有遗漏的功能、也没有凭空多出的 Task；漏的补 Task，多的核对是否真有 Spec 依据
 
         第四步：输出文件
             保存为 DEV-PLAN.md

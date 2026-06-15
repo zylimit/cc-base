@@ -1,6 +1,6 @@
 ---
 name: skill-builder
-description: 当用户说要创建新技能，或 EVOLUTION.md 提议自动生成新 Skill 时使用。按照框架模块化规范创建结构一致的新 Skill。
+description: 当用户说要创建新技能，或 EVOLUTION.md 提议自动生成新 Skill 时使用。
 ---
 
 [任务]

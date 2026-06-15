@@ -1,6 +1,6 @@
 ---
 name: release-builder
-description: 当用户说要打包、部署、发布、上线，或项目开发完成准备交付时使用。支持 Web 部署、Desktop 打包、CLI 发布，内置隐私审计和冒烟测试。
+description: 当用户说要打包、部署、发布、上线，或项目开发完成准备交付时使用。
 ---
 
 [任务]

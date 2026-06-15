@@ -47,6 +47,7 @@
             ├── code-review/               # 代码审查
             ├── test-builder/              # 系统测试
             ├── release-builder/           # 构建发布
+            ├── branch-finisher/           # 开发分支收尾
             ├── skill-builder/             # 创建新 Skill
             ├── feedback-writer/           # 记录用户反馈
             ├── evolution-engine/          # 进化引擎扫描
@@ -68,11 +69,13 @@
     - **存量框架资产保留复用（铁律）**：现有 hooks / skills / CLAUDE.md / agents / tools 是用户血泪迭代的家底，一律「保留复用 + 增量补缺」；删除 / 停用 / 重写任何现有 hook / skill / tool 须先和用户商量给理由、由用户拍板（人工审批闸），不擅自删或推倒重写。细则见 feedback/preserve-existing-framework-assets-human-approval-to-remove-hook.md。
     - **改家底文件风格须无缝贴合（铁律）**：往 hook / skill / CLAUDE.md / agents / feedback 新增内容时，缩进 / 标记 / 语气 / 密度同原文，改完读不出哪句是后加的；禁英文缩写堆砌、元叙事、花哨标记、过度爱解释 why。细则见 feedback/edit-family-assets-style-must-match-handwritten-not-ai-generated.md。
     - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。
+    - **接收审查意见/反馈不表演式认同**：收到 code-review 结论或用户反馈时，禁"你说得对/好建议/这就改"这类空话——要么复述对方的技术要求确认自己理解到位，要么不清楚就先问，要么有技术理由就顶回去；确认无误直接动手，行动优先于表态。反馈含糊先停下问清，不凭猜分批实现，以免漏掉关联项。细则见 feedback/receiving-review-no-performative-agreement.md。
     - **持续观察和记录**：当用户给出修正、反馈或改进意见时，派发 feedback-observer sub-agent 记录。不依赖主 Agent 自觉写入。
     - 当收到 detect-feedback-signal hook 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ Design-Brief.md（次之）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
     - **主 Agent 职责边界（铁律）**：编码 / 审查 / 部署 / 测试四个环节，主 Agent 一律不亲自动手，只「写提示词 + 委派 + 验收」。派发目标（全部为 Claude Code Sub-Agent，用 Task/Agent 工具派发 fresh 实例）：编码=implementer；审查=code-reviewer；部署=deployer；测试=tester（写测≠被测作者，必须派与实现者不同的 fresh 实例）。仅文档类（Product-Spec / CHANGELOG / DEV-PLAN）不受此约束，主 Agent 可直接写。细则见 feedback/main-agent-no-direct-coding.md。
-    - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。细则见 feedback/deploy-acceptance-independent-verification.md。
+    - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。
+      不可跳步的五步闸——任何"完成/通过/修好"的结论出口前都要走完：① 先想清哪条命令能证明这个结论 ② 跑全量、全新的该命令，不复用上一条消息的旧输出 ③ 读完整输出、看 exit code、数失败数 ④ 确认输出确实支持结论（不是输出有了就算）⑤ 才许开口下结论。禁用"应该/大概/估计/看起来"这类没跑过就下的措辞；没有当场跑出的新鲜证据，不报完成。细则见 feedback/deploy-acceptance-independent-verification.md、feedback/completion-claims-need-fresh-verification-five-step-gate.md。
     - **Sub-Agent 派发前置自检**：派发前确认已备齐**完整任务上下文**（涉及的 Spec 条目、交付清单、涉及文件、项目结构、约束）——Sub-Agent 不继承 session 历史，缺上下文会让它瞎猜或漏做。派发时机/流程见 [Sub-Agent 调度规则] 与各工作流程章节。
     - **授权连续执行**：除非遇到真正需要人拍板的取舍（架构选型 / 不可逆操作 / 需求本身有歧义），否则按既定流程一路走到底，不中途问「要不要继续」；发现的 P2/P3 可选缺陷默认按 red-locks 流程顺手修掉，不预先征询。
 
@@ -138,6 +141,14 @@
         前置条件：项目代码已创建
         执行方式：打包前先过测试卡点（复用 test-builder 作前置闸门，证据=运行器真实输出，卡点未过不许打包交付）；部署派发 deployer Sub-Agent 执行，主 Agent 不亲自执行、只验收（独立核查三件套，见 [总体规则] 验收铁律）
 
+    [branch-finisher]
+        **自动调用**：
+        - Phase / 功能完成后，建议收尾当前开发分支
+        - 用户说"收尾"、"合并分支"、"这个分支弄完了"时
+        **手动调用**：/branch-finisher
+        前置条件：项目代码已创建
+        执行方式：先检测环境状态，测试全绿为前置闸门；据状态给出条件化菜单（合并 / 提 PR / 清理分支），按用户选择执行
+
     [skill-builder]
         **自动调用**：
         - EVOLUTION.md 第四层提议创建新 Skill，用户确认后
@@ -194,11 +205,13 @@
     - **集成点 `agentType`**：workflow 的 `agent(prompt, {agentType:'code-reviewer'|'tester'|'implementer', schema, isolation:'worktree'})` 从同一注册表复用框架现有专职 Agent（带其 skill+system prompt）。**编排换脚本，工人不变**，隔离/职责边界/写测独立全保住。
     - **三铁律不动**：① **主 Agent 仍是唯一编排者**——workflow 是主 Agent 写的脚本，不是 Sub-Agent 自拉 Sub-Agent；其内 `workflow()` 嵌套仅一层。② **验收判断权留主 Agent**——workflow 用 `schema` 回传「结论 + 证据句柄」，主 Agent 凭证据定夺（= 翻证据外包/下判断自留）。③ 写测独立性靠 `agent()` 每次 fresh + 不同 agentType。
     - **成本闸门（硬约束）**：多 Agent 耗 token **~15x**（Anthropic 实证），只对高价值任务划算。Workflow **必须用户显式 opt-in**，不静默触发——达到 fan-out 规模时主 Agent 先提议、用户确认再跑。worktree 隔离有 ~200-500ms+磁盘/agent 成本，只在并行写文件时用；单 Phase 仅 1-2 个单位时不划算，直接 Task 直派。
+    - **worktree 操作纪律**：① Step0 先检测当前是否已在 worktree 中，已在则不再嵌套创建（注意排除 submodule 误判，别把 submodule 当成 worktree）；② 目录优先级——已声明目录 > 现存 .worktrees > 配置指定目录 > 默认，选定后须 `git check-ignore` 确认该 worktree 路径不入版本控制（防把 worktree 提交进仓库）；③ 优先用 harness 原生 worktree 工具（如 EnterWorktree），没有再退回 git 命令。
 
     **Sub-Agent 回传纪律（防回传消息灌爆主 Agent 上下文）**：
     - Sub-Agent 上下文虽自动隔离，但它的**最终回传消息**是唯一进主 Agent 上下文的东西。回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译输出位置 / 测试运行器输出位置 / 时间戳）+ 关键提炼，**不贴全文/原始长日志**。长报告压成要点。
     - **翻证据外包，下判断自留**：读 artifact 全文、跑核查三件套这类体力活可派给 Sub-Agent，但「通过/不通过」的验收判断权留主 Agent——凭回传句柄定夺，需要时再派 fresh 实例回溯原文核实。这与 [总体规则] 验收铁律协同。
     - **任务时长红线**：单次派单预期 **>60min 多半是任务分解不合理**——回到任务分解重切，而非让 Sub-Agent 长跑。对应 Anthropic「clear task boundaries」——每次派单都要有明确 objective / 输出格式 / 工具与文件范围 / 边界。
+    - **implementer 四态自评开头**：implementer 回传消息须以自评状态四选一开头——**DONE**（完成、无遗留疑虑）/ **DONE_WITH_CONCERNS**（完成但有疑虑，逐条列出疑虑点）/ **NEEDS_CONTEXT**（缺上下文做不下去，列明缺什么）/ **BLOCKED**（受阻，说明阻塞在哪、需要什么）。主 Agent 据此前置决策（补上下文 / 先解阻塞 / 直接进 review），不必等 code-reviewer 才把疑虑暴露出来。
 
     **⚠️ feedback 和 memory 是两套不同的系统，不能混淆：**
     - feedback 记录到 .claude/feedback/ 目录，由 evolution-engine 扫描并生成进化建议，用于改进 Skill 和规则
@@ -235,7 +248,9 @@
 
     [交付阶段]
         触发：Product Spec 生成完成后自动执行
-        
+
+        用户签字闸：先让用户审查已写入的 Product-Spec.md，明确批准后才进入 dev-planner 规划阶段。用户没点头不往下走——有改动回 product-spec-builder 改完再请批。
+
         输出：
             "✅ **Product Spec 已生成！**
             
@@ -243,11 +258,13 @@
             
             ---
             
+            先过一遍 Product-Spec.md，确认写的就是你要的。**批准了我再往下规划开发计划。**
+            
             ## 📘 接下来
             
             - 调用 /design-brief-builder 确定视觉方向（可选）
             - 调用 /design-maker 生成完整设计稿（可选，需先完成 Design Brief）
-            - 调用 /dev-planner 制定开发计划
+            - 调用 /dev-planner 制定开发计划（需先批准 Spec）
             - 直接对话可以改 UI、加功能"
 
     [设计规范阶段]
@@ -363,6 +380,8 @@
             调用 product-spec-builder（迭代模式）
                 ↓
             通过追问明确变更内容 → 更新 Product-Spec.md → 更新 Product-Spec-CHANGELOG.md
+                ↓
+            用户签字闸：让用户审查更新后的 Product-Spec.md，明确批准变更后才进入第二步。没点头不更新开发计划。
 
         第二步：更新开发计划
             调用 dev-planner（迭代模式）
@@ -418,6 +437,7 @@
     /code-review            - 对照 Spec + 设计稿做 Code Review
     /test-builder           - 务实回归测试：搭基建 + 为高价值逻辑写/跑回归测试
     /release-builder        - 构建打包或部署发布
+    /branch-finisher        - 开发分支收尾：环境检测 + 条件化合并/PR/清理（测试全绿前置）
     /skill-builder          - 创建新的 Skill
     /feedback-writer        - 记录用户反馈（由 feedback-observer sub-agent 调用）
     /evolution-engine       - 扫描 feedback，生成进化建议（由 evolution-runner sub-agent 调用）

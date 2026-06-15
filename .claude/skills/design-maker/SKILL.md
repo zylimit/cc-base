@@ -1,6 +1,6 @@
 ---
 name: design-maker
-description: 当 Design Brief 完成后、用户需要生成设计稿时使用。纯 Open Design CLI（odc）一条路：读 Product-Spec + Design-Brief，生成一份可交互的离线 HTML 设计稿——开发照着实现、干系人浏览器直接看，同一份两用，零落差。
+description: 当 Design Brief 完成后、用户需要生成设计稿时使用。
 ---
 
 [任务]

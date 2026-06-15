@@ -1,6 +1,6 @@
 ---
 name: product-spec-builder
-description: 当用户说想做一个产品、应用或工具，或者说要加功能、改需求、调 UI 时使用。通过深入对话收集需求，生成或更新 Product-Spec.md。
+description: 当用户说想做一个产品、应用或工具，或者说要加功能、改需求、调 UI 时使用。
 ---
 
 [任务]

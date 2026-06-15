@@ -1,6 +1,6 @@
 ---
 name: dev-builder
-description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发下一个 Phase 时使用。新项目搭建骨架，已有项目按 Phase 逐步实现功能。
+description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发下一个 Phase 时使用。
 ---
 
 [任务]
