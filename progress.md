@@ -17,6 +17,11 @@ _Last updated: 2026-06-15_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-06-15: **A1/A2/A3 三项落地验收，待 commit + 发版**——借鉴 Superpowers 深层第二层养分，经委派 implementer→1 轮 code-reviewer 写文件审→修闭环验收。
+  - **A1 工程化合规闸**：CLAUDE.md [Skill 调用规则] 增量强化（1% 即调/前置自检/逃逸借口拦截 Red Flags）；新建 feedback/skill-invocation-persuasion-gate.md（Meincke et al. 2025 劝服原理：Authority+Commitment+Scarcity，合规率 33%→72%）。
+  - **A2 框架自测 harness**：新建 .claude/tests/——test-helpers.sh（assert_skill_invoked/assert_no_premature_action/assert_order）+ fixtures + selftest.sh（无需 LLM，拿 fixture 验断言库）+ cases（真触发需 claude CLI，无则 SKIP 不假绿）+ README。cc-base 首个框架自测能力。
+  - **A3 闸要量化验证**：CLAUDE.md [开发测试规则] 增量加"闸靠数据留不靠感觉留"铁律；新建 feedback/gates-need-empirical-validation.md（记 Superpowers RELEASE-NOTES v5.0.6 砍重型 review 循环的实测教训）。
+  - dogfood 验收证据：主 Agent 逐 diff 验 CLAUDE.md 纯增量、读两 feedback 验引证与格式、亲跑 selftest.sh 通过；1 轮 code-reviewer 抓出 2 个真 Med（M1 assert_skill_invoked 跨行解耦误判可假绿 → 加 cross-line-decoupled fixture 锁住修绿 selftest 9/9；M2 两 feedback 未登记 FEEDBACK-INDEX → 补索引）+ 3 个 Low 顺修。Judge 重判 ACCEPT。印证 A3：审查闸真挡下 harness 自身断言 bug。（findings 落盘 /tmp/rbr-a123-review.md）A2 真 LLM case 需有 claude CLI 环境按需跑，脚手架 selftest 已验。
 - 2026-06-15: **cc-base v1.2.0 发布上线**——内容：新增 /red-blue-review 红蓝对抗审查 skill + 含 v1.1.0 全部内容。发版：make-release.sh v1.2.0 从 git HEAD 打包（排除私有 feedback/*.md）→ tag v1.2.0（→ cfeab6f）推远程 → gh release create 带资产 cc-base-v1.2.0.zip。验收三件套（主 Agent 独立核查 GitHub 现查现读，非信 deployer 自述）：① 远程 tag v1.2.0→cfeab6f ✅ ② release draft=false，URL https://github.com/zylimit/cc-base/releases/tag/v1.2.0，资产 cc-base-v1.2.0.zip ✅ ③ 资产含 red-blue-review/SKILL.md（8958B）+ red-blue-review.sh（4821B），CLAUDE.md 命中 red-blue-review ×5，私有 feedback 已排除 ✅。R1 化解：red-blue skill 已提前 commit 入 HEAD 故打包未漏。
 - 2026-06-15: **red-blue-review skill 建成 + dogfood 闭环 + 采信项全修，Judge 重判 ACCEPT**（commit 含于 v1.2.0，R1 化解）
   - 产物：.claude/skills/red-blue-review/ 含 SKILL.md（Blue 自证→Red 四 lens[correctness/security/release/windows]攻击→Judge 三裁[ACCEPT/FIX_REQUIRED/NEEDS_MORE_EVIDENCE]）+ red-blue-review.sh（凑证据包：范围/commit/改动清单/删除审计/未跟踪/完整diff）+ RED-BLUE-REVIEW.md（报告空模板）+ test-red-blue-review.sh（回归自测）；CLAUDE.md 三处登记；纯 CC 不引入 CCB/多模型。
