@@ -1,6 +1,7 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-06-14（22:43）_
+_Last updated: 2026-06-15_
+
 
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
@@ -12,9 +13,22 @@ _Last updated: 2026-06-14（22:43）_
 - **PreCompact hook 不可用于注入提醒**：不支持 additionalContext/hookSpecificOutput（只能 decision:block），且压缩后不触发新 SessionStart——「session 内压缩丢决策」洞在当前机制下无轻量解法，已改用 SessionStart 脏树提醒覆盖跨 session 状态漂移。
 - **打/补 git tag 前必须先查远程**：`git ls-remote --tags origin` 查远程在先，不能只查本地 `git tag`——本地无 tag ≠ 远程无 tag，只查本地会误判并打出与远程冲突的 tag。（2026-06-14 踩坑：v1.0.1 本地误判"首个 tag"，实际远程早有 v1.0.1 → 59f207c）
 - **.ps1 hook 在 Windows 跑的是 powershell.exe（Windows PowerShell 5.1），不是 pwsh 7.x**（setup.ps1 注释明写 powershell.exe）。5.1 下 native 命令（git/npx 等）写 stderr 会生成 ErrorRecord 进 PS Error 流，`$ErrorActionPreference='Stop'` 把它提升为 terminating error，`*>$null` 拦不住 → 脚本崩、`$LASTEXITCODE` 守卫被绕过 → 错误泄漏到 UI。凡 .ps1 里调可能写 stderr 的 native 命令：用 `--quiet`/`2>$null` 让命令本身不写 stderr，或 `try/catch` 包，或局部 `$ErrorActionPreference='Continue'`。`$PSNativeCommandUseErrorActionPreference` 是 PS 7.3+ 变量，5.1 无效，别用它修。（2026-06-14 真机 trace 验证）
+- **验收五步闸（禁跳步）**：做任何「完成」声称前必走：①想清要跑的命令 → ②跑全量全新（无缓存）→ ③读完整输出 + exit code → ④确认输出支持结论 → ⑤才开口。禁用"应该/大概/看起来"措辞替代实测。（2026-06-15 纪律增强；引用本框架两次翻车案例：PS 5.1 git fatal 误判、v1.0.1 远程 tag 误判）
+- **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
-- 2026-06-14: **Windows PS 5.1 .ps1 hook git fatal 泄漏根治**（commit 9796ae0）——auto-push.ps1 真机 trace 定位：无 upstream commit 后泄漏 "git : fatal: no upstream"。修法：`git rev-parse` 改 `--verify --quiet`（无 upstream 时不写 stderr）+ `git push` 包 `try/catch`。同源加固：recap-on-dirty/tdd-gate（git 探测包 `try/catch`）、pre-commit-check（TS 分支 `npx tsc` 套局部 EAP=Continue）。撤回前一版错误修法 fba58d5。
+- 2026-06-15: **框架纪律增强批次（Superpowers Jesse Vincent v5.1.0 方法论借鉴，9 项全部落地验收，纯增量零删除既有规则）**
+  - ①验收五步闸：CLAUDE.md [总体规则] 验收铁律追加不可跳步五步闸 + 禁"应该/大概"措辞；新建 feedback/completion-claims-need-fresh-verification-five-step-gate.md（含声称→证据对照表 + 两次翻车案例）。
+  - ②接收审查不表演式认同：CLAUDE.md [总体规则] 新增一条 + 新建 feedback/receiving-review-no-performative-agreement.md。
+  - ③修复熔断闸：skills/bug-fixer/SKILL.md 增量——同一 bug ≥3 次未转绿强制熔断，回根因质疑设计、向上升级，与 red-locks 协同。
+  - ④Skill description CSO 清扫：11 个 SKILL.md description 砍掉流程概括尾巴、只留触发条件，防主 Agent 读摘要跳过正文。
+  - ⑤dev-planner 可执行性标准：SKILL.md 增量——按"最坏执行者"设防，禁 placeholder/TBD/模糊指代，每步给文件路径+具体改动+验证命令；自审加命名一致性+Spec 覆盖率两查。
+  - ⑥Spec 签字门：CLAUDE.md [交付阶段] 与 [内容修订] 增量——Product-Spec 生成/变更后须用户明确批准才进 dev-planner。
+  - ⑦implementer 四态自评：CLAUDE.md [Sub-Agent 调度规则] 回传纪律 + agents/implementer.md 输出规范——回传须以 DONE/DONE_WITH_CONCERNS/NEEDS_CONTEXT/BLOCKED 开头。
+  - ⑧worktree 操作硬化：CLAUDE.md [Sub-Agent 调度规则] Workflow 段增量——Step0 检测是否已在 worktree（排除 submodule 误判）、目录优先级+git check-ignore、原生工具优先。
+  - ⑨branch-finisher skill 新增：skills/branch-finisher/SKILL.md——开发分支收尾，环境检测（正常分支/worktree/detached）+测试全绿前置闸+条件化菜单（合并/PR/暂留）+清理规则；已在 CLAUDE.md 三处登记。
+  （evidence：2 个独立 code-reviewer 均判可验收无返修；harness 实测 frontmatter 解析+skill 注册通过；主 Agent 逐 diff 确认存量 4 文件零删除）
+- 2026-06-14: **Windows PS 5.1 .ps1 hook git fatal 泄漏根治**（commit 9796ae0）——auto-push.ps1 真机 trace 定位：无 upstream commit 后泄漏 "git : fatal: no upstream"。修法：`git rev-parse` 改 `--verify --quiet`（无 upstream 时不写 stderr）+ `git push` 包 `try/catch`。同源加固：recap-on-dirty/tdd-gate（git 探测包 `try/catch`）、pre-commit-check（TS 分支 `npx tsc` 套局部 EAP=Continue）。撤回前一版错误修法 fba58d5。**Windows 真机终验通过**（2026-06-14）：D:\Code\cc-test，Claude Code v2.1.119，`git commit --allow-empty -m x` → [master eac3b69f] x，全程无 fatal 输出，auto-push hook 未报错未拦截。v1.0.3 修复确认有效，PS 5.1 fatal 泄漏根治成立。
 - 2026-06-12~13: Windows 真机踩坑全清——`.ps1` 中文崩 → 纯 ASCII；hook 命令 `$env` 被 Git Bash 吞 → `\$env` 转义；python3 商店桩 / pre-commit 健壮化；setup.ps1/sh 跨平台安装器。release v1.0.0。
 - 2026-06-13: 权限 bypassPermissions 从配置层根治「老问我」（commit 09ac284）。
 - 2026-06-14: **单模型质量补强**——① static-gate 补回（static-check.sh 识栈跑 shellcheck/ruff/tsc + code-review 加 Stage 0 静态闸，b3c1ed2）；③ code-reviewer 加对抗式红队立场（跨不了模型就跨立场，71b9ffa）。跨模型审查（②）按用户决定不做（Claude Code 只能 Claude，结构上不可能）。
@@ -33,4 +47,16 @@ _Last updated: 2026-06-14（22:43）_
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
 ## TODO
-（暂无待办）
+- [P2][OPEN][#1] 其余 3 个 .ps1 hook（recap-on-dirty 等）在非 git 目录下的同源加固，尚未在 Windows 真机验证（可选，低优先级）
+- [P1][OPEN][#2] **CLAUDE.md 瘦身——三态触发把冷规则下沉**（借鉴 OpenHands microagent keyword/task trigger 机制）：把低频长段落（[本地运行阶段]、[Workflow 编排模式] 细则、各 feedback 引用等）下沉成 keyword-triggered 小文件，命中才注入；常驻只留 角色+铁律骨架+路由。收益：省 token、降噪，零架构风险。Context：OpenHands .openhands/microagents/*.md frontmatter + skill_loader.py
+- [P2][OPEN][#3] **框架核心层 vs 项目私有层 分层**（借鉴 OpenHands Global/User/Org/Project 四层 skill 机制）：当前 .claude/ 框架核心与项目私有定制混居，升级时无法区分哪些可覆盖、哪些用户改过。目标：明确切「框架核心层（随版本升级、只读）」与「项目覆盖层（私有、不被覆盖）」。与 v1.x 升级命令直接相关——需用户拍板，属架构决策。
+- [P2][OPEN][#4] **人工审批闸升级为显式风险三档清单**（借鉴 OpenHands ActionSecurityRisk LOW/MEDIUM/HIGH 枚举）：现有「授权连续执行除非真正需要人拍板」判据是散文，不同 session 松紧不一。目标：钉成三档——LOW（自动跑：写文档/加测试/P2-P3修复）/ MEDIUM / HIGH（必停：删文件/改家底hook/发布上线/git push/不可逆）。模糊判断变查检表，机制化可审计，接上「验收以证据为准」铁律。
+
+## 明确不做（防过度工程）
+- **condenser LLM 摘要压缩**：progress.md「超100条归档+摘要指针」已够用，不值得为它每次多跑一次 LLM。
+- **trajectory 存储/回放、Action-Observation 事件流结构化**：引擎级数据结构，markdown 框架硬套自找麻烦；已有 progress.md+外部memory+claude-mem 三层。
+- **反馈→改进闭环**（参照 OpenHands enterprise/storage/feedback.py）：cc-base evolution-engine 反而领先——OpenHands feedback 表只存 polarity+trajectory，无聚合分析无改进驱动；不需要对标。
+- **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
+
+## 将来事（低概率/成本高/暂不划算）
+- **自建 agent benchmark**：OpenHands 用 SWEBench 客观衡量「框架变好没」，cc-base 全靠人肉判断。自建 benchmark 成本极高，现阶段不做，将来项目规模大到需要客观回归指标时再考虑。（2026-06-15）
