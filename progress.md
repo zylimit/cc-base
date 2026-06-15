@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-06-15_
+_Last updated: 2026-06-16_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -15,6 +15,7 @@ _Last updated: 2026-06-15_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-06-16: **cc-base v1.4.0 发布上线**——借鉴姊妹框架 codex-base 轻量质量脚本，把本 session 靠"自觉"的规则升级为"自动卡"：`.claude/scripts/{doctor.sh 安装自检, plan-lint.sh DEV-PLAN静态门, skill-description-lint.sh CSO门}` + `.claude/tests/{test-setup.sh 安装器回归+幂等+自动验#5私有feedback排除, test-routing.sh agent/skill双向一致}` + `run-all.sh` 纳入（3段）+ `make-release.sh` 打包后泄漏扫描（verify-not-assume守#5）+ CLAUDE.md 接入引用。红蓝审查抓出并修掉 2 假阳性（M1 YAML块标量误判 / M2 代码块TODO误报），主 Agent 亲跑全部脚本 + 正确 fixture 验收。发版：make-release.sh v1.4.0 → tag v1.4.0（→8544b2f）→ gh release。验收三件套（GitHub重下现查）：tag→8544b2f ✅、release draft=false URL https://github.com/zylimit/cc-base/releases/tag/v1.4.0 资产 cc-base-v1.4.0.zip ✅、资产含5脚本+CLAUDE.md命中plan-lint+私有feedback已排除 ✅。commit：8544b2f feat。
 - 2026-06-15: **cc-base v1.3.1 发布上线**——两项改进：① 三文件同步铁律钉成 CLAUDE.md [总体规则] 统一条目（即时写 progress.md / Decisions⊥Done 分段 / 需求变更成对更新 Spec+CHANGELOG / 收尾自检）（commit d0b7f35）；② setup.sh/setup.ps1 排除私有 feedback——跳过 feedback/ 顶层 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 打包逻辑对齐（#5，commit 856566e）。含 v1.3.0 全部内容。发版：make-release.sh v1.3.1 → tag v1.3.1（→ 856566e）推远程 → gh release create 带 cc-base-v1.3.1.zip。验收三件套（主 Agent 独立核查，GitHub 重下资产现查现读）：① 远程 tag v1.3.1 → 856566e ✅ ② release draft=false、URL https://github.com/zylimit/cc-base/releases/tag/v1.3.1、资产 cc-base-v1.3.1.zip ✅ ③ 资产内 setup.sh 含 feedback 排除逻辑×5、CLAUDE.md 命中三文件同步铁律×1、包内 feedback 仅 templates+INDEX（私有已排除）✅。备注：setup.ps1 同源逻辑已改，PowerShell 运行时验证留 Windows 环境。
 - 2026-06-15: **三文件同步铁律整体排查 + 补漏**——排查发现完成项不漏，但 Decisions 段本 session 0 条（~7 个真决策全埋 Done 叙述）、CLAUDE.md 里"三文件"出现 0 次、无统一强铁律靠自觉必漏。修复：① 补齐 6 条 6-15 决策进 Decisions 段；② CLAUDE.md [总体规则] 钉统一「三文件同步铁律」（即时同步/Decisions⊥Done 分段/需求变更成对更新 Spec+CHANGELOG/收尾自检/A1 绝对语言；兼容只有 progress.md 的项目）；③ feedback 三文件同步条目 occurrences 1→2。commits：d0b7f35（docs 决策补齐）+ 前一条 fix（rules 钉铁律）。验收：Decisions 段 6 条已落、CLAUDE.md 纯增量、"三文件"0→1 次。备注：此铁律已在 main 但未进已发布的 v1.3.0（2b8690e 早于本次），待 v1.3.1 随 setup.sh #5 一并发。
 - 2026-06-15: **cc-base v1.3.0 发布上线**——内容：A1 工程化合规闸 + A2 框架自测 harness + A3 闸要量化验证 + recap/clear 恢复须读三份规则修正 + 含 v1.2.0 全部。发版：make-release.sh v1.3.0 从 git HEAD 打包（排除私有 feedback/*.md）→ tag v1.3.0（→ 2b8690e）推远程 → gh release create 带资产 cc-base-v1.3.0.zip。验收三件套（主 Agent 独立核查 GitHub 现查现读，非信 deployer 自述）：① 远程 tag v1.3.0→2b8690e ✅ ② release draft=false、URL https://github.com/zylimit/cc-base/releases/tag/v1.3.0、资产 cc-base-v1.3.0.zip（192496B）✅ ③ 资产含 .claude/tests/selftest.sh（3970B）+test-helpers.sh、CLAUDE.md 命中本版规则×7（1%即调/闸靠数据留/CHANGELOG）、私有 feedback 已排除 ✅。
@@ -53,6 +54,7 @@ _Last updated: 2026-06-15_
 ## Decisions
 - 2026-06-14: 框架定位确认——cc-base 为轻量框架，不碰多模型/CCB/复杂编排；改进只取「轻量且确定有效」方案。否决方案：Channels、多模型裁判、同模型 debate、完整 eval harness、graph memory、迁 Plugin。理由：轻量优先，CCB 运维脆弱成本过高。
 - 2026-06-14: 跨平台/外部工具根因结论必须靠真机证据（trace/实测），不凭表层信息臆断。"查证后再结论"的关键不只是"去查"，是"读到位、读对、不被表层信息覆盖已查到的证据"。（本次连翻两次车：① 误判 hook 跑 pwsh 7.x，实为 5.1，setup.ps1 注释早写明却被用户报告"7.6.2"带偏；② 误判 PSNativeCommandUseErrorActionPreference 默认 $true，WebFetch 文档第 94 行写着 $false 却看走眼）
+- 2026-06-16: 借鉴姊妹框架（cc-base/opencode-base/codex-base 同源）时，只取**轻量、能反哺 Claude Code、把已有规则自动化**的脚本（plan-lint/skill-desc-lint/doctor/test-setup/test-routing/泄漏扫描）；**否决** release-provenance.sh + 完整 release.sh 编排——理由："规则改了没进发布版"那类要靠 CI 才真防，单机轻量框架引入 CI/溯源不划算，违背轻量哲学。复核确认：跨版分析 agent 曾误报"cc-base 缺记忆/红蓝/branch-finisher/静态闸"，系读旧文档快照所致，实为 cc-base 早已具备（订正存档，防再被误导）。
 - 2026-06-15: 维持「少角色 + 强流程 + 中心编排」，不改向广度人格库。理由：外网取证（Anthropic multi-agent-research、Cognition Don't Build Multi-Agents、Claude Code subagents 官方文档）一致——单一根 agent 派隔离子任务是唯一可靠模式；人格库无权威背书、被定位为"模板秀"；编码串行/只读并行与两家结论一致。
 - 2026-06-15: 撤回「给 agent 定义加量化成功指标（diff 行数/覆盖率）」的设想，改为定性 Definition-of-Done。理由：specification overfitting（arxiv 2403.08425）——指标钉进目标会牺牲真实任务质量；Claude Code 官方范例用 checklist 非硬数字。
 - 2026-06-15: 外部框架借鉴取舍——OpenHands 只取知识组织 3 点（已记 backlog #2-4）；agency-agents 放弃（反 cc-base 哲学、与已建重叠）；Superpowers Tier1+2 已建（v1.1.0）+ 深层 A1/A2/A3 已建（v1.3.0）；ECC 借鉴（secrets-scan/CLAUDE 瘦身/auto-observe/silent-failure）暂缓未建。理由：只取穿过「外网背书 + 适配纯 CC 强流程」双筛的方案。
