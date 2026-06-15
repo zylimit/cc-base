@@ -14,6 +14,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GOOD="$DIR/fixtures/good-run.jsonl"
 PREM="$DIR/fixtures/premature-run.jsonl"
+XLINE="$DIR/fixtures/cross-line-decoupled.jsonl"
 
 # selftest 自身的预期判定计数（与断言库的 TESTS_PASS/FAIL 区分开）
 ST_OK=0
@@ -47,6 +48,13 @@ echo "--- ② premature-run.jsonl：偷跑须被正确判失败 ---"
 run_assert assert_skill_invoked "$PREM" product-spec-builder;    expect_pass "premature 仍命中 Skill 调用" "$RC"
 run_assert assert_no_premature_action "$PREM";                   expect_fail "premature 偷跑被识别（Edit/Bash 早于 Skill）" "$RC"
 run_assert assert_order "$PREM" '"name":"Edit"' '"name":"Skill"'; expect_pass "premature 中 Edit 确在 Skill 之前" "$RC"
+
+echo ""
+echo "--- ③ cross-line-decoupled.jsonl：跨行解耦不许假绿 ---"
+# 第1行真调的是 OTHER-skill，product-spec-builder 只在别的事件里被提到。
+# 两次独立全文件 grep 会误判 PASS；锁同一 tool_use 后应正确判 FAIL。
+run_assert assert_skill_invoked "$XLINE" product-spec-builder;   expect_fail "cross-line 目标只在文本里被提，不算真调" "$RC"
+run_assert assert_skill_invoked "$XLINE" OTHER-skill;            expect_pass "cross-line 真调的 OTHER-skill 应命中" "$RC"
 
 echo ""
 echo "=== selftest 判定：符合预期=$ST_OK  不符预期=$ST_BAD ==="

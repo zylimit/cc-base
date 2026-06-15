@@ -26,8 +26,10 @@ assert_skill_invoked() {
     local name="assert_skill_invoked: $skill"
     if [ ! -f "$logfile" ]; then _fail "$name（日志不存在：$logfile）"; return 1; fi
     # skill 参数形如 "skill":"foo" 或 "skill":"plugin:foo"
+    # 必须锁同一 tool_use 事件——先抽含 "name":"Skill" 的行，再在这些行上匹配 skill 名；
+    # 两次独立全文件 grep 会被「调了别的 skill + 文本里提到目标名」假绿。
     local skill_pat='"skill":"([^"]*:)?'"${skill}"'"'
-    if grep -q '"name":"Skill"' "$logfile" && grep -qE "$skill_pat" "$logfile"; then
+    if grep '"name":"Skill"' "$logfile" | grep -qE "$skill_pat"; then
         _pass "$name（命中 Skill 调用）"
         return 0
     fi
@@ -39,6 +41,8 @@ assert_skill_invoked() {
 # assert_no_premature_action <logfile>
 # 找第一个 Skill 调用的行号，扫它之前的 tool_use，过滤掉允许清单，
 # 剩下的 = 偷跑证据 → FAIL。若整段没有 Skill 调用，也算偷跑可疑 → FAIL。
+# 前提：依赖当前 claude CLI 的 stream-json 每事件一行、每行单个 tool_use；
+# 若 CLI 改为合并 content 数组进一行，需改逐事件解析。
 assert_no_premature_action() {
     local logfile="$1"
     local name="assert_no_premature_action"

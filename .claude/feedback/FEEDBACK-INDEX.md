@@ -17,3 +17,5 @@
 - ✅[已毕业] [主 Agent 行为：静默 subagent 须预先告知；中断≠否决方案；禁止甩锅](subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md) — 派静默 Sub-Agent/长后台任务前必先一句话告知（静默运行/预计耗时/会通知）；工具被用户消息中断（rejected/interrupted）≠用户否决方案，不擅自切换、禁甩锅「你打断了我」，复盘根因对己不对人
 - ✅[已毕业] [TDD 测试先行优于事后补测](tdd-test-first-over-after-the-fact-regression.md) — 高价值逻辑（契约/解析器/状态机/去重/schema/驱动适配层）走 red-green-refactor：先写失败测试定义契约 → 验红（亲见 fail、失败因功能缺失非笔误）→ 实现到绿 → 重构；事后补测=拿覆盖率却失「测试有效」证明，不接受
 - ✅[已毕业] [TDD per-Task 循环：测试侧缺陷派回 tester，implementer 全程不碰断言](tdd-per-task-test-side-defect-routing.md) — implementer GREEN 阶段被禁改测试文件保 TDD 纯度，若静态检查撞到 tester 写的测试文件自身纯类型/lint 缺陷，implementer 因被禁改测试合理停手（非死锁）；先隔离判断错在 impl 还是 test，test 侧缺陷派回 tester 做断言不变的最小修复
+- [Skill 调用合规靠劝服工程，不靠"写清楚"](skill-invocation-persuasion-gate.md) — agent 合规靠劝服工程不靠"写清楚"：规则用绝对命令语言（必须/禁止/失败）、抹掉理性化空间、逐条拦截逃逸借口；高频被跳的配前置清单 + Red Flags 黑名单，1% 可能适用即先调 skill
+- [审查/验收闸要量化验证，无效就砍](gates-need-empirical-validation.md) — 审查/验收/测试闸（red-blue、五步闸、各 Stage、回归等）要靠数据核它挡没挡住问题，长期全过/全绿、从没产出 FIX_REQUIRED 或红就简化或删掉，别养无效成本；加新闸先想清怎么知道它有用、能说出挡住过什么

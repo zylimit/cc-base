@@ -85,4 +85,5 @@ bash .claude/tests/cases/run-all.sh
 - 反静默失败：缺 CLI → SKIP 并明示，不假绿。
 - 验证即证据：selftest/cases 的判定都基于事件日志的客观 grep 结果，不靠自述。
 - 风格仿 `make-release.sh`：`set -eu`、中文头注释、`mktemp`+`trap` 清理、命令失败兜底。
+- 脚手架自检类闸（本 selftest：验断言库没坏）不适用 CLAUDE.md「闸长期全绿就砍」——那条针对的是从不产出 FIX_REQUIRED 的**缺陷探测闸**，脚手架自检本就该常绿。
 ```
