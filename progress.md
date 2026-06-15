@@ -17,6 +17,7 @@ _Last updated: 2026-06-15_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-06-15: **cc-base v1.1.0 发布上线**——内容：Superpowers Jesse Vincent v5.1.0 借鉴的 9 项纪律增强（Tier1+2）+ 新 skill /branch-finisher。发版：make-release.sh 从 git HEAD 打包（排除私有 feedback/*.md）→ tag v1.1.0 → 84da478 推远程 → gh release create 带资产 cc-base-v1.1.0.zip。验收三件套（主 Agent 独立核查，非信 deployer 自述）：① 远程 tag v1.1.0→84da478 ✅ ② release draft=false，URL https://github.com/zylimit/cc-base/releases/tag/v1.1.0，资产 cc-base-v1.1.0.zip ✅ ③ 资产内含 branch-finisher/SKILL.md（7024B）、CLAUDE.md 命中五步闸/branch-finisher 5 处、私有 feedback 已正确排除 ✅。（commits：2cb475c feat + 84da478 docs）
 - 2026-06-15: **框架纪律增强批次（Superpowers Jesse Vincent v5.1.0 方法论借鉴，9 项全部落地验收，纯增量零删除既有规则）**
   - ①验收五步闸：CLAUDE.md [总体规则] 验收铁律追加不可跳步五步闸 + 禁"应该/大概"措辞；新建 feedback/completion-claims-need-fresh-verification-five-step-gate.md（含声称→证据对照表 + 两次翻车案例）。
   - ②接收审查不表演式认同：CLAUDE.md [总体规则] 新增一条 + 新建 feedback/receiving-review-no-performative-agreement.md。
