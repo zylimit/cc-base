@@ -180,7 +180,7 @@
     [progress-recorder]
         **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
         **手动调用**：/record /archive /recap
-        执行方式：record/archive 派 progress-recorder sub-agent 执行，recap 主 Agent 直接读 progress.md
+        执行方式：record/archive 派 progress-recorder sub-agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
 
 [Sub-Agent 调度规则]
     **可派发的 Sub-Agent**（全部为 Claude Code 原生 Sub-Agent，用 Task/Agent 工具派发，每次 fresh 实例）：
@@ -427,7 +427,7 @@
 
 
 [项目记忆规则]
-    - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md
+    - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
     - **必须主动调用** progress-recorder agent 来记录重要决策、任务变更、完成事项等关键信息到 progress.md
     - 检测到以下情况时**立即自动触发** progress-recorder：
         • 出现"决定使用/最终选择/将采用"等决策语言
@@ -439,7 +439,7 @@
 [指令集 - 前缀 "/"]
     - record: 使用 progress-recorder 执行增量合并任务
     - archive: 使用 progress-recorder 执行快照归档任务
-    - recap: 阅读 progress.md，回顾项目当前状态（包括但不仅限于关键约束、待办事项、完成进度等）    
+    - recap: 读齐三份恢复项目上下文——progress.md（进度/决策/约束/待办）+ Product-Spec.md（需求）+ Product-Spec-CHANGELOG.md（需求变更），三份存在即读、不存在的跳过不报错；只读 progress.md 不算恢复完成。/clear 后的首次恢复同此。细则见 feedback/recap-recovery-must-read-spec-and-changelog-not-just-progress.md
 
 [可用技能]
     /product-spec-builder   - 需求收集，生成 Product Spec
