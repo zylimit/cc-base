@@ -17,7 +17,8 @@ _Last updated: 2026-06-15_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
-- 2026-06-15: **red-blue-review skill 建成 + dogfood 闭环 + 采信项全修，Judge 重判 ACCEPT，待 commit**
+- 2026-06-15: **cc-base v1.2.0 发布上线**——内容：新增 /red-blue-review 红蓝对抗审查 skill + 含 v1.1.0 全部内容。发版：make-release.sh v1.2.0 从 git HEAD 打包（排除私有 feedback/*.md）→ tag v1.2.0（→ cfeab6f）推远程 → gh release create 带资产 cc-base-v1.2.0.zip。验收三件套（主 Agent 独立核查 GitHub 现查现读，非信 deployer 自述）：① 远程 tag v1.2.0→cfeab6f ✅ ② release draft=false，URL https://github.com/zylimit/cc-base/releases/tag/v1.2.0，资产 cc-base-v1.2.0.zip ✅ ③ 资产含 red-blue-review/SKILL.md（8958B）+ red-blue-review.sh（4821B），CLAUDE.md 命中 red-blue-review ×5，私有 feedback 已排除 ✅。R1 化解：red-blue skill 已提前 commit 入 HEAD 故打包未漏。
+- 2026-06-15: **red-blue-review skill 建成 + dogfood 闭环 + 采信项全修，Judge 重判 ACCEPT**（commit 含于 v1.2.0，R1 化解）
   - 产物：.claude/skills/red-blue-review/ 含 SKILL.md（Blue 自证→Red 四 lens[correctness/security/release/windows]攻击→Judge 三裁[ACCEPT/FIX_REQUIRED/NEEDS_MORE_EVIDENCE]）+ red-blue-review.sh（凑证据包：范围/commit/改动清单/删除审计/未跟踪/完整diff）+ RED-BLUE-REVIEW.md（报告空模板）+ test-red-blue-review.sh（回归自测）；CLAUDE.md 三处登记；纯 CC 不引入 CCB/多模型。
   - dogfood 首跑（用它审它自己 + v1.1.0 批次）暴露 3 硬伤 → red-locks 修复：F1 脚本参数误序静默空包 → `--working` 位置无关 + 无效 ref 响亮报错非零；F2 findings 靠回传消息承载致空回传丢失 → 改为 findings 落盘、主 Agent 读产物不读回传；F3 报告模板就地填污染进包 → 模板拷出填、目录内保持空模板。红测流程：tester 写红 → 主 Agent 亲验红 → implementer 修绿 → 主 Agent 亲验 3/3 绿。
   - 落盘协议生效后重跑照出 8 条采信 finding，Judge 裁 FIX_REQUIRED → 逐条修：C1 红测重写锁"无效ref响亮报错"真契约；C2 CLAUDE.md"授权连续执行"补 Spec 签字门例外子句化解字面冲突；C3 implementer.md 四态去冗余对齐顺序；C4 progress-recorder description 收紧防过度触发；S1 脚本清陈旧临时文件；R2 文件结构补列 test；W1 注明 Windows 须 Git Bash。R1（make-release 用 archive HEAD，未 commit 的 skill 会漏打包）靠"先 commit 再打包"化解；R3（基线 v1.0.3）属有意回溯不改。红队反向确认：命令注入（双引号+ref校验）、branch-finisher git 判据（detached/worktree/-d）、CRLF/BOM 均攻不破。
