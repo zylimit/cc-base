@@ -1,6 +1,6 @@
 ---
 name: progress-recorder
-description: 当出现决策/约束/完成/新任务语言，或 /record /archive 指令触发时，由 progress-recorder sub-agent 调用。
+description: 当出现重要决策/硬约束/完成事项/明确的新任务时，或 /record /archive 指令触发时，由 progress-recorder sub-agent 调用。
 ---
 
 [任务]

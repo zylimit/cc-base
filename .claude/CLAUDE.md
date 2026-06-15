@@ -47,6 +47,7 @@
             ├── code-review/               # 代码审查
             ├── test-builder/              # 系统测试
             ├── release-builder/           # 构建发布
+            ├── red-blue-review/           # 红蓝对抗审查
             ├── branch-finisher/           # 开发分支收尾
             ├── skill-builder/             # 创建新 Skill
             ├── feedback-writer/           # 记录用户反馈
@@ -77,7 +78,7 @@
     - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。
       不可跳步的五步闸——任何"完成/通过/修好"的结论出口前都要走完：① 先想清哪条命令能证明这个结论 ② 跑全量、全新的该命令，不复用上一条消息的旧输出 ③ 读完整输出、看 exit code、数失败数 ④ 确认输出确实支持结论（不是输出有了就算）⑤ 才许开口下结论。禁用"应该/大概/估计/看起来"这类没跑过就下的措辞；没有当场跑出的新鲜证据，不报完成。细则见 feedback/deploy-acceptance-independent-verification.md、feedback/completion-claims-need-fresh-verification-five-step-gate.md。
     - **Sub-Agent 派发前置自检**：派发前确认已备齐**完整任务上下文**（涉及的 Spec 条目、交付清单、涉及文件、项目结构、约束）——Sub-Agent 不继承 session 历史，缺上下文会让它瞎猜或漏做。派发时机/流程见 [Sub-Agent 调度规则] 与各工作流程章节。
-    - **授权连续执行**：除非遇到真正需要人拍板的取舍（架构选型 / 不可逆操作 / 需求本身有歧义），否则按既定流程一路走到底，不中途问「要不要继续」；发现的 P2/P3 可选缺陷默认按 red-locks 流程顺手修掉，不预先征询。
+    - **授权连续执行**：除非遇到真正需要人拍板的取舍（架构选型 / 不可逆操作 / 需求本身有歧义），否则按既定流程一路走到底，不中途问「要不要继续」；发现的 P2/P3 可选缺陷默认按 red-locks 流程顺手修掉，不预先征询。涉及需用户签字的闸（如 Spec 签字门、不可逆操作审批）按各自规则停等，不受本条「一路走到底」约束。
 
 [Skill 调用规则]
     匹配触发条件时，必须先调用 Skill 再输出响应。不要先回复再调用。
@@ -140,6 +141,14 @@
         **手动调用**：/release-builder
         前置条件：项目代码已创建
         执行方式：打包前先过测试卡点（复用 test-builder 作前置闸门，证据=运行器真实输出，卡点未过不许打包交付）；部署派发 deployer Sub-Agent 执行，主 Agent 不亲自执行、只验收（独立核查三件套，见 [总体规则] 验收铁律）
+
+    [red-blue-review]
+        **自动调用**：
+        - 发版 / 合并分支前，对高风险或家底（hooks / skills / CLAUDE.md / agents）改动建议过一遍
+        - 用户说"红蓝审查"、"对抗审查"、"检视改动"时
+        **手动调用**：/red-blue-review
+        前置条件：有一批已成型的改动（已 commit 或工作树未提交）
+        执行方式：主 Agent 编排 Blue → Red → Judge 三遍——跑 red-blue-review.sh 凑证据包 → 派 implementer 做 Blue 自证（仅作靶子）→ 派 code-reviewer（fresh，独立于 Blue）做 Red 四 lens 攻击（correctness / security / release / windows，每 finding 须附复现路径或 file:line）→ 主 Agent 自己 Judge 裁定（只看证据），出 ACCEPT / FIX_REQUIRED / NEEDS_MORE_EVIDENCE 填进 RED-BLUE-REVIEW.md
 
     [branch-finisher]
         **自动调用**：
@@ -437,6 +446,7 @@
     /code-review            - 对照 Spec + 设计稿做 Code Review
     /test-builder           - 务实回归测试：搭基建 + 为高价值逻辑写/跑回归测试
     /release-builder        - 构建打包或部署发布
+    /red-blue-review        - 红蓝对抗审查：Blue 自证 → Red 四 lens 攻击 → Judge 凭证据裁定（ACCEPT/FIX_REQUIRED/NEEDS_MORE_EVIDENCE）
     /branch-finisher        - 开发分支收尾：环境检测 + 条件化合并/PR/清理（测试全绿前置）
     /skill-builder          - 创建新的 Skill
     /feedback-writer        - 记录用户反馈（由 feedback-observer sub-agent 调用）

@@ -33,7 +33,7 @@ color: green
       - **BLOCKED**：受阻——说明阻塞在哪、需要什么才能继续
     - 自评之后附**结论 + 证据句柄**（文件路径 / 编译输出位置 / 关键命令及其结果），不贴大段原始日志，长内容压成要点（与 CLAUDE.md [Sub-Agent 调度规则] 回传纪律一致）
     - 结构化报告：
-      - **状态**：DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+      - **状态**：DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED（即首行那个四态值，同一个，不重复判定）
       - **已实现内容**：逐项对照交付内容
       - **编译结果**：tsc --noEmit 输出
       - **功能验证**：启动项目后的验证结果
