@@ -1,7 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
 _Last updated: 2026-06-15_
-
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -16,6 +15,7 @@ _Last updated: 2026-06-15_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-06-15: **三文件同步铁律整体排查 + 补漏**——排查发现完成项不漏，但 Decisions 段本 session 0 条（~7 个真决策全埋 Done 叙述）、CLAUDE.md 里"三文件"出现 0 次、无统一强铁律靠自觉必漏。修复：① 补齐 6 条 6-15 决策进 Decisions 段；② CLAUDE.md [总体规则] 钉统一「三文件同步铁律」（即时同步/Decisions⊥Done 分段/需求变更成对更新 Spec+CHANGELOG/收尾自检/A1 绝对语言；兼容只有 progress.md 的项目）；③ feedback 三文件同步条目 occurrences 1→2。commits：d0b7f35（docs 决策补齐）+ 前一条 fix（rules 钉铁律）。验收：Decisions 段 6 条已落、CLAUDE.md 纯增量、"三文件"0→1 次。备注：此铁律已在 main 但未进已发布的 v1.3.0（2b8690e 早于本次），待 v1.3.1 随 setup.sh #5 一并发。
 - 2026-06-15: **cc-base v1.3.0 发布上线**——内容：A1 工程化合规闸 + A2 框架自测 harness + A3 闸要量化验证 + recap/clear 恢复须读三份规则修正 + 含 v1.2.0 全部。发版：make-release.sh v1.3.0 从 git HEAD 打包（排除私有 feedback/*.md）→ tag v1.3.0（→ 2b8690e）推远程 → gh release create 带资产 cc-base-v1.3.0.zip。验收三件套（主 Agent 独立核查 GitHub 现查现读，非信 deployer 自述）：① 远程 tag v1.3.0→2b8690e ✅ ② release draft=false、URL https://github.com/zylimit/cc-base/releases/tag/v1.3.0、资产 cc-base-v1.3.0.zip（192496B）✅ ③ 资产含 .claude/tests/selftest.sh（3970B）+test-helpers.sh、CLAUDE.md 命中本版规则×7（1%即调/闸靠数据留/CHANGELOG）、私有 feedback 已排除 ✅。
 - 2026-06-15: **A1/A2/A3 三项落地验收**（commits 22fe45b/b6b9bcb，随 v1.3.0 发布 2b8690e）——借鉴 Superpowers 深层第二层养分，经委派 implementer→1 轮 code-reviewer 写文件审→修闭环验收。
   - **A1 工程化合规闸**：CLAUDE.md [Skill 调用规则] 增量强化（1% 即调/前置自检/逃逸借口拦截 Red Flags）；新建 feedback/skill-invocation-persuasion-gate.md（Meincke et al. 2025 劝服原理：Authority+Commitment+Scarcity，合规率 33%→72%）。
