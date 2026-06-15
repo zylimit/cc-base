@@ -52,6 +52,12 @@ _Last updated: 2026-06-15_
 ## Decisions
 - 2026-06-14: 框架定位确认——cc-base 为轻量框架，不碰多模型/CCB/复杂编排；改进只取「轻量且确定有效」方案。否决方案：Channels、多模型裁判、同模型 debate、完整 eval harness、graph memory、迁 Plugin。理由：轻量优先，CCB 运维脆弱成本过高。
 - 2026-06-14: 跨平台/外部工具根因结论必须靠真机证据（trace/实测），不凭表层信息臆断。"查证后再结论"的关键不只是"去查"，是"读到位、读对、不被表层信息覆盖已查到的证据"。（本次连翻两次车：① 误判 hook 跑 pwsh 7.x，实为 5.1，setup.ps1 注释早写明却被用户报告"7.6.2"带偏；② 误判 PSNativeCommandUseErrorActionPreference 默认 $true，WebFetch 文档第 94 行写着 $false 却看走眼）
+- 2026-06-15: 维持「少角色 + 强流程 + 中心编排」，不改向广度人格库。理由：外网取证（Anthropic multi-agent-research、Cognition Don't Build Multi-Agents、Claude Code subagents 官方文档）一致——单一根 agent 派隔离子任务是唯一可靠模式；人格库无权威背书、被定位为"模板秀"；编码串行/只读并行与两家结论一致。
+- 2026-06-15: 撤回「给 agent 定义加量化成功指标（diff 行数/覆盖率）」的设想，改为定性 Definition-of-Done。理由：specification overfitting（arxiv 2403.08425）——指标钉进目标会牺牲真实任务质量；Claude Code 官方范例用 checklist 非硬数字。
+- 2026-06-15: 外部框架借鉴取舍——OpenHands 只取知识组织 3 点（已记 backlog #2-4）；agency-agents 放弃（反 cc-base 哲学、与已建重叠）；Superpowers Tier1+2 已建（v1.1.0）+ 深层 A1/A2/A3 已建（v1.3.0）；ECC 借鉴（secrets-scan/CLAUDE 瘦身/auto-observe/silent-failure）暂缓未建。理由：只取穿过「外网背书 + 适配纯 CC 强流程」双筛的方案。
+- 2026-06-15: 改 cc-base 家底（CLAUDE.md/skills/agents）一律 Task 直派 implementer，不用 Workflow。理由：用户未 opt-in Workflow（成本 15x）；家底是热文件，串行改 + 逐件验收最安全（沿用编码默认串行）。
+- 2026-06-15: A3「闸要量化验证」落地后，对其自身这轮不套全套红蓝重型闸，走「委派→逐 diff + 1 轮 code-review」轻流程。理由：A3 主张别无度加闸，过度套闸是打自己脸（practice what it preaches）。
+- 2026-06-15: setup.sh 安装拖入私有 feedback 问题记 backlog #5 不立即修。理由：非安装失败、用户已知，留待与 make-release 排除逻辑对齐时一并修（可并入 v1.3.1）。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
