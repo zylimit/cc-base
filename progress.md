@@ -2,7 +2,6 @@
 
 _Last updated: 2026-06-15_
 
-
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -64,6 +63,7 @@ _Last updated: 2026-06-15_
 - [P1][OPEN][#2] **CLAUDE.md 瘦身——三态触发把冷规则下沉**（借鉴 OpenHands microagent keyword/task trigger 机制）：把低频长段落（[本地运行阶段]、[Workflow 编排模式] 细则、各 feedback 引用等）下沉成 keyword-triggered 小文件，命中才注入；常驻只留 角色+铁律骨架+路由。收益：省 token、降噪，零架构风险。Context：OpenHands .openhands/microagents/*.md frontmatter + skill_loader.py
 - [P2][OPEN][#3] **框架核心层 vs 项目私有层 分层**（借鉴 OpenHands Global/User/Org/Project 四层 skill 机制）：当前 .claude/ 框架核心与项目私有定制混居，升级时无法区分哪些可覆盖、哪些用户改过。目标：明确切「框架核心层（随版本升级、只读）」与「项目覆盖层（私有、不被覆盖）」。与 v1.x 升级命令直接相关——需用户拍板，属架构决策。
 - [P2][OPEN][#4] **人工审批闸升级为显式风险三档清单**（借鉴 OpenHands ActionSecurityRisk LOW/MEDIUM/HIGH 枚举）：现有「授权连续执行除非真正需要人拍板」判据是散文，不同 session 松紧不一。目标：钉成三档——LOW（自动跑：写文档/加测试/P2-P3修复）/ MEDIUM / HIGH（必停：删文件/改家底hook/发布上线/git push/不可逆）。模糊判断变查检表，机制化可审计，接上「验收以证据为准」铁律。
+- [P2][OPEN][#5] **setup.sh 安装时未排除私有 feedback**——应对齐 make-release.sh 的排除逻辑。问题：`bash setup.sh <target>` 注入式安装时，把 .claude/feedback/ 下 19 个私有经验 .md（cc-base 自己的踩坑：PS 5.1、两次归因翻车案例、各纪律细则）一并拷进新项目；而 make-release.sh 打包时是排除私有 feedback 的（只留 templates/ + 重置 FEEDBACK-INDEX）。影响：全新项目被拖进 cc-base 的开发史，install 卫生瑕疵，非安装失败。修向：setup.sh 的 copy_claude_tree 增加排除——跳过 feedback/ 顶层 *.md（保留 templates/），并把 FEEDBACK-INDEX.md 重置为模板，与 make-release.sh 第 25-31 行同源逻辑对齐；setup.ps1 同步。备注：用户已知（2026-06-15 实战安装 ~/code/cc-framework-try 时复现确认：hooks=14 skills=24 装好、selftest 9/9 在新项目可跑，但顺带拖入 19 个私有 feedback）。
 
 ## 明确不做（防过度工程）
 - **condenser LLM 摘要压缩**：progress.md「超100条归档+摘要指针」已够用，不值得为它每次多跑一次 LLM。
