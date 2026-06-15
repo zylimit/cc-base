@@ -55,6 +55,9 @@ $srcRootLen = (Resolve-Path $srcClaude).Path.Length
 Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
   if ($skip -contains (Split-Path $rel -Leaf)) { return }
+  # private evolution feedback: skip top-level feedback/*.md, keep feedback/templates/ (INDEX is reset below)
+  $relSlash = $rel -replace '\\', '/'
+  if ($relSlash -match '^feedback/[^/]+\.md$') { return }
   Copy-WithBackup $_.FullName (Join-Path $targetClaude $rel)
 }
 
@@ -126,6 +129,12 @@ if ((Test-Path $targetSettings) -and -not $Force) {
   $targetDir = Split-Path $targetSettings -Parent
   if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
   $src | ConvertTo-Json -Depth 20 | Set-Content $targetSettings -Encoding UTF8
+}
+
+# Reset feedback INDEX to a clean template (same source as make-release.sh; private entries were skipped above)
+$fbTpl = Join-Path $srcClaude 'feedback/templates/feedback-index-template.md'
+if (Test-Path $fbTpl) {
+  Copy-WithBackup $fbTpl (Join-Path $targetClaude 'feedback/FEEDBACK-INDEX.md')
 }
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count

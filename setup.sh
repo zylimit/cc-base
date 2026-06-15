@@ -44,6 +44,9 @@ copy_claude_tree() {
       .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
       .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
       signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列（任意层级 basename）
+      feedback/templates/*) ;;                                     # 保留模板（顶层 *.md 才是私人经验）
+      feedback/*/*) ;;                                              # 保留 feedback 子目录其他文件
+      feedback/*.md) continue ;;                                    # 私人进化经验（顶层 *.md）；INDEX 装后重置为模板
     esac
     dest="$dest_dir/$rel"
     mode=""
@@ -99,6 +102,10 @@ main() {
 
   copy_claude_tree "$source_dir/.claude" "$target/.claude"
   merge_settings "$source_dir/.claude/settings.json" "$target/.claude/settings.json"
+
+  # feedback 顶层经验已在 copy_claude_tree 跳过；把 INDEX 重置为干净模板（与 make-release.sh 同源）
+  local fb_tpl="$source_dir/.claude/feedback/templates/feedback-index-template.md"
+  [ -f "$fb_tpl" ] && copy_file "$fb_tpl" "$target/.claude/feedback/FEEDBACK-INDEX.md"
 
   hooks_count=$(find "$source_dir/.claude/hooks" -type f -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')
   skills_count=$(find "$source_dir/.claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ')
