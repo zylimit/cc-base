@@ -71,6 +71,7 @@
     - **改家底文件风格须无缝贴合（铁律）**：往 hook / skill / CLAUDE.md / agents / feedback 新增内容时，缩进 / 标记 / 语气 / 密度同原文，改完读不出哪句是后加的；禁英文缩写堆砌、元叙事、花哨标记、过度爱解释 why。细则见 feedback/edit-family-assets-style-must-match-handwritten-not-ai-generated.md。
     - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。
     - **接收审查意见/反馈不表演式认同**：收到 code-review 结论或用户反馈时，禁"你说得对/好建议/这就改"这类空话——要么复述对方的技术要求确认自己理解到位，要么不清楚就先问，要么有技术理由就顶回去；确认无误直接动手，行动优先于表态。反馈含糊先停下问清，不凭猜分批实现，以免漏掉关联项。细则见 feedback/receiving-review-no-performative-agreement.md。
+    - **三文件同步铁律**：决策 / 约束 / 完成一出现就**即时**写 progress.md；需求变更**成对**更新 Product-Spec.md + Product-Spec-CHANGELOG.md（只改一个不算）；三文件存在即维护、始终一致（项目可能只有 progress.md——如框架本体无 Spec/CHANGELOG，存在即维护、不存在的不强造）。不许只更一个、不许事后补、不许攒着批量记；每个工作单元（派单收尾 / 发版 / 做出取舍 / 需求变更）当下即同步对应文件。决策（选型 / 取舍 / 否决 / 撤回）进 progress.md 的 Decisions 段，不许埋进 Done 叙述充数；完成项进 Done，约束进 Pinned。收尾自检（回复 / 交付前过）：三文件都同步了吗？决策有没有混进 Done？——答不齐不算完成。细则见 feedback/three-file-sync-clearable-context-recap-recovery.md。
     - **持续观察和记录**：当用户给出修正、反馈或改进意见时，派发 feedback-observer sub-agent 记录。不依赖主 Agent 自觉写入。
     - 当收到 detect-feedback-signal hook 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ Design-Brief.md（次之）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
