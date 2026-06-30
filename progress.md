@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-06-16_
+_Last updated: 2026-07-01_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -15,6 +15,7 @@ _Last updated: 2026-06-16_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-07-01: **ccb-base 借鉴批次——三件套完整流水线验收通过**（#6）：lib-gate-log.sh/.ps1（block hook 拦截台账）、three-file-sync-gate.sh/.ps1（Stop hook 强制三文件同步铁律）、gate-audit.sh（死闸审计，落地 gates-need-empirical-validation）；settings.json 挂载 three-file-sync-gate 进 Stop；.gitignore 加 /.claude/evidence/；回填 4 个 block hook 台账。完整流水线：implementer → code-reviewer 三阶段审查（裁 1 P1+2 P2）→ red-locks 补红测试（test-gate-audit PASS=9、test-three-file-sync-gate PASS=6）→ 主 Agent 亲跑验红 → implementer 修绿 → 主 Agent 亲跑验绿 + run-all 全绿 + shellcheck 零告警 → 聚焦复审 ACCEPT。三处修复：① gate-audit registered 清单收窄为「source 了 lib-gate-log 的真闸」（原抓全 hook 含 9 个信息类误报死闸）；② three-file-sync C1 纳入 .claude/ 家底（.md/.json）、排除 .claude/evidence/ 与三文件本体；③ three-file-sync.ps1 改 -z porcelain 并七维对齐 .sh。实效闭环：three-file-sync-gate 真拦主 Agent 数次、gate-audit 列入「有战绩」段。（evidence：提交待用户拍板）
 - 2026-06-16: **cc-base v1.4.0 发布上线**——借鉴姊妹框架 codex-base 轻量质量脚本，把本 session 靠"自觉"的规则升级为"自动卡"：`.claude/scripts/{doctor.sh 安装自检, plan-lint.sh DEV-PLAN静态门, skill-description-lint.sh CSO门}` + `.claude/tests/{test-setup.sh 安装器回归+幂等+自动验#5私有feedback排除, test-routing.sh agent/skill双向一致}` + `run-all.sh` 纳入（3段）+ `make-release.sh` 打包后泄漏扫描（verify-not-assume守#5）+ CLAUDE.md 接入引用。红蓝审查抓出并修掉 2 假阳性（M1 YAML块标量误判 / M2 代码块TODO误报），主 Agent 亲跑全部脚本 + 正确 fixture 验收。发版：make-release.sh v1.4.0 → tag v1.4.0（→8544b2f）→ gh release。验收三件套（GitHub重下现查）：tag→8544b2f ✅、release draft=false URL https://github.com/zylimit/cc-base/releases/tag/v1.4.0 资产 cc-base-v1.4.0.zip ✅、资产含5脚本+CLAUDE.md命中plan-lint+私有feedback已排除 ✅。commit：8544b2f feat。
 - 2026-06-15: **cc-base v1.3.1 发布上线**——两项改进：① 三文件同步铁律钉成 CLAUDE.md [总体规则] 统一条目（即时写 progress.md / Decisions⊥Done 分段 / 需求变更成对更新 Spec+CHANGELOG / 收尾自检）（commit d0b7f35）；② setup.sh/setup.ps1 排除私有 feedback——跳过 feedback/ 顶层 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 打包逻辑对齐（#5，commit 856566e）。含 v1.3.0 全部内容。发版：make-release.sh v1.3.1 → tag v1.3.1（→ 856566e）推远程 → gh release create 带 cc-base-v1.3.1.zip。验收三件套（主 Agent 独立核查，GitHub 重下资产现查现读）：① 远程 tag v1.3.1 → 856566e ✅ ② release draft=false、URL https://github.com/zylimit/cc-base/releases/tag/v1.3.1、资产 cc-base-v1.3.1.zip ✅ ③ 资产内 setup.sh 含 feedback 排除逻辑×5、CLAUDE.md 命中三文件同步铁律×1、包内 feedback 仅 templates+INDEX（私有已排除）✅。备注：setup.ps1 同源逻辑已改，PowerShell 运行时验证留 Windows 环境。
 - 2026-06-15: **三文件同步铁律整体排查 + 补漏**——排查发现完成项不漏，但 Decisions 段本 session 0 条（~7 个真决策全埋 Done 叙述）、CLAUDE.md 里"三文件"出现 0 次、无统一强铁律靠自觉必漏。修复：① 补齐 6 条 6-15 决策进 Decisions 段；② CLAUDE.md [总体规则] 钉统一「三文件同步铁律」（即时同步/Decisions⊥Done 分段/需求变更成对更新 Spec+CHANGELOG/收尾自检/A1 绝对语言；兼容只有 progress.md 的项目）；③ feedback 三文件同步条目 occurrences 1→2。commits：d0b7f35（docs 决策补齐）+ 前一条 fix（rules 钉铁律）。验收：Decisions 段 6 条已落、CLAUDE.md 纯增量、"三文件"0→1 次。备注：此铁律已在 main 但未进已发布的 v1.3.0（2b8690e 早于本次），待 v1.3.1 随 setup.sh #5 一并发。
@@ -61,6 +62,11 @@ _Last updated: 2026-06-16_
 - 2026-06-15: 改 cc-base 家底（CLAUDE.md/skills/agents）一律 Task 直派 implementer，不用 Workflow。理由：用户未 opt-in Workflow（成本 15x）；家底是热文件，串行改 + 逐件验收最安全（沿用编码默认串行）。
 - 2026-06-15: A3「闸要量化验证」落地后，对其自身这轮不套全套红蓝重型闸，走「委派→逐 diff + 1 轮 code-review」轻流程。理由：A3 主张别无度加闸，过度套闸是打自己脸（practice what it preaches）。
 - 2026-06-15: setup.sh 安装拖入私有 feedback 问题记 backlog #5 不立即修。理由：非安装失败、用户已知，留待与 make-release 排除逻辑对齐时一并修（可并入 v1.3.1）。
+- 2026-07-01: 对比 ccb-base 借鉴取舍——**采纳**两项框架无关质量机制：① three-file-sync-gate（把「三文件同步铁律」从文字做成 Stop hook 强制卡点）② gate-audit + lib-gate-log（给 block hook 加拦截台账 + 死闸审计，落地 gates-need-empirical-validation 铁律）。
+- 2026-07-01: **拒绝** ccb-base 方案：CCB worker 编排类全部（no-push-guard/restate-rules-gate/anti-pattern-subagent-guard/commander-audit/worktree-topology 等，纯 CC 无外部 codex/tmux/daemon，不适用）；static-resolver（已被 static-check.sh 识栈覆盖，冗余）；collab-log/evidence-index/rule-snapshot 重账本（纯 CC 下 RED-BLUE-REVIEW.md 已够，过度工程）。
+- 2026-07-01: **暂缓**第二档（待用户后续定）：test-guard-hook（偏 CI 味，与当前轻量哲学存张力）、有界修复三件套（round-counter/review-cycle/deferred-issue）、INVENTORY.md 资产清单。
+- 2026-07-01: 三处 P3 残留为已知边界（不阻塞，非本次引入，非缺陷）：① gate-audit 空数组在 bash 3.2 的 set -u 边界（本仓恒≥5 闸，实际不触发）；② three-file-sync.ps1 在 Windows PowerShell 5.1 的 NUL 捕获 + 非 ASCII 路径编码风险（目标文件名全 ASCII 不受影响，属 PS 解析 git -z 固有边界）——待有 pwsh 真机环境补一次实跑落地证据。
+- 2026-07-01: three-file-sync Stop 闸与异步 progress-recorder 存在瞬时死锁窗口（闸要 progress.md 进改动集，而能写入它的 recorder 还在跑）——当前靠 recorder 完成后自然放行，记为已知机制交互，供后续评估是否给闸加「异步记录进行中」豁免标志。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -72,6 +78,8 @@ _Last updated: 2026-06-16_
 - [P1][OPEN][#2] **CLAUDE.md 瘦身——三态触发把冷规则下沉**（借鉴 OpenHands microagent keyword/task trigger 机制）：把低频长段落（[本地运行阶段]、[Workflow 编排模式] 细则、各 feedback 引用等）下沉成 keyword-triggered 小文件，命中才注入；常驻只留 角色+铁律骨架+路由。收益：省 token、降噪，零架构风险。Context：OpenHands .openhands/microagents/*.md frontmatter + skill_loader.py
 - [P2][OPEN][#3] **框架核心层 vs 项目私有层 分层**（借鉴 OpenHands Global/User/Org/Project 四层 skill 机制）：当前 .claude/ 框架核心与项目私有定制混居，升级时无法区分哪些可覆盖、哪些用户改过。目标：明确切「框架核心层（随版本升级、只读）」与「项目覆盖层（私有、不被覆盖）」。与 v1.x 升级命令直接相关——需用户拍板，属架构决策。
 - [P2][OPEN][#4] **人工审批闸升级为显式风险三档清单**（借鉴 OpenHands ActionSecurityRisk LOW/MEDIUM/HIGH 枚举）：现有「授权连续执行除非真正需要人拍板」判据是散文，不同 session 松紧不一。目标：钉成三档——LOW（自动跑：写文档/加测试/P2-P3修复）/ MEDIUM / HIGH（必停：删文件/改家底hook/发布上线/git push/不可逆）。模糊判断变查检表，机制化可审计，接上「验收以证据为准」铁律。
+- [P2][DONE][#6] **ccb-base 借鉴批次——gate-audit+lib-gate-log+three-file-sync-gate 完整流水线验收**（2026-07-01，evidence：提交待用户拍板）
+- [P1][DOING][#7] **提交 ccb-base 借鉴批次改动**——流水线完整验收（全绿+shellcheck+复审 ACCEPT）已完成，待用户拍板确认提交。
 - [P2][DONE][#5] **setup.sh 安装时未排除私有 feedback**——已在 v1.3.1 修复（commit 856566e）：setup.sh/setup.ps1 跳过 feedback/ 顶层私有 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 排除逻辑对齐。实测 /tmp/ccft-verify 私有 *.md=0、其它资产齐全。
 
 ## 明确不做（防过度工程）

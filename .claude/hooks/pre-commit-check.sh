@@ -54,5 +54,10 @@ if [ -n "$PY_FILES" ]; then
   fi
 fi
 
-[ $FAIL -ne 0 ] && exit 2
+if [ $FAIL -ne 0 ]; then
+  # shellcheck source=/dev/null
+  . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+  gate_log "pre-commit-check" "编译/语法门禁未通过，commit 被阻止"
+  exit 2
+fi
 exit 0

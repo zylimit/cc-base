@@ -11,3 +11,6 @@
 !/setup.ps1
 !/setup.sh
 !/make-release.sh
+
+# 运行时产物：闸拦截账本，不入库
+/.claude/evidence/

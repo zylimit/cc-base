@@ -120,5 +120,8 @@ if ($pyFiles.Count -gt 0) {
   }
 }
 
-if ($fail -ne 0) { exit 2 }
+if ($fail -ne 0) {
+  try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'pre-commit-check' 'compile/syntax gate failed, commit blocked' } catch { }
+  exit 2
+}
 exit 0

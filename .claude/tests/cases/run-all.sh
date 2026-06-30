@@ -25,9 +25,9 @@ fi
 
 # ---- 第二段：静态自测（安装器回归 + 配置一致性，无需 claude CLI，必跑）----
 echo ""
-echo ">>> [2/3] 静态自测（test-setup / test-routing，无需 claude CLI）"
+echo ">>> [2/3] 静态自测（test-setup / test-routing / 闸回归，无需 claude CLI）"
 STATIC_RC=0
-for s in test-setup.sh test-routing.sh; do
+for s in test-setup.sh test-routing.sh test-gate-audit.sh test-three-file-sync-gate.sh; do
     echo "----- 运行 $s -----"
     bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 done

@@ -21,6 +21,7 @@ if ($fp -match '(\.claude/|CLAUDE\.md|Product-Spec|DEV-PLAN|progress\.md|CHANGEL
 if ($fp -match '(^|/)(src|app|lib|components|pages|api|server|client|utils|models|services)/') {
   [Console]::Error.WriteLine("[!] [no-direct-code-guard] the main agent should not write business source directly: $filePath")
   [Console]::Error.WriteLine("Dispatch the implementer Sub-Agent to write it, keeping the responsibility boundary.")
+  try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'no-direct-code-guard' "main agent wrote business source directly: $filePath" } catch { }
   exit 2
 }
 exit 0

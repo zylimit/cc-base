@@ -21,6 +21,7 @@ if ($files.Count -eq 0) {
 $count = $files.Count
 $inline = $files -join ', '
 $reason = "Code was modified but not code-reviewed ($count files pending: $inline). Dispatch the code-reviewer sub-agent for the two-stage review; after it passes, run 'echo clean > .claude/.needs-review' to release."
+try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $reason } catch { }
 $json = [pscustomobject]@{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress
 Write-Output $json
 exit 0

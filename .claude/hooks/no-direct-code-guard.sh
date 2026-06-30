@@ -16,6 +16,9 @@ fi
 if echo "$FILE_PATH" | grep -qE '(^|/)(src|app|lib|components|pages|api|server|client|utils|models|services)/'; then
   echo "⚠️  [no-direct-code-guard] 主 Agent 不应直接写业务源码：$FILE_PATH" >&2
   echo "请派 implementer Sub-Agent 来编写，保持职责边界。" >&2
+  # shellcheck source=/dev/null
+  . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+  gate_log "no-direct-code-guard" "主 Agent 直接写业务源码被拦：$FILE_PATH"
   exit 2
 fi
 

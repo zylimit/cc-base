@@ -19,6 +19,10 @@ COUNT=$(printf '%s\n' "$FILES" | wc -l | tr -d ' ')
 INLINE=$(printf '%s' "$FILES" | tr '\n' ',' | sed 's/,$//; s/,/、/g')
 REASON="代码已修改但未 code review（${COUNT} 个待审文件：${INLINE}）。请派发 code-reviewer sub-agent 两阶段审查；通过后执行 echo clean > .claude/.needs-review 放行。"
 
+# shellcheck source=/dev/null
+. "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+gate_log "stop-gate" "$REASON"
+
 if command -v jq >/dev/null 2>&1; then
   jq -nc --arg r "$REASON" '{decision:"block",reason:$r}'
 else
