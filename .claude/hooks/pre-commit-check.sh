@@ -7,6 +7,9 @@
 #   - TS：tsc --noEmit（整项目类型检查）
 #   - Python：优先 ruff check，降级到 python3 -m py_compile（语法级，python3 必在）
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 # 脚本内自判触发命令：非 git commit 输入直接放行（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)
 CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)

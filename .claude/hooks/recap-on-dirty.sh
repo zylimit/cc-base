@@ -4,6 +4,9 @@
 # → 注入提醒：先 /recap 读 progress.md，对照实际改动校准后再继续
 set -euo pipefail
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 [ -z "${CLAUDE_PROJECT_DIR:-}" ] && exit 0
 command -v git >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0

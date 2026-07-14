@@ -2,6 +2,9 @@
 # PreToolUse(Edit|Write)：检测主 Agent 是否直接写业务源码，是则警告
 set -euo pipefail
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 HOOK_INPUT=$(cat)
 FILE_PATH=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path','') or d.get('tool_input',{}).get('path',''))" 2>/dev/null || true)
 

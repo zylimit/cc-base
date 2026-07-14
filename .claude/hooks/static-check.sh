@@ -42,9 +42,16 @@ if [ "${#PY[@]}" -gt 0 ]; then
 fi
 
 # ---- TypeScript ----
-if [ -f tsconfig.json ] && have npx; then
-  ran="$ran tsc"
-  if ! out=$(npx --no-install tsc --noEmit 2>&1); then report_fail tsc "$out"; fi
+# tsconfig 不一定在仓库顶层（前端常在子目录，如 conflation/web）——有限深度探测全部
+# tsconfig.json；目录里装好依赖（有 node_modules）才进去跑，否则跳过该目录（缺依赖不卡死）。
+if have npx; then
+  mapfile -t TSCONFIGS < <(find . -maxdepth 3 -name 'tsconfig.json' "${PRUNE[@]}" 2>/dev/null)
+  for cfg in "${TSCONFIGS[@]}"; do
+    tsdir=$(dirname "$cfg")
+    [ -d "$tsdir/node_modules" ] || continue
+    ran="$ran tsc($tsdir)"
+    if ! out=$(cd "$tsdir" && npx --no-install tsc --noEmit 2>&1); then report_fail "tsc $tsdir" "$out"; fi
+  done
 fi
 
 if [ -z "$ran" ]; then

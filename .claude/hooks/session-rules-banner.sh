@@ -2,6 +2,16 @@
 # SessionStart hook：输出 CC 框架核心铁律横幅（source=compact/resume 时静默）
 set -euo pipefail
 
+# fast-mode 总闸播报版：其余 hook 静默，本横幅反向醒目告警，防开关忘关；
+# 过期（24h TTL）则提示已自动失效并继续正常横幅（严格模式已恢复）。
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ]; then
+  if [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then
+    echo "‼️ FAST-MODE ON：全部门闸静默中（.claude/.fast-mode）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式。"
+    exit 0
+  fi
+  echo "fast-mode 已过期自动失效（24h TTL），严格模式已恢复；如需继续请重新 fast-mode.sh on，不用就 off 清掉开关文件。"
+fi
+
 # compact/resume 不重复输出
 HOOK_INPUT=$(cat)
 SOURCE=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('source',''))" 2>/dev/null || true)

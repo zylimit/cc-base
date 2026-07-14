@@ -1,11 +1,33 @@
 #!/usr/bin/env pwsh
 # Hook: Stop (PowerShell equivalent of three-file-sync-gate.sh)
-# 三文件同步铁律恢复侧强制闸——只认 git 工作树实际未提交改动。
-#   C1: 未提交改动里有代码/家底文件且 progress.md 不在改动集 -> 拦停提醒同步。
-#   C2: 改动集含 Product-Spec.md 但不含 CHANGELOG（或反之）-> 需求变更漏记。
-#       只校验存在的文件——Spec/CHANGELOG 任一不存在则不强造、不拦停。
-# 干净树 / 改动已含 progress 或两份成对 / 非 git 仓 / 无 progress.md -> 优雅放行。
+# Three-file-sync gate (recovery-side enforcement) -- trusts only actual uncommitted
+# changes in the git working tree.
+#   C1: uncommitted changes include code/framework files but progress.md is not in the
+#       change set -> block and remind to sync.
+#   C2: change set contains Product-Spec.md but not CHANGELOG (or vice versa) -> a
+#       requirement change may be missing its record.
+#       Only validates files that exist -- if either Spec/CHANGELOG is absent, do not
+#       fabricate, do not block.
+# Clean tree / changes already include progress or the pair is updated together /
+# not a git repo / no progress.md -> pass through gracefully.
+# Subtree case: when the project dir is only a subdirectory of a parent repo
+# (show-prefix non-empty), status is limited to the project subtree via `-- .` and
+# each record path has the show-prefix stripped before classification (paths not
+# carrying the prefix are skipped). When the project itself is the repo root the
+# prefix is empty and behavior is unchanged.
+# Fail-closed: an internal script error blocks with a self-check message; it never
+# silently releases the gate.
 $ErrorActionPreference = 'Stop'
+
+# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+
+# Fail-closed: never let an internal error silently release the gate.
+trap {
+  $r = "three-file-sync-gate self-check failed: $($_.Exception.Message). Failing closed -- fix the gate/state, then retry stopping."
+  Write-Output ([pscustomobject]@{ decision = 'block'; reason = $r } | ConvertTo-Json -Compress)
+  exit 0
+}
 
 $root = $env:CLAUDE_PROJECT_DIR
 if (-not $root) {
@@ -15,9 +37,15 @@ if (-not $root) {
 $prog = Join-Path $root 'progress.md'
 if (-not (Test-Path $prog)) { exit 0 }
 
-# 非 git 仓 -> 无工作树可判，优雅放行。
+# Not a git repo -> no working tree to inspect, pass through gracefully.
 try { git -C $root rev-parse --is-inside-work-tree 2>$null | Out-Null } catch { exit 0 }
 if ($LASTEXITCODE -ne 0) { exit 0 }
+
+# Porcelain paths are always relative to the repo root: when the project dir is a
+# subdirectory of a parent repo they carry a prefix (e.g. proj/progress.md), so grab
+# show-prefix now for stripping.
+$prefix = ''
+try { $p = git -C $root rev-parse --show-prefix 2>$null; if ($p) { $prefix = "$p" } } catch { }
 
 $codeDirty = $false
 $progDirty = $false
@@ -25,7 +53,7 @@ $specDirty = $false
 $changelogDirty = $false
 $firstCode = ''
 
-# 把单条改动路径归类到三文档命中 / 代码改动标志。
+# Classify a single changed path into the three-doc hit flags / code-change flag.
 function Classify-Path([string]$path) {
   switch ($path) {
     'progress.md' { $script:progDirty = $true }
@@ -37,27 +65,43 @@ function Classify-Path([string]$path) {
     $script:codeDirty = $true
     if (-not $script:firstCode) { $script:firstCode = $path }
   } elseif ($path -match '(^|/)\.claude/') {
-    # .claude/ 下家底（CLAUDE.md / agents / skills / settings.json 等）改了也属「改了要记
-    # progress」，计入家底代码集；evidence 账本已由上面排除分支提前 return，到不了这里。
+    # Framework assets under .claude/ (CLAUDE.md / agents / skills / settings.json etc.)
+    # also count as "changed, must record in progress", so they join the code set; the
+    # evidence ledger was already excluded by the early-return branch above.
     $script:codeDirty = $true
     if (-not $script:firstCode) { $script:firstCode = $path }
   }
 }
 
-# --porcelain -z：NUL 分隔、路径不加引号（消除带空格文件名被引号包裹致正则漏判）。git -z
-# 输出无换行，PowerShell 收成单串，按 NUL 切成记录。rename/copy 是两段：`XY <new>` NUL
-# `<old>` NUL（旧路径裸路径无前缀），故 X/Y 命中 R/C 时要再读下一段裸 old-path，新旧都计入。
-$raw = @(git -C $root status --porcelain -z 2>$null) -join ''
+# Strip the repo-root-to-project prefix, then feed Classify-Path; paths not carrying
+# the prefix (should not appear after the `-- .` pathspec limit) are skipped without
+# classification. When the project is the repo root the prefix is empty, pass-through.
+function Classify-RelPath([string]$path) {
+  if ($script:prefix) {
+    if (-not $path.StartsWith($script:prefix)) { return }
+    $path = $path.Substring($script:prefix.Length)
+  }
+  Classify-Path $path
+}
+
+# --porcelain -z: NUL-separated, paths unquoted (avoids regex misses when filenames with
+# spaces get quote-wrapped). git -z output has no newlines; PowerShell receives it as one
+# string, split into records on NUL. `-- .` limits status to the project subtree (cwd is
+# already the project dir via -C), so unrelated changes outside it never enter the set.
+# rename/copy spans two segments: `XY <new>` NUL
+# `<old>` NUL (old path is bare, no prefix), so when X/Y matches R/C, read the next bare
+# old-path segment too and count both old and new.
+$raw = @(git -C $root status --porcelain -z -- . 2>$null) -join ''
 $records = @($raw -split "`0" | Where-Object { $_ -ne '' })
 $i = 0
 while ($i -lt $records.Count) {
   $rec = $records[$i]
   if ($rec.Length -lt 3) { $i++; continue }
   $status = $rec.Substring(0, 2)
-  Classify-Path $rec.Substring(3)
+  Classify-RelPath $rec.Substring(3)
   if ($status -match '^[RC]' -or $status -match '[RC]$') {
     $i++
-    if ($i -lt $records.Count) { Classify-Path $records[$i] }
+    if ($i -lt $records.Count) { Classify-RelPath $records[$i] }
   }
   $i++
 }
@@ -66,18 +110,18 @@ $block = $false
 $reason = ''
 
 if ($codeDirty -and (-not $progDirty)) {
-  $reason = "三文件同步铁律：检测到未提交的代码/家底改动（如 $firstCode）但 progress.md 未同步。请把本轮的决策/完成事项/进度/新任务即时写入 progress.md（doc 类主 Agent 直接写），保证随时可 Clear->recap 完整恢复，然后重试停止。"
+  $reason = "Three-file-sync rule: uncommitted code/framework changes detected (e.g. $firstCode) but progress.md is not synced. Write this round's decisions/completions/progress/new tasks into progress.md now (doc-type edits are done by the main Agent directly), so the project can always be fully recovered via Clear->recap, then retry stopping."
   $block = $true
 }
 
-# 成对校验只在两份都存在时进行，缺一不强造、不拦停。
+# Pair validation runs only when both files exist; if either is missing, do not fabricate, do not block.
 if ((Test-Path (Join-Path $root 'Product-Spec.md')) -and (Test-Path (Join-Path $root 'Product-Spec-CHANGELOG.md'))) {
   if ($specDirty -and (-not $changelogDirty)) {
-    $reason = ("$reason Product-Spec.md 有未提交改动但 Product-Spec-CHANGELOG.md 未同步，需求变更可能漏记 CHANGELOG。请在 Product-Spec-CHANGELOG.md 补本次需求变更记录后重试停止。").Trim()
+    $reason = ("$reason Product-Spec.md has uncommitted changes but Product-Spec-CHANGELOG.md is not synced; the requirement change may be missing from the CHANGELOG. Add this change's record to Product-Spec-CHANGELOG.md, then retry stopping.").Trim()
     $block = $true
   }
   if ($changelogDirty -and (-not $specDirty)) {
-    $reason = ("$reason Product-Spec-CHANGELOG.md 有未提交改动但 Product-Spec.md 未同步，需求变更须成对更新两份文件。请同步 Product-Spec.md 后重试停止。").Trim()
+    $reason = ("$reason Product-Spec-CHANGELOG.md has uncommitted changes but Product-Spec.md is not synced; requirement changes must update both files as a pair. Sync Product-Spec.md, then retry stopping.").Trim()
     $block = $true
   }
 }

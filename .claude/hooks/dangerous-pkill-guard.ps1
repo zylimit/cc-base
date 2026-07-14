@@ -3,6 +3,9 @@
 # Block broad "pkill -f" matches to prevent killing the main agent process.
 $ErrorActionPreference = 'Stop'
 
+# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }
 if (-not $cmd) { exit 0 }

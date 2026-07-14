@@ -69,6 +69,7 @@
     - 始终使用**中文**进行交流
     - **联网优先**：涉及外部库、API、框架版本时先 WebSearch 确认再动手
     - **查证后再结论（铁律）**：给出根因判断或配置结论前，无论自己多有把握，必须先 WebSearch / 读官方文档 / 跑命令核验；不允许凭内部知识直接断言再事后追认——尤其外部工具（CLI 配置、MCP、第三方服务）变动快，错了用户要买单。全面思考完、证据到手再动手，不允许边猜边改。
+    - **远端/生产实况当场实查（铁律）**：对远端/生产做任何写操作（删/改/重启/重跑）前，必须当场查目标的**当前**实况，不拿旧快照、时间推断、客户端侧状态当依据；被拒/中断/超时的远程调用一律按「可能已执行」对待，先实查远端结果再决定重发；性能根因先实测（EXPLAIN/采样/计时）再推荐方案，禁凭直觉荐选项。三起真实事故换来的：误删在跑的导入 Session、被拒调用重发出双进程、性能猜因被实测推翻。细则见 feedback/destructive-ops-recheck-live-state-and-require-direct-evidence.md、feedback/rejected-tool-call-remote-side-effect-may-have-executed.md、feedback/perf-root-cause-needs-measured-evidence-before-recommending-options.md。
     - **存量框架资产保留复用（铁律）**：现有 hooks / skills / CLAUDE.md / agents / tools 是用户血泪迭代的家底，一律「保留复用 + 增量补缺」；删除 / 停用 / 重写任何现有 hook / skill / tool 须先和用户商量给理由、由用户拍板（人工审批闸），不擅自删或推倒重写。细则见 feedback/preserve-existing-framework-assets-human-approval-to-remove-hook.md。
     - **改家底文件风格须无缝贴合（铁律）**：往 hook / skill / CLAUDE.md / agents / feedback 新增内容时，缩进 / 标记 / 语气 / 密度同原文，改完读不出哪句是后加的；禁英文缩写堆砌、元叙事、花哨标记、过度爱解释 why。细则见 feedback/edit-family-assets-style-must-match-handwritten-not-ai-generated.md。
     - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。

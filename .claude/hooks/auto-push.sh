@@ -4,6 +4,9 @@
 # 不解析 hook 退出码字段（PostToolUse 输入 schema 跨版本不稳，旧写法用了
 # 不存在的 .tool_exit_code 导致永不 push）——改用 git 状态判断，确定可靠。
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 # 脚本内自判触发命令：非 git commit 输入直接退出（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)
 CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)

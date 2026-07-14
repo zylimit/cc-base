@@ -8,6 +8,9 @@
 #   - 读改写加 flock 串行（缺失则降级），防并发 PostToolUse 互相截断
 #   - jq 缺失 / 无 PROJECT_DIR → 优雅降级退出
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 command -v jq >/dev/null 2>&1 || exit 0
 [ -z "$CLAUDE_PROJECT_DIR" ] && exit 0
 
@@ -16,6 +19,16 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE_PATH" ] && exit 0
 
 STATE_FILE="$CLAUDE_PROJECT_DIR/.claude/.needs-review"
+# 项目外路径（如 /tmp 下的一次性脚本）不是项目代码，不登记；相对路径按项目根解析
+# （项目内文件绝不能被误判成项目外——那等于跳过审查）
+case "$FILE_PATH" in
+  /*|[A-Za-z]:*) ;;
+  *) FILE_PATH="$CLAUDE_PROJECT_DIR/$FILE_PATH" ;;
+esac
+case "$FILE_PATH" in
+  "$CLAUDE_PROJECT_DIR"/*) ;;
+  *) exit 0 ;;
+esac
 REL="${FILE_PATH#"$CLAUDE_PROJECT_DIR"/}"
 
 # 豁免 1：基础设施/框架自身（顶层锚定，由独立 code-reviewer 手动审，不进自动闸门）

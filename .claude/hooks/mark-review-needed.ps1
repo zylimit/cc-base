@@ -9,6 +9,9 @@
 #     otherwise dedupe and append
 $ErrorActionPreference = 'Stop'
 
+# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
 $raw = [Console]::In.ReadToEnd()
 try { $filePath = ($raw | ConvertFrom-Json).tool_input.file_path } catch { exit 0 }
@@ -18,10 +21,23 @@ $root = $env:CLAUDE_PROJECT_DIR
 $stateFile = Join-Path $root '.claude/.needs-review'
 
 # Project-root-relative path, normalized to forward slashes (Windows backslashes normalized,
-# so the exemption regex matches the .sh version)
-$rel = $filePath
-if ($filePath.StartsWith($root)) { $rel = $filePath.Substring($root.Length) }
-$rel = ($rel -replace '\\', '/').TrimStart('/')
+# so the exemption regex matches the .sh version). Relative input resolves against the
+# project root, then GetFullPath collapses ./.. segments; the prefix compare is
+# case-insensitive because Windows paths vary in casing and separator style. Paths outside
+# the project root (e.g. one-off scripts under %TEMP%) are not project code: ignore, never
+# register -- while a project file must never be misjudged as outside (that would skip review).
+if (-not [System.IO.Path]::IsPathRooted($filePath)) { $filePath = Join-Path $root $filePath }
+# Both sides through the same GetFullPath: it also expands 8.3 short names (TEMP is often
+# C:\Users\ABC123~1\...), so comparing a canonicalized file against a raw root would misjudge
+# project files as outside. Symmetric canonicalization keeps the compare honest.
+try {
+  $filePath = [System.IO.Path]::GetFullPath($filePath)
+  $root = [System.IO.Path]::GetFullPath($root)
+} catch { exit 0 }
+$normRoot = ($root -replace '\\', '/').TrimEnd('/')
+$normFile = $filePath -replace '\\', '/'
+if (-not $normFile.StartsWith("$normRoot/", [System.StringComparison]::OrdinalIgnoreCase)) { exit 0 }
+$rel = $normFile.Substring($normRoot.Length).TrimStart('/')
 
 # Exemption 1: infrastructure / framework itself (top-level anchored)
 if ($rel -match '^(tools|\.claude)/') { exit 0 }

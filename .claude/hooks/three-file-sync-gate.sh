@@ -8,12 +8,30 @@
 #     只校验存在的文件——Spec/CHANGELOG 任一不存在则不强造、不拦停（框架本体可无 Spec）。
 # 干净树 / 改动已含 progress 或两份成对 / 非 git 仓 / 无 progress.md → 优雅放行。
 # 项目根解析：CLAUDE_PROJECT_DIR 优先，缺失回退 git root，再回退 pwd。
+# 子目录场景：项目只是父仓子目录时（show-prefix 非空），status 加 -- . 限定项目子树，
+#   记录路径先剥 show-prefix 前缀再分类，剥不掉的跳过；项目即仓根时前缀为空、行为不变。
+
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
+# fail-closed：脚本自身出错绝不静默放行，一律拦停（与 .ps1 侧 trap 对齐）。
+_fail_closed() {
+  local m="three-file-sync-gate 自检失败，fail-closed 拦停——请修复闸后重试停止。"
+  if command -v jq >/dev/null 2>&1; then jq -nc --arg r "$m" '{decision:"block",reason:$r}'; else echo '{"decision":"block","reason":"three-file-sync-gate 自检失败，fail-closed 拦停。"}'; fi
+  exit 0
+}
+set -E
+trap _fail_closed ERR
+
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 PROG="$ROOT/progress.md"
 [ ! -f "$PROG" ] && exit 0
 
 # 非 git 仓 → 无工作树可判，优雅放行。
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# porcelain 路径恒相对仓根：项目是父仓子目录时带前缀（如 proj/progress.md），先取 show-prefix 备剥。
+PREFIX=$(git -C "$ROOT" rev-parse --show-prefix 2>/dev/null)
 
 CODE_DIRTY=0
 PROG_DIRTY=0
@@ -44,18 +62,32 @@ classify_path() {
   esac
 }
 
+# 剥掉仓根到项目目录的前缀再喂 classify_path；剥不掉前缀的路径（-- . 限定后理论上不该有）
+# 跳过不分类。项目即仓根时 PREFIX 为空，原样直通。
+classify_rel() {
+  local path=$1
+  if [ -n "$PREFIX" ]; then
+    case "$path" in
+      "$PREFIX"*) path=${path#"$PREFIX"} ;;
+      *) return 0 ;;
+    esac
+  fi
+  classify_path "$path"
+}
+
 # --porcelain -z：NUL 分隔、路径不加引号；NUL 无法存进变量，故用进程替换直读。
+# -- . 限定只看项目子树内改动（cwd 已由 -C 定到项目目录），仓外无关改动不进改动集。
 # rename/copy 记录是两段：`XY <new-path>` NUL `<old-path>` NUL（旧路径裸路径无前缀），
 # 故 X/Y 命中 R/C 时要再读一段裸 old-path，new/old 都计入改动集。
 while IFS= read -r -d '' rec; do
   status=${rec:0:2}
-  classify_path "${rec:3}"
+  classify_rel "${rec:3}"
   case "$status" in
     R*|C*|?R|?C)
-      IFS= read -r -d '' oldpath && classify_path "$oldpath"
+      IFS= read -r -d '' oldpath && classify_rel "$oldpath"
       ;;
   esac
-done < <(git -C "$ROOT" status --porcelain -z 2>/dev/null)
+done < <(git -C "$ROOT" status --porcelain -z -- . 2>/dev/null)
 
 BLOCK=0
 REASON=""

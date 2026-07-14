@@ -3,6 +3,9 @@
 # Check FEEDBACK-INDEX.md for pending feedback; if any, remind to dispatch evolution-runner.
 $ErrorActionPreference = 'Stop'
 
+# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
 $feedbackIndex = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/feedback/FEEDBACK-INDEX.md'
 if (-not (Test-Path $feedbackIndex)) { exit 0 }

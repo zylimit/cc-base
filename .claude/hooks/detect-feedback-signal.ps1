@@ -4,6 +4,9 @@
 # reminding to dispatch feedback-observer.
 $ErrorActionPreference = 'Stop'
 
+# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+
 $raw = [Console]::In.ReadToEnd()
 try { $prompt = ($raw | ConvertFrom-Json).prompt } catch { exit 0 }
 if (-not $prompt) { exit 0 }

@@ -29,8 +29,8 @@ info_only=()
 for h in "$CLAUDE_DIR"/hooks/*.sh; do
   base=$(basename "$h" .sh)
   case "$base" in lib-*) continue ;; esac
-  # 只看注册在 settings.json 里的钩子
-  grep -qE "hooks/${base}\.sh" "$CLAUDE_DIR/settings.json" 2>/dev/null || continue
+  # 只看注册在 settings.json 里的钩子（Mac 注册 .sh、Windows 注册 .ps1，双栖探测）
+  grep -qE "${base}\.(sh|ps1)" "$CLAUDE_DIR/settings.json" 2>/dev/null || continue
   if ! grep -q 'gate_log' "$h" 2>/dev/null; then
     info_only+=("$base")
   fi

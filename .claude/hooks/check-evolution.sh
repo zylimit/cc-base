@@ -3,6 +3,9 @@
 # 检查 FEEDBACK-INDEX.md 是否有需要处理的 feedback
 # 有条目 → 输出提醒派发 evolution-runner
 
+# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+
 FEEDBACK_INDEX="$CLAUDE_PROJECT_DIR/.claude/feedback/FEEDBACK-INDEX.md"
 
 if [ ! -f "$FEEDBACK_INDEX" ]; then
