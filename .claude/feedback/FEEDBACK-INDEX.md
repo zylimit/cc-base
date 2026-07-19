@@ -14,3 +14,6 @@
 - [调研使用 Claude Code 原生 Sub-Agent，主 Agent 保留独立判断](native-subagent-research-main-agent-judgment.md) — 长目录/复杂材料学习派原生 Task/Agent fresh Sub-Agent，不擅自调本地 ask gemini 桥；主 Agent 亲读关键材料独立判断，翻证据可委派、下判断不外包
 - [仓库刷新应遵循用户明确授权，避免擅自加重流程](repository-refresh-follow-explicit-scope.md) — 用户已授权清理并要求直接拉最新时走最短安全路径（只读确认后直接 clone），不擅自加临时克隆/比对/备份交换，明确不要的旧资产不「保险起见」保留
 - [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意
+- [押后事项非点名批准不得重启，长耗时计算是红区](deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md) — 用户押后/否决过的事项只有点名批准才能重启，含糊指令先复述问清；超过几分钟的长耗时计算启动前报预计耗时拿批准；用户要"看数"用现成数据答，数据呈现≠数据重算
+- [地基未稳不助推看盘类锦上添花，重计算签字前须成本预估](foundation-first-no-premature-dashboards-cost-preflight-serial-dev.md) — 数据未准、基本功能未稳时看盘/报表/指标卡类需求默认泼冷水降级挂账；含重计算的规格签字前附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口
+- [长跑批处理必须有看门狗与输入预检，挂死立即止损不观望](long-batch-needs-watchdog-input-precheck-and-prompt-stop-loss.md) — 批处理流水设计期就带看门狗超时 + 病态输入廉价预检直接跳过隔离；确认挂死迹象立即报告止损，不许"进程还活着"式观望，观望是最贵的选项

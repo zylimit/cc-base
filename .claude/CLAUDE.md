@@ -94,6 +94,7 @@
     - 不新增或运行测试用例，不受 [开发测试规则] 四步走验证和 red-locks 卡点约束。
     - implementer 直接交付：变更清单 + 实际执行结果 + 已知顾虑。
     - 用户显式要求测试 / 检视时照做——显式要求覆盖 Fast Mode 默认。
+    - 跳过的只是**自动派发**的 review / test / red-locks 卡点；静态检查（static-check 之类廉价闸）与用户显式要求的检视 / 测试不在跳过范围。
 
     边界（放水不放安全）：
     - **不豁免**危险命令 / 破坏性操作 / 密钥隐私 / 远端副作用等安全护栏——[总体规则] 里的远端实况实查、不可逆操作审批照旧生效。
@@ -233,7 +234,7 @@
     - 这不是可选的最佳实践，是隔离保证：防止 Task A 的错误假设污染 Task B
     - **统一派单包**：每次派发明确六字段——**Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Verification**（本任务允许且需要的最小客观核查；用户明确豁免时写明豁免）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。不适用的字段写 N/A，不让 fresh 实例靠猜。
     - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md
-    - **并行（按业界结论收紧）**：**编码是最不该并行的环节**——Anthropic 实证「most coding tasks involve fewer truly parallelizable tasks than research」，Cognition「Flappy Bird」证明并行编码会因不共享上下文而决策冲突（共享类型/契约/命名各写各的）。所以：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环）；只有当多个 Task **真正独立 + 已全规格化**（接口契约、命名、文件边界都已在 DEV-PLAN/Spec 钉死）时，才并行派 implementer，且必须 worktree 隔离、不并行改同一文件、各自独立完成 review→fix 后由主 Agent 合并。同文件改动或有依赖 → 一律串行。**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。
+    - **并行（按业界结论收紧）**：**编码是最不该并行的环节**——Anthropic 实证「most coding tasks involve fewer truly parallelizable tasks than research」，Cognition「Flappy Bird」证明并行编码会因不共享上下文而决策冲突（共享类型/契约/命名各写各的）。所以：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环）；只有当多个 Task **真正独立 + 已全规格化**（接口契约、命名、文件边界都已在 DEV-PLAN/Spec 钉死）时，才并行派 implementer，且必须 worktree 隔离、不并行改同一文件、各自独立完成 review→fix 后由主 Agent 合并。同文件改动或有依赖 → 一律串行。**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。用户说「加速/快点」≠ 授权并行铺开——加速的正解是砍范围、串行提效、减少返工，并行仍按本条判据。
 
     **Workflow 编排模式（规模化 fan-out 的上层；纯 CC 专属红利）**：
     Claude Code 的 Dynamic Workflows 用 `agent()` 原生 spawn Claude subagent。纯 CC 全是 Claude worker，这条路是开的（ccb-base 因要驱动外部 codex worker 用不了）。**Workflow 不取代 Task 直派，是它在「多个无依赖单位」时的规模化上层。**
