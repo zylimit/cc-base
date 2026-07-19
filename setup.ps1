@@ -2,7 +2,10 @@
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
 # Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force]    without -Target, defaults to the current directory ".".
 # Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
-#      and rewrite each hook command to: powershell.exe -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
+#      and rewrite each hook command to: <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
+#      Interpreter: prefer pwsh 7 (absolute path, quoted - it lives under "Program Files") because powershell.exe 5.1
+#      inherits a Git Bash-polluted PATH and stalls on some machines (verified fix on digifiber UserPromptSubmit);
+#      fall back to powershell.exe when pwsh is absent so machines without PowerShell 7 still work.
 #      Why the \$ escape: on Windows the hook command runs in Git Bash (the outer shell when git is installed - a
 #      cc-base prerequisite). A bare $env:CLAUDE_PROJECT_DIR has its $env eaten by bash (unset bash var -> empty,
 #      leaving ":CLAUDE_PROJECT_DIR", broken). Escaping as \$env keeps a literal $ through bash, so the full
@@ -37,6 +40,32 @@ function Test-FilesEqual($a, $b) {
   return (Get-FileHash $a -Algorithm SHA256).Hash -eq (Get-FileHash $b -Algorithm SHA256).Hash
 }
 
+# LF-normalized SHA256 (strip CR bytes before hashing) - must match gen-manifest.sh's
+# "tr -d '\r' | sha256sum" so a CRLF checkout still matches the recorded manifest hash.
+function Get-NormalizedSha([string]$path) {
+  $bytes = [System.IO.File]::ReadAllBytes($path)
+  $filtered = [byte[]]($bytes | Where-Object { $_ -ne 13 })
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try { return ([System.BitConverter]::ToString($sha.ComputeHash($filtered)) -replace '-', '').ToLower() }
+  finally { $sha.Dispose() }
+}
+
+# Framework core layer vs project private layer (FRAMEWORK-MANIFEST.txt):
+# the target-side old manifest records the SHA each framework file had at install time.
+# Before overwriting: target == old framework version -> safe upgrade; user-modified or
+# no old manifest -> do not overwrite, drop <name>.framework-new for manual merge.
+# Files on the target side that are not in the manifest = private layer, never touched.
+$oldManifest = @{}
+$oldManifestPath = Join-Path $targetClaude 'FRAMEWORK-MANIFEST.txt'
+if (Test-Path $oldManifestPath) {
+  foreach ($line in Get-Content $oldManifestPath) {
+    if ($line -match '^#' -or -not $line.Trim()) { continue }
+    $parts = $line -split "`t"
+    if ($parts.Count -ge 2) { $oldManifest[$parts[0]] = $parts[1] }
+  }
+}
+$script:frameworkNewList = @()
+
 function Copy-WithBackup($src, $dest) {
   $destDir = Split-Path $dest -Parent
   if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
@@ -50,7 +79,7 @@ function Copy-WithBackup($src, $dest) {
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
   '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
-  'signals.jsonl')
+  '.fast-mode', '.subagent-reminded', 'signals.jsonl', 'FRAMEWORK-MANIFEST.txt')
 $srcRootLen = (Resolve-Path $srcClaude).Path.Length
 Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
@@ -58,16 +87,42 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   # private evolution feedback: skip top-level feedback/*.md, keep feedback/templates/ (INDEX is reset below)
   $relSlash = $rel -replace '\\', '/'
   if ($relSlash -match '^feedback/[^/]+\.md$') { return }
-  Copy-WithBackup $_.FullName (Join-Path $targetClaude $rel)
+  if ($relSlash -match '^evidence/') { return }
+  if ($relSlash -match '\.(bak|framework-new)$') { return }
+  $dest = Join-Path $targetClaude $rel
+  # Manifest layering: only when the target exists with different content do we decide
+  # "safe upgrade" vs "user-modified, do not overwrite".
+  if ((Test-Path $dest) -and -not (Test-FilesEqual $_.FullName $dest)) {
+    $oldSha = $oldManifest[$relSlash]
+    if (-not ($oldSha -and (Get-NormalizedSha $dest) -eq $oldSha)) {
+      # user-modified (SHA differs from old manifest) or no old manifest (legacy install)
+      Copy-Item $_.FullName "$dest.framework-new" -Force
+      $script:frameworkNewList += $relSlash
+      return
+    }
+    # else: target == old framework version, fall through to safe overwrite (with .bak)
+  }
+  Copy-WithBackup $_.FullName $dest
 }
 
-# 3. Rewrite each hook command: .sh -> powershell.exe -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
+# 3. Rewrite each hook command: .sh -> <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
 #    Built with single-quoted PowerShell literals so the \, ", and $ characters pass through verbatim into the
 #    generated command (ConvertTo-Json escapes them for the JSON file).
+#    Interpreter detection: pwsh 7 preferred (quoted absolute path, forward slashes survive Git Bash fine);
+#    powershell.exe 5.1 kept as fallback for machines without PowerShell 7.
+$pwsh7Path = 'C:\Program Files\PowerShell\7\pwsh.exe'
+if (Test-Path $pwsh7Path) {
+  $hookInterp = '"' + ($pwsh7Path -replace '\\', '/') + '"'
+} else {
+  $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+  if ($pwshCmd) { $hookInterp = '"' + ($pwshCmd.Source -replace '\\', '/') + '"' }
+  else { $hookInterp = 'powershell.exe'; Write-Host '[!] pwsh 7 not found, hook commands fall back to powershell.exe 5.1' -ForegroundColor Yellow }
+}
+Write-Host "[ok] hook interpreter: $hookInterp"
 function Convert-ToPs1Command([string]$cmd) {
   if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
     $name = $Matches[1]
-    return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
+    return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
   }
   return $cmd
 }
@@ -75,7 +130,10 @@ function Convert-ToPs1Command([string]$cmd) {
 $src = Get-Content (Join-Path $srcClaude 'settings.json') -Raw | ConvertFrom-Json
 foreach ($event in $src.hooks.PSObject.Properties) {
   foreach ($group in $event.Value) {
-    foreach ($h in $group.hooks) { $h.command = Convert-ToPs1Command $h.command }
+    foreach ($h in $group.hooks) {
+      $h.command = Convert-ToPs1Command $h.command
+      if ($h.PSObject.Properties['timeout']) { $h.timeout = 30 }
+    }
   }
 }
 
@@ -135,6 +193,20 @@ if ((Test-Path $targetSettings) -and -not $Force) {
 $fbTpl = Join-Path $srcClaude 'feedback/templates/feedback-index-template.md'
 if (Test-Path $fbTpl) {
   Copy-WithBackup $fbTpl (Join-Path $targetClaude 'feedback/FEEDBACK-INDEX.md')
+}
+
+# Install the new manifest into the target (next upgrade uses it to tell
+# "old framework version, safe to overwrite" from "user-modified, keep").
+$srcManifest = Join-Path $srcClaude 'FRAMEWORK-MANIFEST.txt'
+if (Test-Path $srcManifest) {
+  Copy-WithBackup $srcManifest (Join-Path $targetClaude 'FRAMEWORK-MANIFEST.txt')
+}
+
+# Summary of user-modified files that were NOT overwritten (new versions at *.framework-new)
+if ($script:frameworkNewList.Count -gt 0) {
+  Write-Host ("setup: {0} file(s) modified on the target side were NOT overwritten;" -f $script:frameworkNewList.Count) -ForegroundColor Yellow
+  Write-Host 'setup: new versions were written next to them as <file>.framework-new for manual merge:' -ForegroundColor Yellow
+  foreach ($f in $script:frameworkNewList) { Write-Host "setup:   - .claude/$f" -ForegroundColor Yellow }
 }
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count

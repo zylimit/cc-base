@@ -34,6 +34,10 @@ pwsh -File setup.ps1                               # 不带参数 = 装到当前
 pwsh -File setup.ps1 -Target C:\path -Force        # 覆盖已有 settings.json（先备份 .bak）
 ```
 
+### 升级
+
+重跑一遍 setup 即升级。安装器靠 `.claude/FRAMEWORK-MANIFEST.txt` 区分框架核心层和项目私有层：你没改过的框架文件安全覆盖升级；**你在项目里改过的框架文件不会被覆盖**，新版本落在旁边的 `<文件>.framework-new`，安装结束会汇总提示，手工合并即可。项目里自己新增的文件（私有 skill / feedback 等）一律不动。框架源侧改动后用 `bash .claude/scripts/gen-manifest.sh` 重新生成清单。
+
 ## 拷贝即用（快速路径）
 
 不想跑安装器？直接把框架的 `.claude/` 整目录复制到目标项目根即可用——Claude Code 会从 `target/.claude/settings.json` 加载 hooks，从 `CLAUDE.md`、`skills/`、`agents/` 加载工作流，无需额外安装步骤或常驻服务。
@@ -57,7 +61,7 @@ target/
 **Windows 为何走 .ps1（不复用 .sh）**：Claude Code 只加载固定名 `.claude/settings.json` 这一个文件。`setup.ps1` 安装时直接把该文件里的 hook command 改写为 PowerShell 形式：
 
 ```
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
+"C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -ExecutionPolicy Bypass -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
 ```
 
-`-Command + $env:` 让 powershell 自己展开环境变量，不依赖外层 shell。之所以不让 Windows 用户走 Git Bash 跑 `.sh`：Claude Code 的 Git Bash 自动检测有已知 bug（#22700），不可靠——直接走 `.ps1` 最稳。
+`-Command + $env:` 让 pwsh 自己展开环境变量，不依赖外层 shell。解释器优先探测 pwsh 7（powershell.exe 5.1 会继承被 Git Bash 污染的 PATH，部分机器上 hook 卡死），探测不到才回退 powershell.exe。之所以不让 Windows 用户走 Git Bash 跑 `.sh`：Claude Code 的 Git Bash 自动检测有已知 bug（#22700），不可靠——直接走 `.ps1` 最稳。

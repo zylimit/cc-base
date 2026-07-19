@@ -89,3 +89,30 @@ else
 fi
 
 echo "test-setup: passed（agents=$agent_count hooks=$hook_count，私有 feedback 已排除，幂等校验通过，settings 路径=$MODE）"
+
+# ---- ④ 框架分层（FRAMEWORK-MANIFEST）----
+# ④-1 首装含 MANIFEST
+[ -f "$CL/FRAMEWORK-MANIFEST.txt" ] || fail "首装未安装 FRAMEWORK-MANIFEST.txt"
+grep -q 'agents/implementer.md' "$CL/FRAMEWORK-MANIFEST.txt" || fail "MANIFEST 缺少框架文件条目"
+
+# ④-2 用户改一个框架文件后重装 → 不覆盖 + 出现 .framework-new
+echo "# user local modification" >>"$CL/agents/implementer.md"
+user_sha=$(sha256sum "$CL/agents/implementer.md" | awk '{print $1}')
+# ④-3 前置：私有新增文件
+echo "private note" >"$CL/feedback/my-private-note-keepme.txt"
+mkdir -p "$CL/skills/my-private-skill" && echo "# mine" >"$CL/skills/my-private-skill/SKILL.md"
+
+bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-3.log" 2>&1 || { cat "$TMP/setup-3.log" >&2; fail "三次安装（升级场景）报错"; }
+after_sha=$(sha256sum "$CL/agents/implementer.md" | awk '{print $1}')
+[ "$user_sha" = "$after_sha" ] || fail "manifest 分层：用户改过的框架文件被覆盖了"
+[ -f "$CL/agents/implementer.md.framework-new" ] || fail "manifest 分层：未生成 .framework-new"
+cmp -s "$ROOT/.claude/agents/implementer.md" "$CL/agents/implementer.md.framework-new" \
+  || fail "manifest 分层：.framework-new 内容与框架源不一致"
+grep -q "framework-new" "$TMP/setup-3.log" || fail "manifest 分层：未打印 .framework-new 汇总提示"
+
+# ④-3 私有新增文件重装后仍在
+[ -f "$CL/feedback/my-private-note-keepme.txt" ] || fail "私有层：feedback 私有文件被删"
+[ -f "$CL/skills/my-private-skill/SKILL.md" ] || fail "私有层：私有 skill 被删"
+grep -q "# mine" "$CL/skills/my-private-skill/SKILL.md" || fail "私有层：私有 skill 内容被改"
+
+echo "test-setup: manifest 分层校验通过（首装含 MANIFEST / 用户改动不覆盖落 .framework-new / 私有文件保留）"

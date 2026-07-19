@@ -15,6 +15,7 @@ _Last updated: 2026-07-19_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-07-19: **TODO 清零批（#1/#3/#4/#8）已 commit 推远端**——① #1 关账：recap-on-dirty/tdd-gate/pre-commit-check 三 .ps1 在非 git 目录 Windows 真机双解释器（pwsh 7 + powershell 5.1）实测均 exit 0 不崩。② #4 审批三档：CLAUDE.md「授权连续执行」下钉 LOW（不问直接跑）/MEDIUM（预告后继续）/HIGH（必停等批准）查检表，模糊按高一档、用户指令可豁免单次（安全护栏除外）。③ #8 hook 解释器切 pwsh 7：setup.ps1 生成器探测 pwsh 7 绝对路径（→Get-Command pwsh→回退 powershell.exe 降级保底+黄字告警），timeout 统一 30；仓库 settings.json 系 bash 权威源模板（.sh 形态）不动；mktemp 实装 14 条全 pwsh 形态 JSON 合法、抽 2 hook 实调 exit 0。④ #3 框架/项目分层：FRAMEWORK-MANIFEST.txt（95 文件，LF 归一化 SHA256 抗 autocrlf）+ gen-manifest.sh；setup.sh/.ps1 升级三分支（不存在→装 / SHA==旧清单→覆盖升级 / 用户改过或无旧清单→落 .framework-new 不覆盖+汇总提示）；私有层（清单外文件）一律不动；doctor 增 MANIFEST note 级抽验；test-setup 增 manifest 三场景用例；README 增升级小节。主 Agent 独立验收：test-setup（含 manifest 段）/test-routing/doctor/selftest/test-fast-mode 13/13 全绿。
 - 2026-07-19: **CLAUDE.md 重构瘦身（TODO #2）完成，已 commit 待推远端**——主控 519→318 行，新建 .claude/rules/ 三文件（workflow-orchestration 12 行 / dev-workflow-details 167 行 / file-structure 47 行），下沉原则=原文剪切+强制指针（每 rules 文件头带「必须完整读取再行动」，主控指针写「做 X 之前必须先读」）；热规则零动：[总体规则] 全部铁律 / Fast Mode / Skill 触发条件 15 条 / Agent 表+派单包+回执信封+并行判据 / per-Task review→fix 闭环留主控 / ASCII Banner 品牌资产原样。顺手修 7 处登记漂移（file-structure 树补 hooks/workflows/settings.json、scripts/tests 明细、README「9 个 skill」→15）。doctor.sh 增 rules/ 5 项自检；setup 全树复制式 rules/ 天然随装（mktemp 实跑验证）。验收：test-routing passed / doctor 通过 / selftest PASS / test-setup passed；下沉段 diff 逐字一致；主 Agent 亲读 rules 文件+指针+闸点保留抽查，补掉 Escalation 一处（摘要行漏 workflows/EVOLUTION.md）。
 - 2026-07-19: **实战项目 feedback 反哺批 + ccb-base 二档终裁**——双调研 Sub-Agent（ccb-base 重评 / 实战项目扫描）结论：ccb-base 6-17 已停更、内容属老底子，暂缓第二档（test-guard-hook / 有界修复三件套 / INVENTORY.md）**全部放弃不再看**（用户拍板）；实战 diff ~90% 为 CRLF 假差异或框架源更新。落地：① 回抄 3 条框架级 feedback 入库登记 INDEX——押后事项非点名批准不得重启+长耗时计算红区（digifiber）、地基优先+重计算签字前成本预估+串行收口（digifiber）、长跑批处理看门狗+输入预检+止损不观望（optical-power，71min→4h 实害教训）；② CLAUDE.md 两处并入——并行收紧条目补「加速≠授权并行铺开」、Fast Mode 补分级语义（跳的只是自动派发卡点，static-check 廉价闸与显式要求不在范围）。不回抄：项目特定环境铁律 4 条、订阅额度条（已在全局 memory）。主 Agent 逐 diff 亲读验收：纯增量、风格贴合；test-routing passed、doctor 通过。
 - 2026-07-19: **.claude/.gitignore 补运行态忽略**——.subagent-reminded、.fast-mode 加入忽略（三层不混写：运行态不入库；.subagent-reminded 系 subagent-acceptance-reminder hook 按 agent 键去重的标记文件）。
@@ -83,10 +84,10 @@ _Last updated: 2026-07-19_
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
 ## TODO
-- [P2][OPEN][#1] 其余 3 个 .ps1 hook（recap-on-dirty 等）在非 git 目录下的同源加固，尚未在 Windows 真机验证（可选，低优先级）
+- [P2][DONE][#1] 其余 3 个 .ps1 hook 非 git 目录加固——2026-07-19 Windows 真机双解释器（pwsh7+5.1）实测三 hook 均 exit 0，关账
 - [P1][DONE][#2] **CLAUDE.md 瘦身——冷规则下沉**（2026-07-19 完成：主控 519→318 行 + .claude/rules/ 三文件强制指针式下沉，热规则/铁律/Banner 零动，evidence 见当日 Done 条目）
-- [P2][OPEN][#3] **框架核心层 vs 项目私有层 分层**（借鉴 OpenHands Global/User/Org/Project 四层 skill 机制）：当前 .claude/ 框架核心与项目私有定制混居，升级时无法区分哪些可覆盖、哪些用户改过。目标：明确切「框架核心层（随版本升级、只读）」与「项目覆盖层（私有、不被覆盖）」。与 v1.x 升级命令直接相关——需用户拍板，属架构决策。
-- [P2][OPEN][#4] **人工审批闸升级为显式风险三档清单**（借鉴 OpenHands ActionSecurityRisk LOW/MEDIUM/HIGH 枚举）：现有「授权连续执行除非真正需要人拍板」判据是散文，不同 session 松紧不一。目标：钉成三档——LOW（自动跑：写文档/加测试/P2-P3修复）/ MEDIUM / HIGH（必停：删文件/改家底hook/发布上线/git push/不可逆）。模糊判断变查检表，机制化可审计，接上「验收以证据为准」铁律。
+- [P2][DONE][#3] **框架核心层 vs 项目私有层 分层**——2026-07-19 落地轻量 manifest 方案（FRAMEWORK-MANIFEST + 升级三分支 + .framework-new），evidence 见当日 Done 条目
+- [P2][DONE][#4] **人工审批闸三档清单**——2026-07-19 钉进 CLAUDE.md [总体规则]（LOW/MEDIUM/HIGH + 模糊按高一档），evidence 见当日 Done 条目
 - [P2][DONE][#6] **ccb-base 借鉴批次——gate-audit+lib-gate-log+three-file-sync-gate 完整流水线验收**（2026-07-01，evidence：提交待用户拍板）
 - [P1][DONE][#7] **提交 ccb-base 借鉴批次改动**——已提交远端并发版 v1.5.0（commit b895805，2026-07-01）。
 - [P2][DONE][#5] **setup.sh 安装时未排除私有 feedback**——已在 v1.3.1 修复（commit 856566e）：setup.sh/setup.ps1 跳过 feedback/ 顶层私有 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 排除逻辑对齐。实测 /tmp/ccft-verify 私有 *.md=0、其它资产齐全。

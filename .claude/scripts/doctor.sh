@@ -73,6 +73,28 @@ command -v git  >/dev/null 2>&1 && ok "git 可用"  || note "未找到 git；git
 command -v bash >/dev/null 2>&1 && ok "bash 可用" || note "未找到 bash"
 command -v jq   >/dev/null 2>&1 && ok "jq 可用（可选）"      || note "未找到 jq（可选）"
 
+# FRAMEWORK-MANIFEST 抽验（note 级，不 fail）：存在则抽 3 个文件比对 LF 归一化 SHA256，
+# 不符只提示「本地有改动或框架已更新」——这是分层信息，不是错误。
+if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1; then
+  mismatch=0; checked=0
+  while IFS=$(printf '\t') read -r m_rel m_sha; do
+    case "$m_rel" in ''|\#*) continue ;; esac
+    [ -f ".claude/$m_rel" ] || continue
+    checked=$((checked + 1))
+    actual=$(tr -d '\r' <".claude/$m_rel" | sha256sum | awk '{print $1}')
+    [ "$actual" = "$m_sha" ] || mismatch=$((mismatch + 1))
+    [ "$checked" -ge 3 ] && break
+  done < <(grep -v '^#' .claude/FRAMEWORK-MANIFEST.txt | head -20 | shuf 2>/dev/null | head -3 \
+           || grep -v '^#' .claude/FRAMEWORK-MANIFEST.txt | head -3)
+  if [ "$checked" -eq 0 ]; then
+    note "FRAMEWORK-MANIFEST 存在但未抽到可验文件"
+  elif [ "$mismatch" -eq 0 ]; then
+    ok "FRAMEWORK-MANIFEST 抽验 $checked 个文件 SHA 一致"
+  else
+    note "FRAMEWORK-MANIFEST 抽验 $mismatch/$checked 个文件 SHA 不符（本地有改动或框架已更新，非错误）"
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "doctor: 自检失败"
   exit 1
