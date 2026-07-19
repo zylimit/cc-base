@@ -15,6 +15,7 @@ _Last updated: 2026-07-19_
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 
 ## Done
+- 2026-07-19: **CLAUDE.md 重构瘦身（TODO #2）完成，已 commit 待推远端**——主控 519→318 行，新建 .claude/rules/ 三文件（workflow-orchestration 12 行 / dev-workflow-details 167 行 / file-structure 47 行），下沉原则=原文剪切+强制指针（每 rules 文件头带「必须完整读取再行动」，主控指针写「做 X 之前必须先读」）；热规则零动：[总体规则] 全部铁律 / Fast Mode / Skill 触发条件 15 条 / Agent 表+派单包+回执信封+并行判据 / per-Task review→fix 闭环留主控 / ASCII Banner 品牌资产原样。顺手修 7 处登记漂移（file-structure 树补 hooks/workflows/settings.json、scripts/tests 明细、README「9 个 skill」→15）。doctor.sh 增 rules/ 5 项自检；setup 全树复制式 rules/ 天然随装（mktemp 实跑验证）。验收：test-routing passed / doctor 通过 / selftest PASS / test-setup passed；下沉段 diff 逐字一致；主 Agent 亲读 rules 文件+指针+闸点保留抽查，补掉 Escalation 一处（摘要行漏 workflows/EVOLUTION.md）。
 - 2026-07-19: **实战项目 feedback 反哺批 + ccb-base 二档终裁**——双调研 Sub-Agent（ccb-base 重评 / 实战项目扫描）结论：ccb-base 6-17 已停更、内容属老底子，暂缓第二档（test-guard-hook / 有界修复三件套 / INVENTORY.md）**全部放弃不再看**（用户拍板）；实战 diff ~90% 为 CRLF 假差异或框架源更新。落地：① 回抄 3 条框架级 feedback 入库登记 INDEX——押后事项非点名批准不得重启+长耗时计算红区（digifiber）、地基优先+重计算签字前成本预估+串行收口（digifiber）、长跑批处理看门狗+输入预检+止损不观望（optical-power，71min→4h 实害教训）；② CLAUDE.md 两处并入——并行收紧条目补「加速≠授权并行铺开」、Fast Mode 补分级语义（跳的只是自动派发卡点，static-check 廉价闸与显式要求不在范围）。不回抄：项目特定环境铁律 4 条、订阅额度条（已在全局 memory）。主 Agent 逐 diff 亲读验收：纯增量、风格贴合；test-routing passed、doctor 通过。
 - 2026-07-19: **.claude/.gitignore 补运行态忽略**——.subagent-reminded、.fast-mode 加入忽略（三层不混写：运行态不入库；.subagent-reminded 系 subagent-acceptance-reminder hook 按 agent 键去重的标记文件）。
 - 2026-07-19: **CLAUDE.md 借鉴增强批（codex-base AGENTS.md 六项）已 commit，待推远端**——① [Fast Mode] 独立章节：补齐流程侧放水（不自动派 tester/code-reviewer、不进 review 闭环、implementer 直接交付；显式要求覆盖默认），钉死安全边界（不豁免护栏/不等于部署 push 授权）——修掉「hook 放行但主控流程不知道 fast-mode 存在」的半套缺口；② [总体规则] 增「用户当前指令优先」（安全护栏不可豁免）；③ 统一派单包六字段（Goal/Scope/Out of Scope/Existing Pattern/Verification/Escalation，N/A 不靠猜）；④ 统一回执信封六字段（含 Not verified 必列；tester 可 PASS/FAIL），与四态开头融合；⑤ 三层不混写（角色源码/项目绑定/运行态）；⑥ Agent 表加 Allowed Skills 列（约束行为非安全边界）。主 Agent 逐 diff 亲读验收：纯增量零内容丢失、风格贴合；test-routing passed、doctor 通过。
@@ -83,7 +84,7 @@ _Last updated: 2026-07-19_
 
 ## TODO
 - [P2][OPEN][#1] 其余 3 个 .ps1 hook（recap-on-dirty 等）在非 git 目录下的同源加固，尚未在 Windows 真机验证（可选，低优先级）
-- [P1][OPEN][#2] **CLAUDE.md 瘦身——三态触发把冷规则下沉**（借鉴 OpenHands microagent keyword/task trigger 机制）：把低频长段落（[本地运行阶段]、[Workflow 编排模式] 细则、各 feedback 引用等）下沉成 keyword-triggered 小文件，命中才注入；常驻只留 角色+铁律骨架+路由。收益：省 token、降噪，零架构风险。Context：OpenHands .openhands/microagents/*.md frontmatter + skill_loader.py
+- [P1][DONE][#2] **CLAUDE.md 瘦身——冷规则下沉**（2026-07-19 完成：主控 519→318 行 + .claude/rules/ 三文件强制指针式下沉，热规则/铁律/Banner 零动，evidence 见当日 Done 条目）
 - [P2][OPEN][#3] **框架核心层 vs 项目私有层 分层**（借鉴 OpenHands Global/User/Org/Project 四层 skill 机制）：当前 .claude/ 框架核心与项目私有定制混居，升级时无法区分哪些可覆盖、哪些用户改过。目标：明确切「框架核心层（随版本升级、只读）」与「项目覆盖层（私有、不被覆盖）」。与 v1.x 升级命令直接相关——需用户拍板，属架构决策。
 - [P2][OPEN][#4] **人工审批闸升级为显式风险三档清单**（借鉴 OpenHands ActionSecurityRisk LOW/MEDIUM/HIGH 枚举）：现有「授权连续执行除非真正需要人拍板」判据是散文，不同 session 松紧不一。目标：钉成三档——LOW（自动跑：写文档/加测试/P2-P3修复）/ MEDIUM / HIGH（必停：删文件/改家底hook/发布上线/git push/不可逆）。模糊判断变查检表，机制化可审计，接上「验收以证据为准」铁律。
 - [P2][DONE][#6] **ccb-base 借鉴批次——gate-audit+lib-gate-log+three-file-sync-gate 完整流水线验收**（2026-07-01，evidence：提交待用户拍板）

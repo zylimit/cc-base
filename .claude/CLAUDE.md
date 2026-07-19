@@ -15,46 +15,8 @@
     9. **构建发布** → 调用 release-builder，打包或部署上线（按需）
 
 [文件结构]
-    project/
-    ├── Product-Spec.md                    # 产品需求文档
-    ├── Product-Spec-CHANGELOG.md          # 需求变更记录
-    ├── Design-Brief.md                    # 设计规范文档（可选）
-    ├── DEV-PLAN.md                        # 分阶段开发计划
-    ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
-    │   ├── src/
-    │   ├── package.json
-    │   └── ...
-    ├── .gitignore
-    └── .claude/
-        ├── CLAUDE.md                      # 主控（本文件）
-        ├── agents/
-        │   ├── implementer.md             # 实现者 Sub-Agent（编码）
-        │   ├── code-reviewer.md           # 审查者 Sub-Agent（审查）
-        │   ├── tester.md                  # 测试者 Sub-Agent（写测/跑测，独立于实现者）
-        │   ├── deployer.md                # 部署者 Sub-Agent（打包/部署）
-        │   ├── feedback-observer.md       # 反馈观察 Sub-Agent
-        │   ├── evolution-runner.md        # 进化引擎 Sub-Agent
-        │   └── progress-recorder.md       # 项目记忆 Sub-Agent
-        ├── EVOLUTION.md                   # 进化引擎
-        ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / skill-description-lint）
-        ├── tests/                         # 框架自测（selftest / test-setup / test-routing，run-all.sh 统一跑）
-        └── skills/
-            ├── product-spec-builder/      # 需求收集
-            ├── design-brief-builder/      # 设计规范
-            ├── design-maker/              # 设计图制作
-            ├── dev-planner/               # 开发计划
-            ├── dev-builder/               # 项目开发
-            ├── bug-fixer/                 # Bug 修复
-            ├── code-review/               # 代码审查
-            ├── test-builder/              # 系统测试
-            ├── release-builder/           # 构建发布
-            ├── red-blue-review/           # 红蓝对抗审查
-            ├── branch-finisher/           # 开发分支收尾
-            ├── skill-builder/             # 创建新 Skill
-            ├── feedback-writer/           # 记录用户反馈
-            ├── evolution-engine/          # 进化引擎扫描
-            └── progress-recorder/         # 项目记忆维护
+    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Design-Brief.md（可选）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
+    完整目录树见 .claude/rules/file-structure.md——生成/核对项目结构之前必须先读该文件。
 
 [运行模型——纯 Claude Code + Sub-Agent]
     本框架是**纯 Claude Code 方案**：所有委派一律走 Claude Code 原生的 **Sub-Agent（Task/Agent 工具）**，不依赖任何外部 Agent 编排进程（无 CCB / 无 codex/gemini 外部驱动 / 无 daemon / 无 tmux 编排）。
@@ -236,16 +198,7 @@
     - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md
     - **并行（按业界结论收紧）**：**编码是最不该并行的环节**——Anthropic 实证「most coding tasks involve fewer truly parallelizable tasks than research」，Cognition「Flappy Bird」证明并行编码会因不共享上下文而决策冲突（共享类型/契约/命名各写各的）。所以：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环）；只有当多个 Task **真正独立 + 已全规格化**（接口契约、命名、文件边界都已在 DEV-PLAN/Spec 钉死）时，才并行派 implementer，且必须 worktree 隔离、不并行改同一文件、各自独立完成 review→fix 后由主 Agent 合并。同文件改动或有依赖 → 一律串行。**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。用户说「加速/快点」≠ 授权并行铺开——加速的正解是砍范围、串行提效、减少返工，并行仍按本条判据。
 
-    **Workflow 编排模式（规模化 fan-out 的上层；纯 CC 专属红利）**：
-    Claude Code 的 Dynamic Workflows 用 `agent()` 原生 spawn Claude subagent。纯 CC 全是 Claude worker，这条路是开的（ccb-base 因要驱动外部 codex worker 用不了）。**Workflow 不取代 Task 直派，是它在「多个无依赖单位」时的规模化上层。**
-    - **判据轴 = 这些单元的决策要不要自洽**（不是"任务多少"）：
-      - **要自洽（共享上下文/契约）** → 编码这类 → **别用 workflow 并行**，串行直派。
-      - **不要自洽（只读/可独立汇总）** → 审查维度、测试目标、代码库探索、研究广度 → **Workflow fan-out 甜区**。
-    - **三个推荐场景**：① **code-review 多维 + 对抗验证**——`pipeline(维度, 审查, 逐条 verify)`，verify 用**多视角 lens**（correctness/security/repro），以视角多样性补回纯 CC 失去的「codex/claude 异构互照」。已落地脚本 `.claude/workflows/code-review-fanout.js`，opt-in 直接调。② **test-builder 批量写测**——`parallel` 多个高价值逻辑各派 tester（fresh 实例天然独立于 implementer 作者）。③ **代码库探索/研究**——breadth-first 普查。
-    - **集成点 `agentType`**：workflow 的 `agent(prompt, {agentType:'code-reviewer'|'tester'|'implementer', schema, isolation:'worktree'})` 从同一注册表复用框架现有专职 Agent（带其 skill+system prompt）。**编排换脚本，工人不变**，隔离/职责边界/写测独立全保住。
-    - **三铁律不动**：① **主 Agent 仍是唯一编排者**——workflow 是主 Agent 写的脚本，不是 Sub-Agent 自拉 Sub-Agent；其内 `workflow()` 嵌套仅一层。② **验收判断权留主 Agent**——workflow 用 `schema` 回传「结论 + 证据句柄」，主 Agent 凭证据定夺（= 翻证据外包/下判断自留）。③ 写测独立性靠 `agent()` 每次 fresh + 不同 agentType。
-    - **成本闸门（硬约束）**：多 Agent 耗 token **~15x**（Anthropic 实证），只对高价值任务划算。Workflow **必须用户显式 opt-in**，不静默触发——达到 fan-out 规模时主 Agent 先提议、用户确认再跑。worktree 隔离有 ~200-500ms+磁盘/agent 成本，只在并行写文件时用；单 Phase 仅 1-2 个单位时不划算，直接 Task 直派。
-    - **worktree 操作纪律**：① Step0 先检测当前是否已在 worktree 中，已在则不再嵌套创建（注意排除 submodule 误判，别把 submodule 当成 worktree）；② 目录优先级——已声明目录 > 现存 .worktrees > 配置指定目录 > 默认，选定后须 `git check-ignore` 确认该 worktree 路径不入版本控制（防把 worktree 提交进仓库）；③ 优先用 harness 原生 worktree 工具（如 EnterWorktree），没有再退回 git 命令。
+    **Workflow 编排模式**：多个无依赖单位的规模化 fan-out 上层（判据轴 = 单元决策要不要自洽；须用户显式 opt-in，多 Agent 耗 token ~15x）。**写或提议任何 workflow 之前必须先读 .claude/rules/workflow-orchestration.md**（判据轴 / 三个推荐场景 / agentType 集成点 / 三铁律 / 成本闸门 / worktree 操作纪律全在该文件）。
 
     **Sub-Agent 回传纪律（防回传消息灌爆主 Agent 上下文）**：
     - Sub-Agent 上下文虽自动隔离，但它的**最终回传消息**是唯一进主 Agent 上下文的东西。回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译输出位置 / 测试运行器输出位置 / 时间戳）+ 关键提炼，**不贴全文/原始长日志**。长报告压成要点。
@@ -281,170 +234,16 @@
         **下一步**：[具体指令或操作]"
 
 [工作流程]
-    [需求收集阶段]
-        触发：用户表达产品想法（自动）或调用 /product-spec-builder（手动）
-        
-        执行：调用 product-spec-builder skill
-        
-        完成后：输出交付指南，引导下一步
-
-    [交付阶段]
-        触发：Product Spec 生成完成后自动执行
-
-        用户签字闸：先让用户审查已写入的 Product-Spec.md，明确批准后才进入 dev-planner 规划阶段。用户没点头不往下走——有改动回 product-spec-builder 改完再请批。
-
-        输出：
-            "✅ **Product Spec 已生成！**
-            
-            文件：Product-Spec.md
-            
-            ---
-            
-            先过一遍 Product-Spec.md，确认写的就是你要的。**批准了我再往下规划开发计划。**
-            
-            ## 📘 接下来
-            
-            - 调用 /design-brief-builder 确定视觉方向（可选）
-            - 调用 /design-maker 生成完整设计稿（可选，需先完成 Design Brief）
-            - 调用 /dev-planner 制定开发计划（需先批准 Spec）
-            - 直接对话可以改 UI、加功能"
-
-    [设计规范阶段]
-        触发：用户调用 /design-brief-builder
-        
-        执行：调用 design-brief-builder skill
-        
-        完成后：
-            "✅ **Design Brief 已生成！**
-            
-            文件：Design-Brief.md
-            
-            接下来：
-            - 调用 /design-maker 生成完整设计稿（可选）
-            - 调用 /dev-planner 制定开发计划
-            - 跳过设计稿也可以，后续按文字描述开发"
-
-    [设计图制作阶段]
-        触发：用户调用 /design-maker
-        
-        执行：调用 design-maker skill
-        
-        完成后：
-            "✅ **设计稿已完成！**
-            
-            设计文件已通过设计工具生成，覆盖所有页面和状态变体。
-            
-            调用 /dev-planner 制定开发计划。设计稿会作为 Phase 拆分和编码实现的核心参照。"
-
-    [开发计划阶段]
-        触发：用户调用 /dev-planner
-        
-        执行：调用 dev-planner skill
-        
-        生成后跑 `.claude/scripts/plan-lint.sh` 静态校验（禁 placeholder / Phase 结构 / Task 粒度），不过先修再往下走
-        
-        完成后：
-            "✅ **DEV-PLAN 已生成！**
-            
-            文件：DEV-PLAN.md
-            共 N 个 Phase。
-            
-            调用 /dev-builder 开始开发。"
-
-    [项目开发阶段]
-        触发：用户调用 /dev-builder
-    
-        第一步：询问设计稿
-            询问用户："有设计稿吗？有的话发给我参考。"
-            用户发送图片 → 记录，开发时参考
-            用户说没有 → 继续
-    
-        第二步：进入开发
-            调用 dev-builder skill，进入 Plan Mode，列出当前 Phase 的 TaskList
-            编码一律委派（[总体规则] 职责边界铁律，无"主 Agent 直接开发"分支）：
-                → 派发 implementer Sub-Agent：每个 Task 一个 fresh 实例，有依赖顺序执行，无依赖可并行，不并行修改同一文件，并行 Task 各自独立完成 review → fix 循环后再 commit，如有文件冲突由主 Agent 合并解决
-                → 主 Agent 只写提示词（任务上下文：Spec 条目、交付清单、涉及文件、项目结构）+ 验收，不亲手写代码
-    
-        第三步：per-Task 开发 → review → fix 循环
-
-            对 Phase 中的每个 Task，执行以下循环：
-
-            派发 implementer 编码（执行规则见 dev-builder SKILL.md）
-                ↓
-            派发 code-reviewer 三阶段审查
-                ↓
-            Stage 0 静态闸（static-check.sh 识栈跑 linter）结果：
-                → 全绿 → 进入 Stage 1
-                → 有静态错 → 停在 Stage 0，派发 bug-fixer 修绿 → 从 Stage 0 重审
-                ↓
-            Stage 1 Spec Compliance 结果：
-                → 通过 → 进入 Stage 2
-                → 失败 → 派发 implementer 补实现 → 重新派发 code-reviewer
-                ↓
-            Stage 2 Code Quality 结果：
-                → 通过 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task
-                → 失败 → 派发 bug-fixer（或 implementer）修复 → 重新派发 code-reviewer（从 Stage 0 开始）
-
-            循环直到三个 Stage 都通过。
-
-            所有 Task 完成 → 进入第四步
-
-            用户可随时介入切换为手动模式
-
-        第四步：Phase 级别最终验证
-            执行 dev-builder SKILL.md [Phase 完成度判断] 的四步走验证。
-            其中第2步「测试完整性」派 tester Sub-Agent 跑/补回归测试（写测≠被测作者）。
-            重点关注跨 Task 的集成问题——导入关系、文件依赖、命名一致性。
-            如发现问题 → 派发 bug-fixer 修复 → 用 fix: commit message 提交 → 重新验证
-
-        第五步：用户确认 Phase 完成
-
-        第六步：引导进入下一个 Phase，或提示可调用 /release-builder 发布
-
-        补充——手动触发入口：
-        - 用户调用 /code-review → 派发 code-reviewer 三阶段审查（Stage 0 静态闸 → Stage 1/2）→ 展示报告给用户 → 用户决定修复范围和下一步
-        - 用户调用 /bug-fixer 或报告 bug → 调用 bug-fixer skill 修复 → 修完后建议 /code-review 验证
-
-    [发布阶段]
-        触发：用户调用 /release-builder
-
-        执行：调用 release-builder skill（打包前先过测试卡点；部署派发 deployer Sub-Agent，主 Agent 独立验收）
-
-        完成后：展示发布结果
-
-    [本地运行阶段]
-        触发：用户说"帮我跑起来"、"启动项目"、"运行一下"等
-        执行：自动检测项目类型，安装依赖，启动项目
-        输出："🚀 **项目已启动！** **访问地址**：http://localhost:[端口号] [根据 Product Spec 生成简要使用说明]"
-
-    [内容修订]
-        当用户提出修改意见时：
-
-        第一步：明确变更内容
-            调用 product-spec-builder（迭代模式）
-                ↓
-            通过追问明确变更内容 → 更新 Product-Spec.md → 更新 Product-Spec-CHANGELOG.md
-                ↓
-            用户签字闸：让用户审查更新后的 Product-Spec.md，明确批准变更后才进入第二步。没点头不更新开发计划。
-
-        第二步：更新开发计划
-            调用 dev-planner（迭代模式）
-                ↓
-            更新 DEV-PLAN.md（如不存在则创建）→ 明确变更影响哪些 Phase / Task
-
-        第三步：执行代码变更
-            编码一律委派（[总体规则] 职责边界铁律）：
-                → 派发 implementer Sub-Agent，主 Agent 写提示词 + 验收，不亲手写代码
-
-        第四步：review → fix 循环
-            执行 [项目开发阶段] 第三步同样的 review → fix 循环。
-
-        第五步：验证 → 用户确认
-            执行 dev-builder SKILL.md [Phase 完成度判断] 的四步走验证。
-            如验证中发现问题并修复，修复的 commit 已在修复时提交。
-            用户确认 → 完成
-
-        完成后引导：如有更多修改继续对话。如之前已打包发布过，提醒用户输入 /release-builder 重新打包。
+    **执行任何阶段之前必须先读 .claude/rules/dev-workflow-details.md**——各阶段的完整步骤、签字闸、输出话术全在该文件，主控只留触发与要点索引：
+    - [需求收集阶段]：用户表达产品想法（自动）或 /product-spec-builder（手动）→ 调 product-spec-builder skill → 输出交付指南
+    - [交付阶段]：Spec 生成后自动执行 → **用户签字闸**（用户批准 Product-Spec.md 后才进规划，没点头不往下走）→ 输出交付话术（见细则）
+    - [设计规范阶段]：/design-brief-builder → 调 design-brief-builder skill → 引导下一步
+    - [设计图制作阶段]：/design-maker → 调 design-maker skill → 引导 /dev-planner
+    - [开发计划阶段]：/dev-planner → 调 dev-planner skill → 生成后跑 `.claude/scripts/plan-lint.sh`，不过先修再往下走
+    - [项目开发阶段]：/dev-builder → 六步走（问设计稿 → Plan Mode 列 TaskList、编码一律委派 implementer → per-Task review→fix 循环 → Phase 四步走验证（第2步派 tester）→ 用户确认 → 引导下一 Phase/发布）。per-Task 闭环顺序：implementer 编码 → code-reviewer 三阶段审查（Stage 0 静态闸 → Stage 1 规格 → Stage 2 质量），任一 Stage 失败派 bug-fixer/implementer 修复后从 Stage 0 重审，三 Stage 全过才 commit 进下一 Task。手动入口：/code-review、/bug-fixer 照常可用
+    - [发布阶段]：/release-builder → 打包前先过测试卡点；部署派 deployer，主 Agent 独立验收
+    - [本地运行阶段]：用户说"帮我跑起来/启动项目/运行一下" → 检测项目类型、装依赖、启动、报访问地址
+    - [内容修订]：用户提修改意见 → 五步走（product-spec-builder 迭代改 Spec+CHANGELOG → **用户签字闸** → dev-planner 更新计划 → implementer 委派改码 → review→fix 循环 → 四步走验证 → 用户确认）；已发布过则提醒 /release-builder 重新打包
 
 [开发测试规则]
     每完成一个 Phase 必须通过四步走验证（Code Review → 测试完整性 → 编译验证 → 功能测试），全部通过才能确认 Phase 完成。

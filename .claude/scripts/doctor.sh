@@ -18,6 +18,12 @@ note() { printf '! %s\n' "$1" >&2; warn=1; }
 # 主控文件
 [ -f .claude/CLAUDE.md ] && ok ".claude/CLAUDE.md 存在" || bad ".claude/CLAUDE.md 缺失"
 
+# 主控下沉细则（rules/）
+[ -d .claude/rules ] && ok ".claude/rules 存在" || bad ".claude/rules 缺失"
+for r in file-structure workflow-orchestration dev-workflow-details; do
+  [ -f ".claude/rules/$r.md" ] && ok "rule $r" || bad "rule $r 缺失"
+done
+
 # 7 个 agent
 [ -d .claude/agents ] && ok ".claude/agents 存在" || bad ".claude/agents 缺失"
 agent_count=$(find .claude/agents -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')

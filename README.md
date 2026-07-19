@@ -7,8 +7,9 @@
 注入式安装把以下框架资产复制进 target 项目的 `.claude/`，并把 hooks 合并进 `target/.claude/settings.json`（不覆盖你已有的其他配置）：
 
 - `CLAUDE.md` —— 主控规则（职责边界、Skill 调用、四步走验证、记忆规则）
+- `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段详细步骤），主控留指针按需读取
 - `hooks/` —— 闸门钩子（stop-gate 待审拦截、no-direct-code-guard、tdd-gate、pre-commit-check、dangerous-pkill-guard 等）
-- `skills/` —— 9 个工作流 Skill（product-spec / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder …）
+- `skills/` —— 15 个工作流 Skill（product-spec / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
 - `feedback/` —— 经验教训库 + 索引
 
