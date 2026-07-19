@@ -11,8 +11,9 @@
 # 子目录场景：项目只是父仓子目录时（show-prefix 非空），status 加 -- . 限定项目子树，
 #   记录路径先剥 show-prefix 前缀再分类，剥不掉的跳过；项目即仓根时前缀为空、行为不变。
 
-# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
+# fast-mode 总闸：共享库判定（.claude/.fast-mode 内 expires_epoch 未过期才静默放行；库缺失 fail-closed 不放行）
+_FM_LIB="$(dirname "$0")/lib-fast-mode.sh"
+if [ -f "$_FM_LIB" ]; then . "$_FM_LIB"; if fast_mode_active; then exit 0; fi; fi
 
 # fail-closed：脚本自身出错绝不静默放行，一律拦停（与 .ps1 侧 trap 对齐）。
 _fail_closed() {
@@ -51,13 +52,13 @@ classify_path() {
     .claude/evidence/*|*/.claude/evidence/*|node_modules/*|*/node_modules/*|out/*|*/out/*|dist/*|*/dist/*) ;;
     *.sh|*.ps1|*.ts|*.tsx|*.js|*.jsx|*.py|*.css|*.go|*.rs)
       CODE_DIRTY=1
-      [ -z "$FIRST_CODE" ] && FIRST_CODE="$path"
+      if [ -z "$FIRST_CODE" ]; then FIRST_CODE="$path"; fi
       ;;
     .claude/*|*/.claude/*)
       # .claude/ 下家底（CLAUDE.md / agents / skills / settings.json 等）改了也属「改了要记
       # progress」，计入家底代码集；evidence 账本由上面排除分支先行拦掉，到不了这里。
       CODE_DIRTY=1
-      [ -z "$FIRST_CODE" ] && FIRST_CODE="$path"
+      if [ -z "$FIRST_CODE" ]; then FIRST_CODE="$path"; fi
       ;;
   esac
 }

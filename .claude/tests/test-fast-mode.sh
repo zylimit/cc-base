@@ -19,11 +19,12 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); echo "  [PASS] $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $1"; }
 
-# 伪项目根：拷 fast-mode.sh 与抽测 hook，保持 .claude/ 相对结构
+# 伪项目根：拷 fast-mode.sh 与抽测 hook（含共享判定库 lib-fast-mode.sh），保持 .claude/ 相对结构
 ROOT="$TMP/proj"
 mkdir -p "$ROOT/.claude/scripts" "$ROOT/.claude/hooks"
 cp "$SRC/scripts/fast-mode.sh" "$ROOT/.claude/scripts/"
 cp "$SRC/hooks/tdd-gate.sh" "$ROOT/.claude/hooks/"
+cp "$SRC/hooks/lib-fast-mode.sh" "$ROOT/.claude/hooks/"
 FM="bash $ROOT/.claude/scripts/fast-mode.sh"
 FLAG="$ROOT/.claude/.fast-mode"
 
@@ -94,6 +95,18 @@ if [ -n "$OUT" ]; then
 else
   fail "坏 flag（非数字）：tdd-gate.sh 被放行了（期望 fail-closed）"
 fi
+
+# ⑦ 共享库缺失 → fail-closed：有效 flag 也不放行（走严格逻辑），且 hook 不崩（exit 0 + 有提醒输出）
+$FM on >/dev/null
+mv "$ROOT/.claude/hooks/lib-fast-mode.sh" "$ROOT/.claude/hooks/lib-fast-mode.sh.hidden"
+RC=0
+OUT=$(run_hook) || RC=$?
+if [ "$RC" -eq 0 ] && [ -n "$OUT" ]; then
+  pass "lib 缺失：fail-closed 不放行（走严格逻辑有输出）且 hook 不崩"
+else
+  fail "lib 缺失：期望 fail-closed 走严格逻辑且不崩（exit $RC，输出：$OUT）"
+fi
+mv "$ROOT/.claude/hooks/lib-fast-mode.sh.hidden" "$ROOT/.claude/hooks/lib-fast-mode.sh"
 
 rm -f "$FLAG"
 echo ""

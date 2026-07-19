@@ -45,8 +45,13 @@ while IFS= read -r h; do
 done < <(find "$CL/hooks" -maxdepth 1 -type f -name '*.sh')
 [ "$hook_count" -gt 0 ] || fail "未装任何 hooks/*.sh"
 
-# settings.json 合法 JSON（用 jq 解析）
-jq empty "$CL/settings.json" >/dev/null 2>&1 || fail "settings.json 不是合法 JSON"
+# settings.json 合法 JSON（有 jq 用 jq，无 jq 用 python3 解析——降级环境同样要验）
+if command -v jq >/dev/null 2>&1; then
+  jq empty "$CL/settings.json" >/dev/null 2>&1 || fail "settings.json 不是合法 JSON"
+else
+  python3 -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" "$CL/settings.json" >/dev/null 2>&1 \
+    || fail "settings.json 不是合法 JSON"
+fi
 
 # ---- ② #5 验证：私有 feedback 已排除 ----
 # 顶层私有 *.md 不该出现（FEEDBACK-INDEX.md 是重置模板，允许）
@@ -62,9 +67,25 @@ if [ -f "$TPL" ]; then
 fi
 
 # ---- ③ 幂等性：装两次产物一致 ----
-before=$(find "$TARGET" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
-bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-2.log" 2>&1 || { cat "$TMP/setup-2.log" >&2; fail "二次安装报错"; }
-after=$(find "$TARGET" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
-[ "$before" = "$after" ] || fail "安装非幂等：二次安装后产物 SHA256 变化（before=$before after=$after）"
+if command -v jq >/dev/null 2>&1; then
+  # 有 jq：二次安装走自动合并，产物应完全一致
+  before=$(find "$TARGET" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
+  bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-2.log" 2>&1 || { cat "$TMP/setup-2.log" >&2; fail "二次安装报错"; }
+  after=$(find "$TARGET" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
+  [ "$before" = "$after" ] || fail "安装非幂等：二次安装后产物 SHA256 变化（before=$before after=$after）"
+  MODE="jq 合并"
+else
+  # 无 jq 降级路径：二次安装遇到已有 settings.json 应备份 .bak + 原文件原样保留、不静默覆盖；
+  # 其余产物（排除 .bak）保持幂等。
+  cp -p "$CL/settings.json" "$TMP/settings.before"
+  before=$(find "$TARGET" -type f ! -name '*.bak' | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
+  bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-2.log" 2>&1 || { cat "$TMP/setup-2.log" >&2; fail "二次安装报错（无 jq 降级路径）"; }
+  after=$(find "$TARGET" -type f ! -name '*.bak' | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}')
+  [ "$before" = "$after" ] || fail "无 jq 降级：二次安装后非 .bak 产物变化（before=$before after=$after）"
+  [ -f "$CL/settings.json.bak" ] || fail "无 jq 降级：已有 settings.json 时未生成 .bak 备份"
+  cmp -s "$TMP/settings.before" "$CL/settings.json" || fail "无 jq 降级：已有 settings.json 被改动（应原样保留、只打印手工合并指引）"
+  grep -q "手工" "$TMP/setup-2.log" || fail "无 jq 降级：未打印手工合并指引"
+  MODE="无 jq 降级"
+fi
 
-echo "test-setup: passed（agents=$agent_count hooks=$hook_count，私有 feedback 已排除，幂等校验通过）"
+echo "test-setup: passed（agents=$agent_count hooks=$hook_count，私有 feedback 已排除，幂等校验通过，settings 路径=$MODE）"

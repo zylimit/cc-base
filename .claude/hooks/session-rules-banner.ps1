@@ -10,11 +10,9 @@ $ErrorActionPreference = 'Stop'
 if ($env:CLAUDE_PROJECT_DIR) {
   $fastFlag = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode'
   if (Test-Path $fastFlag) {
+    # Shared lib does the check; a missing lib counts as not-active (no warning, normal banner).
     $fastOn = $false
-    try {
-      $fmLine = Select-String -LiteralPath $fastFlag -Pattern '^expires_epoch=(\d+)$' -ErrorAction Stop | Select-Object -First 1
-      if ($fmLine -and [int64]$fmLine.Matches[0].Groups[1].Value -gt [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) { $fastOn = $true }
-    } catch {}
+    try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); $fastOn = Test-FastModeActive } catch {}
     if ($fastOn) {
       Write-Output '!! FAST-MODE ON: all hook gates are muted (.claude/.fast-mode). Run bash .claude/scripts/fast-mode.sh off to restore strict mode. !!'
       exit 0

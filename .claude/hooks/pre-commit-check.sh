@@ -7,8 +7,9 @@
 #   - TS：tsc --noEmit（整项目类型检查）
 #   - Python：优先 ruff check，降级到 python3 -m py_compile（语法级，python3 必在）
 
-# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
+# fast-mode 总闸：共享库判定（.claude/.fast-mode 内 expires_epoch 未过期才静默放行；库缺失 fail-closed 不放行）
+_FM_LIB="$(dirname "$0")/lib-fast-mode.sh"
+if [ -f "$_FM_LIB" ]; then . "$_FM_LIB"; if fast_mode_active; then exit 0; fi; fi
 
 # 脚本内自判触发命令：非 git commit 输入直接放行（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)

@@ -23,7 +23,7 @@
 ./setup.sh                         # 不带参数 = 装到当前目录
 ```
 
-需要 `jq`（用于 settings.json 合并）。hooks 走 `.sh`，依赖 Git Bash / bash 环境展开 `$CLAUDE_PROJECT_DIR`。
+需要 `jq`（用于 settings.json 合并）；**没有 jq 也能装**：target 尚无 `.claude/settings.json` 时直接复制框架的，已有时备份 `.bak` 并打印手工合并指引（不静默覆盖）。hooks 走 `.sh`，依赖 Git Bash / bash 环境展开 `$CLAUDE_PROJECT_DIR`。
 
 ### Windows（纯 PowerShell）
 
@@ -32,6 +32,22 @@ pwsh -File setup.ps1 -Target C:\path\to\project    # 装到指定项目
 pwsh -File setup.ps1                               # 不带参数 = 装到当前目录
 pwsh -File setup.ps1 -Target C:\path -Force        # 覆盖已有 settings.json（先备份 .bak）
 ```
+
+## 拷贝即用（快速路径）
+
+不想跑安装器？直接把框架的 `.claude/` 整目录复制到目标项目根即可用——Claude Code 会从 `target/.claude/settings.json` 加载 hooks，从 `CLAUDE.md`、`skills/`、`agents/` 加载工作流，无需额外安装步骤或常驻服务。
+
+```text
+target/
+└── .claude/        # 整目录复制过去
+```
+
+注意两点：
+
+- 目标项目**已有** `.claude/settings.json` 时先人工合并，不要覆盖——要点是把框架 settings.json 里各 event 下的 hook command 追加进你已有的同名 event，已存在的条目不重复加，你项目自己的其他配置一律不动。
+- 复制前清掉运行时产物（`.needs-review`、`.tdd-exempt`、`.fast-mode`、`settings.local.json`、feedback 顶层私人经验 *.md）——安装器会自动跳过这些，手工复制要自己留意。
+
+安装器仍是推荐路径（自动排除运行时产物、合并 settings、重置 FEEDBACK-INDEX）；拷贝即用适合快速试用或无 bash/pwsh 安装环境的场合。
 
 ## .sh / .ps1 双写机制
 

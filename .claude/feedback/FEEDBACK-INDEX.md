@@ -8,3 +8,9 @@
 - [生产删除前重查目标当前状态，归因须有直接证据](destructive-ops-recheck-live-state-and-require-direct-evidence.md) — 生产/共享环境的删除・停用・覆盖类写操作，执行前当场重查目标最新状态、归因要直接证据（旧快照 + 时间推断不作数）；误删用户在跑的导入 Session 的实害教训
 - [性能根因先实测再给方案，代码推测不配当推荐依据](perf-root-cause-needs-measured-evidence-before-recommending-options.md) — 性能类根因判断给方案选项前必须先 EXPLAIN ANALYZE / 采样实测；被质疑才补证据 = 流程倒置，本例实测直接推翻代码推测（真凶是 lateral 重复扫描 + work_mem 溢出，非猜的 ANY(path)）
 - [客户端拒绝工具调用 ≠ 远端命令未执行](rejected-tool-call-remote-side-effect-may-have-executed.md) — SSH/docker exec/数据库写入等远端副作用调用被中断或拒绝后，恢复第一步先实查远端状态（进程列表 / pg_stat_activity）确认上次到底执行没执行；假设"被拒=没发生"造成双进程 + 孤儿查询的实害教训
+- [脚手架交付应复制即用且保持项目根目录清爽](copy-ready-clean-scaffold-layout.md) — 「复制即用」为默认交付契约（`.claude/` 复制过去即工作），安装器只是可选便利；目标项目根目录暴露文件压到最少，维护资产收进隐藏配置目录
+- [脚手架开发遵循用户明确的质量门禁豁免](scaffold-development-skip-quality-gates.md) — 开发脚手架内核 ≠ 用脚手架开发业务项目；用户明确豁免本轮测试/检视/用例时照办，但豁免不得删减最终脚手架的审查测试能力、不外推成永久约束
+- [研究下钻按指定递归深度执行，不能用平级数量冒充深度](recursive-research-depth-not-fanout.md) — 用户要求「向下多打 N 层/加强吸收」= 委派树递归下钻（主 Agent 分轮驱动、逐层收窄边界），不是同层加并行研究者；验收核实际层数与每层新增分析价值
+- [调研使用 Claude Code 原生 Sub-Agent，主 Agent 保留独立判断](native-subagent-research-main-agent-judgment.md) — 长目录/复杂材料学习派原生 Task/Agent fresh Sub-Agent，不擅自调本地 ask gemini 桥；主 Agent 亲读关键材料独立判断，翻证据可委派、下判断不外包
+- [仓库刷新应遵循用户明确授权，避免擅自加重流程](repository-refresh-follow-explicit-scope.md) — 用户已授权清理并要求直接拉最新时走最短安全路径（只读确认后直接 clone），不擅自加临时克隆/比对/备份交换，明确不要的旧资产不「保险起见」保留
+- [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意

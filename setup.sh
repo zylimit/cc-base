@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # setup.sh — 把 cc-base 框架资产注入式安装到 target 项目（Mac/Linux）。
 # 用法：./setup.sh [target_dir]    不给 target 默认当前目录 "."
-# 流程：复制 .claude 框架文件（跳过运行时产物）→ chmod hooks → settings.json jq merge（不覆盖用户其他配置）→ 备份 .bak。
+# 流程：复制 .claude 框架文件（跳过运行时产物）→ chmod hooks → settings.json 合并（有 jq 自动 merge；
+#   无 jq 降级：新 target 直接复制，已有 settings 备份 .bak + 打印手工合并指引，不静默覆盖）→ 备份 .bak。
 set -u
 
 die() {
@@ -64,6 +65,16 @@ merge_settings() {
     copy_file "$src" "$dest"
     return
   fi
+  # 无 jq 降级：target 已有 settings.json 时不静默覆盖——备份 .bak 后保留原文件，打印手工合并指引，
+  # 其余资产照常已复制完（不中断安装）。有 jq 仍走下面的自动合并。
+  if ! command -v jq >/dev/null 2>&1; then
+    cp -p "$dest" "$dest.bak" || die "无法备份 $dest"
+    printf 'backup: %s.bak\n' "$dest"
+    printf 'setup: 本机无 jq，settings.json 未自动合并（保留你原有的 %s）。\n' "$dest" >&2
+    printf 'setup: 请手工把框架 settings.json 里的 hooks 合并进去（来源：%s），\n' "$src" >&2
+    printf 'setup: 要点：把 source 各 event 下的 hook command 追加到 target 同名 event，已有的不重复加。\n' >&2
+    return
+  fi
   # target 已有 settings.json：只追加 cc-base 里 target 尚无的 hook command，不动用户其他配置。
   tmp=$(mktemp) || die "无法创建临时文件"
   jq -s '
@@ -88,7 +99,8 @@ merge_settings() {
 }
 
 main() {
-  need_cmd jq
+  # jq 可选：有则 settings.json 自动合并；无则降级（新 target 直接复制，已有 settings 备份 .bak + 手工合并指引）
+  command -v jq >/dev/null 2>&1 || printf 'setup: 未检测到 jq，settings.json 走无 jq 降级路径。\n' >&2
 
   local target=${1:-.}
   validate_target "$target"

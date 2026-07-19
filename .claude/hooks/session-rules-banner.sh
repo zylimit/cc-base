@@ -4,8 +4,11 @@ set -euo pipefail
 
 # fast-mode 总闸播报版：其余 hook 静默，本横幅反向醒目告警，防开关忘关；
 # 过期（expires_epoch 已过 / 缺行 / 非法）则提示已自动失效并继续正常横幅（严格模式已恢复）。
+# 判定走共享库 lib-fast-mode.sh；库缺失时按未生效处理（不播报、正常横幅）。
+_FM_LIB="$(dirname "$0")/lib-fast-mode.sh"
+if [ -f "$_FM_LIB" ]; then . "$_FM_LIB"; fi
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ]; then
-  if [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then
+  if command -v fast_mode_active >/dev/null 2>&1 && fast_mode_active; then
     echo "‼️ FAST-MODE ON：全部门闸静默中（.claude/.fast-mode）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式。"
     exit 0
   fi

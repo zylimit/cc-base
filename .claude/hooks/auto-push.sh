@@ -4,8 +4,9 @@
 # 不解析 hook 退出码字段（PostToolUse 输入 schema 跨版本不稳，旧写法用了
 # 不存在的 .tool_exit_code 导致永不 push）——改用 git 状态判断，确定可靠。
 
-# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
+# fast-mode 总闸：共享库判定（.claude/.fast-mode 内 expires_epoch 未过期才静默放行；库缺失 fail-closed 不放行）
+_FM_LIB="$(dirname "$0")/lib-fast-mode.sh"
+if [ -f "$_FM_LIB" ]; then . "$_FM_LIB"; if fast_mode_active; then exit 0; fi; fi
 
 # 脚本内自判触发命令：非 git commit 输入直接退出（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)
