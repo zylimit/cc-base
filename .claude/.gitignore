@@ -1,6 +1,8 @@
 # 运行时状态文件（stop-gate / review 闸门用，不入库）
 .needs-review
 signals.jsonl
+.subagent-reminded
+.fast-mode
 
 # 系统垃圾
 .DS_Store
