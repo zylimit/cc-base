@@ -4,16 +4,22 @@
 $ErrorActionPreference = 'Stop'
 
 # Fast-mode master switch, announce edition: the other hooks go silent, this banner must
-# instead warn loudly so a forgotten switch cannot hide. Expired flag (24h TTL) -> note
-# the auto-expiry and fall through to the normal banner (strict mode is back on).
+# instead warn loudly so a forgotten switch cannot hide. Expired flag (expires_epoch in the
+# past, or a missing/invalid line) -> note the auto-expiry and fall through to the normal
+# banner (strict mode is back on).
 if ($env:CLAUDE_PROJECT_DIR) {
   $fastFlag = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode'
   if (Test-Path $fastFlag) {
-    if (((Get-Date) - (Get-Item $fastFlag).LastWriteTime).TotalHours -lt 24) {
+    $fastOn = $false
+    try {
+      $fmLine = Select-String -LiteralPath $fastFlag -Pattern '^expires_epoch=(\d+)$' -ErrorAction Stop | Select-Object -First 1
+      if ($fmLine -and [int64]$fmLine.Matches[0].Groups[1].Value -gt [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) { $fastOn = $true }
+    } catch {}
+    if ($fastOn) {
       Write-Output '!! FAST-MODE ON: all hook gates are muted (.claude/.fast-mode). Run bash .claude/scripts/fast-mode.sh off to restore strict mode. !!'
       exit 0
     }
-    Write-Output 'fast-mode expired (24h TTL) and strict mode is back on; re-run bash .claude/scripts/fast-mode.sh on if you still need it, or off to clean up the flag.'
+    Write-Output 'fast-mode expired (TTL passed or flag file invalid) and strict mode is back on; re-run bash .claude/scripts/fast-mode.sh on if you still need it, or off to clean up the flag.'
   }
 }
 

@@ -3,8 +3,8 @@
 # 检测用户 prompt 中是否包含修正/反馈信号
 # 关键词对齐 feedback-writer SKILL.md 观察维度第 1 条"用户修正"的信号定义
 
-# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
 
 # jq 缺失 → 无法解析 prompt，降级退出（不阻断用户输入）
 command -v jq >/dev/null 2>&1 || exit 0

@@ -2,8 +2,8 @@
 # PreToolUse(Bash)：拦截 pkill -f 宽泛匹配，防止误杀主 Agent 进程
 set -euo pipefail
 
-# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
 
 HOOK_INPUT=$(cat)
 CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)

@@ -3,13 +3,13 @@
 set -euo pipefail
 
 # fast-mode 总闸播报版：其余 hook 静默，本横幅反向醒目告警，防开关忘关；
-# 过期（24h TTL）则提示已自动失效并继续正常横幅（严格模式已恢复）。
+# 过期（expires_epoch 已过 / 缺行 / 非法）则提示已自动失效并继续正常横幅（严格模式已恢复）。
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ]; then
-  if [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then
+  if [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then
     echo "‼️ FAST-MODE ON：全部门闸静默中（.claude/.fast-mode）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式。"
     exit 0
   fi
-  echo "fast-mode 已过期自动失效（24h TTL），严格模式已恢复；如需继续请重新 fast-mode.sh on，不用就 off 清掉开关文件。"
+  echo "fast-mode 已过期自动失效（TTL 到期或开关文件格式非法），严格模式已恢复；如需继续请重新 fast-mode.sh on，不用就 off 清掉开关文件。"
 fi
 
 # compact/resume 不重复输出

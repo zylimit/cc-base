@@ -11,8 +11,8 @@
 # 子目录场景：项目只是父仓子目录时（show-prefix 非空），status 加 -- . 限定项目子树，
 #   记录路径先剥 show-prefix 前缀再分类，剥不掉的跳过；项目即仓根时前缀为空、行为不变。
 
-# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
 
 # fail-closed：脚本自身出错绝不静默放行，一律拦停（与 .ps1 侧 trap 对齐）。
 _fail_closed() {

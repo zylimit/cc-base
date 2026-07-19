@@ -7,8 +7,8 @@
 #   - TS：tsc --noEmit（整项目类型检查）
 #   - Python：优先 ruff check，降级到 python3 -m py_compile（语法级，python3 必在）
 
-# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
 
 # 脚本内自判触发命令：非 git commit 输入直接放行（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)

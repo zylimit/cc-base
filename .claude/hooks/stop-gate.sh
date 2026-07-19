@@ -9,8 +9,8 @@
 #   同一清单连拦 3 次后第 4 次放行并醒目提示欠账仍在；正常放行或清单变化即清零重计。
 # 放行契约（向后兼容）：审查通过后 `echo clean > .claude/.needs-review` 即可。
 
-# fast-mode 总闸：开关文件存在且未过 24h TTL 则本 hook 静默放行
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" ] && [ -n "$(find "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" -mmin -1440 2>/dev/null)" ]; then exit 0; fi
+# fast-mode 总闸：开关文件内 expires_epoch 未过期则本 hook 静默放行（缺行/非法一律不放行）
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "${CLAUDE_PROJECT_DIR:-}/.claude/.fast-mode" 2>/dev/null | head -1)" -gt "$(date +%s)" ] 2>/dev/null; then exit 0; fi
 
 # fail-closed：脚本自身出错绝不静默放行，一律拦停（与 .ps1 侧 trap 对齐）。
 _fail_closed() {

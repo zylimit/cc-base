@@ -3,8 +3,8 @@
 # Block broad "pkill -f" matches to prevent killing the main agent process.
 $ErrorActionPreference = 'Stop'
 
-# Fast-mode master switch: flag file present (and younger than the 24h TTL) -> pass through silently
-if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')) -and ((Get-Date) - (Get-Item (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode')).LastWriteTime).TotalHours -lt 24) { exit 0 }
+# Fast-mode master switch: flag file carries an unexpired expires_epoch -> pass through silently (missing/invalid line never passes)
+try { if ($env:CLAUDE_PROJECT_DIR) { $fmLine = Select-String -LiteralPath (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.fast-mode') -Pattern '^expires_epoch=(\d+)$' -ErrorAction Stop | Select-Object -First 1; if ($fmLine -and [int64]$fmLine.Matches[0].Groups[1].Value -gt [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) { exit 0 } } } catch {}
 
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }
