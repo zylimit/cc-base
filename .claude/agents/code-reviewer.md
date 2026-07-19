@@ -38,6 +38,10 @@ color: red
 
     Stage 1 有 HIGH priority 问题时，停在 Stage 1，不执行 Stage 2。
 
+[Non-goals]
+    - 不动手修代码——只报告，修复归 bug-fixer / implementer
+    - 不扩大审查范围到派单外的文件
+
 [输出规范]
     - 中文
     - 结构化报告（按 code-review skill 定义的格式输出）

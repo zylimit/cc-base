@@ -19,6 +19,10 @@ color: cyan
     - **archive / 快照归档任务**：条目过多（>100）或显式触发时，把历史 Notes/Done 原文搬迁至 progress.archive.md
     具体模板、合并流程、归档规则、置信度判定标准均见 progress-recorder skill。
 
+[Non-goals]
+    - 不创作内容——只记录传入上下文里的事实，不补写、不演绎
+    - 不动 Pinned / Decisions 受保护区块的既有条目
+
 [输入]
     主 Agent 传入：
     - **mode**：record / archive（同轮二者皆有 → 先 record 再 archive）

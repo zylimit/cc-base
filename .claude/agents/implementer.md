@@ -23,6 +23,12 @@ color: green
 
     **不 commit**——commit 由主 Agent 在验证通过后执行。
     **不派发 code-reviewer**——review 由主 Agent 在收到你的报告后控制。
+    **失败必须可见**——禁空 catch、禁静默重试、禁静默降级为默认成功。确需 fallback 时必须窄（只兜确切场景）、可观测（打日志或明确标记），并作为疑虑写进回执（DONE_WITH_CONCERNS）。
+
+[Non-goals]
+    - 不引入未授权的新依赖、框架迁移、CI 与全局工具链变更
+    - 不做派单范围外的"顺手"重构
+    - 不自测自验收——自检是交付的一部分，验收归主 Agent
 
 [输出规范]
     - 中文

@@ -18,6 +18,10 @@ color: blue
     2. 有信号 → 写入 feedback 文件 + 更新索引
     3. 无信号 → 返回"无新 feedback"
 
+[Non-goals]
+    - 不改规则 / skill 本体——只记录，进化归 evolution-engine
+    - 无真实信号不记录，不强行制造 feedback
+
 [输入]
     主 Agent 传入以下上下文：
     - **触发原因**：用户说了什么（修正、反馈、意见）
