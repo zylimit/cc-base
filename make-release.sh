@@ -32,12 +32,29 @@ fi
 
 OUT="/tmp/$REPO-$VER.zip"
 rm -f "$OUT"
-# 用 python3 的 zipfile 打包（不依赖外部 zip 二进制；shutil.make_archive 自动加 .zip）
-python3 -c "import shutil; shutil.make_archive('/tmp/$REPO-$VER', 'zip', '$TMP', '$REPO')"
+# 打包：Windows（Git Bash/MINGW）下 python shutil 不认 /tmp 挂载会 FileNotFoundError（#9）→
+#       Compress-Archive（cygpath 转 Windows 路径）；非 Windows 用 python3 zipfile（不依赖外部 zip）。
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    powershell -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$PKG")' -DestinationPath '$(cygpath -w "$OUT")' -Force"
+    ;;
+  *)
+    python3 -c "import shutil; shutil.make_archive('/tmp/$REPO-$VER', 'zip', '$TMP', '$REPO')"
+    ;;
+esac
 
 # 打包后泄漏扫描（verify-not-assume，守 #5）：解包确认 feedback/ 下无私有 *.md 泄漏
 #   （templates/ 与 FEEDBACK-INDEX.md 除外）。发现泄漏即报错非零退出，不发坏包。
-python3 - "$OUT" <<'PY'
+#   Windows 下 python zipfile 同样不认 /tmp 路径，用 cygpath -w 转换。
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    SCAN_PATH=$(cygpath -w "$OUT")
+    ;;
+  *)
+    SCAN_PATH="$OUT"
+    ;;
+esac
+python3 - "$SCAN_PATH" <<'PY'
 import sys, zipfile
 path = sys.argv[1]
 with zipfile.ZipFile(path) as z:
