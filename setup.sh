@@ -108,12 +108,23 @@ merge_settings() {
     printf 'setup: 要点：把 source 各 event 下的 hook command 追加到 target 同名 event，已有的不重复加。\n' >&2
     return
   fi
-  # target 已有 settings.json：只追加 cc-base 里 target 尚无的 hook command，不动用户其他配置。
+  # target 已有 settings.json：先清掉异平台框架 hook command 残留（.ps1 形态），再追加 target 尚无的
+  # 本平台（.sh）command，不动用户其他配置。跨平台搬迁后旧平台 command 不再双双残留报错。
+  # 判定「.ps1 残留」保守只认框架形态：command 同时匹配 powershell/pwsh 解释器 与 .claude/hooks/<name>.ps1
+  # 路径——两条件都中才移除，不误伤用户自定义 command。
   tmp=$(mktemp) || die "无法创建临时文件"
   jq -s '
+    def is_ps1_residue:
+      (.command // "") as $c
+      | ($c | test("powershell|pwsh"; "i")) and ($c | test("\\.claude[/\\\\]hooks[/\\\\][A-Za-z0-9_-]+\\.ps1"));
+    def clean_ps1:
+      if .hooks then
+        .hooks |= with_entries(.value |= map(.hooks |= map(select(is_ps1_residue | not))))
+      else . end;
     def commands: [.. | objects | .command? // empty] | map(select(. != "")) | unique;
-    .[0] as $target
+    .[0] as $tgt0
     | .[1] as $source
+    | ($tgt0 | clean_ps1) as $target
     | ($target | commands) as $existing
     | reduce (($source.hooks // {}) | keys_unsorted[]) as $event ($target;
         reduce (($source.hooks[$event] // [])[]) as $group (.;

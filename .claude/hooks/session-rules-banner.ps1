@@ -14,10 +14,10 @@ if ($env:CLAUDE_PROJECT_DIR) {
     $fastOn = $false
     try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); $fastOn = Test-FastModeActive } catch {}
     if ($fastOn) {
-      Write-Output '!! FAST-MODE ON: all hook gates are muted (.claude/.fast-mode). Run bash .claude/scripts/fast-mode.sh off to restore strict mode. !!'
+      Write-Output '!! FAST-MODE ON: all hook gates are muted (.claude/.fast-mode). Run pwsh .claude/scripts/fast-mode.ps1 off to restore strict mode. !!'
       exit 0
     }
-    Write-Output 'fast-mode expired (TTL passed or flag file invalid) and strict mode is back on; re-run bash .claude/scripts/fast-mode.sh on if you still need it, or off to clean up the flag.'
+    Write-Output 'fast-mode expired (TTL passed or flag file invalid) and strict mode is back on; re-run pwsh .claude/scripts/fast-mode.ps1 on if you still need it, or off to clean up the flag.'
   }
 }
 

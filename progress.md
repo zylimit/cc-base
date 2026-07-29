@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-29_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -13,8 +13,14 @@ _Last updated: 2026-07-19_
 - **.ps1 hook 在 Windows 跑的是 powershell.exe（Windows PowerShell 5.1），不是 pwsh 7.x**（setup.ps1 注释明写 powershell.exe）。5.1 下 native 命令（git/npx 等）写 stderr 会生成 ErrorRecord 进 PS Error 流，`$ErrorActionPreference='Stop'` 把它提升为 terminating error，`*>$null` 拦不住 → 脚本崩、`$LASTEXITCODE` 守卫被绕过 → 错误泄漏到 UI。凡 .ps1 里调可能写 stderr 的 native 命令：用 `--quiet`/`2>$null` 让命令本身不写 stderr，或 `try/catch` 包，或局部 `$ErrorActionPreference='Continue'`。`$PSNativeCommandUseErrorActionPreference` 是 PS 7.3+ 变量，5.1 无效，别用它修。（2026-06-14 真机 trace 验证）
 - **验收五步闸（禁跳步）**：做任何「完成」声称前必走：①想清要跑的命令 → ②跑全量全新（无缓存）→ ③读完整输出 + exit code → ④确认输出支持结论 → ⑤才开口。禁用"应该/大概/看起来"措辞替代实测。（2026-06-15 纪律增强；引用本框架两次翻车案例：PS 5.1 git fatal 误判、v1.0.1 远程 tag 误判）
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
+- **.ps1 hook 补中文触发词须用 \uXXXX Unicode 转义，不能直接写中文**：Pinned 既有「.ps1 纯 ASCII（PS 5.1 GBK 读中文崩）」的延伸。tdd-gate.ps1 第 21 行漏中文「编码实现」触发词非疏忽，是 ASCII 约束下的历史取舍；修复用 编码实现 之类 Unicode 转义匹配（PS -match 走 .NET 正则支持 \u），保持纯 ASCII。Explore 探查漏点破此层。（2026-07-29）
+- **.ps1 hook stdin 中文受 pwsh GBK 限制（known issue，候选 #15）**：中文 Windows pwsh [Console]::InputEncoding 默认 GB2312/936，读 stdin 的 .ps1 hook 读 UTF-8 中文 JSON 乱码（2026-07-29 真机 trace：codepage 936，设 UTF8 后 MATCHED）。tdd-gate.ps1 已补设 UTF-8 InputEncoding（第 11 行）让 \\u 中文触发真生效（pwsh+5.1 双环境验证）；其他读 stdin 的 .ps1 hook（mark-review-needed 读 file_path 中文路径、detect-feedback-signal/recap-on-dirty/session-rules-banner/subagent-acceptance-reminder 等）尚未统一，候选 #15 拍板。
 
 ## Done
+- 2026-07-29: **跨平台根治 Task #1 验收通过（未 commit）**——setup.sh merge_settings 加 jq is_ps1_residue/clean_ps1（清 .ps1 形态留 .sh）、setup.ps1 加 Test-IsShResidue/Remove-ShResidue（清 .sh 形态留 .ps1），保守只清框架形态（解释器+psh 路径双条件）幂等。主 Agent 独立验收：setup.sh jq 分支 fixture（ps1=14→0 sh=14 幂等，临时下 jq-1.7.1 验）+ setup.ps1 侧 fixture（sh=1→0 ps1=14 幂等）+ 框架自测 6/6 全绿（selftest/test-setup/test-routing/gate-audit 9/three-file-sync 6/fast-mode 13）。已知边界：本机无 jq 时 setup.sh 走降级不清理——Task #12 fix-platform 须无 jq 实现兜底。
+- 2026-07-29: **跨平台根治 Task #2 验收通过（未 commit）**——新增 .claude/scripts/fix-platform.sh（python3 解析无 jq 依赖，删 .ps1 residue 补 .sh + chmod 0755）+ fix-platform.ps1（pwsh 内置 ConvertFrom-Json，删 .sh residue 补 .ps1，复用 setup.ps1 的 Convert-ToPs1Command+pwsh 探测），独立工作不依赖 cc-base 仓库在场。主 Agent 独立验收：对称环（混合→fix-platform.ps1→纯.ps1[sh=1→0]→fix-platform.sh→纯.sh[ps1=14→0 sh=14]）+ chmod 17 文件 0755 + 幂等 rerun ok；本机 python3=3.14.6 真跑通（非商店桩）。
+- 2026-07-29: **跨平台根治 Task #3 验收通过（未 commit）**——修 3 处 .ps1/.sh 不对等：①mark-review-needed.ps1 加 Mutex 串行（New-Object System.Threading.Mutex + WaitOne(2000) + finally ReleaseMutex，失败/超时降级裸跑，对等 .sh flock:45-54）；②tdd-gate.ps1 补 \\u7f16\\u7801\\u5b9e\\u73b0 中文触发词（纯 ASCII \\u 转义）+ 第 11 行设 [Console]::InputEncoding=UTF8（治中文 Windows pwsh stdin GBK 读 UTF-8 乱码）；③session-rules-banner.ps1:17,20 fast-mode off 提示 bash→pwsh fast-mode.ps1。主 Agent 独立验收：纯 ASCII 3 个 .ps1 CLEAN + tdd-gate 中文触发 pwsh+5.1 双环境各 3 行 + no-trigger 0 行 + mark-review Mutex 写入 src/app.ts + test-routing/test-fast-mode 13/13 exit 0。框架级 stdin UTF-8 未统一见 Pinned known issue 候选 #15。
+- 2026-07-29: **跨平台根治整批 commit f9e030c**——Task 1-3（setup merge 清理异平台残留 + fix-platform.sh/.ps1 迁移命令 + 3 处 hook 不对等修复含 tdd-gate stdin UTF-8）+ Task 4 测试（test-fix-platform 6/6 + test-hook-parity 5/5，subagent stalled 前写大部分 + 主 Agent 修路径断言）+ FRAMEWORK-MANIFEST 重生成 + README 跨平台搬迁段 + .gitignore 补 .needs-review.lock。主 Agent 全程独立验收（fixture 对称环 + 中文触发 pwsh+5.1 双环境 + 自测全绿）。Fast Mode 开启中（24h）。框架级 stdin UTF-8 未统一见 #15。
 - 2026-07-19: **末轮挖矿收官（opencode-base + grok-base）**——调研结论：opencode-base 系 cc-base 6-13 早期快照向下适配版，机制为 v1.6.0 真子集，**无可挖**（唯一存疑「instructions 独立文件安装策略」现有 .bak+merge 已够，不采）；grok-base 系同日新做的纯 Grok 移植版，仅 3 项 cc-base 没有。落地 2 项（借鉴 grok-base personas/ROLE-CONTRACTS）：① implementer 补「失败必须可见」铁律（禁空 catch/静默重试/静默降级；fallback 须窄+可观测+写进 DONE_WITH_CONCERNS）；② 7 个 agent 全部补 [Non-goals] 负面清单（implementer 不引未授权依赖/迁移/CI 不顺手重构不自测自验收；code-reviewer 不动手修码；tester 不修被测代码不为凑绿放宽断言；deployer 不改业务码不跳卡点；observer 只记录；runner 只建议；recorder 只记事实不动受保护区块）。第 3 项 headless 行为烟囱测试记 TODO #10 不做（token 成本）。验收：主 Agent 抽读 diff 风格贴合、+30 行 0 删除、test-routing passed。至此四姊妹（codex/ccb/opencode/grok）全部挖完。
 - 2026-07-19: **cc-base v1.6.0 发布上线**——内容：fast-mode 加固（on[hours]/expires_epoch/ps1 双写/lib 共享库/28 hook fail-closed/13 断言测试）+ 拷贝即用与 setup 无 jq 降级 + CLAUDE.md 六项增强与瘦身（519→323 行，rules/ 三文件强制指针下沉）+ 审批三档 + setup.ps1 生成器切 pwsh7（探测+降级保底）+ 框架/项目分层（FRAMEWORK-MANIFEST + 升级三分支 + .framework-new）+ feedback 库 +9 条（codex-base 6 + 实战反哺 3）。发版前测试卡点：selftest/test-setup/test-routing/test-gate-audit/test-three-file-sync/test-fast-mode 13/13/doctor/skill-lint 全 exit 0（新鲜跑）。打包：make-release.sh 在 Windows /tmp 路径踩 Python shutil 坑 → 改手工同语义打包（git archive HEAD + 私有 feedback 剔除 + INDEX 重置模板 + Compress-Archive）。发版：先查远程 tag（Pinned 铁律，v1.6.0 不存在）→ tag v1.6.0（→26fc6c0）推远程 → gh release 带 zip。验收三件套（GitHub 重下现查）：tag→26fc6c0 ✅、release draft=false 资产 cc-base-v1.6.0.zip（253833B）✅、资产含 rules/ 三文件+FRAMEWORK-MANIFEST+审批三档命中+私有 feedback 已排除（仅 INDEX 模板+templates/）✅。遗留：make-release.sh Windows 兼容修复记 TODO #9。
 - 2026-07-19: **TODO 清零批（#1/#3/#4/#8）已 commit 推远端**——① #1 关账：recap-on-dirty/tdd-gate/pre-commit-check 三 .ps1 在非 git 目录 Windows 真机双解释器（pwsh 7 + powershell 5.1）实测均 exit 0 不崩。② #4 审批三档：CLAUDE.md「授权连续执行」下钉 LOW（不问直接跑）/MEDIUM（预告后继续）/HIGH（必停等批准）查检表，模糊按高一档、用户指令可豁免单次（安全护栏除外）。③ #8 hook 解释器切 pwsh 7：setup.ps1 生成器探测 pwsh 7 绝对路径（→Get-Command pwsh→回退 powershell.exe 降级保底+黄字告警），timeout 统一 30；仓库 settings.json 系 bash 权威源模板（.sh 形态）不动；mktemp 实装 14 条全 pwsh 形态 JSON 合法、抽 2 hook 实调 exit 0。④ #3 框架/项目分层：FRAMEWORK-MANIFEST.txt（95 文件，LF 归一化 SHA256 抗 autocrlf）+ gen-manifest.sh；setup.sh/.ps1 升级三分支（不存在→装 / SHA==旧清单→覆盖升级 / 用户改过或无旧清单→落 .framework-new 不覆盖+汇总提示）；私有层（清单外文件）一律不动；doctor 增 MANIFEST note 级抽验；test-setup 增 manifest 三场景用例；README 增升级小节。主 Agent 独立验收：test-setup（含 manifest 段）/test-routing/doctor/selftest/test-fast-mode 13/13 全绿。
@@ -79,6 +85,7 @@ _Last updated: 2026-07-19_
 - 2026-07-01: **暂缓**第二档（待用户后续定）：test-guard-hook（偏 CI 味，与当前轻量哲学存张力）、有界修复三件套（round-counter/review-cycle/deferred-issue）、INVENTORY.md 资产清单。
 - 2026-07-01: 三处 P3 残留为已知边界（不阻塞，非本次引入，非缺陷）：① gate-audit 空数组在 bash 3.2 的 set -u 边界（本仓恒≥5 闸，实际不触发）；② three-file-sync.ps1 在 Windows PowerShell 5.1 的 NUL 捕获 + 非 ASCII 路径编码风险（目标文件名全 ASCII 不受影响，属 PS 解析 git -z 固有边界）——待有 pwsh 真机环境补一次实跑落地证据。
 - 2026-07-01: three-file-sync Stop 闸与异步 progress-recorder 存在瞬时死锁窗口（闸要 progress.md 进改动集，而能写入它的 recorder 还在跑）——当前靠 recorder 完成后自然放行，记为已知机制交互，供后续评估是否给闸加「异步记录进行中」豁免标志。
+- 2026-07-29: **cc-base 跨平台根治方案选定——方案 B（双形态 + fix-platform 迁移命令）**。保留 .sh（Linux/mac）/ .ps1（Windows）各自已验证形态，补「setup merge 清理异平台残留 + 新增 fix-platform.sh/.ps1 一键归一 + 修 Explore 发现的 3 处 hook 不对等」。**否决方案 A（统一 .sh + shell:bash 零命令搬迁）**——理由：① README L67 实战教训记录 Claude Code Git Bash 自动检测有已知 bug #22700 不可靠（cc-base 当初做 .ps1 正是踩此坑，非冗余）；② 无 Git Bash 的纯 PowerShell 环境跑不了 .sh，统一 .sh 会牺牲 PS 环境。官方 hooks 文档查证 Windows 默认 Git Bash + 支持 shell:bash 字段，但 #22700 动摇其可靠性，故不赌、走双形态。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -95,6 +102,11 @@ _Last updated: 2026-07-19_
 - [P2][DONE][#6] **ccb-base 借鉴批次——gate-audit+lib-gate-log+three-file-sync-gate 完整流水线验收**（2026-07-01，evidence：提交待用户拍板）
 - [P1][DONE][#7] **提交 ccb-base 借鉴批次改动**——已提交远端并发版 v1.5.0（commit b895805，2026-07-01）。
 - [P2][DONE][#5] **setup.sh 安装时未排除私有 feedback**——已在 v1.3.1 修复（commit 856566e）：setup.sh/setup.ps1 跳过 feedback/ 顶层私有 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 排除逻辑对齐。实测 /tmp/ccft-verify 私有 *.md=0、其它资产齐全。
+- [P1][已验收·待commit][#11] 跨平台根治 #1：setup.sh/ps1 merge 清理异平台残留（两侧 fixture 验证通过 + 自测 6/6 全绿，见 Done；未 commit 待整批 review + 用户拍板）
+- [P1][已验收·待commit][#12] 跨平台根治 #2：新增 fix-platform.sh/.ps1 迁移命令（对称环验证通过见 Done；未 commit 待整批 review）
+- [P2][已验收·待commit][#13] 跨平台根治 #3：修 3 处 hook 不对等（3 处全验证见 Done；未 commit 待整批 review）
+- [P2][已完成][#14] 跨平台根治 #4：测试——subagent stalled 前写大部分（test-fix-platform + test-hook-parity），主 Agent 修 1 处路径断言（.needs-review pwsh GetFullPath /tmp 坑），两测试全绿（6/6 + 5/5）+ manifest 重生成 + README 跨平台段。意外达成。
+- [P2][OPEN][#15] .ps1 hook stdin UTF-8 统一——所有读 stdin 的 .ps1 hook 开头设 [Console]::InputEncoding=UTF8（或抽 lib），修中文 Windows pwsh GBK 读 UTF-8 中文乱码（tdd-gate 已补，mark-review/detect-feedback/recap-on-dirty/session-rules-banner/subagent-acceptance-reminder 待统一）。用户拍板是否做。
 
 ## 明确不做（防过度工程）
 - **condenser LLM 摘要压缩**：progress.md「超100条归档+摘要指针」已够用，不值得为它每次多跑一次 LLM。

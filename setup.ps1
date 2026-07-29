@@ -157,9 +157,35 @@ function Get-AllCommands($obj) {
 
 $targetSettings = Join-Path $targetClaude 'settings.json'
 
+# Detect .sh-platform residue commands in target (left by a prior setup.sh install on Linux/Mac) so the merge
+# can drop them before appending .ps1 commands. Conservative: only pure .sh invocations go - a command must
+# reference a .claude/hooks/<name>.sh path, NOT mention powershell/pwsh (the .ps1 interpreter marker), and
+# NOT carry .ps1-form shape ($env / -Command). All three together = .sh residue; user commands stay untouched.
+function Test-IsShResidue([string]$cmd) {
+  if (-not $cmd) { return $false }
+  if ($cmd -match 'powershell|pwsh') { return $false }
+  if ($cmd -notmatch '\.claude[/\\]hooks[/\\][A-Za-z0-9_-]+\.sh') { return $false }
+  if ($cmd -match '\$env' -or $cmd -match '-Command') { return $false }
+  return $true
+}
+
+# Strip .sh-residue hook entries from every group of every event in $obj's hooks (in place).
+function Remove-ShResidue($obj) {
+  if (-not $obj.hooks) { return }
+  foreach ($ev in $obj.hooks.PSObject.Properties) {
+    foreach ($group in $ev.Value) {
+      if ($group.hooks) {
+        $group.hooks = @($group.hooks | Where-Object { -not (Test-IsShResidue $_.command) })
+      }
+    }
+  }
+}
+
 if ((Test-Path $targetSettings) -and -not $Force) {
-  # 4. target already has settings.json: only append hook commands not present yet, leave other user config untouched
+  # 4. target already has settings.json: strip cross-platform .sh residue, then only append .ps1 hook commands
+  #    not present yet, leaving other user config untouched.
   $tgt = Get-Content $targetSettings -Raw | ConvertFrom-Json
+  Remove-ShResidue $tgt
   $existing = Get-AllCommands $tgt
   if (-not $tgt.hooks) { $tgt | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force }
   foreach ($event in $src.hooks.PSObject.Properties) {

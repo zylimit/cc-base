@@ -1,5 +1,6 @@
 # 运行时状态文件（stop-gate / review 闸门用，不入库）
 .needs-review
+.needs-review.lock
 signals.jsonl
 .subagent-reminded
 .fast-mode

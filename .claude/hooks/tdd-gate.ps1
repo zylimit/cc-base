@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 # Fast-mode master switch via shared lib: unexpired expires_epoch -> pass through silently (lib missing => fail-closed, never passes)
 try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); if (Test-FastModeActive) { exit 0 } } catch {}
 
+# UTF-8 stdin: Windows PS 5.1 Console.InputEncoding defaults to GBK, garbling UTF-8 Chinese -> \uXXXX regex miss
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }
 if (-not $cmd) { exit 0 }
@@ -18,7 +20,7 @@ try { $root = git rev-parse --show-toplevel 2>$null } catch { $root = $null }
 if (-not $root) { $root = (Get-Location).Path }
 
 # Only fire for commands that look like launching implementer
-if ($cmd -match '(?i)(implementer|dev-builder|GREEN)') {
+if ($cmd -match '(?i)(implementer|dev-builder|GREEN|\u7f16\u7801\u5b9e\u73b0)') {
   $redVerified = Join-Path $root '.claude/.red-verified'
   $tddExempt = Join-Path $root '.claude/.tdd-exempt'
   if ((-not (Test-Path $redVerified)) -and (-not (Test-Path $tddExempt))) {

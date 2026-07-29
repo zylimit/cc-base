@@ -65,3 +65,22 @@ target/
 ```
 
 `-Command + $env:` 让 pwsh 自己展开环境变量，不依赖外层 shell。解释器优先探测 pwsh 7（powershell.exe 5.1 会继承被 Git Bash 污染的 PATH，部分机器上 hook 卡死），探测不到才回退 powershell.exe。之所以不让 Windows 用户走 Git Bash 跑 `.sh`：Claude Code 的 Git Bash 自动检测有已知 bug（#22700），不可靠——直接走 `.ps1` 最稳。
+
+## 跨平台搬迁
+
+`.claude/settings.json` 里的 hook command 是**平台绑定**的：Mac/Linux 装出 `.sh` 形态，Windows 装出 `.ps1` 形态。把项目整目录从一平台搬到另一平台时，旧平台 command 会残留——新平台跑不了（`.ps1` 形态搬到 Linux 报 `powershell.exe: not found`；`.sh` 形态搬到纯 PowerShell 的 Windows 跑不了）。
+
+**搬到目标平台后跑一次 `fix-platform` 把 settings.json 归一为本平台形态**（删异平台 hook command、补本平台 command、Linux/Mac 侧补 `chmod 0755 hooks/*.sh` 执行位）：
+
+```bash
+# Mac / Linux（搬到 Linux/Mac 后；用 python3，不依赖 jq）
+bash .claude/scripts/fix-platform.sh
+```
+```powershell
+# Windows（搬到 Windows 后）
+pwsh -File .claude/scripts/fix-platform.ps1
+```
+
+`fix-platform` 独立工作——不依赖 cc-base 仓库在场、不依赖 jq（`.sh` 用 python3，`.ps1` 用 pwsh 内置），保守只清框架 hook command 残留、不动你的自定义 hook，幂等可重复跑。
+
+也可直接重跑对应平台的 `setup.sh` / `setup.ps1`：setup 的 settings 合并会先清异平台残留再追加本平台 command（需 jq；无 jq 时 setup 走降级不清，用 `fix-platform` 兜底）。

@@ -45,13 +45,28 @@ if ($rel -match '^(tools|\.claude)/') { exit 0 }
 if ($rel -match '\.(md|txt|json|yaml|yml|toml|lock|log|gitignore|prettierrc|eslintrc)$') { exit 0 }
 if ($rel -match '\.(env|env\.local|env\.development|env\.production|env\.test)$') { exit 0 }
 
-# If the previous round was clean (or the file does not exist) -> start a new list
-$lines = @()
-if (Test-Path $stateFile) {
-  $existing = @(Get-Content $stateFile -ErrorAction SilentlyContinue)
-  if ($existing -notcontains 'clean') { $lines = $existing }
+# Serialize concurrent PostToolUse writers (Mutex ~ Windows flock in .sh): without it,
+# concurrent invocations truncate each other's Set-Content. Mutex new failed or WaitOne
+# timeout -> fall back to a bare run (parity with .sh's flock-not-available bare run).
+$mut = $null
+$locked = $false
+try {
+  $mut = New-Object System.Threading.Mutex($false, 'Global\cc-base-mark-review')
+  $locked = $mut.WaitOne(2000)
+} catch {
+  # Mutex new failed (e.g. OOM) -> bare run, $locked stays $false
 }
-# Dedupe before registering
-if ($lines -notcontains $rel) { $lines += $rel }
-Set-Content -Path $stateFile -Value $lines
+try {
+  # If the previous round was clean (or the file does not exist) -> start a new list
+  $lines = @()
+  if (Test-Path $stateFile) {
+    $existing = @(Get-Content $stateFile -ErrorAction SilentlyContinue)
+    if ($existing -notcontains 'clean') { $lines = $existing }
+  }
+  # Dedupe before registering
+  if ($lines -notcontains $rel) { $lines += $rel }
+  Set-Content -Path $stateFile -Value $lines
+} finally {
+  if ($locked -and $mut) { $null = $mut.ReleaseMutex() }
+}
 exit 0
