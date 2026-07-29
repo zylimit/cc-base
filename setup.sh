@@ -143,10 +143,38 @@ merge_settings() {
 }
 
 main() {
+  # 平台参数 -win/-mac/-ubt（默认按 uname 检测）。win → 调 setup.ps1；mac/ubt → 装 .sh 形态。
+  local platform=""
+  local target="."
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -win) platform="win" ;;
+      -mac) platform="mac" ;;
+      -ubt) platform="ubt" ;;
+      *) target="$1" ;;
+    esac
+    shift
+  done
+  [ -z "$platform" ] && case "$(uname -s)" in
+    Darwin) platform="mac" ;;
+    Linux) platform="ubt" ;;
+    MINGW*|MSYS*|CYGWIN*) platform="win" ;;
+    *) platform="ubt" ;;
+  esac
+  if [ "$platform" = "win" ]; then
+    local sd
+    sd=$(cd "$(dirname "$0")" && pwd) || die "无法定位脚本目录"
+    if command -v pwsh >/dev/null 2>&1; then
+      exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
+    elif command -v powershell.exe >/dev/null 2>&1; then
+      exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
+    else
+      die "Windows 平台需 pwsh 或 powershell.exe；请在 Windows 跑 setup.sh -win，或本机装 pwsh"
+    fi
+  fi
   # jq 可选：有则 settings.json 自动合并；无则降级（新 target 直接复制，已有 settings 备份 .bak + 手工合并指引）
   command -v jq >/dev/null 2>&1 || printf 'setup: 未检测到 jq，settings.json 走无 jq 降级路径。\n' >&2
 
-  local target=${1:-.}
   validate_target "$target"
 
   local script_dir source_dir hooks_count skills_count
@@ -179,6 +207,11 @@ main() {
   hooks_count=$(find "$source_dir/.claude/hooks" -type f -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')
   skills_count=$(find "$source_dir/.claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ')
 
+  # 装 .sh 后跑 fix-platform.sh 清异平台（.ps1）残留 command + chmod（python3 兜底，无 jq 也清）
+  if [ -f "$target/.claude/scripts/fix-platform.sh" ] && command -v python3 >/dev/null 2>&1; then
+    printf 'setup: 跑 fix-platform.sh 清理异平台残留 + chmod...\n' >&2
+    ( cd "$target" && CLAUDE_PROJECT_DIR="$target" bash "$target/.claude/scripts/fix-platform.sh" ) >&2 || true
+  fi
   printf 'installed: hooks=%s skills=%s target=%s\n' "$hooks_count" "$skills_count" "$target"
   printf '完成。Claude Code 会从 %s/.claude/settings.json 加载 hooks（.sh，需 Git Bash 环境）。\n' "$target"
   printf 'Windows 纯 PowerShell 环境改用： pwsh -File setup.ps1 -Target %s\n' "$target"
