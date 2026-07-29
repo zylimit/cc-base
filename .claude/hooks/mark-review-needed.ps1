@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); if (Test-FastModeActive) { exit 0 } } catch {}
 
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 $raw = [Console]::In.ReadToEnd()
 try { $filePath = ($raw | ConvertFrom-Json).tool_input.file_path } catch { exit 0 }
 if (-not $filePath) { exit 0 }

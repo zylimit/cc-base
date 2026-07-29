@@ -21,6 +21,7 @@ if ($env:CLAUDE_PROJECT_DIR) {
   }
 }
 
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 $raw = [Console]::In.ReadToEnd()
 try { $source = ($raw | ConvertFrom-Json).source } catch { $source = '' }
 if ($source -eq 'compact' -or $source -eq 'resume') { exit 0 }

@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); if (Test-FastModeActive) { exit 0 } } catch {}
 
 # Self-gate the trigger command: non "git commit" input passes
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }
 if (-not $cmd) { exit 0 }

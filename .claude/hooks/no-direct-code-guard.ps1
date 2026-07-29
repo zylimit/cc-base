@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 # Fast-mode master switch via shared lib: unexpired expires_epoch -> pass through silently (lib missing => fail-closed, never passes)
 try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); if (Test-FastModeActive) { exit 0 } } catch {}
 
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 $raw = [Console]::In.ReadToEnd()
 try { $obj = $raw | ConvertFrom-Json } catch { exit 0 }
 $filePath = $obj.tool_input.file_path
