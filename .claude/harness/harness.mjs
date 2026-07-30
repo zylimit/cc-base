@@ -79,8 +79,8 @@ const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact'];
-const NOT_IMPLEMENTED_SUBCOMMANDS = ['context-pack', 'receipt', 'verify'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack'];
+const NOT_IMPLEMENTED_SUBCOMMANDS = ['receipt', 'verify'];
 
 /**
  * Parse `<subcommand> [--flag value ...] [positional ...]`.
@@ -118,8 +118,8 @@ function main() {
     case 'selftest':     return cmdSelftest();
     case 'catalog-lint': return cmdCatalogLint(flags);
     case 'impact':       return cmdImpact(flags);
+    case 'context-pack': return cmdContextPack(flags);
     // Planned subcommands: explicit not-implemented, never crash / never fake success.
-    case 'context-pack':
     case 'receipt':
     case 'verify':
       return emit({ error: 'not-implemented', cmd }, 3);
@@ -225,6 +225,68 @@ function selftestCases() {
       const r = analyzeImpact(['.claude/.fast-mode'], good, {});
       assert.equal(r.affected.length, 0);
       assert.equal(r.degraded, false);
+    }],
+
+    // S6 context-pack -- DENY, budget truncation, stable packHash.
+    ['isDenied .env / node_modules / id_rsa / receipts -> true', () => {
+      assert.ok(isDenied('.env'));
+      assert.ok(isDenied('config/.env.local'));
+      assert.ok(isDenied('node_modules/x.js'));
+      assert.ok(isDenied('id_rsa'));
+      assert.ok(isDenied('.claude/harness/receipts/foo.json'));
+      assert.ok(isDenied('secrets/server.pem'));
+    }],
+    ['isDenied .env.example / real source -> false', () => {
+      assert.ok(!isDenied('.env.example'));
+      assert.ok(!isDenied('config/.env.sample'));
+      assert.ok(!isDenied('.env.template'));
+      assert.ok(!isDenied('src/real.ts'));
+    }],
+    ['buildPack DENY files never in included, recorded in denied', () => {
+      const r = buildPack({
+        diffHash: 'd', diffChars: 0,
+        candidateFiles: [
+          { path: '.env', bytes: 10 }, { path: 'node_modules/a.js', bytes: 10 },
+          { path: 'id_rsa', bytes: 10 }, { path: '.claude/harness/receipts/x.json', bytes: 10 },
+          { path: 'src/real.ts', bytes: 10 },
+        ],
+      });
+      const inc = r.included.map(f => f.path);
+      assert.ok(!inc.includes('.env') && !inc.includes('node_modules/a.js') && !inc.includes('id_rsa'));
+      assert.ok(inc.includes('src/real.ts'));
+      assert.ok(r.denied.includes('.env') && r.denied.includes('node_modules/a.js'));
+    }],
+    ['buildPack respects maxFiles cap (included.length <= maxFiles)', () => {
+      const files = [];
+      for (let i = 0; i < 50; i++) files.push({ path: 'src/f' + i + '.ts', bytes: 5 });
+      const r = buildPack({ budgets: { maxFiles: 10 }, candidateFiles: files });
+      assert.ok(r.included.length <= 10);
+    }],
+    ['buildPack respects maxTotalChars (stops filling when full)', () => {
+      const files = [];
+      for (let i = 0; i < 20; i++) files.push({ path: 'src/f' + i + '.ts', bytes: 100 });
+      const r = buildPack({ budgets: { maxTotalChars: 250, maxFiles: 100 }, candidateFiles: files });
+      const total = r.included.reduce((a, f) => a + f.bytes, 0);
+      assert.ok(total <= 250);
+      assert.ok(r.included.length < 20);
+    }],
+    ['buildPack truncates oversized file to maxFileChars + marks omitted', () => {
+      const r = buildPack({ budgets: { maxFileChars: 50 }, candidateFiles: [{ path: 'src/big.ts', bytes: 5000 }] });
+      const f = r.included.find(x => x.path === 'src/big.ts');
+      assert.equal(f.bytes, 50);
+      assert.equal(f.omitted, 'truncated');
+    }],
+    ['buildPack packHash stable for identical input', () => {
+      const input = { budgets: { maxFiles: 40 }, diffHash: 'abc', diffChars: 100,
+        candidateFiles: [{ path: 'b.ts', bytes: 20 }, { path: 'a.ts', bytes: 30 }] };
+      const h1 = buildPack(input).packHash;
+      const h2 = buildPack(input).packHash;
+      assert.equal(h1, h2);
+    }],
+    ['buildPack packHash changes when included set changes', () => {
+      const h1 = buildPack({ diffHash: 'abc', candidateFiles: [{ path: 'a.ts', bytes: 10 }] }).packHash;
+      const h2 = buildPack({ diffHash: 'abc', candidateFiles: [{ path: 'a.ts', bytes: 10 }, { path: 'b.ts', bytes: 10 }] }).packHash;
+      assert.notEqual(h1, h2);
     }],
   ];
 }
@@ -703,8 +765,177 @@ function cmdImpact(flags) {
 }
 
 // ===========================================================================
-// S6 context-pack  -- TODO(T1.4): DENY + prioritize + budget + stable packHash.
+// S6 context-pack
 // ===========================================================================
+// DENY: paths that must never enter a pack, evaluated before any priority tier.
+// Covers VCS/build dirs, harness runtime state, and secret material. A narrow
+// whitelist (.env.example|sample|template) is checked first so shareable templates
+// stay includable.
+const DENY = [
+  /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
+  /(^|\/)\.claude\/(evidence|harness\/receipts)\//,
+  /(^|\/)\.env(\.|$)/,
+  /\.(pem|key|p12|pfx)$/, /(^|\/)id_rsa/, /(^|\/)\.(ssh|aws|azure|gnupg|kube)\//,
+];
+
+/** True if a path must never be packed. Path is forward-slashed before matching. */
+function isDenied(p) {
+  const n = String(p).replace(/\\/g, '/');
+  if (/(^|\/)\.env\.(example|sample|template)$/.test(n)) return false;   // whitelist first
+  return DENY.some(r => r.test(n));
+}
+
+/**
+ * Budgeted context pack. Pure + injectable so selftest exercises it without real git/fs:
+ * pass diffHash + candidateFiles directly. Priority order (blueprint sec.4):
+ *   1 task envelope + Spec/Plan pointers (always first)
+ *   2 canonical diff (truncated to maxDiffChars)
+ *   3 changed files themselves (each truncated to maxFileChars)
+ *   4-6 affected/dependency module summaries (Phase 0-2 catalogs carry no such field -> empty)
+ * DENY files are dropped before packing at every tier and recorded in `denied`.
+ * Fill stops when maxFiles or maxTotalChars is reached. packHash hashes only the
+ * {path,bytes} manifest (path-sorted) + budgets + diffHash -> stable across whitespace churn.
+ * @returns {{budgets,diffHash,included,denied,affected,degraded,packHash}}
+ */
+function buildPack({ budgets, diffHash = '', diffChars = 0, candidateFiles = [], envelope = null,
+  specPointers = [], affected = [], moduleSummaries = [], degraded = false } = {}) {
+  const b = { ...DEFAULTS.contextPack, ...(budgets || {}) };
+  const { maxTotalChars, maxFiles, maxFileChars, maxDiffChars } = b;
+
+  const denied = [];
+  const candidates = [];
+
+  // P1: task envelope, then Spec/Plan pointers (pointers are path strings, not full content).
+  if (envelope) candidates.push({ path: '<task-envelope>', bytes: stableJson(envelope).length, reason: 'envelope' });
+  for (const sp of specPointers) { const s = String(sp); candidates.push({ path: s, bytes: s.length, reason: 'spec-pointer' }); }
+
+  // P2: canonical diff, truncated to maxDiffChars.
+  if (diffHash || diffChars > 0) {
+    const entry = { path: '<canonical-diff>', bytes: Math.min(diffChars, maxDiffChars), reason: 'diff' };
+    if (diffChars > maxDiffChars) entry.omitted = 'truncated';
+    candidates.push(entry);
+  }
+
+  // P3: changed files, each truncated to maxFileChars; DENY never enters.
+  for (const f of candidateFiles) {
+    const norm = String(f.path).replace(/\\/g, '/');
+    if (isDenied(norm)) { denied.push(norm); continue; }
+    const rawBytes = typeof f.bytes === 'number' ? f.bytes : (typeof f.content === 'string' ? f.content.length : 0);
+    const entry = { path: norm, bytes: Math.min(rawBytes, maxFileChars), reason: 'changed-file' };
+    if (rawBytes > maxFileChars) entry.omitted = 'truncated';
+    candidates.push(entry);
+  }
+
+  // P4-6: affected/dependency module summaries (test entries etc.).
+  for (const s of moduleSummaries) {
+    const norm = String(s.path).replace(/\\/g, '/');
+    if (isDenied(norm)) { denied.push(norm); continue; }
+    candidates.push({ path: norm, bytes: typeof s.bytes === 'number' ? s.bytes : 0, reason: s.reason || 'module-summary' });
+  }
+
+  // Fill in priority order; stop when full (file count or total chars).
+  const included = [];
+  let total = 0;
+  for (const c of candidates) {
+    if (included.length >= maxFiles) break;
+    if (total + c.bytes > maxTotalChars) break;
+    included.push(c);
+    total += c.bytes;
+  }
+
+  const packHash = sha256(stableJson({
+    budgets: b,
+    diffHash,
+    included: included.map(f => ({ path: f.path, bytes: f.bytes }))
+      .sort((a, z) => (a.path < z.path ? -1 : a.path > z.path ? 1 : 0)),
+  }));
+
+  return { budgets: b, diffHash, included, denied, affected, degraded, packHash };
+}
+
+/** Minimal task envelope from flags (--task id); stdin envelope support is a later Task. */
+function buildEnvelope(flags) {
+  return { task: typeof flags.task === 'string' ? flags.task : null };
+}
+
+/** Spec/Plan pointers = existing doc paths at project root (path strings, never full content). */
+function specPlanPointers() {
+  const root = projectRoot();
+  const out = [];
+  for (const rel of ['Product-Spec.md', 'DEV-PLAN.md', 'Design-Brief.md']) {
+    if (fs.existsSync(path.join(root, rel))) out.push(rel);
+  }
+  return out;
+}
+
+function cmdContextPack(flags) {
+  const cfg = loadHarnessConfig();
+  const budgets = { ...cfg.contextPack };
+  if (typeof flags['budget-chars'] === 'string') {
+    const n = parseInt(flags['budget-chars'], 10);
+    if (!Number.isNaN(n) && n > 0) budgets.maxTotalChars = n;
+  }
+
+  // Catalog optional: present -> compute affected modules; absent -> degraded, no affected.
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const catalog = loaded.ok ? loaded.catalog : null;
+
+  // Changed paths: --changed csv override, else real working-tree diff.
+  let changed;
+  let nonGit = false;
+  if (typeof flags.changed === 'string') {
+    changed = parseCsv(flags.changed);
+  } else {
+    const cp = changedPaths();
+    if (Array.isArray(cp)) { changed = cp; }
+    else { changed = cp.paths; nonGit = !!cp.nonGit; }
+  }
+
+  let affected = [];
+  let degraded = nonGit;
+  const moduleSummaries = [];
+  if (catalog) {
+    const imp = analyzeImpact(changed, catalog, { nonGit });
+    affected = imp.affected;
+    degraded = imp.degraded || nonGit;
+    // P5: affected module test entries -- only module-level path-like verification strings
+    // (Phase 0-2 catalogs carry none, so this stays empty in practice).
+    const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
+    for (const id of affected) {
+      const m = byId.get(id);
+      if (m && Array.isArray(m.verification)) {
+        for (const v of m.verification) {
+          if (typeof v === 'string' && v.includes('/')) moduleSummaries.push({ path: v, bytes: v.length, reason: 'test-entry' });
+        }
+      }
+    }
+  } else {
+    degraded = true;   // no catalog -> cannot resolve affected modules
+  }
+
+  // Canonical diff fingerprint + size (never stringified; size drives budget accounting).
+  const { buf } = canonicalDiff();
+  const diffHash = sha256(buf);
+  const diffChars = buf.length;
+
+  // Candidate changed files: drop runtime-state files, read on-disk size for budgeting.
+  const candidateFiles = [];
+  for (const p of changed) {
+    if (isStateExcluded(p)) continue;
+    const norm = p.replace(/\\/g, '/');
+    let bytes = 0;
+    try { bytes = fs.statSync(path.join(projectRoot(), p)).size; } catch (_e) { bytes = 0; }
+    candidateFiles.push({ path: norm, bytes });
+  }
+
+  const pack = buildPack({
+    budgets, diffHash, diffChars, candidateFiles,
+    envelope: buildEnvelope(flags), specPointers: specPlanPointers(),
+    affected, moduleSummaries, degraded,
+  });
+  return emit(pack, nonGit ? 3 : 0);
+}
+
 
 // ===========================================================================
 // S7 receipt  -- TODO(T2.1): contentHash + writeReceipt + verifyReceipt (diff-bound, stale exit 4).

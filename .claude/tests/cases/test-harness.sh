@@ -45,6 +45,53 @@ else
   fail "doctor 未出预期 JSON（exit $RC，输出：$OUT）"
 fi
 
+# ③ 规模性能 smoke：mktemp 造 24 模块合成 catalog + 微型 git 仓，计时 context-pack < 5000ms。
+#    合成物只在临时目录，跑完即删，不入版本库。
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/.claude/harness"
+# 24 模块 dependsOn 链 catalog（node 本段已确保存在，用它合成 JSON）。
+node -e '
+  const fs = require("fs");
+  const mods = [];
+  for (let i = 0; i < 24; i++) {
+    const m = { id: "m" + i, paths: ["m" + i + "/**", "src/m" + i + "/**/*.ts"], riskTier: "medium" };
+    if (i > 0) m.dependsOn = ["m" + (i - 1)];
+    mods.push(m);
+  }
+  fs.writeFileSync(process.argv[1], JSON.stringify({ version: 1, modules: mods, global: ["package.json"], ignored: ["**/*.md"] }));
+' "$TMP/.claude/harness/module-catalog.json"
+
+(
+  cd "$TMP"
+  git init -q
+  git config core.autocrlf false
+  git config user.email t@t.t
+  git config user.name t
+  mkdir -p m0 m5 m23
+  echo "x" > m0/a.ts
+  echo "y" > m5/b.ts
+  echo "z" > m23/c.ts
+  git add -A
+  git commit -qm init
+  echo "changed" >> m0/a.ts        # 制造一处工作树变更
+) >/dev/null 2>&1
+
+START=$(date +%s%N)
+RC=0
+OUT=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$HARNESS" context-pack --catalog "$TMP/.claude/harness/module-catalog.json") || RC=$?
+END=$(date +%s%N)
+ELAPSED_MS=$(( (END - START) / 1000000 ))
+
+if [ "$RC" -eq 0 ] && [ "$ELAPSED_MS" -lt 5000 ]; then
+  pass "24 模块 context-pack 计时 ${ELAPSED_MS}ms < 5000ms"
+else
+  fail "24 模块 context-pack 超时或失败（exit $RC，计时 ${ELAPSED_MS}ms，输出：$OUT）"
+fi
+
+rm -rf "$TMP"
+trap - EXIT
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
