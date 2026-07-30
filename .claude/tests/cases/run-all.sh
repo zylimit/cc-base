@@ -27,7 +27,7 @@ fi
 echo ""
 echo ">>> [2/3] 静态自测（test-setup / test-routing / 闸回归，无需 claude CLI）"
 STATIC_RC=0
-for s in test-setup.sh test-routing.sh test-gate-audit.sh test-three-file-sync-gate.sh test-fast-mode.sh; do
+for s in test-setup.sh test-routing.sh test-fix-platform.sh test-hook-parity.sh test-gate-audit.sh test-three-file-sync-gate.sh test-fast-mode.sh; do
     echo "----- 运行 $s -----"
     bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 done

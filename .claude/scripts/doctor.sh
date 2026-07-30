@@ -20,7 +20,7 @@ note() { printf '! %s\n' "$1" >&2; warn=1; }
 
 # 主控下沉细则（rules/）
 [ -d .claude/rules ] && ok ".claude/rules 存在" || bad ".claude/rules 缺失"
-for r in file-structure workflow-orchestration dev-workflow-details; do
+for r in file-structure workflow-orchestration dev-workflow-details harness-large-repo; do
   [ -f ".claude/rules/$r.md" ] && ok "rule $r" || bad "rule $r 缺失"
 done
 
@@ -46,6 +46,10 @@ for hook in .claude/hooks/*.sh; do
   [ -e "$hook" ] || continue
   [ -x "$hook" ] && ok "hook 可执行 $hook" || bad "hook 缺可执行位 $hook"
 done
+
+# harness 接线依赖库（stop-gate / pre-commit-check source 它，缺失会静默降级）
+[ -f .claude/hooks/lib-harness.sh ]   && ok "lib-harness.sh 存在"   || bad "lib-harness.sh 缺失"
+[ -f .claude/hooks/lib-harness.ps1 ] && ok "lib-harness.ps1 存在" || bad "lib-harness.ps1 缺失"
 
 # settings.json 合法 JSON
 if [ -f .claude/settings.json ]; then

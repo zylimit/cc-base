@@ -25,6 +25,12 @@ CL="$TARGET/.claude"
 [ -f "$CL/settings.json" ] || fail "settings.json 未安装"
 [ -f "$CL/EVOLUTION.md" ] || fail "EVOLUTION.md 未安装"
 
+# harness 安装产物（大仓治理运行时 + 接线依赖库 + 大仓 rules）
+[ -f "$CL/harness/harness.mjs" ]         || fail "harness/harness.mjs 未安装"
+[ -f "$CL/hooks/lib-harness.sh" ]        || fail "hooks/lib-harness.sh 未安装"
+[ -f "$CL/hooks/lib-harness.ps1" ]       || fail "hooks/lib-harness.ps1 未安装"
+[ -f "$CL/rules/harness-large-repo.md" ] || fail "rules/harness-large-repo.md 未安装"
+
 # 7 个 agent 全装齐
 for ag in implementer code-reviewer tester deployer feedback-observer evolution-runner progress-recorder; do
   [ -f "$CL/agents/$ag.md" ] || fail "agent 缺失：$ag.md"

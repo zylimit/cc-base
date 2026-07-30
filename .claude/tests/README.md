@@ -23,9 +23,11 @@
 # 脚手架自测：无依赖、不耗 token、秒级返回。优先跑这个。
 bash .claude/tests/selftest.sh
 
-# 全量：先跑 selftest，再跑真触发 cases。
+# 全量（三段）：[1] selftest → [2] 静态自测 7 个（test-setup/routing/gate-audit/three-file-sync/fast-mode/fix-platform/hook-parity，无需 claude CLI）→ [3] 真触发 cases（需 claude CLI）。
 bash .claude/tests/cases/run-all.sh
 ```
+
+`run-all.sh` 三段：先 selftest（断言库本身可信），再静态自测（安装器/路由/闸回归，无需 CLI），最后真触发 cases（`command -v claude` 探测，无 CLI 则明示 SKIP 不假绿）。harness 自测（`cases/test-harness.sh`）只需 node、归第二段。
 
 - **selftest.sh** 用 `fixtures/` 里手造的 stream-json 样例跑断言库本身，
   **不需要 claude CLI、不调真 LLM**。验证：good-run 全 PASS、premature-run 的偷跑
@@ -47,13 +49,23 @@ bash .claude/tests/cases/run-all.sh
 ```
 .claude/tests/
 ├── test-helpers.sh                       # 可 source 的断言库
-├── selftest.sh                           # 脚手架自测（无依赖）
+├── selftest.sh                           # 脚手架自测（无依赖，验断言库本身）
+├── test-setup.sh                         # 安装器回归 + 幂等 + MANIFEST 分层 + harness 安装断言
+├── test-routing.sh                       # agent(7) / skill(15) 双向一致
+├── test-gate-audit.sh                    # 死闸审计回归
+├── test-three-file-sync-gate.sh          # 三文件同步闸回归
+├── test-fast-mode.sh                     # Fast Mode 总闸回归
+├── test-fix-platform.sh                  # fix-platform 跨平台归一回归（6 断言）
+├── test-hook-parity.sh                   # .sh / .ps1 hook 对等回归（5 断言）
 ├── README.md
-├── fixtures/                             # 手造 stream-json 样例（让断言库脱离真 LLM 自测）
+├── fixtures/                             # 手造样例（让断言库脱离真 LLM 自测）
 │   ├── good-run.jsonl                    # 先 Skill 再 Edit —— 应两个断言全过
-│   └── premature-run.jsonl              # 先 Edit/Bash 再 Skill —— premature 断言应判 FAIL
-└── cases/                                # 真触发测试（需 claude CLI）
-    ├── run-all.sh                        # 跑全部；无 CLI 时 SKIP cases 只跑 selftest
+│   ├── premature-run.jsonl              # 先 Edit/Bash 再 Skill —— premature 断言应判 FAIL
+│   ├── cross-line-decoupled.jsonl       # 跨行解耦 fixture（锁 selftest 假绿 bug）
+│   └── harness/                         # catalog fixture（test-harness 用）
+└── cases/                                # harness 自测（仅需 node）+ 真触发测试（需 claude CLI）
+    ├── run-all.sh                        # 三段：selftest → 静态自测 7 个 → 真触发 cases
+    ├── test-harness.sh                   # harness.mjs 自测（doctor/selftest/context-pack/waiver，只需 node）
     ├── todo-app-triggers-product-spec.sh # naive prompt → product-spec-builder
     └── bug-report-triggers-bug-fixer.sh  # naive prompt → bug-fixer
 ```

@@ -1,24 +1,24 @@
 #!/usr/bin/env pwsh
-# fix-platform.ps1 — 把项目 .claude/settings.json 的 hook command 归一为当前平台（.ps1）形态。
-# 跨平台搬迁后旧平台（.sh）command 残留会与本地平台 command 并存报错；搬到 Windows 后跑本脚本一次即可。
-# 不依赖 cc-base 仓库在场、不依赖 jq——用 pwsh 内置 ConvertFrom-Json/ConvertTo-Json。
-# 用法：pwsh -File fix-platform.ps1 [-Target <dir>]    不给 -Target 默认当前目录 "."，或读 CLAUDE_PROJECT_DIR。
+# fix-platform.ps1 -Normalize hook commands in .claude/settings.json to the current platform (.ps1) form.
+# After cross-platform moves, old (.sh) commands coexist with new platform commands and error; run this once after moving to Windows.
+# No dependency on the cc-base repo or jq -uses pwsh built-in ConvertFrom-Json/ConvertTo-Json.
+# Usage: pwsh -File fix-platform.ps1 [-Target <dir>]    -Target defaults to "." or reads CLAUDE_PROJECT_DIR.
 [CmdletBinding()]
 param(
   [string]$Target = '.'
 )
 $ErrorActionPreference = 'Stop'
 
-# 定位项目根：优先 CLAUDE_PROJECT_DIR，其次 -Target（默认当前目录）。
+# Locate project root: CLAUDE_PROJECT_DIR first, then -Target (defaults to current dir).
 $projectRoot = $env:CLAUDE_PROJECT_DIR
 if (-not $projectRoot) { $projectRoot = (Resolve-Path $Target).Path }
 $settings = Join-Path $projectRoot '.claude\settings.json'
-if (-not (Test-Path $settings)) { throw "找不到 settings.json：$settings（请在项目根运行，或设 CLAUDE_PROJECT_DIR）" }
+if (-not (Test-Path $settings)) { throw "settings.json not found: $settings (run from project root, or set CLAUDE_PROJECT_DIR)" }
 
 Write-Host '=== fix-platform (Windows/.ps1) ===' -ForegroundColor Cyan
 
-# pwsh 解释器探测（复制自 setup.ps1:113-121）：pwsh 7 绝对路径优先 → Get-Command pwsh → fallback powershell.exe。
-# pwsh 7 用绝对路径（带空格需引号）——powershell.exe 5.1 会继承被 Git Bash 污染的 PATH 卡死（setup.ps1 注释已记）。
+# pwsh interpreter probe (ported from setup.ps1:113-121): pwsh 7 absolute path first, then Get-Command pwsh, then powershell.exe.
+# pwsh 7 uses absolute path (quoted if spaces) -powershell.exe 5.1 inherits Git Bash-polluted PATH and hangs (noted in setup.ps1).
 $pwsh7Path = 'C:\Program Files\PowerShell\7\pwsh.exe'
 if (Test-Path $pwsh7Path) {
   $hookInterp = '"' + ($pwsh7Path -replace '\\', '/') + '"'
@@ -29,8 +29,8 @@ if (Test-Path $pwsh7Path) {
 }
 Write-Host "[ok] hook interpreter: $hookInterp"
 
-# Convert-ToPs1Command（复制自 setup.ps1:122-128）：把 .sh command 改写为 .ps1 形态。
-# 单引号字面量构造，\, ", $ 原样进入生成的 command（ConvertTo-Json 再转义）。
+# Convert-ToPs1Command (ported from setup.ps1:122-128): rewrite a .sh command into .ps1 form.
+# Single-quote literal construction; \, ", $ pass through into the generated command (ConvertTo-Json escapes them).
 function Convert-ToPs1Command([string]$cmd) {
   if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
     $name = $Matches[1]
@@ -39,9 +39,9 @@ function Convert-ToPs1Command([string]$cmd) {
   return $cmd
 }
 
-# .sh 残留判定（复制自 setup.ps1:164-170 Test-IsShResidue）：
-# 保守只认框架 .sh 形态——不含 powershell/pwsh、指向 .claude/hooks/<name>.sh、不带 $env/-Command（.ps1 形态标记）。
-# 三条件都中才算 .sh 残留；用户自定义 .sh（指向别处）或 .ps1 形态都不动。
+# .sh residue detection (ported from setup.ps1:164-170 Test-IsShResidue):
+# Conservative: only framework .sh forms -no powershell/pwsh, points at .claude/hooks/<name>.sh, no $env/-Command (.ps1 markers).
+# All three conditions met = .sh residue; user-defined .sh (pointing elsewhere) or .ps1 forms are left alone.
 function Test-IsShResidue([string]$cmd) {
   if (-not $cmd) { return $false }
   if ($cmd -match 'powershell|pwsh') { return $false }
@@ -50,7 +50,7 @@ function Test-IsShResidue([string]$cmd) {
   return $true
 }
 
-# 从 command 提 hook name（.sh 或 .ps1 都支持，用于查重）。
+# Extract hook name from command (supports .sh and .ps1, used for dedup).
 function Get-HookName([string]$cmd, [string]$ext) {
   if ($cmd -match ('\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.' + $ext)) { return $Matches[1] }
   return $null
@@ -66,8 +66,8 @@ if ($data.hooks) {
     if (-not $groups) { continue }
     foreach ($group in $groups) {
       if (-not $group.hooks) { continue }
-      # 先收集本 group 已有的 .ps1 hook name（避免补重复）——用 hashtable 当集合，避开
-      # pwsh 7.6 对 List[object]/HashSet[string] 做数组强转时的 PSToObjectArrayBinder 绑定 bug。
+      # Collect existing .ps1 hook names in this group first (avoid dupes) -use a hashtable as a set, to avoid
+      # the PSToObjectArrayBinder binding bug in pwsh 7.6 when casting List[object]/HashSet[string] to arrays.
       $existingPs1 = @{}
       foreach ($h in $group.hooks) {
         $n = Get-HookName $h.command 'ps1'
@@ -84,7 +84,7 @@ if ($data.hooks) {
           $newList += $h
         }
       }
-      # 对每个被删的 name，若同 group 无对应 .ps1 则补一条（保留原 entry 的 type/timeout 等）
+      # For each deleted name, if no matching .ps1 in the same group, add one (preserve type/timeout etc. from the original entry)
       foreach ($de in $deletedEntries) {
         if ($de.Name -and $existingPs1.ContainsKey($de.Name)) { continue }
         $newEntry = [pscustomobject]@{}
@@ -98,7 +98,7 @@ if ($data.hooks) {
         if (-not $newEntry.PSObject.Properties['command']) {
           $newEntry | Add-Member -NotePropertyName command -NotePropertyValue (Convert-ToPs1Command $de.Entry.command) -Force
         }
-        # 匹 setup.ps1:135：有 timeout 就归 30（pwsh 启动慢于 bash，setup.ps1 装时同样强写 30）
+        # Match setup.ps1:135: if timeout exists, normalize to 30 (pwsh starts slower than bash; setup.ps1 also force-writes 30)
         if ($newEntry.PSObject.Properties['timeout']) { $newEntry.timeout = 30 }
         $newList += $newEntry
         if ($de.Name) { $existingPs1[$de.Name] = $true }
@@ -109,10 +109,10 @@ if ($data.hooks) {
   }
 }
 
-# 备份后写回
+# Backup then write back
 Copy-Item $settings "$settings.bak" -Force
 Write-Host "backup: $settings.bak"
 $data | ConvertTo-Json -Depth 20 | Set-Content $settings -Encoding UTF8
 Write-Host "fix-platform: deleted .sh residue commands=$deletedSh, added .ps1 commands=$addedPs1" -ForegroundColor Green
-Write-Host "完成。settings.json 已归一为 .ps1 形态（Windows）。路径：$settings" -ForegroundColor Green
+Write-Host "Done. settings.json normalized to .ps1 form (Windows). Path: $settings" -ForegroundColor Green
 exit 0

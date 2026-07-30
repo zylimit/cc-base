@@ -17,6 +17,7 @@ _Last updated: 2026-07-31_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-07-31: **Phase 5 排查补漏批次完成（待 commit + 发 v1.9.2）**——从头到尾排查（3 维度并行 Explore + 主 Agent 核对）查 10 处漏全修：① rules:26 幽灵调用（doctor.sh 不调 harness doctor，主 Agent P3-2 引入，已修）；② fix-platform.ps1 ASCII 化（20 行中文→英文，.ps1 铁律）；③ run-all 挂 test-fix-platform + test-hook-parity（回归网两洞补）；④ selftest 集成盲区补 11 断言（test-harness 5→16，固化 verify rc 0/2/3 + receipt verify rc 0/4/3 + 落盘往返 + waiver 真写+security 拒，关键子集）；⑤ README 用户面补大仓能力段 + 目录清单补 harness/scripts/tests/workflows；⑥ test-setup 补 harness 安装断言；⑦ doctor 抽检补 harness-large-repo + lib-harness；⑧ ARCHITECTURE 计数修正（13→15 Skill / 13→14 hook + 目录结构补 + hook 表补 three-file-sync-gate）；⑨ tests/README 文件结构刷新；⑩ progress TODO #11-14 标签清。打包前全量静态回归全绿（selftest/test-setup/routing/gate-audit/three-file-sync/fast-mode/fix-platform 6/hook-parity 5/test-harness 16/doctor/harness-selftest 61）。implementer + tester 各 fresh，主 Agent 五步闸逐项亲验。
 - 2026-07-31: **cc-base v1.9.1 发布上线**——Phase 4 文档收口 patch：CLAUDE.md 指针小节 + rules/harness-large-repo.md（98 行大仓能力说明，反映 harness.mjs 真实行为）+ FRAMEWORK-MANIFEST 重生（114 文件）。打包前全量静态回归全绿（selftest 61/0 + test-setup + test-routing + gate-audit 9/0 + three-file-sync 6/0 + fast-mode 13/0 + test-harness 5/0 + doctor）；make-release.sh v1.9.1 打包 374734B/125 entries，隐私审计无私有 feedback/密钥/runtime 残留；tag v1.9.1 → fba9339 push 远端、GitHub Release draft=false（URL https://github.com/zylimit/cc-base/releases/tag/v1.9.1）。**资产 zip 同 v1.9.0 受华为代理拦 uploads.github.com 传不上，本地存 `D:\Code\cc-base-v1.9.1.zip`，待换网络补传 `gh release upload v1.9.1 cc-base-v1.9.1.zip --clobber`**。
 - 2026-07-31: **Phase 4 大仓能力文档收口完成**——补 plan Phase4 漏项：CLAUDE.md 增量 +6 行加 `[大仓能力（可选——按需开启）]` 指针小节（插 [开发测试规则]/[项目记忆规则] 间，纯增量零删除）+ 新建 `rules/harness-large-repo.md`（启用条件/catalog schema/九能力/退出码契约/接线点/per-Task 闭环/四态门/waiver/工作流，开头强制指针句）。implementer 交付 → 主 Agent 五步闸独立验收（纯增量、源码逐点核对 stop-gate rc=4 / pre-commit-check:61-74 rc=2 / lib-harness catalog 开关 / 九能力命令均对上源码非幽灵引用、test-routing+doctor+selftest exit 0）→ code-reviewer fresh 审（Stage 1 规格 PASS + Stage 2 抓 2 P2 失真 + 3 P3）→ 全修：P2 doctor 输出格式厘清 / 运行态文件标题去「均 git 忽略」；P3 inline 命令抽象化 / doctor 歧义 / stop-gate 行号精度。修后 selftest 61/0 + test-routing exit 0 不回归。
 - 2026-07-31: **cc-base v1.9.0 发布上线**——大仓治理 harness Phase 0-3（catalog/impact/context-pack + diff-bound 回执 + 四态风险门 + 结构化 waiver，无 catalog 默认关闭零负担）+ setup -win/-mac/-ubt 平台路由 + test-setup ③b 无 jq 回归锁 + Fast Mode 总闸加固（expires_epoch + fail-closed + ps1 双写）。发版前测试卡点新鲜跑全绿：selftest 61/0 + 静态回归 6/0（test-harness 5/0 / test-setup+③b / gate-audit 9/0 / three-file-sync 6/0 / fast-mode 13/0）+ doctor 通过。make-release.sh v1.9.0 打包 368160B/124 entries，隐私审计无私有 feedback/密钥/runtime 残留泄漏（2 处 `/Users/xxx/` 系 code-review SKILL.md 占位符非真实路径）。tag v1.9.0 → 688513d push 远端、GitHub Release draft=false（URL https://github.com/zylimit/cc-base/releases/tag/v1.9.0）。**资产 zip 因华为代理 proxysg 拦 uploads.github.com（403，gh + curl API 双路均败、schannel 吊销检查亦败、直连内网不通）当前传不上，本地存 `D:\Code\cc-base-v1.9.0.zip`，待换网络补传 `gh release upload v1.9.0 cc-base-v1.9.0.zip --clobber`**。
@@ -131,10 +132,10 @@ _Last updated: 2026-07-31_
 - [P2][DONE][#6] **ccb-base 借鉴批次——gate-audit+lib-gate-log+three-file-sync-gate 完整流水线验收**（2026-07-01，evidence：提交待用户拍板）
 - [P1][DONE][#7] **提交 ccb-base 借鉴批次改动**——已提交远端并发版 v1.5.0（commit b895805，2026-07-01）。
 - [P2][DONE][#5] **setup.sh 安装时未排除私有 feedback**——已在 v1.3.1 修复（commit 856566e）：setup.sh/setup.ps1 跳过 feedback/ 顶层私有 *.md（保留 templates/）+ 重置 FEEDBACK-INDEX 为模板，与 make-release.sh 排除逻辑对齐。实测 /tmp/ccft-verify 私有 *.md=0、其它资产齐全。
-- [P1][已验收·待commit][#11] 跨平台根治 #1：setup.sh/ps1 merge 清理异平台残留（两侧 fixture 验证通过 + 自测 6/6 全绿，见 Done；未 commit 待整批 review + 用户拍板）
-- [P1][已验收·待commit][#12] 跨平台根治 #2：新增 fix-platform.sh/.ps1 迁移命令（对称环验证通过见 Done；未 commit 待整批 review）
-- [P2][已验收·待commit][#13] 跨平台根治 #3：修 3 处 hook 不对等（3 处全验证见 Done；未 commit 待整批 review）
-- [P2][已完成][#14] 跨平台根治 #4：测试——subagent stalled 前写大部分（test-fix-platform + test-hook-parity），主 Agent 修 1 处路径断言（.needs-review pwsh GetFullPath /tmp 坑），两测试全绿（6/6 + 5/5）+ manifest 重生成 + README 跨平台段。意外达成。
+- [P1][DONE][#11] 跨平台根治 #1：setup.sh/ps1 merge 清理异平台残留（两侧 fixture 验证通过 + 自测 6/6 全绿，见 Done；已随跨平台根治整批 commit `f9e030c`）
+- [P1][DONE][#12] 跨平台根治 #2：新增 fix-platform.sh/.ps1 迁移命令（对称环验证通过见 Done；已随 `f9e030c`）
+- [P2][DONE][#13] 跨平台根治 #3：修 3 处 hook 不对等（3 处全验证见 Done；已随 `f9e030c`）
+- [P2][DONE][#14] 跨平台根治 #4：测试——test-fix-platform + test-hook-parity 两测试全绿（6/6 + 5/5）+ manifest 重生成 + README 跨平台段。**注：两测试当时未挂进 run-all（回归网洞），Phase 5 收口（2026-07-31）补挂**。
 - [P2][完成][#15] .ps1 hook stdin UTF-8 统一——9 个读 stdin 的 .ps1 hook 加 [Console]::InputEncoding=UTF8（tdd-gate Task3 已有跳过），修中文 Windows pwsh GBK。主 Agent python3 批量幂等 + ASCII CLEAN + test-hook-parity 5/5 + test-fix-platform 6/6 + selftest PASS。
 - [P1][DONE][#16] Phase 2 接线 T2.4：四态风险分层门接线 pre-commit-check.sh/.ps1（家底 hook，增量补缺）——已提交 commit 6593ab7，主 Agent 五步闸独立验证（syntax/no-catalog no-op/gate-hit block/PASS no-false-block）。
 - [P1][DONE][#17] Phase 2 接线 T2.2：diff-bound 回执网关接线 stop-gate.sh/.ps1（家底 hook，增量补缺）——已提交 commit 6593ab7，主 Agent 五步闸独立验证（syntax/no-catalog no-op/gate-hit block/PASS no-false-block）。
@@ -146,6 +147,7 @@ _Last updated: 2026-07-31_
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
 
 ## Notes
+- 2026-07-31: Phase 5 排查补漏批次（10 处漏全修）完成，详见当日 Done 条目。
 - 2026-07-30: 大仓能力落地时的接入约束——新增 `.claude/harness/` 运行态账本需补进 `.claude/.gitignore`；新增 harness 文件须纳入 FRAMEWORK-MANIFEST + doctor.sh 抽检 + run-all.sh 自测。
 - 2026-07-30: 大仓能力接入锚点（不新增 hook 事件）——diff-bound 回执挂 mark-review-needed→stop-gate 现有链；四态风险分层门挂 pre-commit-check/static-check 锚点。
 - 2026-07-30: 四姊妹框架分析 + harness 实现设计共 5 篇产于 .claude/research/，已在 `1272c84` 入库（含 FRAMEWORK-MANIFEST 抽检）。已签字实施方案见 plan 文件 C:\Users\z00632348\.claude\plans\vectorized-splashing-hollerith.md。

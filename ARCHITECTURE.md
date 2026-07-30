@@ -134,13 +134,13 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 **Phase 完成四步走验证**：Code Review → 测试完整性（test-builder 真卡点）→ 编译验证 → 功能测试。全过才算 Phase 完成。
 
-13 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
+15 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
 
 ---
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
-settings.json 实际注册 13 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+settings.json 实际注册 14 个 hook（每个均 `.sh` + `.ps1` 双平台）：
 
 | Hook | 触发 | 作用 |
 |------|------|------|
@@ -156,6 +156,7 @@ settings.json 实际注册 13 个 hook（每个均 `.sh` + `.ps1` 双平台）�
 | `mark-review-needed.sh` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
 | `auto-push.sh` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
 | `stop-gate.sh` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
+| `three-file-sync-gate.sh` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
 | `subagent-acceptance-reminder.sh` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
 
 > `hooks/static-check.sh` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc），同放此目录仅为聚拢。
@@ -184,10 +185,14 @@ project/
 ├── <project-name>/                       # 项目代码子文件夹
 └── .claude/
     ├── CLAUDE.md                         # 主控
+    ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo）
     ├── agents/                           # 7 个专职 Sub-Agent
-    ├── skills/                           # 13 个 Skill
-    ├── hooks/                            # 13 个注册闸门 + static-check 工具
+    ├── skills/                           # 15 个 Skill
+    ├── hooks/                            # 14 个注册闸门 + static-check 工具
+    ├── harness/                          # 大仓治理 harness（harness.mjs，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
+    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit）
+    ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / cases）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎
 ```
