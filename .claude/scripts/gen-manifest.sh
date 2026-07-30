@@ -29,6 +29,7 @@ while IFS= read -r -d '' src; do
     .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
     signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列
     evidence/*) continue ;;                                      # 运行态证据目录
+    harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常入清单）
     *.bak|*.framework-new) continue ;;                           # 安装器产物
     feedback/templates/*) ;;                                     # 保留模板（框架资产）
     feedback/*/*) ;;                                             # feedback 子目录其他文件

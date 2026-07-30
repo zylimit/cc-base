@@ -31,6 +31,9 @@ for s in test-setup.sh test-routing.sh test-gate-audit.sh test-three-file-sync-g
     echo "----- 运行 $s -----"
     bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 done
+# harness 自测在 cases/（无需 claude CLI，只需 node），归第二段跑；无 node 时其自身打 SKIPPED 非假绿。
+echo "----- 运行 test-harness.sh -----"
+bash "$DIR/test-harness.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
     echo "########## 结果：静态自测失败（安装器/路由一致性不过），停止。 ##########"
@@ -51,6 +54,7 @@ CASE_RC=0
 RAN=0
 for c in "$DIR"/*.sh; do
     [ "$(basename "$c")" = "run-all.sh" ] && continue
+    [ "$(basename "$c")" = "test-harness.sh" ] && continue   # 已在第二段跑（只需 node，不需 claude CLI）
     RAN=$((RAN+1))
     echo ""
     echo "----- 运行 case：$(basename "$c") -----"

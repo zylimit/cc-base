@@ -73,6 +73,17 @@ command -v git  >/dev/null 2>&1 && ok "git 可用"  || note "未找到 git；git
 command -v bash >/dev/null 2>&1 && ok "bash 可用" || note "未找到 bash"
 command -v jq   >/dev/null 2>&1 && ok "jq 可用（可选）"      || note "未找到 jq（可选）"
 
+# 大仓治理 harness（默认关闭，catalog 存在即启用）——只报告状态，不 fail 小项目
+[ -f .claude/harness/harness.mjs ] && ok "harness.mjs 存在" \
+  || note "harness.mjs 缺失（大仓治理运行时；若不用大仓治理可忽略）"
+if [ -f .claude/harness/module-catalog.json ]; then
+  ok "module-catalog.json 存在（大仓治理已启用）"
+  command -v node >/dev/null 2>&1 && ok "node 可用（harness 可跑）" \
+    || note "未找到 node；大仓治理 harness 判定将降级跳过（非假绿）"
+else
+  printf -- '- %s\n' "module-catalog.json 未配置（大仓治理默认关闭，接线走原逻辑）"
+fi
+
 # FRAMEWORK-MANIFEST 抽验（note 级，不 fail）：存在则抽 3 个文件比对 LF 归一化 SHA256，
 # 不符只提示「本地有改动或框架已更新」——这是分层信息，不是错误。
 if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1; then

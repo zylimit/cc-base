@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-07-29_
+_Last updated: 2026-07-30_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -91,6 +91,11 @@ _Last updated: 2026-07-29_
 - 2026-07-01: 三处 P3 残留为已知边界（不阻塞，非本次引入，非缺陷）：① gate-audit 空数组在 bash 3.2 的 set -u 边界（本仓恒≥5 闸，实际不触发）；② three-file-sync.ps1 在 Windows PowerShell 5.1 的 NUL 捕获 + 非 ASCII 路径编码风险（目标文件名全 ASCII 不受影响，属 PS 解析 git -z 固有边界）——待有 pwsh 真机环境补一次实跑落地证据。
 - 2026-07-01: three-file-sync Stop 闸与异步 progress-recorder 存在瞬时死锁窗口（闸要 progress.md 进改动集，而能写入它的 recorder 还在跑）——当前靠 recorder 完成后自然放行，记为已知机制交互，供后续评估是否给闸加「异步记录进行中」豁免标志。
 - 2026-07-29: **cc-base 跨平台根治方案选定——方案 B（双形态 + fix-platform 迁移命令）**。保留 .sh（Linux/mac）/ .ps1（Windows）各自已验证形态，补「setup merge 清理异平台残留 + 新增 fix-platform.sh/.ps1 一键归一 + 修 Explore 发现的 3 处 hook 不对等」。**否决方案 A（统一 .sh + shell:bash 零命令搬迁）**——理由：① README L67 实战教训记录 Claude Code Git Bash 自动检测有已知 bug #22700 不可靠（cc-base 当初做 .ps1 正是踩此坑，非冗余）；② 无 Git Bash 的纯 PowerShell 环境跑不了 .sh，统一 .sh 会牺牲 PS 环境。官方 hooks 文档查证 Windows 默认 Git Bash + 支持 shell:bash 字段，但 #22700 动摇其可靠性，故不赌、走双形态。
+- 2026-07-30: **决定为 cc-base 增量补大仓能力（catalog→impact→context-pack + diff-bound 回执 + 四态风险分层门）**，支持 20-30 万行代码规模。理由：四姊妹框架（codex-base/cursor-base/pi-base/grok-base）深度调研 + 三路联网验证（Bazel rdeps/Nx/Turborepo affected 图算法、METR 2025.07「AI 慢 19% 系治理非模型问题」、CodeRabbit 2025.12「AI 代码缺陷 1.7x」）高度收敛，证明这是唯一被实测证明的路径。此决策不与 2026-06-14「cc-base 轻量、拒多模型/CCB/复杂编排」冲突——大仓治理是「缩小活动范围」的确定性计算，非编排复杂度。
+- 2026-07-30: **实现载体选定为 Node 单文件 `.claude/harness/harness.mjs`**（零依赖、纯 .mjs+JSDoc、按需调用）。**否决** cursor-base 的 .ts/.mjs 逐字节假 TS 双写；**否决** bash/ps1 双写实现（JSON/glob/闭包脆弱、维护税高，正是 #15 stdin 坑同类教训）。cc-base 已有 Node 生态（workflows/code-review-fanout.js 先例），非新引入运行时。
+- 2026-07-30: **大仓能力默认关闭、按需开启**——module-catalog.json 存在即启用，小项目/框架本体零负担；node/catalog 缺失时 hook 静默降级不破坏现有流程。守 pi-base 反模式#1 教训（机制密度对轻量项目是过度设计）。
+- 2026-07-30: **先落核心 Phase 0-2（地基+三件套+回执/四态门）验证再续，Phase 3 结构化 waiver / Phase 4 收口押后**，待用户验收 Phase 0-2 后再定。
+- 2026-07-30: **明确否决的反模式（大仓方案调研中排除项）**——cursor-base 假 TS 双写、pi-base lease.ts 租约层（YAGNI）、grok-base static-check.sh 幽灵引用与业务目录硬编码泄漏、codex-base 12-lib 重型 runtime、CI 矩阵（沿用 2026-06-16 既有否决）、正则安全分类器当硬隔离用。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -118,6 +123,11 @@ _Last updated: 2026-07-29_
 - **trajectory 存储/回放、Action-Observation 事件流结构化**：引擎级数据结构，markdown 框架硬套自找麻烦；已有 progress.md+外部memory+claude-mem 三层。
 - **反馈→改进闭环**（参照 OpenHands enterprise/storage/feedback.py）：cc-base evolution-engine 反而领先——OpenHands feedback 表只存 polarity+trajectory，无聚合分析无改进驱动；不需要对标。
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
+
+## Notes
+- 2026-07-30: 大仓能力落地时的接入约束——新增 `.claude/harness/` 运行态账本需补进 `.claude/.gitignore`；新增 harness 文件须纳入 FRAMEWORK-MANIFEST + doctor.sh 抽检 + run-all.sh 自测。
+- 2026-07-30: 大仓能力接入锚点（不新增 hook 事件）——diff-bound 回执挂 mark-review-needed→stop-gate 现有链；四态风险分层门挂 pre-commit-check/static-check 锚点。
+- 2026-07-30: 四篇姊妹框架分析文档（codex-base/cursor-base/pi-base/grok-base）产于 .claude/research/，当前 untracked，待方案落地后随批次一并 commit 或按需清理。已签字实施方案见 plan 文件 C:\Users\z00632348\.claude\plans\vectorized-splashing-hollerith.md。
 
 ## 将来事（低概率/成本高/暂不划算）
 - **自建 agent benchmark**：OpenHands 用 SWEBench 客观衡量「框架变好没」，cc-base 全靠人肉判断。自建 benchmark 成本极高，现阶段不做，将来项目规模大到需要客观回归指标时再考虑。（2026-06-15）

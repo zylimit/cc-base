@@ -64,6 +64,7 @@ copy_claude_tree() {
       .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
       signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列（任意层级 basename）
       evidence/*) continue ;;                                      # 运行态证据目录
+      harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常复制分发）
       feedback/templates/*) ;;                                     # 保留模板（顶层 *.md 才是私人经验）
       feedback/*/*) ;;                                              # 保留 feedback 子目录其他文件
       feedback/*.md) continue ;;                                    # 私人进化经验（顶层 *.md）；INDEX 装后重置为模板
