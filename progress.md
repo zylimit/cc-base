@@ -17,6 +17,7 @@ _Last updated: 2026-07-30_
 - **.ps1 hook stdin 中文受 pwsh GBK 限制（known issue，候选 #15）**：中文 Windows pwsh [Console]::InputEncoding 默认 GB2312/936，读 stdin 的 .ps1 hook 读 UTF-8 中文 JSON 乱码（2026-07-29 真机 trace：codepage 936，设 UTF8 后 MATCHED）。tdd-gate.ps1 已补设 UTF-8 InputEncoding（第 11 行）让 \\u 中文触发真生效（pwsh+5.1 双环境验证）；其他读 stdin 的 .ps1 hook（mark-review-needed 读 file_path 中文路径、detect-feedback-signal/recap-on-dirty/session-rules-banner/subagent-acceptance-reminder 等）尚未统一，候选 #15 拍板。
 
 ## Done
+- 2026-07-30: **Phase 0-2 合并收口完成**——feat/harness-large-repo（领先 main 9 commit、main 零独立 commit）纯 fast-forward 合并进 main（核对 main HEAD == feat HEAD == f0f21f2、工作树干净）；合并后 main 全量静态回归 6/0 全绿（selftest / test-harness / test-setup / test-gate-audit / test-three-file-sync-gate / test-fast-mode 各 EXIT=0，与合并前一致无回归）；已删本地 feat 分支。**未 push**（origin/main...main = 0/9，push 属另一道待用户拍板的闸）。
 - 2026-07-30: **Phase 0-2 收口静态自测全绿**（新鲜跑）：test-harness 3/0（context-pack 24模块 294ms<5000ms）、selftest 符合预期 9/0、test-setup EXIT=0（agents=7 hooks=18 幂等✓ + manifest 分层✓）、test-gate-audit 9/0、test-three-file-sync-gate 6/0、test-fast-mode 13/0。
 - 2026-07-30: **Phase 2 接线提交 `6593ab7`**（"feat(harness): T2.2/T2.4 接线——stop-gate 挂 diff-bound 回执网关 + pre-commit-check 挂大仓四态门"）。stop-gate（.sh/.ps1）挂 diff-bound 回执网关——待审清单清空后校验工作树 diff 是否绑定已通过回执，STALE(rc=4) 则拦停并保留 .needs-review；pre-commit-check（.sh/.ps1）挂大仓四态门——受影响模块 FAIL/BLOCKED(rc=2) 阻断 commit。均 catalog 存在才启用、node 缺失零行为变化。均经主 Agent 五步闸独立验证（syntax / no-catalog no-op / gate-hit block / PASS no-false-block）。
 - 2026-07-30: **test-setup.sh #16 平台路由修复提交 `03f9d72`**——修最近提交 3909ef5（加 -win/-mac/-ubt 平台自动路由）引入的真实回归：setup.sh 在 MINGW 上 exec 转交 setup.ps1（原生合并、不依赖 jq），但测试 ③块仍按 jq 有无二分、无 jq 分支断言 grep "手工"（仅 setup.sh 降级路径打印），导致 run-all 在 Windows/Git Bash 机器上挂红。改为顶层先判是否路由到 setup.ps1 三分支，命中则断言 .ps1 原生合并语义（.bak 备份 + 排除 .bak 幂等 + installed: ps1_hooks= 标志）。同时补上此前完全未覆盖的 Windows 安装路径。本机（MINGW 无 jq）实跑 test-setup passed（settings 路径=.ps1 原生合并）、EXIT=0。
@@ -106,6 +107,7 @@ _Last updated: 2026-07-30_
 - 2026-07-30: **接受 implementer 两处偏离蓝图**（均经主 Agent 实测证据核验后采纳）：① spawnCmd win32 用 `windowsVerbatimArguments: true` 而非裸 `cmd /c`——裸 cmd /c 会篡改嵌套引号并把子进程退出码吞成 0（假绿，违反"绝不假绿"），实测确认加此标志才正确透传退出码；② `receipt` 子命令读 `positional[0]` 而非 `[1]`——主 Agent 派单提示词有 off-by-one，实际 parseArgs 里 cmd=argv[0]、positional=argv[1..]，子命令名落在 positional[0]。
 - 2026-07-30: **收口验收路径修正**——原计划"关 Fast Mode 前先跑红蓝审查"被判定为自相矛盾：Fast Mode 期间 CLAUDE.md 明写"不自动进入 red-blue 对抗模式"，红蓝审查正是 Fast Mode 显式跳过的闸；且红蓝审查触发点是"发版/合并分支前"，合并到 main 属 HIGH 档需用户签字。故修正为：主 Agent 摆齐 Phase 0-2 客观证据 → 交用户验收 → 红蓝审查/合并/关 Fast Mode/上 Phase 3 这些 HIGH 档决策由用户在验收闸上定，主 Agent 不自作主张在 Fast Mode 下烧 ~15x token 跑红蓝。
 - 2026-07-30: **live 用例失败定性**——run-all [3/3] 两个 live `claude -p` 用例（bug-fixer / product-spec）失败定性为环境性、非本分支回归：本分支 24 个改动文件经 `git diff --name-only main...HEAD` + status + grep 核实零触碰 CLAUDE.md / skills / 路由 hook，skill 路由 100% 由 CLAUDE.md 驱动；两用例失败模式完全相同（全程无 Skill 调用），指向共同 CLI 层原因（use-local 走 OAuth，LiteLLM 代理不产 stream-json Skill 事件）。按"不磨蹭"不重烧这两个各 300s 超时的 live 用例。
+- 2026-07-30: **Phase 0-2 收口三项用户决策（验收闸上拍板，覆盖框架默认）**：① 家底 hook 收口方式=信静态自测直接合并 main，用户显式豁免红蓝审查（非安全护栏、可豁免）；② Phase 3 结构化 waiver 押后（先收口 0-2，Phase 0-2 即本轮终点）；③ Fast Mode 保持开（约剩 21h 后自动过期回严格）。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -143,7 +145,7 @@ _Last updated: 2026-07-30_
 - 2026-07-30: **预存缺陷（非本次回归，单列待办）**：`setup.sh` 无 jq 降级路径未打印 test-setup.sh:87 断言的"手工"合并指引——在无 jq 机器上 test-setup.sh 因此 FAIL。已用 `git stash` 基线确认此 FAIL 与本次 harness 改动无关（基线同样 exit=1）。属预存 setup.sh 缺陷，不阻塞内核提交，待后续单独修。
 - 2026-07-30: **约束提醒**：Fast Mode 当前 ON（.claude/.fast-mode，24h 过期）；Phase 0-2 收口验收前须 `bash .claude/scripts/fast-mode.sh off` 恢复严格模式。
 - 2026-07-30: 已知：真触发 live case（cases/todo-app、cases/bug-report）在当前 use-local LiteLLM 环境下 claude -p 产出无 Skill 事件而 FAIL，非回归；判定 harness 改动影响面时以"是否触碰 CLAUDE.md/skills/路由 hook"为准。
-- 2026-07-30: Task #5（Phase 0-2 收口）进行中：manifest 重生（gen-manifest 自动纳入新增 harness 文件）、家底 hook 红蓝审查（stop-gate+pre-commit-check，关 Fast Mode 前必过）、关 Fast Mode 尚待完成。
+- 2026-07-30: Task #5（Phase 0-2 收口）**已完成**：feat/harness-large-repo fast-forward 合并进 main（f0f21f2）+ 合并后全量静态回归 6/0 全绿；家底 hook 红蓝审查经用户显式豁免（信静态自测直接合并）；Fast Mode 按用户决定保持开（约剩 21h 自动过期）。
 
 ## 将来事（低概率/成本高/暂不划算）
 - **自建 agent benchmark**：OpenHands 用 SWEBench 客观衡量「框架变好没」，cc-base 全靠人肉判断。自建 benchmark 成本极高，现阶段不做，将来项目规模大到需要客观回归指标时再考虑。（2026-06-15）
