@@ -124,6 +124,20 @@ if ($pyFiles.Count -gt 0) {
   }
 }
 
+# ---------- Monorepo four-state gate (enabled only when catalog exists; node missing -> silent skip, zero behaviour change) ----------
+try {
+  . (Join-Path $PSScriptRoot 'lib-harness.ps1')
+  if ((Test-HarnessEnabled) -and (Get-HarnessNode)) {
+    $hv = Invoke-Harness @('verify')
+    # Code 2 -> affected-module gate FAIL/BLOCKED, block commit; Code 3 -> degraded (no catalog/non-git) silent skip; Code 0 -> pass
+    if ($hv -and $hv.Code -eq 2) {
+      [Console]::Error.WriteLine("[x] Monorepo four-state gate failed (affected-module checks FAIL/BLOCKED), commit blocked:")
+      [Console]::Error.WriteLine($hv.Out)
+      $fail = 1
+    }
+  }
+} catch {}
+
 if ($fail -ne 0) {
   try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'pre-commit-check' 'compile/syntax gate failed, commit blocked' } catch { }
   exit 2

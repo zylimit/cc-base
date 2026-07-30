@@ -58,6 +58,21 @@ if [ -n "$PY_FILES" ]; then
   fi
 fi
 
+# ---------- 大仓四态门（catalog 存在才启用；node 缺失静默跳过，零行为变化）----------
+_HARNESS_LIB="$(dirname "$0")/lib-harness.sh"
+if [ -f "$_HARNESS_LIB" ]; then
+  . "$_HARNESS_LIB"
+  if harness_enabled && harness_node_ok; then
+    HV_OUT=$(harness_run verify 2>/dev/null); HV_RC=$?
+    # RC=2 → 受影响模块的定向门未过（FAIL/BLOCKED），阻断 commit；RC=3 降级（无 catalog/非 git）静默跳过；RC=0 放行
+    if [ "$HV_RC" -eq 2 ]; then
+      echo "❌ 大仓四态质量门未通过（受影响模块定向检查 FAIL/BLOCKED），commit 被阻止：" >&2
+      echo "$HV_OUT" >&2
+      FAIL=1
+    fi
+  fi
+fi
+
 if [ $FAIL -ne 0 ]; then
   # shellcheck source=/dev/null
   . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true

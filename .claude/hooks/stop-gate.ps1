@@ -33,6 +33,20 @@ if (-not (Test-Path $stateFile)) {
 
 $files = @(Get-Content $stateFile | Where-Object { $_.Trim() -ne '' -and $_ -ne 'clean' })
 if ($files.Count -eq 0) {
+  # Monorepo receipt gate (enabled only when the catalog exists; skipped silently when node is
+  # missing -> original logic, zero behaviour change): once the list is cleared (verbal release),
+  # verify the current worktree diff is bound to a passed receipt -- if the code moved past every
+  # reviewed receipt (STALE, rc=4) force re-review, keeping .needs-review so the next stop still blocks.
+  . (Join-Path $PSScriptRoot 'lib-harness.ps1')
+  if ((Test-HarnessEnabled) -and (Get-HarnessNode)) {
+    $rv = Invoke-Harness @('receipt', 'verify')
+    if ($rv -and $rv.Code -eq 4) {
+      $r = 'Code changed after the last review; no matching passed receipt (diff moved past every reviewed receipt). Re-dispatch code-reviewer for the current diff and write a receipt before stopping.'
+      try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $r } catch { }
+      Write-Output ([pscustomobject]@{ decision = 'block'; reason = $r } | ConvertTo-Json -Compress)
+      exit 0
+    }
+  }
   Remove-Item $stateFile -ErrorAction SilentlyContinue
   Remove-Item "$stateFile.lock" -ErrorAction SilentlyContinue
   Remove-Item $strikeFile -ErrorAction SilentlyContinue

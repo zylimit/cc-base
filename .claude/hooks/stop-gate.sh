@@ -29,6 +29,26 @@ if [ ! -f "$STATE_FILE" ]; then rm -f "$STRIKE_FILE"; exit 0; fi
 # grep 无匹配返回 1 属正常（清单只剩 clean/全空），|| true 防 fail-closed 误触
 FILES=$(grep -vE '^[[:space:]]*$' "$STATE_FILE" 2>/dev/null | grep -vx "clean" || true)
 if [ -z "$FILES" ]; then
+  # 大仓回执网关（catalog 存在才启用；node 缺失或 lib 不在时静默跳过、走原逻辑零行为变化）：清单已清空
+  # （口头释放）后，再校验当前工作树 diff 是否有已通过回执绑定——代码越过所有已审回执（STALE, rc=4）则
+  # 强制重审，此时不清状态文件、保留 .needs-review 让下轮仍拦；rc=0/3 照原样清理放行。
+  _HARNESS_LIB="$(dirname "$0")/lib-harness.sh"
+  if [ -f "$_HARNESS_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_HARNESS_LIB"
+    if harness_enabled && harness_node_ok; then
+      # 用 if 捕获退出码：set -E/ERR trap 下裸赋值遇非零会误触 fail-closed，if 条件内命令失败不触发（rc 4/3 均属正常返回）
+      if harness_run receipt verify >/dev/null 2>&1; then RV_RC=0; else RV_RC=$?; fi
+      if [ "$RV_RC" -eq 4 ]; then
+        R="代码在上次审查后又有改动，无匹配的已通过回执（diff 已越过所有已审回执）。请重新派 code-reviewer 审查当前改动并写回执后再停止。"
+        # shellcheck source=/dev/null
+        . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+        gate_log "stop-gate" "$R"
+        if command -v jq >/dev/null 2>&1; then jq -nc --arg r "$R" '{decision:"block",reason:$r}'; else echo '{"decision":"block","reason":"代码在审查后又有改动，无匹配已通过回执，请重新审查。"}'; fi
+        exit 0
+      fi
+    fi
+  fi
   rm -f "$STATE_FILE" "${STATE_FILE}.lock" "$STRIKE_FILE"
   exit 0
 fi
