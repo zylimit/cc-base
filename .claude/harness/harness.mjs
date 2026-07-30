@@ -79,8 +79,8 @@ const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack'];
-const NOT_IMPLEMENTED_SUBCOMMANDS = ['receipt', 'verify'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify'];
+const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
  * Parse `<subcommand> [--flag value ...] [positional ...]`.
@@ -110,8 +110,7 @@ function parseArgs(argv) {
 }
 
 function main() {
-  const { cmd } = parseArgs(process.argv.slice(2));
-  const { flags } = parseArgs(process.argv.slice(2));
+  const { cmd, flags, positional } = parseArgs(process.argv.slice(2));
   switch (cmd) {
     case 'doctor':       return cmdDoctor();
     case 'diff-hash':    return cmdDiffHash();
@@ -119,10 +118,8 @@ function main() {
     case 'catalog-lint': return cmdCatalogLint(flags);
     case 'impact':       return cmdImpact(flags);
     case 'context-pack': return cmdContextPack(flags);
-    // Planned subcommands: explicit not-implemented, never crash / never fake success.
-    case 'receipt':
-    case 'verify':
-      return emit({ error: 'not-implemented', cmd }, 3);
+    case 'receipt':      return cmdReceipt(flags, positional);
+    case 'verify':       return cmdVerify(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -287,6 +284,98 @@ function selftestCases() {
       const h1 = buildPack({ diffHash: 'abc', candidateFiles: [{ path: 'a.ts', bytes: 10 }] }).packHash;
       const h2 = buildPack({ diffHash: 'abc', candidateFiles: [{ path: 'a.ts', bytes: 10 }, { path: 'b.ts', bytes: 10 }] }).packHash;
       assert.notEqual(h1, h2);
+    }],
+
+    // S7 receipt -- contentHash round-trip / tamper detection + diff-bound matching (fs-free).
+    ['contentHash round-trip: recompute equals stored', () => {
+      const r = { taskId: 't1', baseCommit: 'c0', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: '2026-01-01T00:00:00Z' };
+      const h = contentHash(r);
+      assert.equal(contentHash({ ...r, contentHash: h }), h);
+    }],
+    ['contentHash changes when any field is mutated (tamper detectable)', () => {
+      const r = { taskId: 't1', baseCommit: 'c0', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: '2026-01-01T00:00:00Z' };
+      assert.notEqual(contentHash({ ...r, verdict: 'fail' }), contentHash(r));
+    }],
+    ['receiptIntact true for freshly hashed, false when tampered', () => {
+      const r = { taskId: 't1', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: 'T' };
+      r.contentHash = contentHash(r);
+      assert.ok(receiptIntact(r));
+      assert.ok(!receiptIntact({ ...r, diffHash: 'H2' }));
+    }],
+    ['matchReceipts: current diff H1 matches receipt bound to H1', () => {
+      const r = { taskId: 't1', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: 'T' };
+      r.contentHash = contentHash(r);
+      const m = matchReceipts([r], 'H1');
+      assert.equal(m.matched, 't1');
+    }],
+    ['matchReceipts: current diff H2 does not match receipt bound to H1 (stale)', () => {
+      const r = { taskId: 't1', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: 'T' };
+      r.contentHash = contentHash(r);
+      const m = matchReceipts([r], 'H2');
+      assert.equal(m.matched, null);
+      assert.equal(m.hadReceipts, true);
+    }],
+    ['matchReceipts: tampered receipt never matches even on equal diffHash', () => {
+      const r = { taskId: 't1', diffHash: 'H1', reviewer: 'rev', verdict: 'pass', scope: 'x', timestamp: 'T' };
+      r.contentHash = contentHash(r);
+      const m = matchReceipts([{ ...r, verdict: 'fail' }], 'H1');
+      assert.equal(m.matched, null);
+    }],
+    ['matchReceipts: empty receipts -> no match, hadReceipts false (adoption grace)', () => {
+      const m = matchReceipts([], 'H1');
+      assert.equal(m.matched, null);
+      assert.equal(m.hadReceipts, false);
+    }],
+    ['safeTaskId strips path traversal / separators', () => {
+      assert.equal(safeTaskId('../../etc/passwd'), '.._.._etc_passwd');
+      assert.equal(safeTaskId('a/b\\c'), 'a_b_c');
+      assert.equal(safeTaskId('..'), '');
+    }],
+
+    // S8 quality -- runCheck four-state + fast-mode + aggregation.
+    ['runCheck no command -> BLOCKED no-command', () => {
+      const r = runCheck({ id: 'x' }, {});
+      assert.equal(r.state, 'BLOCKED');
+      assert.equal(r.reason, 'no-command');
+    }],
+    ['runCheck missing binary -> BLOCKED command-missing (never fake green)', () => {
+      const r = runCheck({ id: 'x', command: '__no_such_cmd_zzz__ arg' }, {});
+      assert.equal(r.state, 'BLOCKED');
+      assert.ok(r.reason.startsWith('command-missing:'));
+    }],
+    ['runCheck present + exit 0 -> PASS', () => {
+      const r = runCheck({ id: 'ver', command: 'node --version' }, {});
+      assert.equal(r.state, 'PASS');
+      assert.equal(r.exit, 0);
+    }],
+    ['runCheck present + exit != 0 -> FAIL with exit code', () => {
+      const r = runCheck({ id: 'boom', command: 'node -e "process.exit(3)"' }, {});
+      assert.equal(r.state, 'FAIL');
+      assert.equal(r.exit, 3);
+    }],
+    ['runCheck fast + non-security + allowFastSkip -> SKIPPED', () => {
+      const r = runCheck({ id: 'lint', command: 'node --version', allowFastSkip: true }, { fastActive: true });
+      assert.equal(r.state, 'SKIPPED');
+      assert.equal(r.reason, 'fast-mode');
+    }],
+    ['runCheck fast + security -> still runs (never SKIPPED)', () => {
+      const r = runCheck({ id: 'audit', command: 'node --version', class: 'security', allowFastSkip: true }, { fastActive: true });
+      assert.notEqual(r.state, 'SKIPPED');
+      assert.equal(r.state, 'PASS');
+    }],
+    ['runCheck fast + non-security without allowFastSkip -> still runs', () => {
+      const r = runCheck({ id: 'build', command: 'node --version' }, { fastActive: true });
+      assert.notEqual(r.state, 'SKIPPED');
+      assert.equal(r.state, 'PASS');
+    }],
+    ['aggregateStates: any FAIL -> FAIL', () => assert.equal(aggregateStates(['PASS', 'FAIL', 'BLOCKED']), 'FAIL')],
+    ['aggregateStates: no FAIL, has BLOCKED -> BLOCKED', () => assert.equal(aggregateStates(['PASS', 'BLOCKED', 'SKIPPED']), 'BLOCKED')],
+    ['aggregateStates: all PASS/SKIPPED -> PASS', () => assert.equal(aggregateStates(['PASS', 'SKIPPED', 'PASS']), 'PASS')],
+    ['requiredChecks: module.verification overrides catalog.riskChecks[risk]', () => {
+      const cat = { riskChecks: { high: ['a', 'b'] } };
+      assert.deepEqual(requiredChecks('high', { verification: ['x'] }, cat), ['x']);
+      assert.deepEqual(requiredChecks('high', {}, cat), ['a', 'b']);
+      assert.deepEqual(requiredChecks('low', {}, cat), []);
     }],
   ];
 }
@@ -938,12 +1027,339 @@ function cmdContextPack(flags) {
 
 
 // ===========================================================================
-// S7 receipt  -- TODO(T2.1): contentHash + writeReceipt + verifyReceipt (diff-bound, stale exit 4).
+// S7 receipt  (diff-bound review receipts; stale/tamper -> exit 4)
 // ===========================================================================
+// Receipts live under .claude/harness/receipts/<taskId>.json (git-ignored runtime state).
+// The receipt binds a review verdict to the exact working-tree diff it reviewed via
+// diffHash = gitFingerprint(). If code moves past that diff, the receipt goes stale.
+
+/** Where receipts are stored (project-relative, git-ignored). */
+function receiptsDir() {
+  return path.join(projectRoot(), '.claude', 'harness', 'receipts');
+}
+
+/** Sanitize a taskId into a safe single filename segment (guards path traversal). */
+function safeTaskId(id) {
+  const s = String(id == null ? '' : id).replace(/[^A-Za-z0-9._-]/g, '_');
+  return (s === '' || s === '.' || s === '..') ? '' : s;
+}
+
+/**
+ * Tamper-evident content hash: stable JSON of the receipt with contentHash blanked out,
+ * then sha256. Recompute on verify; any field mutation changes the hash. Pure + injectable
+ * so selftest exercises round-trip / tamper detection without touching fs.
+ * @param {Object} r
+ * @returns {string}
+ */
+function contentHash(r) {
+  return sha256(stableJson({ ...r, contentHash: undefined }));
+}
+
+/** True if the working tree carries code changes vs HEAD (state files excluded). */
+function hasCodeChange() {
+  const cp = changedPaths();
+  const list = Array.isArray(cp) ? cp : cp.paths;
+  return list.some(p => !isStateExcluded(p));
+}
+
+/**
+ * Build + persist a receipt bound to the current working-tree diff. taskId is required.
+ * baseCommit/diffHash are captured live; timestamp is injectable for deterministic tests.
+ * @param {Object} input   { taskId, reviewer?, verdict?, scope? }
+ * @param {{timestamp?:string}} [opts]
+ * @returns {Receipt}
+ */
+function writeReceipt(input, { timestamp } = {}) {
+  const input0 = input && typeof input === 'object' ? input : {};
+  const taskId = safeTaskId(input0.taskId);
+  if (!taskId) throw new Error('writeReceipt: taskId required (allowed chars: A-Za-z0-9._-)');
+  const receipt = {
+    taskId,
+    baseCommit: headCommit(),
+    diffHash: gitFingerprint(),
+    reviewer: typeof input0.reviewer === 'string' ? input0.reviewer : 'unknown',
+    verdict: typeof input0.verdict === 'string' ? input0.verdict : 'pass',
+    scope: input0.scope === undefined ? null : input0.scope,
+    timestamp: timestamp || new Date().toISOString(),
+  };
+  receipt.contentHash = contentHash(receipt);
+  const dir = receiptsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, taskId + '.json'), JSON.stringify(receipt, null, 2) + '\n', 'utf8');
+  return receipt;
+}
+
+/** True if a receipt object's stored contentHash matches a fresh recompute (untampered). */
+function receiptIntact(r) {
+  return !!r && typeof r === 'object' && typeof r.contentHash === 'string'
+    && contentHash(r) === r.contentHash;
+}
+
+/**
+ * Pure matcher (fs-free, injectable): does any intact receipt bind to diffHash D?
+ * @param {Receipt[]} receipts
+ * @param {string} D  current gitFingerprint()
+ * @returns {{matched:string|null,hadReceipts:boolean}}
+ */
+function matchReceipts(receipts, D) {
+  const list = Array.isArray(receipts) ? receipts : [];
+  for (const r of list) {
+    if (receiptIntact(r) && r.diffHash === D) return { matched: r.taskId || true, hadReceipts: true };
+  }
+  return { matched: null, hadReceipts: list.length > 0 };
+}
+
+/** Load every receipt JSON in the receipts dir (skips unreadable/unparseable). */
+function loadReceipts() {
+  const dir = receiptsDir();
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith('.json')) continue;
+    try { out.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))); } catch (_e) { /* skip bad file */ }
+  }
+  return out;
+}
+
+/**
+ * Diff-centric verification. Semantics (no active-task concept):
+ *  - non-git            -> DEGRADED, exit 3 (cannot compute a trustworthy diff; do not block).
+ *  - --task <id>        -> that receipt must exist + be intact + bind to current diff, else exit 4.
+ *  - no --task (stop-gate default):
+ *      * no code change            -> PASS exit 0 (nothing to review).
+ *      * no receipts yet           -> PASS exit 0, note:"no-receipts" (adoption grace, never over-block).
+ *      * some receipt binds diff   -> PASS exit 0.
+ *      * receipts exist, none bind -> STALE exit 4 (code moved past every reviewed diff).
+ * @param {{task?:string}} [flags]
+ * @returns {{result:Object,code:number}}
+ */
+function verifyReceipt(flags = {}) {
+  if (!isGitRepo()) {
+    return { result: { state: 'DEGRADED', note: 'non-git', diffHash: null, degraded: true }, code: 3 };
+  }
+  const D = gitFingerprint();
+
+  if (typeof flags.task === 'string' && flags.task) {
+    const id = safeTaskId(flags.task);
+    const file = path.join(receiptsDir(), id + '.json');
+    let receipt;
+    try { receipt = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_e) {
+      return { result: { state: 'STALE', note: 'receipt-missing', task: flags.task, diffHash: D }, code: 4 };
+    }
+    if (!receiptIntact(receipt)) {
+      return { result: { state: 'STALE', note: 'tampered', task: flags.task, diffHash: D }, code: 4 };
+    }
+    if (receipt.diffHash === D) {
+      return { result: { state: 'PASS', matched: receipt.taskId, diffHash: D }, code: 0 };
+    }
+    return { result: { state: 'STALE', note: 'diff-moved', task: flags.task, diffHash: D, receiptDiffHash: receipt.diffHash }, code: 4 };
+  }
+
+  if (!hasCodeChange()) {
+    return { result: { state: 'PASS', note: 'no-change', diffHash: D }, code: 0 };
+  }
+  const receipts = loadReceipts();
+  if (receipts.length === 0) {
+    return { result: { state: 'PASS', note: 'no-receipts', diffHash: D }, code: 0 };
+  }
+  const m = matchReceipts(receipts, D);
+  if (m.matched) {
+    return { result: { state: 'PASS', matched: m.matched, diffHash: D }, code: 0 };
+  }
+  return { result: { state: 'STALE', note: 'no-matching-receipt', diffHash: D }, code: 4 };
+}
+
+function cmdReceipt(flags, positional = []) {
+  const sub = positional[0];   // parseArgs: cmd=argv[0], positional=argv[1..], so sub is positional[0]
+  if (sub === 'write') {
+    const raw = readStdin();
+    let input;
+    try { input = raw.trim() ? JSON.parse(raw) : {}; } catch (e) {
+      return emit({ error: 'receipt-parse-error', detail: String(e && e.message || e) }, 3);
+    }
+    let receipt;
+    try { receipt = writeReceipt(input); } catch (e) {
+      return emit({ error: 'receipt-write-error', detail: String(e && e.message || e) }, 3);
+    }
+    return emit(receipt, 0);
+  }
+  if (sub === 'verify') {
+    const { result, code } = verifyReceipt(flags);
+    return emit(result, code);
+  }
+  return emit({ error: 'receipt-subcommand', detail: 'usage: receipt write|verify', got: sub || null }, 3);
+}
+
+function cmdVerify(flags) {
+  const { result, code } = verifyPlanCmd(flags);
+  return emit(result, code);
+}
 
 // ===========================================================================
-// S8 quality  -- TODO(T2.3): requiredChecks(risk) + runCheck four-state + verifyPlan.
+// S8 quality  (four-state verification gate; command-missing -> BLOCKED, never fake green)
 // ===========================================================================
+// runCheck maps one declared check to PASS/FAIL/BLOCKED/SKIPPED. A missing binary is
+// BLOCKED (not a silent pass); fast-mode may SKIP a non-security check that opts in, but
+// security checks always run for real. Aggregation: any FAIL -> FAIL; else any BLOCKED ->
+// BLOCKED; else PASS (SKIPPED counts toward the report but does not block).
+
+/**
+ * Resolve whether an executable is reachable, without running it. Zero-dep, cross-platform:
+ * scans PATH entries; on win32 appends PATHEXT suffixes. A path-qualified exe is tested directly.
+ * @param {string} exe
+ * @returns {boolean}
+ */
+function whichCmd(exe) {
+  if (!exe) return false;
+  if (exe.includes('/') || exe.includes('\\')) return fs.existsSync(exe);
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const exts = process.platform === 'win32'
+    ? String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(s => s.trim()).filter(Boolean)
+    : [''];
+  for (const d of dirs) {
+    if (process.platform === 'win32' && fs.existsSync(path.join(d, exe))) return true;
+    for (const ext of exts) {
+      if (fs.existsSync(path.join(d, exe + ext))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Run one shell command, returning its exit code. win32 uses cmd /c with
+ * windowsVerbatimArguments so nested quotes in the command survive to the child
+ * (plain cmd /c mangles e.g. node -e "process.exit(3)" into a 0 exit -- a false green).
+ * @param {string} command
+ * @returns {{code:number}}
+ */
+function spawnCmd(command) {
+  const r = process.platform === 'win32'
+    ? spawnSync('cmd', ['/c', command], { maxBuffer: 1 << 28, windowsVerbatimArguments: true })
+    : spawnSync('sh', ['-c', command], { maxBuffer: 1 << 28 });
+  return { code: r.status };
+}
+
+/**
+ * Evaluate one check to a four-state result. Never fakes green: an absent binary is BLOCKED.
+ * Security checks ignore fast-mode entirely (always run). Non-security opt-in checks may SKIP
+ * under fast-mode.
+ * @param {{id?:string,command?:string,class?:string,allowFastSkip?:boolean}} check
+ * @param {{fastActive?:boolean}} [opts]
+ * @returns {CheckResult}
+ */
+function runCheck(check, { fastActive = false } = {}) {
+  const id = check && check.id ? check.id : (check && check.command) || 'check';
+  const cls = check && check.class;
+  const base = { id, class: cls, cmd: check && check.command };
+  if (!check || !check.command) return { ...base, state: 'BLOCKED', reason: 'no-command' };
+  const exe = String(check.command).trim().split(/\s+/)[0];
+  if (!whichCmd(exe)) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
+  if (fastActive && cls !== 'security' && check.allowFastSkip) {
+    return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
+  }
+  const r = spawnCmd(check.command);
+  return r.code === 0 ? { ...base, state: 'PASS', exit: 0 } : { ...base, state: 'FAIL', exit: r.code };
+}
+
+/** Aggregate check states: any FAIL -> FAIL; else any BLOCKED -> BLOCKED; else PASS. */
+function aggregateStates(states) {
+  if (states.some(s => s === 'FAIL')) return 'FAIL';
+  if (states.some(s => s === 'BLOCKED')) return 'BLOCKED';
+  return 'PASS';
+}
+
+/**
+ * Required checks for a module: module-level `verification` overrides the catalog's
+ * per-risk-tier default (catalog.riskChecks[risk]). Returns an array of check ids/specs.
+ * @param {string} risk
+ * @param {Module} module
+ * @param {Catalog} catalog
+ * @returns {any[]}
+ */
+function requiredChecks(risk, module, catalog) {
+  if (module && Array.isArray(module.verification)) return module.verification;
+  const riskChecks = (catalog && catalog.riskChecks && typeof catalog.riskChecks === 'object') ? catalog.riskChecks : {};
+  return (risk && Array.isArray(riskChecks[risk])) ? riskChecks[risk] : [];
+}
+
+/** Resolve a check ref (string id or inline object) against catalog.checks. */
+function resolveCheck(ref, catalog) {
+  if (ref && typeof ref === 'object') return ref;
+  const defs = (catalog && catalog.checks && typeof catalog.checks === 'object') ? catalog.checks : {};
+  const def = defs[ref];
+  if (def && typeof def === 'object') return { id: ref, ...def };
+  return { id: String(ref), command: undefined };   // unresolved -> BLOCKED no-command
+}
+
+/**
+ * Plan + run verification for a changed-path set: compute impact, gather each affected
+ * module's required checks, run them four-state, aggregate. Missing catalog fields degrade
+ * gracefully (empty check list per module).
+ * @param {string[]} changed
+ * @param {Catalog} catalog
+ * @param {{fastActive?:boolean,nonGit?:boolean}} [opts]
+ * @returns {{state:string,checks:CheckResult[],affected:string[],degraded:boolean}}
+ */
+function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {}) {
+  const imp = analyzeImpact(changed, catalog, { nonGit });
+  const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
+  const checks = [];
+  const seen = new Set();
+  for (const id of imp.affected) {
+    const m = byId.get(id);
+    if (!m) continue;
+    const risk = m.riskTier;
+    for (const ref of requiredChecks(risk, m, catalog)) {
+      const spec = resolveCheck(ref, catalog);
+      const key = id + '::' + (spec.id || spec.command || JSON.stringify(ref));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const res = runCheck(spec, { fastActive });
+      checks.push({ module: id, ...res });
+    }
+  }
+  return { state: aggregateStates(checks.map(c => c.state)), checks, affected: imp.affected, degraded: imp.degraded };
+}
+
+/** True if fast-mode flag file is present and unexpired (mirrors lib-fast-mode.sh). */
+function fastModeActive() {
+  const flag = path.join(projectRoot(), '.claude', '.fast-mode');
+  let raw;
+  try { raw = fs.readFileSync(flag, 'utf8'); } catch (_e) { return false; }
+  const m = raw.match(/^expires_epoch=(\d+)$/m);
+  if (!m) return false;
+  return Number(m[1]) * 1000 > Date.now();
+}
+
+/**
+ * `verify` subcommand driver. Exit convention:
+ *   PASS or all-SKIPPED  -> 0
+ *   FAIL or BLOCKED      -> 2 (never fake green; a command-missing BLOCKED also exits 2)
+ *   no catalog / non-git -> 3 (degraded, gate skipped rather than block or fake-pass)
+ */
+function verifyPlanCmd(flags) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  if (!loaded.ok) {
+    return { result: { state: 'DEGRADED', degraded: true, error: loaded.error, detail: loaded.detail, checks: [], affected: [] }, code: 3 };
+  }
+  let changed;
+  let nonGit = false;
+  if (typeof flags.changed === 'string') {
+    changed = parseCsv(flags.changed);
+  } else {
+    const cp = changedPaths();
+    if (Array.isArray(cp)) { changed = cp; }
+    else { changed = cp.paths; nonGit = !!cp.nonGit; }
+  }
+  if (nonGit) {
+    return { result: { state: 'DEGRADED', degraded: true, note: 'non-git', checks: [], affected: [] }, code: 3 };
+  }
+  const fastActive = fastModeActive();
+  const plan = verifyPlan(changed, loaded.catalog, { fastActive, nonGit });
+  const code = (plan.state === 'FAIL' || plan.state === 'BLOCKED') ? 2 : 0;
+  return { result: { ...plan, fastActive }, code };
+}
 
 // ===========================================================================
 // S9 config
