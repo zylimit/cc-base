@@ -92,6 +92,24 @@ fi
 rm -rf "$TMP"
 trap - EXIT
 
+# ④ waiver CLI smoke：create --dry-run 合法应 ok；reason 含 security 应非 0
+RC=0
+OUT=$(node "$HARNESS" waiver create --owner t --reason "flake" --scope lint \
+  --expiry 2099-01-01T00:00:00.000Z --compensation "fix in CI" --dry-run) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "waiver create --dry-run 合法 -> ok"
+else
+  fail "waiver create --dry-run 合法未通过（exit $RC，输出：$OUT）"
+fi
+RC=0
+OUT=$(node "$HARNESS" waiver create --owner t --reason "bypass security gate" --scope lint \
+  --expiry 2099-01-01T00:00:00.000Z --compensation "nope" --dry-run 2>/dev/null) || RC=$?
+if [ "$RC" -ne 0 ]; then
+  pass "waiver create reason 含 security -> 非 0"
+else
+  fail "waiver create reason 含 security 应拒绝，却 exit 0（输出：$OUT）"
+fi
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

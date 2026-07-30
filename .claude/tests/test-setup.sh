@@ -104,6 +104,54 @@ fi
 
 echo "test-setup: passed（agents=$agent_count hooks=$hook_count，私有 feedback 已排除，幂等校验通过，settings 路径=$MODE）"
 
+# ---- ③b 强制 -mac + 无 jq 路径回归锁（本机 Windows 也能覆盖该分支）----
+# 不依赖 uname：强制 bash setup.sh -mac；构造不含 jq 的 PATH，断言二次装打印「手工」、
+# 生成 settings.json.bak、settings 内容未变。setup.sh 合并逻辑本身不改。
+TARGET2="$TMP/project-nojq-mac"
+FAKEBIN=$(mktemp -d)
+# 精简命令集：setup.sh / fix-platform 所需基础工具；明确不链 jq
+for c in bash sh cp mv mkdir printf cat find sort tr wc sed cmp xargs dirname basename uname \
+         chmod ln rm touch date env mktemp awk head tail cut grep tee python3 node git; do
+  src=$(command -v "$c" 2>/dev/null || true)
+  if [ -n "$src" ] && [ -x "$src" ]; then
+    # Windows Git Bash 上 ln -s 可能失败，退回直接复制或包装脚本
+    ln -s "$src" "$FAKEBIN/$c" 2>/dev/null || cp -p "$src" "$FAKEBIN/$c" 2>/dev/null || {
+      printf '#!/usr/bin/env bash\nexec %s "$@"\n' "$src" >"$FAKEBIN/$c"
+      chmod +x "$FAKEBIN/$c" 2>/dev/null || true
+    }
+  fi
+done
+# 双保险：即便系统 PATH 漏进 jq，FAKEBIN 优先且无 jq 可执行文件
+[ ! -e "$FAKEBIN/jq" ] || rm -f "$FAKEBIN/jq"
+NOJQ_PATH="$FAKEBIN:/usr/bin:/bin"
+# 若 /usr/bin 或 /bin 里碰巧有 jq，再从 PATH 里踢掉其所在目录
+JQ_REAL=$(command -v jq 2>/dev/null || true)
+if [ -n "$JQ_REAL" ]; then
+  JQ_DIR=$(dirname "$JQ_REAL")
+  case ":$NOJQ_PATH:" in
+    *":$JQ_DIR:"*) NOJQ_PATH=$(printf '%s' "$NOJQ_PATH" | tr ':' '\n' | grep -v -F -x "$JQ_DIR" | tr '\n' ':' | sed 's/:$//') ;;
+  esac
+  NOJQ_PATH="$FAKEBIN:$NOJQ_PATH"
+fi
+# 验证隔离有效
+if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
+  fail "强制 -mac 无 jq 路径：构造 PATH 后仍能找到 jq（隔离失败）"
+fi
+PATH="$NOJQ_PATH" bash "$ROOT/setup.sh" -mac "$TARGET2" >"$TMP/setup-nojq-1.log" 2>&1 \
+  || { cat "$TMP/setup-nojq-1.log" >&2; fail "强制 -mac 无 jq 路径：首次安装失败"; }
+CL2="$TARGET2/.claude"
+[ -f "$CL2/settings.json" ] || fail "强制 -mac 无 jq 路径：首次安装未生成 settings.json"
+cp -p "$CL2/settings.json" "$TMP/settings.nojq.before"
+PATH="$NOJQ_PATH" bash "$ROOT/setup.sh" -mac "$TARGET2" >"$TMP/setup-nojq-2.log" 2>&1 \
+  || { cat "$TMP/setup-nojq-2.log" >&2; fail "强制 -mac 无 jq 路径：二次安装报错"; }
+[ -f "$CL2/settings.json.bak" ] || fail "强制 -mac 无 jq 路径：二次安装未生成 settings.json.bak"
+cmp -s "$TMP/settings.nojq.before" "$CL2/settings.json" \
+  || fail "强制 -mac 无 jq 路径：二次安装后 settings.json 被改动（应原样保留）"
+grep -q "手工" "$TMP/setup-nojq-2.log" \
+  || { cat "$TMP/setup-nojq-2.log" >&2; fail "强制 -mac 无 jq 路径：二次 log 未含「手工」合并指引"; }
+rm -rf "$FAKEBIN"
+echo "test-setup: ③b 强制 -mac 无 jq 路径回归锁通过"
+
 # ---- ④ 框架分层（FRAMEWORK-MANIFEST）----
 # ④-1 首装含 MANIFEST
 [ -f "$CL/FRAMEWORK-MANIFEST.txt" ] || fail "首装未安装 FRAMEWORK-MANIFEST.txt"

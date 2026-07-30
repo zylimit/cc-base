@@ -15,6 +15,7 @@
 //   S7 receipt        contentHash(), writeReceipt(), verifyReceipt()                    [T2.1]
 //   S8 quality        requiredChecks(risk), runCheck()->four-state, verifyPlan()        [T2.3]
 //   S9 config         loadHarnessConfig(), DEFAULTS
+//   S10 waiver        loadWaivers(), validateWaiver(), findWaiver(), cmdWaiver()         [T3.1]
 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -72,14 +73,25 @@ const HARNESS_DIR = path.dirname(fileURLToPath(import.meta.url));
  * @property {string} [class]
  * @property {('PASS'|'FAIL'|'BLOCKED'|'SKIPPED')} state
  * @property {number} [exit]
- * @property {string} [reason]
+ * @property {string} [reason]   may carry waiver:<scope> prefix when SKIPPED via S10
  * @property {string} [cmd]
+ */
+/**
+ * @typedef {Object} Waiver
+ * @property {number} version
+ * @property {string} owner
+ * @property {string} reason
+ * @property {string} scope          check id this waiver covers
+ * @property {string} expiry         ISO timestamp
+ * @property {string} compensation
+ * @property {string} created_at     ISO timestamp
+ * @property {string} [contentHash]
  */
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -120,6 +132,7 @@ function main() {
     case 'context-pack': return cmdContextPack(flags);
     case 'receipt':      return cmdReceipt(flags, positional);
     case 'verify':       return cmdVerify(flags);
+    case 'waiver':       return cmdWaiver(flags, positional);
     default:
       return die(usage(cmd), 3);
   }
@@ -135,6 +148,12 @@ function usage(cmd) {
 
 function cmdDoctor() {
   const cfg = loadHarnessConfig();
+  let waiverCount = 0;
+  let waiversDirExists = false;
+  try {
+    waiversDirExists = fs.existsSync(waiversDir());
+    if (waiversDirExists) waiverCount = loadWaivers().length;
+  } catch (_e) { /* doctor must not throw */ }
   emit({
     node: process.version,
     catalogPresent: cfg.catalogPresent,
@@ -142,6 +161,8 @@ function cmdDoctor() {
     headCommit: headCommit(),
     harnessDir: '.claude/harness',
     subcommands: IMPLEMENTED_SUBCOMMANDS,
+    waiversDirExists,
+    activeWaivers: waiverCount,
   }, 0);
 }
 
@@ -377,6 +398,107 @@ function selftestCases() {
       assert.deepEqual(requiredChecks('high', {}, cat), ['a', 'b']);
       assert.deepEqual(requiredChecks('low', {}, cat), []);
     }],
+
+    // S10 waiver -- validate / apply (fs-free pure functions).
+    ['validateWaiver missing fields -> errors non-empty', () => {
+      const errs = validateWaiver({});
+      assert.ok(errs.length > 0);
+    }],
+    ['validateWaiver security keyword in reason -> reject', () => {
+      const w = {
+        version: 1, owner: 't', reason: 'bypass security gate temporarily',
+        scope: 'lint', expiry: '2099-01-01T00:00:00.000Z',
+        compensation: 'fix later', created_at: '2026-01-01T00:00:00.000Z',
+      };
+      const errs = validateWaiver(w);
+      assert.ok(errs.some(e => /forbidden|security|keyword/i.test(e)));
+    }],
+    ['validateWaiver expired expiry -> reject', () => {
+      const w = {
+        version: 1, owner: 't', reason: 'flake',
+        scope: 'lint', expiry: '2000-01-01T00:00:00.000Z',
+        compensation: 'fix later', created_at: '1999-01-01T00:00:00.000Z',
+      };
+      const errs = validateWaiver(w);
+      assert.ok(errs.some(e => /expir/i.test(e)));
+    }],
+    ['validateWaiver complete object -> errors empty', () => {
+      const w = {
+        version: 1, owner: 't', reason: 'flake on CI',
+        scope: 'lint', expiry: '2099-01-01T00:00:00.000Z',
+        compensation: 'fix in CI', created_at: '2026-01-01T00:00:00.000Z',
+      };
+      assert.deepEqual(validateWaiver(w), []);
+    }],
+    ['applyWaiver: FAIL + matching scope + non-security -> SKIPPED waiver:', () => {
+      const res = { id: 'lint', class: 'quality', state: 'FAIL', exit: 1 };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'flake', scope: 'lint',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'x',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      const out = applyWaiver(res, waivers);
+      assert.equal(out.state, 'SKIPPED');
+      assert.ok(String(out.reason).startsWith('waiver:'));
+    }],
+    ['applyWaiver: FAIL + class security -> still FAIL', () => {
+      const res = { id: 'audit', class: 'security', state: 'FAIL', exit: 1 };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'flake', scope: 'audit',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'x',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      const out = applyWaiver(res, waivers);
+      assert.equal(out.state, 'FAIL');
+    }],
+    ['applyWaiver: FAIL + no matching scope -> still FAIL', () => {
+      const res = { id: 'lint', class: 'quality', state: 'FAIL', exit: 1 };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'flake', scope: 'other',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'x',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      const out = applyWaiver(res, waivers);
+      assert.equal(out.state, 'FAIL');
+    }],
+    ['applyWaiver: PASS -> still PASS (untouched)', () => {
+      const res = { id: 'lint', class: 'quality', state: 'PASS', exit: 0 };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'flake', scope: 'lint',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'x',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      const out = applyWaiver(res, waivers);
+      assert.equal(out.state, 'PASS');
+    }],
+    ['applyWaiver: BLOCKED + matching scope + non-security -> SKIPPED', () => {
+      const res = { id: 'lint', state: 'BLOCKED', reason: 'command-missing:foo' };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'tool not on CI image yet', scope: 'lint',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'install tool',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      const out = applyWaiver(res, waivers);
+      assert.equal(out.state, 'SKIPPED');
+      assert.ok(String(out.reason).startsWith('waiver:'));
+    }],
+    ['validateWaiver forbidden keyword in scope -> reject', () => {
+      const w = {
+        version: 1, owner: 't', reason: 'temp',
+        scope: 'security-scan', expiry: '2099-01-01T00:00:00.000Z',
+        compensation: 'x', created_at: '2026-01-01T00:00:00.000Z',
+      };
+      const errs = validateWaiver(w);
+      assert.ok(errs.some(e => /forbidden|keyword/i.test(e)));
+    }],
+    ['findWaiverForCheck returns first matching scope', () => {
+      const list = [
+        { scope: 'a' }, { scope: 'lint' }, { scope: 'lint' },
+      ];
+      const w = findWaiverForCheck('lint', list);
+      assert.equal(w.scope, 'lint');
+      assert.equal(findWaiverForCheck('nope', list), null);
+    }],
   ];
 }
 
@@ -453,6 +575,7 @@ const STATE_EXCLUDE = [
   ':(exclude).claude/.fast-mode',
   ':(exclude).claude/evidence/**',
   ':(exclude).claude/harness/receipts/**',
+  ':(exclude).claude/harness/waivers/**',
 ];
 const STATE_EXCLUDE_PATHS = [
   '.claude/.needs-review',
@@ -462,6 +585,7 @@ const STATE_EXCLUDE_PATHS = [
 const STATE_EXCLUDE_PREFIXES = [
   '.claude/evidence/',
   '.claude/harness/receipts/',
+  '.claude/harness/waivers/',
 ];
 function isStateExcluded(p) {
   const n = p.replace(/\\/g, '/');
@@ -862,7 +986,7 @@ function cmdImpact(flags) {
 // stay includable.
 const DENY = [
   /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
-  /(^|\/)\.claude\/(evidence|harness\/receipts)\//,
+  /(^|\/)\.claude\/(evidence|harness\/receipts|harness\/waivers)\//,
   /(^|\/)\.env(\.|$)/,
   /\.(pem|key|p12|pfx)$/, /(^|\/)id_rsa/, /(^|\/)\.(ssh|aws|azure|gnupg|kube)\//,
 ];
@@ -1319,7 +1443,17 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {
       checks.push({ module: id, ...res });
     }
   }
-  return { state: aggregateStates(checks.map(c => c.state)), checks, affected: imp.affected, degraded: imp.degraded };
+  // S10: apply structured waivers at the orchestration layer (not inside runCheck).
+  // Non-security FAIL/BLOCKED with a matching valid waiver become SKIPPED (reason waiver:<scope>).
+  // Security class is never rewritten. Fast-mode SKIPPED stays orthogonal.
+  const waivers = loadWaivers();
+  const waived = checks.map(c => {
+    const next = applyWaiver(c, waivers);
+    // preserve module field if present
+    if (c.module !== undefined && next.module === undefined) return { ...next, module: c.module };
+    return next;
+  });
+  return { state: aggregateStates(waived.map(c => c.state)), checks: waived, affected: imp.affected, degraded: imp.degraded };
 }
 
 /** True if fast-mode flag file is present and unexpired (mirrors lib-fast-mode.sh). */
@@ -1359,6 +1493,166 @@ function verifyPlanCmd(flags) {
   const plan = verifyPlan(changed, loaded.catalog, { fastActive, nonGit });
   const code = (plan.state === 'FAIL' || plan.state === 'BLOCKED') ? 2 : 0;
   return { result: { ...plan, fastActive }, code };
+}
+
+
+// ===========================================================================
+// S10 waiver  (structured per-check exemptions; security never waivable)
+// ===========================================================================
+// Waivers live under .claude/harness/waivers/*.json (git-ignored runtime state).
+// A valid waiver can demote a non-security FAIL/BLOCKED check to SKIPPED with
+// reason "waiver:<scope>". Security-class checks are never rewritten, even if a
+// file claims their id. Fast Mode remains a bulk sugar path orthogonal to this.
+// Forbidden keywords in reason|scope block create/validate (safety net for HIGH gates).
+
+/** Forbidden whole-word tokens in reason+scope (case-insensitive). */
+const WAIVER_FORBIDDEN_RE = /\b(safety|security|secret|credential|destructive|push|deploy|production)\b/i;
+
+/** Where waiver JSON files are stored (project-relative, git-ignored). */
+function waiversDir() {
+  return path.join(projectRoot(), '.claude', 'harness', 'waivers');
+}
+
+/**
+ * Validate a waiver object. Returns a list of human-readable error strings
+ * (empty => valid). Does not touch fs. Expired expiry is an error.
+ * @param {any} w
+ * @returns {string[]}
+ */
+function validateWaiver(w) {
+  const errors = [];
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return ['waiver must be an object'];
+  if (w.version !== 1) errors.push('version must be 1');
+  for (const k of ['owner', 'reason', 'scope', 'expiry', 'compensation', 'created_at']) {
+    if (typeof w[k] !== 'string' || !String(w[k]).trim()) errors.push(k + ' required (non-empty string)');
+  }
+  const createdMs = Date.parse(w.created_at);
+  if (typeof w.created_at === 'string' && Number.isNaN(createdMs)) {
+    errors.push('created_at must be ISO timestamp');
+  }
+  const expMs = Date.parse(w.expiry);
+  if (typeof w.expiry === 'string') {
+    if (Number.isNaN(expMs)) errors.push('expiry must be ISO timestamp');
+    else if (expMs <= Date.now()) errors.push('expiry must be in the future (not expired)');
+  }
+  const blob = (String(w.reason || '') + ' ' + String(w.scope || '')).toLowerCase();
+  if (WAIVER_FORBIDDEN_RE.test(blob)) {
+    errors.push('forbidden keyword in reason|scope (safety|security|secret|credential|destructive|push|deploy|production)');
+  }
+  return errors;
+}
+
+/**
+ * Load *.json waivers that pass validateWaiver (skips bad/expired files).
+ * Each entry is annotated with _path (absolute) for list/CLI.
+ * @returns {Array<Waiver & {_path?:string}>}
+ */
+function loadWaivers() {
+  const dir = waiversDir();
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith('.json')) continue;
+    const fp = path.join(dir, n);
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_e) { continue; }
+    if (validateWaiver(obj).length) continue;
+    out.push({ ...obj, _path: fp });
+  }
+  return out;
+}
+
+/**
+ * First waiver whose scope exactly equals checkId, or null.
+ * @param {string} checkId
+ * @param {Array<{scope?:string}>} waivers
+ */
+function findWaiverForCheck(checkId, waivers) {
+  const id = String(checkId == null ? '' : checkId);
+  const list = Array.isArray(waivers) ? waivers : [];
+  for (const w of list) {
+    if (w && w.scope === id) return w;
+  }
+  return null;
+}
+
+/**
+ * If result is FAIL|BLOCKED, class is not security, and a waiver matches scope==id,
+ * rewrite to SKIPPED with reason waiver:<scope>. Otherwise return result unchanged.
+ * Pure + injectable (waivers array passed in) so selftest stays fs-free.
+ * @param {CheckResult} result
+ * @param {Array<Waiver>} waivers
+ * @returns {CheckResult}
+ */
+function applyWaiver(result, waivers) {
+  if (!result || typeof result !== 'object') return result;
+  const state = result.state;
+  if (state !== 'FAIL' && state !== 'BLOCKED') return result;
+  if (result.class === 'security') return result;
+  const hit = findWaiverForCheck(result.id, waivers);
+  if (!hit) return result;
+  return { ...result, state: 'SKIPPED', reason: 'waiver:' + hit.scope };
+}
+
+/**
+ * CLI: waiver list | check | create.
+ *   list (default)                         -> {ok, waivers:[{path,...fields}]} exit 0
+ *   check --file path | positional path    -> {ok, valid, errors, waiver} exit 0/1
+ *   create --owner --reason --scope --expiry --compensation [--dry-run]
+ *                                          -> validate then write waivers/<ts>-<hash10>.json
+ * @param {Object} flags
+ * @param {string[]} positional
+ */
+function cmdWaiver(flags = {}, positional = []) {
+  const sub = (positional[0] || flags.sub || 'list');
+  if (sub === 'list') {
+    const list = loadWaivers().map(w => {
+      const { _path, ...rest } = w;
+      return { path: _path || null, ...rest };
+    });
+    return emit({ ok: true, waivers: list }, 0);
+  }
+  if (sub === 'check') {
+    const file = (typeof flags.file === 'string' && flags.file) || positional[1] || '';
+    if (!file) return emit({ ok: false, valid: false, errors: ['--file or path required'], waiver: null }, 1);
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (e) { return emit({ ok: false, valid: false, errors: ['read/parse: ' + String(e && e.message || e)], waiver: null }, 1); }
+    const errors = validateWaiver(obj);
+    const valid = errors.length === 0;
+    return emit({ ok: valid, valid, errors, waiver: obj }, valid ? 0 : 1);
+  }
+  if (sub === 'create') {
+    const now = new Date().toISOString();
+    const waiver = {
+      version: 1,
+      owner: typeof flags.owner === 'string' ? flags.owner : '',
+      reason: typeof flags.reason === 'string' ? flags.reason : '',
+      scope: typeof flags.scope === 'string' ? flags.scope : '',
+      expiry: typeof flags.expiry === 'string' ? flags.expiry : '',
+      compensation: typeof flags.compensation === 'string' ? flags.compensation : '',
+      created_at: now,
+    };
+    const errors = validateWaiver(waiver);
+    if (errors.length) {
+      process.stderr.write('waiver create rejected: ' + errors.join('; ') + '\n');
+      return emit({ ok: false, errors, waiver }, 1);
+    }
+    waiver.contentHash = contentHash(waiver);
+    if (flags['dry-run'] === true || flags.dryRun === true) {
+      return emit({ ok: true, dryRun: true, path: null, waiver }, 0);
+    }
+    const dir = waiversDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const ts = now.replace(/[:.]/g, '-');
+    const h10 = String(waiver.contentHash).slice(0, 10);
+    const fname = ts + '-' + h10 + '.json';
+    const fp = path.join(dir, fname);
+    fs.writeFileSync(fp, JSON.stringify(waiver, null, 2) + '\n', 'utf8');
+    return emit({ ok: true, path: fp, waiver }, 0);
+  }
+  return emit({ error: 'waiver-subcommand', detail: 'usage: waiver list|check|create', got: sub || null }, 3);
 }
 
 // ===========================================================================

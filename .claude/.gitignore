@@ -7,6 +7,8 @@ signals.jsonl
 
 # 大仓治理 harness 运行态回执（按 task 单条状态，可覆盖，永不入库；harness.mjs / catalog 本体照常分发）
 harness/receipts/
+# 结构化 per-check 豁免（运行态，永不入库）
+harness/waivers/
 
 # 系统垃圾
 .DS_Store
