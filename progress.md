@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-07-30_
+_Last updated: 2026-07-31_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -14,10 +14,11 @@ _Last updated: 2026-07-30_
 - **验收五步闸（禁跳步）**：做任何「完成」声称前必走：①想清要跑的命令 → ②跑全量全新（无缓存）→ ③读完整输出 + exit code → ④确认输出支持结论 → ⑤才开口。禁用"应该/大概/看起来"措辞替代实测。（2026-06-15 纪律增强；引用本框架两次翻车案例：PS 5.1 git fatal 误判、v1.0.1 远程 tag 误判）
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 - **.ps1 hook 补中文触发词须用 \uXXXX Unicode 转义，不能直接写中文**：Pinned 既有「.ps1 纯 ASCII（PS 5.1 GBK 读中文崩）」的延伸。tdd-gate.ps1 第 21 行漏中文「编码实现」触发词非疏忽，是 ASCII 约束下的历史取舍；修复用 编码实现 之类 Unicode 转义匹配（PS -match 走 .NET 正则支持 \u），保持纯 ASCII。Explore 探查漏点破此层。（2026-07-29）
-- **.ps1 hook stdin 中文受 pwsh GBK 限制（known issue，候选 #15）**：中文 Windows pwsh [Console]::InputEncoding 默认 GB2312/936，读 stdin 的 .ps1 hook 读 UTF-8 中文 JSON 乱码（2026-07-29 真机 trace：codepage 936，设 UTF8 后 MATCHED）。tdd-gate.ps1 已补设 UTF-8 InputEncoding（第 11 行）让 \\u 中文触发真生效（pwsh+5.1 双环境验证）；其他读 stdin 的 .ps1 hook（mark-review-needed 读 file_path 中文路径、detect-feedback-signal/recap-on-dirty/session-rules-banner/subagent-acceptance-reminder 等）尚未统一，候选 #15 拍板。
+- **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
-- 2026-07-30: **Phase 0-2 合并收口完成**——feat/harness-large-repo（领先 main 9 commit、main 零独立 commit）纯 fast-forward 合并进 main（核对 main HEAD == feat HEAD == f0f21f2、工作树干净）；合并后 main 全量静态回归 6/0 全绿（selftest / test-harness / test-setup / test-gate-audit / test-three-file-sync-gate / test-fast-mode 各 EXIT=0，与合并前一致无回归）；已删本地 feat 分支。**未 push**（origin/main...main = 0/9，push 属另一道待用户拍板的闸）。
+- 2026-07-30: **Phase 3 结构化 waiver 落地并提交 `c8d3374`**——S10 waiver create/list/check；verifyPlan 编排层 applyWaiver：非 security 的 FAIL/BLOCKED + scope 精确匹配有效 waiver → SKIPPED(reason=waiver:<scope>)；security class 永不可豁免；reason|scope 禁词（safety/security/secret/credential/destructive/push/deploy/production）create/validate 直接拒；Fast Mode 与 waiver 正交（批量语法糖 vs per-check）。selftest 50→61；doctor 增 waiversDirExists/activeWaivers；gitignore harness/waivers/；test-setup ③b 强制 -mac+无 jq 回归锁（setup.sh 无 jq 路径本已正确，Notes 过时标签一并清）。主 Agent 五步闸独立验收：node --check OK；selftest 61/0；waiver dry-run ok + security 拒 exit1；全量静态 6/0（selftest/test-harness 5/0/test-setup+③b/gate-audit/three-file-sync/fast-mode 13/0）。
+- 2026-07-30: **Phase 0-2 合并收口完成**——feat/harness-large-repo（领先 main 9 commit、main 零独立 commit）纯 fast-forward 合并进 main（核对 main HEAD == feat HEAD == f0f21f2、工作树干净）；合并后 main 全量静态回归 6/0 全绿（selftest / test-harness / test-setup / test-gate-audit / test-three-file-sync-gate / test-fast-mode 各 EXIT=0，与合并前一致无回归）；已删本地 feat 分支。随后已 push origin/main（1d2a550 同步）。
 - 2026-07-30: **Phase 0-2 收口静态自测全绿**（新鲜跑）：test-harness 3/0（context-pack 24模块 294ms<5000ms）、selftest 符合预期 9/0、test-setup EXIT=0（agents=7 hooks=18 幂等✓ + manifest 分层✓）、test-gate-audit 9/0、test-three-file-sync-gate 6/0、test-fast-mode 13/0。
 - 2026-07-30: **Phase 2 接线提交 `6593ab7`**（"feat(harness): T2.2/T2.4 接线——stop-gate 挂 diff-bound 回执网关 + pre-commit-check 挂大仓四态门"）。stop-gate（.sh/.ps1）挂 diff-bound 回执网关——待审清单清空后校验工作树 diff 是否绑定已通过回执，STALE(rc=4) 则拦停并保留 .needs-review；pre-commit-check（.sh/.ps1）挂大仓四态门——受影响模块 FAIL/BLOCKED(rc=2) 阻断 commit。均 catalog 存在才启用、node 缺失零行为变化。均经主 Agent 五步闸独立验证（syntax / no-catalog no-op / gate-hit block / PASS no-false-block）。
 - 2026-07-30: **test-setup.sh #16 平台路由修复提交 `03f9d72`**——修最近提交 3909ef5（加 -win/-mac/-ubt 平台自动路由）引入的真实回归：setup.sh 在 MINGW 上 exec 转交 setup.ps1（原生合并、不依赖 jq），但测试 ③块仍按 jq 有无二分、无 jq 分支断言 grep "手工"（仅 setup.sh 降级路径打印），导致 run-all 在 Windows/Git Bash 机器上挂红。改为顶层先判是否路由到 setup.ps1 三分支，命中则断言 .ps1 原生合并语义（.bak 备份 + 排除 .bak 幂等 + installed: ps1_hooks= 标志）。同时补上此前完全未覆盖的 Windows 安装路径。本机（MINGW 无 jq）实跑 test-setup passed（settings 路径=.ps1 原生合并）、EXIT=0。
@@ -108,6 +109,7 @@ _Last updated: 2026-07-30_
 - 2026-07-30: **收口验收路径修正**——原计划"关 Fast Mode 前先跑红蓝审查"被判定为自相矛盾：Fast Mode 期间 CLAUDE.md 明写"不自动进入 red-blue 对抗模式"，红蓝审查正是 Fast Mode 显式跳过的闸；且红蓝审查触发点是"发版/合并分支前"，合并到 main 属 HIGH 档需用户签字。故修正为：主 Agent 摆齐 Phase 0-2 客观证据 → 交用户验收 → 红蓝审查/合并/关 Fast Mode/上 Phase 3 这些 HIGH 档决策由用户在验收闸上定，主 Agent 不自作主张在 Fast Mode 下烧 ~15x token 跑红蓝。
 - 2026-07-30: **live 用例失败定性**——run-all [3/3] 两个 live `claude -p` 用例（bug-fixer / product-spec）失败定性为环境性、非本分支回归：本分支 24 个改动文件经 `git diff --name-only main...HEAD` + status + grep 核实零触碰 CLAUDE.md / skills / 路由 hook，skill 路由 100% 由 CLAUDE.md 驱动；两用例失败模式完全相同（全程无 Skill 调用），指向共同 CLI 层原因（use-local 走 OAuth，LiteLLM 代理不产 stream-json Skill 事件）。按"不磨蹭"不重烧这两个各 300s 超时的 live 用例。
 - 2026-07-30: **Phase 0-2 收口三项用户决策（验收闸上拍板，覆盖框架默认）**：① 家底 hook 收口方式=信静态自测直接合并 main，用户显式豁免红蓝审查（非安全护栏、可豁免）；② Phase 3 结构化 waiver 押后（先收口 0-2，Phase 0-2 即本轮终点）；③ Fast Mode 保持开（约剩 21h 后自动过期回严格）。
+- 2026-07-30: **用户改口「一口气全做」**——推翻 Phase 3 押后：要求同时 ①发 v1.9.0 ②修 setup 无 jq 预存缺陷 ③清 progress 过期 TODO ④重开 Phase 3 waiver。setup 无 jq 经 `-mac` 强制复现确认代码已正确（Notes 过时）；补 ③b 回归锁代替空修。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -142,8 +144,7 @@ _Last updated: 2026-07-30_
 - 2026-07-30: 大仓能力落地时的接入约束——新增 `.claude/harness/` 运行态账本需补进 `.claude/.gitignore`；新增 harness 文件须纳入 FRAMEWORK-MANIFEST + doctor.sh 抽检 + run-all.sh 自测。
 - 2026-07-30: 大仓能力接入锚点（不新增 hook 事件）——diff-bound 回执挂 mark-review-needed→stop-gate 现有链；四态风险分层门挂 pre-commit-check/static-check 锚点。
 - 2026-07-30: 四篇姊妹框架分析文档（codex-base/cursor-base/pi-base/grok-base）产于 .claude/research/，当前 untracked，待方案落地后随批次一并 commit 或按需清理。已签字实施方案见 plan 文件 C:\Users\z00632348\.claude\plans\vectorized-splashing-hollerith.md。
-- 2026-07-30: **预存缺陷（非本次回归，单列待办）**：`setup.sh` 无 jq 降级路径未打印 test-setup.sh:87 断言的"手工"合并指引——在无 jq 机器上 test-setup.sh 因此 FAIL。已用 `git stash` 基线确认此 FAIL 与本次 harness 改动无关（基线同样 exit=1）。属预存 setup.sh 缺陷，不阻塞内核提交，待后续单独修。
-- 2026-07-30: **约束提醒**：Fast Mode 当前 ON（.claude/.fast-mode，24h 过期）；Phase 0-2 收口验收前须 `bash .claude/scripts/fast-mode.sh off` 恢复严格模式。
+- 2026-07-30: setup.sh 无 jq 路径经 `-mac` 强制复现确认代码正确（test-setup FAIL 系断言误判，非代码缺陷），已补 ③b 回归锁覆盖，原「预存缺陷」标签作废。
 - 2026-07-30: 已知：真触发 live case（cases/todo-app、cases/bug-report）在当前 use-local LiteLLM 环境下 claude -p 产出无 Skill 事件而 FAIL，非回归；判定 harness 改动影响面时以"是否触碰 CLAUDE.md/skills/路由 hook"为准。
 - 2026-07-30: Task #5（Phase 0-2 收口）**已完成**：feat/harness-large-repo fast-forward 合并进 main（f0f21f2）+ 合并后全量静态回归 6/0 全绿；家底 hook 红蓝审查经用户显式豁免（信静态自测直接合并）；Fast Mode 按用户决定保持开（约剩 21h 自动过期）。
 
