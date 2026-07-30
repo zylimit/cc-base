@@ -17,6 +17,10 @@ _Last updated: 2026-07-30_
 - **.ps1 hook stdin 中文受 pwsh GBK 限制（known issue，候选 #15）**：中文 Windows pwsh [Console]::InputEncoding 默认 GB2312/936，读 stdin 的 .ps1 hook 读 UTF-8 中文 JSON 乱码（2026-07-29 真机 trace：codepage 936，设 UTF8 后 MATCHED）。tdd-gate.ps1 已补设 UTF-8 InputEncoding（第 11 行）让 \\u 中文触发真生效（pwsh+5.1 双环境验证）；其他读 stdin 的 .ps1 hook（mark-review-needed 读 file_path 中文路径、detect-feedback-signal/recap-on-dirty/session-rules-banner/subagent-acceptance-reminder 等）尚未统一，候选 #15 拍板。
 
 ## Done
+- 2026-07-30: **Phase 0-2 收口静态自测全绿**（新鲜跑）：test-harness 3/0（context-pack 24模块 294ms<5000ms）、selftest 符合预期 9/0、test-setup EXIT=0（agents=7 hooks=18 幂等✓ + manifest 分层✓）、test-gate-audit 9/0、test-three-file-sync-gate 6/0、test-fast-mode 13/0。
+- 2026-07-30: **Phase 2 接线提交 `6593ab7`**（"feat(harness): T2.2/T2.4 接线——stop-gate 挂 diff-bound 回执网关 + pre-commit-check 挂大仓四态门"）。stop-gate（.sh/.ps1）挂 diff-bound 回执网关——待审清单清空后校验工作树 diff 是否绑定已通过回执，STALE(rc=4) 则拦停并保留 .needs-review；pre-commit-check（.sh/.ps1）挂大仓四态门——受影响模块 FAIL/BLOCKED(rc=2) 阻断 commit。均 catalog 存在才启用、node 缺失零行为变化。均经主 Agent 五步闸独立验证（syntax / no-catalog no-op / gate-hit block / PASS no-false-block）。
+- 2026-07-30: **test-setup.sh #16 平台路由修复提交 `03f9d72`**——修最近提交 3909ef5（加 -win/-mac/-ubt 平台自动路由）引入的真实回归：setup.sh 在 MINGW 上 exec 转交 setup.ps1（原生合并、不依赖 jq），但测试 ③块仍按 jq 有无二分、无 jq 分支断言 grep "手工"（仅 setup.sh 降级路径打印），导致 run-all 在 Windows/Git Bash 机器上挂红。改为顶层先判是否路由到 setup.ps1 三分支，命中则断言 .ps1 原生合并语义（.bak 备份 + 排除 .bak 幂等 + installed: ps1_hooks= 标志）。同时补上此前完全未覆盖的 Windows 安装路径。本机（MINGW 无 jq）实跑 test-setup passed（settings 路径=.ps1 原生合并）、EXIT=0。
+- 2026-07-30: **Phase 2 内核落地并提交 `f7f52fd`**（"feat(harness): T2.1+T2.3 Phase2内核——diff-bound 回执 + 四态风险分层门"）。harness.mjs 已实现 S0-S9 全部子命令：doctor / diff-hash / selftest / catalog-lint / impact / context-pack / **receipt**（T2.1）/ **verify**（T2.3）。selftest 从 31 增至 50 个用例全绿（+19：S7 回执 8 个、S8 四态 11 个）。主 Agent 已过五步闸独立验收：node --check 语法 OK；selftest tests:50 exit 0；receipt 退出码契约 6/6 场景实测通过（无回执→PASS exit0 引导期宽容、write→exit0、diff 绑定 matched→PASS exit0、diff 变动→STALE exit4、篡改 contentHash→STALE exit4、--task 缺失→STALE exit4）；四态 verify 契约实测（FAIL→exit2、纯 BLOCKED→exit2、全 PASS→exit0、无 catalog→DEGRADED exit3）。
 - 2026-07-29: **跨平台根治 Task #1 验收通过（未 commit）**——setup.sh merge_settings 加 jq is_ps1_residue/clean_ps1（清 .ps1 形态留 .sh）、setup.ps1 加 Test-IsShResidue/Remove-ShResidue（清 .sh 形态留 .ps1），保守只清框架形态（解释器+psh 路径双条件）幂等。主 Agent 独立验收：setup.sh jq 分支 fixture（ps1=14→0 sh=14 幂等，临时下 jq-1.7.1 验）+ setup.ps1 侧 fixture（sh=1→0 ps1=14 幂等）+ 框架自测 6/6 全绿（selftest/test-setup/test-routing/gate-audit 9/three-file-sync 6/fast-mode 13）。已知边界：本机无 jq 时 setup.sh 走降级不清理——Task #12 fix-platform 须无 jq 实现兜底。
 - 2026-07-29: **跨平台根治 Task #2 验收通过（未 commit）**——新增 .claude/scripts/fix-platform.sh（python3 解析无 jq 依赖，删 .ps1 residue 补 .sh + chmod 0755）+ fix-platform.ps1（pwsh 内置 ConvertFrom-Json，删 .sh residue 补 .ps1，复用 setup.ps1 的 Convert-ToPs1Command+pwsh 探测），独立工作不依赖 cc-base 仓库在场。主 Agent 独立验收：对称环（混合→fix-platform.ps1→纯.ps1[sh=1→0]→fix-platform.sh→纯.sh[ps1=14→0 sh=14]）+ chmod 17 文件 0755 + 幂等 rerun ok；本机 python3=3.14.6 真跑通（非商店桩）。
 - 2026-07-29: **跨平台根治 Task #3 验收通过（未 commit）**——修 3 处 .ps1/.sh 不对等：①mark-review-needed.ps1 加 Mutex 串行（New-Object System.Threading.Mutex + WaitOne(2000) + finally ReleaseMutex，失败/超时降级裸跑，对等 .sh flock:45-54）；②tdd-gate.ps1 补 \\u7f16\\u7801\\u5b9e\\u73b0 中文触发词（纯 ASCII \\u 转义）+ 第 11 行设 [Console]::InputEncoding=UTF8（治中文 Windows pwsh stdin GBK 读 UTF-8 乱码）；③session-rules-banner.ps1:17,20 fast-mode off 提示 bash→pwsh fast-mode.ps1。主 Agent 独立验收：纯 ASCII 3 个 .ps1 CLEAN + tdd-gate 中文触发 pwsh+5.1 双环境各 3 行 + no-trigger 0 行 + mark-review Mutex 写入 src/app.ts + test-routing/test-fast-mode 13/13 exit 0。框架级 stdin UTF-8 未统一见 Pinned known issue 候选 #15。
@@ -76,6 +80,7 @@ _Last updated: 2026-07-30_
 - 2026-06-14: **框架前瞻性改进（基于 3 个外部调研 agent）**——① CoVe 引入 code-review SKILL：每个风险点拆成可独立判定的验证问题、逐条挂外部证据核验，作为单模型审查承重墙（5d43bfa）；② SubagentStop hook 新增（subagent-acceptance-reminder .sh/.ps1，matcher 限 implementer|code-reviewer|tester|deployer），机制化「验收以客观证据为准」铁律（5d43bfa）；③ .claude/workflows/code-review-fanout.js 新增，多维 fan-out 审查 + 逐条 CoVe 多视角对抗 verify，schema 回传结论+证据句柄，可 opt-in 调用（5d43bfa）；④ SessionStart hook recap-on-dirty（.sh/.ps1）——工作树有未提交改动时注入提醒先 /recap 校准 progress.md，补「上下文流失致状态漂移」洞（0cf8ceb）。hook 总数 11→13。
 
 ## Decisions
+- 2026-07-30: **run-all 分层验收结论**——主 Agent 亲跑全量 run-all（EXIT=1）。[1/3] selftest 9/0 绿；[2/3] 静态自测全绿（test-setup 走 .ps1 原生合并✓ / test-harness 3/3 context-pack 352ms<5000ms / gate-audit 9/0 / three-file-sync 6/0 / fast-mode 13/0）；[3/3] 两个真触发 live case（todo-app→product-spec、bug-report→bug-fixer）FAIL，特征均为"实际触发的 skill：<空>+全程无 Skill 调用"。经核对本分支全部 24 个改动文件**零触碰 CLAUDE.md/skills/路由 hook**，且本体根目录无 module-catalog.json（4 个 hook 接线全被 harness_enabled 守卫静默跳过），判定两 live case 失败与本分支改动零交集，属 use-local LiteLLM 代理环境下 live claude CLI 的既有/环境性失败，非框架 skill 路由回归。据"快速搞完不磨蹭"指令不重跑这两个烧 token 的环境失败 case。
 - 2026-06-14: 框架定位确认——cc-base 为轻量框架，不碰多模型/CCB/复杂编排；改进只取「轻量且确定有效」方案。否决方案：Channels、多模型裁判、同模型 debate、完整 eval harness、graph memory、迁 Plugin。理由：轻量优先，CCB 运维脆弱成本过高。
 - 2026-06-14: 跨平台/外部工具根因结论必须靠真机证据（trace/实测），不凭表层信息臆断。"查证后再结论"的关键不只是"去查"，是"读到位、读对、不被表层信息覆盖已查到的证据"。（本次连翻两次车：① 误判 hook 跑 pwsh 7.x，实为 5.1，setup.ps1 注释早写明却被用户报告"7.6.2"带偏；② 误判 PSNativeCommandUseErrorActionPreference 默认 $true，WebFetch 文档第 94 行写着 $false 却看走眼）
 - 2026-06-16: 借鉴姊妹框架（cc-base/opencode-base/codex-base 同源）时，只取**轻量、能反哺 Claude Code、把已有规则自动化**的脚本（plan-lint/skill-desc-lint/doctor/test-setup/test-routing/泄漏扫描）；**否决** release-provenance.sh + 完整 release.sh 编排——理由："规则改了没进发布版"那类要靠 CI 才真防，单机轻量框架引入 CI/溯源不划算，违背轻量哲学。复核确认：跨版分析 agent 曾误报"cc-base 缺记忆/红蓝/branch-finisher/静态闸"，系读旧文档快照所致，实为 cc-base 早已具备（订正存档，防再被误导）。
@@ -96,6 +101,11 @@ _Last updated: 2026-07-30_
 - 2026-07-30: **大仓能力默认关闭、按需开启**——module-catalog.json 存在即启用，小项目/框架本体零负担；node/catalog 缺失时 hook 静默降级不破坏现有流程。守 pi-base 反模式#1 教训（机制密度对轻量项目是过度设计）。
 - 2026-07-30: **先落核心 Phase 0-2（地基+三件套+回执/四态门）验证再续，Phase 3 结构化 waiver / Phase 4 收口押后**，待用户验收 Phase 0-2 后再定。
 - 2026-07-30: **明确否决的反模式（大仓方案调研中排除项）**——cursor-base 假 TS 双写、pi-base lease.ts 租约层（YAGNI）、grok-base static-check.sh 幽灵引用与业务目录硬编码泄漏、codex-base 12-lib 重型 runtime、CI 矩阵（沿用 2026-06-16 既有否决）、正则安全分类器当硬隔离用。
+- 2026-07-30: **回执 verify 采用 diff-centric（无 task-id 概念）架构**：蓝图原设想的 `harness_active_task` helper 在纯 CC 单机无对应实体，改为扫描 `.claude/harness/receipts/*.json`——当前工作树 canonical diffHash 命中任一完好回执→PASS；有回执但均不绑定当前非空 diff→STALE exit4；回执目录空/缺→exit0（引导期宽容，不过度阻断未用回执机制的项目）。理由：既保防篡改+stale 检测的核心价值，又不给尚未采用该机制的小项目添阻断。
+- 2026-07-30: **锁定回执/四态门退出码契约（供 hook 接线消费）**：`receipt verify` 无 --task：绑定/无代码变更/无回执→0，diff 变动/无匹配/篡改/task 缺失→4，非 git→3。`verify`（四态门）：全 PASS/SKIPPED→0，任一 FAIL/纯 BLOCKED→2，无 catalog/非 git→3。
+- 2026-07-30: **接受 implementer 两处偏离蓝图**（均经主 Agent 实测证据核验后采纳）：① spawnCmd win32 用 `windowsVerbatimArguments: true` 而非裸 `cmd /c`——裸 cmd /c 会篡改嵌套引号并把子进程退出码吞成 0（假绿，违反"绝不假绿"），实测确认加此标志才正确透传退出码；② `receipt` 子命令读 `positional[0]` 而非 `[1]`——主 Agent 派单提示词有 off-by-one，实际 parseArgs 里 cmd=argv[0]、positional=argv[1..]，子命令名落在 positional[0]。
+- 2026-07-30: **收口验收路径修正**——原计划"关 Fast Mode 前先跑红蓝审查"被判定为自相矛盾：Fast Mode 期间 CLAUDE.md 明写"不自动进入 red-blue 对抗模式"，红蓝审查正是 Fast Mode 显式跳过的闸；且红蓝审查触发点是"发版/合并分支前"，合并到 main 属 HIGH 档需用户签字。故修正为：主 Agent 摆齐 Phase 0-2 客观证据 → 交用户验收 → 红蓝审查/合并/关 Fast Mode/上 Phase 3 这些 HIGH 档决策由用户在验收闸上定，主 Agent 不自作主张在 Fast Mode 下烧 ~15x token 跑红蓝。
+- 2026-07-30: **live 用例失败定性**——run-all [3/3] 两个 live `claude -p` 用例（bug-fixer / product-spec）失败定性为环境性、非本分支回归：本分支 24 个改动文件经 `git diff --name-only main...HEAD` + status + grep 核实零触碰 CLAUDE.md / skills / 路由 hook，skill 路由 100% 由 CLAUDE.md 驱动；两用例失败模式完全相同（全程无 Skill 调用），指向共同 CLI 层原因（use-local 走 OAuth，LiteLLM 代理不产 stream-json Skill 事件）。按"不磨蹭"不重烧这两个各 300s 超时的 live 用例。
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -117,6 +127,8 @@ _Last updated: 2026-07-30_
 - [P2][已验收·待commit][#13] 跨平台根治 #3：修 3 处 hook 不对等（3 处全验证见 Done；未 commit 待整批 review）
 - [P2][已完成][#14] 跨平台根治 #4：测试——subagent stalled 前写大部分（test-fix-platform + test-hook-parity），主 Agent 修 1 处路径断言（.needs-review pwsh GetFullPath /tmp 坑），两测试全绿（6/6 + 5/5）+ manifest 重生成 + README 跨平台段。意外达成。
 - [P2][完成][#15] .ps1 hook stdin UTF-8 统一——9 个读 stdin 的 .ps1 hook 加 [Console]::InputEncoding=UTF8（tdd-gate Task3 已有跳过），修中文 Windows pwsh GBK。主 Agent python3 批量幂等 + ASCII CLEAN + test-hook-parity 5/5 + test-fix-platform 6/6 + selftest PASS。
+- [P1][DONE][#16] Phase 2 接线 T2.4：四态风险分层门接线 pre-commit-check.sh/.ps1（家底 hook，增量补缺）——已提交 commit 6593ab7，主 Agent 五步闸独立验证（syntax/no-catalog no-op/gate-hit block/PASS no-false-block）。
+- [P1][DONE][#17] Phase 2 接线 T2.2：diff-bound 回执网关接线 stop-gate.sh/.ps1（家底 hook，增量补缺）——已提交 commit 6593ab7，主 Agent 五步闸独立验证（syntax/no-catalog no-op/gate-hit block/PASS no-false-block）。
 
 ## 明确不做（防过度工程）
 - **condenser LLM 摘要压缩**：progress.md「超100条归档+摘要指针」已够用，不值得为它每次多跑一次 LLM。
@@ -128,6 +140,10 @@ _Last updated: 2026-07-30_
 - 2026-07-30: 大仓能力落地时的接入约束——新增 `.claude/harness/` 运行态账本需补进 `.claude/.gitignore`；新增 harness 文件须纳入 FRAMEWORK-MANIFEST + doctor.sh 抽检 + run-all.sh 自测。
 - 2026-07-30: 大仓能力接入锚点（不新增 hook 事件）——diff-bound 回执挂 mark-review-needed→stop-gate 现有链；四态风险分层门挂 pre-commit-check/static-check 锚点。
 - 2026-07-30: 四篇姊妹框架分析文档（codex-base/cursor-base/pi-base/grok-base）产于 .claude/research/，当前 untracked，待方案落地后随批次一并 commit 或按需清理。已签字实施方案见 plan 文件 C:\Users\z00632348\.claude\plans\vectorized-splashing-hollerith.md。
+- 2026-07-30: **预存缺陷（非本次回归，单列待办）**：`setup.sh` 无 jq 降级路径未打印 test-setup.sh:87 断言的"手工"合并指引——在无 jq 机器上 test-setup.sh 因此 FAIL。已用 `git stash` 基线确认此 FAIL 与本次 harness 改动无关（基线同样 exit=1）。属预存 setup.sh 缺陷，不阻塞内核提交，待后续单独修。
+- 2026-07-30: **约束提醒**：Fast Mode 当前 ON（.claude/.fast-mode，24h 过期）；Phase 0-2 收口验收前须 `bash .claude/scripts/fast-mode.sh off` 恢复严格模式。
+- 2026-07-30: 已知：真触发 live case（cases/todo-app、cases/bug-report）在当前 use-local LiteLLM 环境下 claude -p 产出无 Skill 事件而 FAIL，非回归；判定 harness 改动影响面时以"是否触碰 CLAUDE.md/skills/路由 hook"为准。
+- 2026-07-30: Task #5（Phase 0-2 收口）进行中：manifest 重生（gen-manifest 自动纳入新增 harness 文件）、家底 hook 红蓝审查（stop-gate+pre-commit-check，关 Fast Mode 前必过）、关 Fast Mode 尚待完成。
 
 ## 将来事（低概率/成本高/暂不划算）
 - **自建 agent benchmark**：OpenHands 用 SWEBench 客观衡量「框架变好没」，cc-base 全靠人肉判断。自建 benchmark 成本极高，现阶段不做，将来项目规模大到需要客观回归指标时再考虑。（2026-06-15）
