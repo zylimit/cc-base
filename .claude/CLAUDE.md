@@ -261,6 +261,12 @@
     Git 工作流规则见 dev-builder SKILL.md [开发规则清单]。
 
 
+[大仓能力（可选——按需开启）]
+    大仓治理（20-30 万行项目的影响面分析 / diff-bound 审查回执 / 四态质量门）。默认关闭，启用 = 放一份合规 `.claude/harness/module-catalog.json`；不启用对项目完全透明、所有 hook 走原逻辑零行为变化。
+    做启用 catalog、解读 impact / context-pack 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、九能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
+    接线（不新增 hook 事件，catalog + node 双满足才生效）：stop-gate 在 `.needs-review` 清空后校验 diff-bound 回执，rc=4（STALE）拦停强制重审；pre-commit-check 在 commit 前跑定向质量门，rc=2（FAIL/BLOCKED）阻断 commit。
+
+
 [项目记忆规则]
     - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
     - **必须主动调用** progress-recorder agent 来记录重要决策、任务变更、完成事项等关键信息到 progress.md
