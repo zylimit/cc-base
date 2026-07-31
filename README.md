@@ -2,6 +2,26 @@
 
 纯 Claude Code 框架底座：把一套经过血泪迭代的 hooks / skills / agents / feedback 经验，注入式安装到任意项目，让 Claude Code 在该项目里按既定职责边界、TDD 闸门、审查闭环、三文件同步等规则工作。无 CCB / 无 codex / 无 tmux 依赖。
 
+## 快速部署（3 步）
+
+```bash
+# 1. 下载（或到 GitHub Release 页手动下 zip）
+gh release download v1.9.4 -R zylimit/cc-base -p '*.zip'
+
+# 2. 解压到任意目录
+unzip cc-base-v1.9.4.zip      # Windows: 解压到 cc-base/
+
+# 3. 装到你的项目
+bash cc-base/setup.sh /path/to/your-project        # Mac / Linux
+pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
+```
+
+装完**在该项目目录启动 Claude Code 即生效**。验证：启动后看到 SessionStart 框架横幅 + `/recap` 能恢复项目状态。
+
+- 不带参数 = 装到当前目录。没有 `jq` 也能装（自动降级）。
+- 不想跑安装器？直接把 `cc-base/.claude/` 整目录复制到目标项目根即可（见「拷贝即用」）。
+- 升级 = 重跑 setup（靠 FRAMEWORK-MANIFEST 安全覆盖，你改过的框架文件不覆盖）。
+
 ## 装什么
 
 注入式安装把以下框架资产复制进 target 项目的 `.claude/`，并把 hooks 合并进 `target/.claude/settings.json`（不覆盖你已有的其他配置）：
