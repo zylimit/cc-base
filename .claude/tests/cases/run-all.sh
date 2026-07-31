@@ -55,6 +55,7 @@ RAN=0
 for c in "$DIR"/*.sh; do
     [ "$(basename "$c")" = "run-all.sh" ] && continue
     [ "$(basename "$c")" = "test-harness.sh" ] && continue   # 已在第二段跑（只需 node，不需 claude CLI）
+    [ "$(basename "$c")" = "test-skill-behavior.sh" ] && continue  # opt-in（RUN_LIVE_SKILL=1），默认不跑，单独执行
     RAN=$((RAN+1))
     echo ""
     echo "----- 运行 case：$(basename "$c") -----"

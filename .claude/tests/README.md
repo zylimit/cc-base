@@ -37,6 +37,15 @@ bash .claude/tests/cases/run-all.sh
   `SKIPPED: 无 claude CLI` 并只跑 selftest——**绝不因缺 CLI 静默假绿**
   （呼应框架反静默失败的铁律：未执行 != 通过）。
 
+- **cases/test-skill-behavior.sh** 是聚合多路由对的 headless 烟囱测试，**opt-in 默认 SKIP**
+  （不挂进 run-all 默认；`run-all.sh` 显式 continue 跳过它）。需要 `RUN_LIVE_SKILL=1` 才跑：
+  ```bash
+  RUN_LIVE_SKILL=1 bash .claude/tests/cases/test-skill-behavior.sh
+  ```
+  跑法：第一个路由对兼做环境探针——认证失败（OAuth 过期）或无任何 `"name":"Skill"`
+  事件时 SKIP 剩余对（带诊断），换真 Anthropic API 环境重跑。use-local/LiteLLM OAuth
+  环境已知不产 Skill 事件，框架到位即交付（SKIP 不算 fail）。
+
   两个落地约束（踩过的坑）：
   - **必须在能加载到 cc-base `.claude/CLAUDE.md` 的目录里跑**——case 脚本 `cd` 到仓库根
     （`git rev-parse --show-toplevel`，失败回退相对路径）。在空临时目录里跑框架路由规则
@@ -66,6 +75,7 @@ bash .claude/tests/cases/run-all.sh
 └── cases/                                # harness 自测（仅需 node）+ 真触发测试（需 claude CLI）
     ├── run-all.sh                        # 三段：selftest → 静态自测 7 个 → 真触发 cases
     ├── test-harness.sh                   # harness.mjs 自测（doctor/selftest/context-pack/waiver，只需 node）
+    ├── test-skill-behavior.sh            # opt-in 聚合路由对烟囱（RUN_LIVE_SKILL=1，默认 SKIP）
     ├── todo-app-triggers-product-spec.sh # naive prompt → product-spec-builder
     └── bug-report-triggers-bug-fixer.sh  # naive prompt → bug-fixer
 ```
