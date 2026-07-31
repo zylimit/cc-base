@@ -301,6 +301,277 @@ else
 fi
 rm -rf "$TMPW"
 
+# ⑧ diff-hash CLI：契约 = 总是 rc 0（harness-large-repo.md 退出码表「doctor/diff-hash | 总是」，
+#    源码 cmdDiffHash 无条件 emit(...,0)）。nonGit 是输出信息字段，非退出码分支。
+#    输出 diffHash 必须是合法 SHA256（64 位小写 hex）。
+# ⑧a diff-hash 在临时 git 仓 -> rc 0 + diffHash 是 64 位 hex
+TMPDH="$(mktemp -d)"
+( cd "$TMPDH" && git init -q && git config core.autocrlf false \
+  && git config user.email t@t.t && git config user.name t \
+  && echo "x" > a.ts && git add -A && git commit -qm init ) >/dev/null 2>&1
+RC=0
+OUT=$(cd "$TMPDH" && CLAUDE_PROJECT_DIR="$TMPDH" node "$HARNESS" diff-hash) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE '"diffHash":"[0-9a-f]{64}"'; then
+  pass "diff-hash git 仓 -> rc 0 + 合法 SHA256"
+else
+  fail "diff-hash git 仓应 rc 0 + 64 hex（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPDH"
+
+# ⑧b diff-hash 非 git -> 仍 rc 0（契约：总是 rc 0；nonGit:true 是信息字段，非 rc 3 分支）
+TMPDH="$(mktemp -d)"
+RC=0
+OUT=$(cd "$TMPDH" && CLAUDE_PROJECT_DIR="$TMPDH" node "$HARNESS" diff-hash) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"nonGit":true' \
+   && printf '%s' "$OUT" | grep -qE '"diffHash":"[0-9a-f]{64}"'; then
+  pass "diff-hash 非 git -> rc 0 + nonGit:true（契约总是 rc 0）"
+else
+  fail "diff-hash 非 git 应 rc 0（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPDH"
+
+# ⑨ waiver list CLI：契约 = 总是 rc 0（空/有 waivers 两态各验）
+# ⑨a 空 waivers -> rc 0 + waivers:[]
+TMPWL="$(mktemp -d)"
+RC=0
+OUT=$(cd "$TMPWL" && CLAUDE_PROJECT_DIR="$TMPWL" node "$HARNESS" waiver list) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"waivers":\[\]'; then
+  pass "waiver list 空 -> rc 0 + waivers:[]"
+else
+  fail "waiver list 空应 rc 0 + []（exit $RC，输出：$OUT）"
+fi
+
+# ⑨b 有 waivers -> rc 0 + waivers 数组非空
+( cd "$TMPWL" && CLAUDE_PROJECT_DIR="$TMPWL" node "$HARNESS" waiver create \
+  --owner t --reason "flake" --scope lint \
+  --expiry 2099-01-01T00:00:00.000Z --compensation "fix" ) >/dev/null 2>&1
+RC=0
+OUT=$(cd "$TMPWL" && CLAUDE_PROJECT_DIR="$TMPWL" node "$HARNESS" waiver list) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE '"waivers":\[\{'; then
+  pass "waiver list 有 waiver -> rc 0 + 数组非空"
+else
+  fail "waiver list 有 waiver 应 rc 0 + 非空数组（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPWL"
+
+# ⑩ waiver check CLI：契约 = valid rc 0 / invalid rc 1（过期/禁词/缺字段各验一支）
+TMPWC="$(mktemp -d)"
+# ⑩a valid waiver -> rc 0
+cat > "$TMPWC/valid.json" <<'EOF'
+{"version":1,"owner":"t","reason":"flake on ci","scope":"lint","expiry":"2099-01-01T00:00:00.000Z","compensation":"rerun","created_at":"2026-07-31T00:00:00.000Z"}
+EOF
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPWC" node "$HARNESS" waiver check --file "$TMPWC/valid.json") || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"valid":true'; then
+  pass "waiver check valid -> rc 0"
+else
+  fail "waiver check valid 应 rc 0（exit $RC，输出：$OUT）"
+fi
+
+# ⑩b 过期 waiver -> rc 1
+cat > "$TMPWC/expired.json" <<'EOF'
+{"version":1,"owner":"t","reason":"x","scope":"lint","expiry":"2020-01-01T00:00:00.000Z","compensation":"x","created_at":"2019-01-01T00:00:00.000Z"}
+EOF
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPWC" node "$HARNESS" waiver check --file "$TMPWC/expired.json") || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'expiry must be in the future'; then
+  pass "waiver check 过期 -> rc 1"
+else
+  fail "waiver check 过期应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑩c 禁词（reason 含 security）-> rc 1
+cat > "$TMPWC/forbidden.json" <<'EOF'
+{"version":1,"owner":"t","reason":"bypass security","scope":"lint","expiry":"2099-01-01T00:00:00.000Z","compensation":"x","created_at":"2026-07-31T00:00:00.000Z"}
+EOF
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPWC" node "$HARNESS" waiver check --file "$TMPWC/forbidden.json") || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'forbidden keyword'; then
+  pass "waiver check 禁词 -> rc 1"
+else
+  fail "waiver check 禁词应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑩d 缺字段（无 scope）-> rc 1
+cat > "$TMPWC/missing.json" <<'EOF'
+{"version":1,"owner":"t","reason":"x","expiry":"2099-01-01T00:00:00.000Z","compensation":"x","created_at":"2026-07-31T00:00:00.000Z"}
+EOF
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPWC" node "$HARNESS" waiver check --file "$TMPWC/missing.json") || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'scope required'; then
+  pass "waiver check 缺字段 -> rc 1"
+else
+  fail "waiver check 缺字段应 rc 1（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPWC"
+
+# ⑪ catalog-lint CLI：契约 = 无错 rc 0 / 有错 rc 1（四错误码各验）/ 无 catalog rc 3
+FX="$ROOT/.claude/tests/fixtures/harness"
+# ⑪a good fixture + 全映射 tracked -> rc 0
+RC=0
+OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-good.json" \
+  --tracked core/index.ts,db/schema.ts,auth/login.ts,api/routes.ts,package.json,README.md,docs/guide.md) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "catalog-lint good -> rc 0"
+else
+  fail "catalog-lint good 应 rc 0（exit $RC，输出：$OUT）"
+fi
+
+# ⑪b UNMAPPED（tracked 驱动）-> rc 1
+RC=0
+OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-bad-unmapped.json" \
+  --tracked src/unmapped.ts) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"UNMAPPED"'; then
+  pass "catalog-lint UNMAPPED -> rc 1"
+else
+  fail "catalog-lint UNMAPPED 应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑪c CATCH_ALL（结构错，module paths 含 **）-> rc 1
+RC=0
+OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-bad-catchall.json" \
+  --tracked core/a.ts) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"CATCH_ALL"'; then
+  pass "catalog-lint CATCH_ALL -> rc 1"
+else
+  fail "catalog-lint CATCH_ALL 应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑪d DANGLING_DEP（结构错，dependsOn 指向不存在 id）-> rc 1
+RC=0
+OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-bad-dangling.json" \
+  --tracked core/a.ts) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"DANGLING_DEP"'; then
+  pass "catalog-lint DANGLING_DEP -> rc 1"
+else
+  fail "catalog-lint DANGLING_DEP 应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑪e OVERLAP（tracked 驱动，同路径多 module 声明）-> rc 1
+RC=0
+OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-bad-overlap.json" \
+  --tracked core/shared/x.ts) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"OVERLAP"'; then
+  pass "catalog-lint OVERLAP -> rc 1"
+else
+  fail "catalog-lint OVERLAP 应 rc 1（exit $RC，输出：$OUT）"
+fi
+
+# ⑪f 无 catalog -> rc 3
+TMPCL="$(mktemp -d)"
+RC=0
+OUT=$(cd "$TMPCL" && CLAUDE_PROJECT_DIR="$TMPCL" node "$HARNESS" catalog-lint) || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"catalog-missing"'; then
+  pass "catalog-lint 无 catalog -> rc 3"
+else
+  fail "catalog-lint 无 catalog 应 rc 3（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPCL"
+
+# ⑫ impact CLI：契约 = 正常 rc 0 / 无 catalog rc 3 / 非 git rc 3
+# ⑫a 正常（core 变更，api dependsOn core -> affected=[core,api] 反向闭包）-> rc 0
+TMPI="$(mktemp -d)"; mkdir -p "$TMPI/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "core", paths: ["core/**"], riskTier: "medium" },
+      { id: "api", paths: ["api/**"], dependsOn: ["core"], riskTier: "medium" }
+    ], global: [], ignored: []
+  }));
+' "$TMPI/.claude/harness/module-catalog.json"
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPI" node "$HARNESS" impact \
+  --catalog "$TMPI/.claude/harness/module-catalog.json" --changed core/a.ts) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"affected":\["core","api"\]'; then
+  pass "impact 正常 -> rc 0 + 反向闭包"
+else
+  fail "impact 正常应 rc 0（exit $RC，输出：$OUT）"
+fi
+
+# ⑫b 无 catalog -> rc 3
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPI" node "$HARNESS" impact \
+  --catalog "$TMPI/nope.json" --changed core/a.ts) || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"catalog-missing"'; then
+  pass "impact 无 catalog -> rc 3"
+else
+  fail "impact 无 catalog 应 rc 3（exit $RC，输出：$OUT）"
+fi
+
+# ⑫c 非 git（catalog 在，不传 --changed 走 changedPaths 自动检测）-> rc 3
+TMPI2="$(mktemp -d)"; mkdir -p "$TMPI2/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1, modules: [{ id: "core", paths: ["core/**"], riskTier: "medium" }], global: [], ignored: []
+  }));
+' "$TMPI2/.claude/harness/module-catalog.json"
+RC=0
+OUT=$(cd "$TMPI2" && CLAUDE_PROJECT_DIR="$TMPI2" node "$HARNESS" impact \
+  --catalog "$TMPI2/.claude/harness/module-catalog.json") || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"non-git"'; then
+  pass "impact 非 git -> rc 3"
+else
+  fail "impact 非 git 应 rc 3（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPI" "$TMPI2"
+
+# ⑬ context-pack CLI：契约 = 正常 rc 0 / 非 git rc 3
+# ⑬a 正常（临时 git 仓 + catalog + 工作树变更）-> rc 0
+TMPC="$(mktemp -d)"; mkdir -p "$TMPC/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1, modules: [{ id: "core", paths: ["core/**"], riskTier: "medium" }], global: [], ignored: []
+  }));
+' "$TMPC/.claude/harness/module-catalog.json"
+( cd "$TMPC" && git init -q && git config core.autocrlf false \
+  && git config user.email t@t.t && git config user.name t \
+  && mkdir -p core && echo "x" > core/a.ts && git add -A && git commit -qm init \
+  && echo "changed" >> core/a.ts ) >/dev/null 2>&1
+RC=0
+OUT=$(cd "$TMPC" && CLAUDE_PROJECT_DIR="$TMPC" node "$HARNESS" context-pack) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"diffHash"'; then
+  pass "context-pack 正常 -> rc 0"
+else
+  fail "context-pack 正常应 rc 0（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPC"
+
+# ⑬b 非 git -> rc 3
+TMPC="$(mktemp -d)"
+RC=0
+OUT=$(cd "$TMPC" && CLAUDE_PROJECT_DIR="$TMPC" node "$HARNESS" context-pack) || RC=$?
+if [ "$RC" -eq 3 ]; then
+  pass "context-pack 非 git -> rc 3"
+else
+  fail "context-pack 非 git 应 rc 3（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPC"
+
+# ⑭ CLI dispatch：契约 = unknown/missing 总是 rc 3（+ usage 诊断到 stderr）
+# ⑭a unknown 命令 -> rc 3 + usage
+RC=0
+ERR=$(node "$HARNESS" bogus-cmd-xyz 2>&1 1>/dev/null) || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$ERR" | grep -q 'unknown subcommand: bogus-cmd-xyz' \
+   && printf '%s' "$ERR" | grep -q 'usage: node harness.mjs'; then
+  pass "unknown 命令 -> rc 3 + usage"
+else
+  fail "unknown 命令应 rc 3 + usage（exit $RC，stderr：$ERR）"
+fi
+
+# ⑭b missing 子命令（无参）-> rc 3 + usage
+RC=0
+ERR=$(node "$HARNESS" 2>&1 1>/dev/null) || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$ERR" | grep -q 'missing subcommand' \
+   && printf '%s' "$ERR" | grep -q 'usage: node harness.mjs'; then
+  pass "missing 子命令 -> rc 3 + usage"
+else
+  fail "missing 子命令应 rc 3 + usage（exit $RC，stderr：$ERR）"
+fi
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
