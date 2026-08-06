@@ -30,7 +30,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 - `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / **大仓能力 harness-large-repo**），主控留指针按需读取
 - `hooks/` —— 闸门钩子（stop-gate 待审拦截 + diff-bound 回执网关、no-direct-code-guard、tdd-gate、pre-commit-check + 四态质量门、dangerous-pkill-guard、three-file-sync-gate 等；harness 接线经 `lib-harness`，有 catalog 才启用）
 - `harness/` —— 大仓治理 harness（`harness.mjs`，**默认关闭**，放 `module-catalog.json` 才启用——见下方「大仓能力」）
-- `skills/` —— 15 个工作流 Skill（product-spec / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
+- `skills/` —— 17 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
 - `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit）
 - `tests/` —— 框架自测（selftest / test-setup / test-routing / 闸回归 / cases，`run-all.sh` 统一跑）
@@ -111,15 +111,34 @@ pwsh -File .claude/scripts/fix-platform.ps1
 
 ## 大仓能力（可选——按需开启）
 
-面向 20-30 万行代码规模项目的影响面分析、diff-bound 审查回执、四态质量门。**默认关闭**——小项目零负担，所有 hook 走原逻辑。
+面向 **60 万行级**代码规模项目的影响面分析、diff-bound 审查回执、四态质量门、架构防腐、五性证据门。**默认关闭**——小项目零负担，所有 hook 走原逻辑。
 
-**启用 = 在 `.claude/harness/` 放一份合规 `module-catalog.json`**（模块 id / paths globs / dependsOn / verification / owners / riskTier）。文件存在即启用全部大仓能力；删掉即关闭。不动 settings.json、不动任何 hook。
+**启用 = 在 `.claude/harness/` 放一份合规 `module-catalog.json`**（模块 id / paths globs / dependsOn / verification / owners / riskTier / attributes 五性档位 / forbiddenDependencies / layer）。文件存在即启用全部大仓能力；删掉即关闭。不动 settings.json、不动任何 hook。
 
 启用后：
 
-- **影响面分析**：`node .claude/harness/harness.mjs impact` 算变更的反向依赖闭包——改一个模块，自动列出所有受影响模块 + 各自该跑的 verification。
+- **影响面分析**：`node .claude/harness/harness.mjs impact` 算变更的反向依赖闭包——改一个模块，自动列出所有受影响模块 + 各自该跑的 verification。60 万行规模由 glob 编译缓存 + NUL 分隔路径（中文文件名不被转义破坏）+ tracked 截断保守降级撑住。
 - **diff-bound 审查回执**：code-reviewer 通过后写回执绑定当前 diff 的 SHA256，diff 变一个字节旧回执自动 stale，stop-gate 拦停强制重审（把「reviewer 自报通过」升级为机器可验证）。
 - **四态质量门**：commit 前对受影响模块跑定向检查，PASS / SKIPPED / FAIL / BLOCKED 四态（缺命令 = BLOCKED 不假绿），pre-commit-check 阻断 FAIL。
-- **结构化 waiver**：per-check 豁免（owner / reason / scope / expiry），security 永不可豁免。
+- **架构防腐**：`arch-check` 拿**真实 import 边**（JS/TS/Python/Go/Java/C#/Rust 等 12 语言）对照 catalog 声明图——越禁边（forbiddenDependencies：隐私/安全边界可执行化，如 analytics 永不许碰 pii-store）、分层违规（layers 只许向内依赖）、未声明边（依赖漂移 = impact 漏测）、虚边、依赖环全部机器可见。
+- **ADR 执法校验**：`adr-check` 要求 Architecture-Design.md / docs/adr/ 里每条活跃架构决策的「执法方式」指向真实存在的 check / fitness 规则 / harness 能力（或显式声明人工评审）——幽灵引用比没有更糟，读起来像被执法实际没有。
+- **漂移棘轮**：`arch-check --record` 快照漂移指标，`arch-trend --gate` 只在新值超过历史最优时拦——存量老仓带债接入：先立基线，旧债慢慢还、新债一分不许添（可修改性的硬度量）。
+- **五性证据门**：模块声明质量属性档位（security / safety / privacy / resilience / reliability…，critical/high 阻断），check 声明它认领哪些属性，`verify` 判覆盖——「检查全绿但没人证明过 security」不再能读作完成。critical 与 security/safety 属性永无豁免通道。
+- **fitness 内置规则**：零外部依赖的五性反模式扫描（密钥字面量 / 日志 PII / 静默吞错 / 无界重试 / 高危模块未挂单 TODO），第一天就能跑。
+- **adapters 工具表**：semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo 按属性一键接进质量门（`adapters add <id>`），工具缺失报 BLOCKED 不假绿。
+- **结构化 waiver**：per-check 豁免（owner / reason / scope / expiry），security / safety 永不可豁免；high 档属性缺口可留痕推迟，critical 不行。
 
-完整启用条件、catalog schema、九能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`（CLAUDE.md「大仓能力」小节指针指向它）。`node .claude/harness/harness.mjs doctor` 看启用态。
+完整启用条件、catalog schema、十五能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
+
+## 进程守护（开发态韧性）
+
+长驻开发服务（dev server / worker）交给 supervisor 守护——**宕机自动拉起**（指数退避封顶 30s）、健康探针连败 3 次杀掉重拉（治「活着但不服务」）、重启风暴熔断（窗口内超限即置 crashed 并停手，失败可见不空转）：
+
+```bash
+node .claude/scripts/supervisor.mjs start --id web --health-url http://127.0.0.1:3000/health -- npm run dev
+node .claude/scripts/supervisor.mjs status          # 以 pid 实活性为准
+node .claude/scripts/supervisor.mjs logs --id web
+node .claude/scripts/supervisor.mjs stop --id web
+```
+
+状态与日志落 `.claude/.runtime/supervisor/<id>/`（git 忽略）。这是开发态护栏，不是生产 init——生产仍归 systemd / k8s。

@@ -130,15 +130,14 @@ done
 # 双保险：即便系统 PATH 漏进 jq，FAKEBIN 优先且无 jq 可执行文件
 [ ! -e "$FAKEBIN/jq" ] || rm -f "$FAKEBIN/jq"
 NOJQ_PATH="$FAKEBIN:/usr/bin:/bin"
-# 若 /usr/bin 或 /bin 里碰巧有 jq，再从 PATH 里踢掉其所在目录
-JQ_REAL=$(command -v jq 2>/dev/null || true)
-if [ -n "$JQ_REAL" ]; then
+# 逐个踢掉所有能找到 jq 的目录——usrmerge 系统（/bin -> /usr/bin）jq 有双入口，
+# 只踢第一处会残留第二处，隔离必失败（本机 Ubuntu/WSL 实测踩坑）。有界循环防意外死转。
+for _i in 1 2 3 4 5 6 7 8; do
+  JQ_REAL=$(PATH="$NOJQ_PATH" command -v jq 2>/dev/null || true)
+  [ -n "$JQ_REAL" ] || break
   JQ_DIR=$(dirname "$JQ_REAL")
-  case ":$NOJQ_PATH:" in
-    *":$JQ_DIR:"*) NOJQ_PATH=$(printf '%s' "$NOJQ_PATH" | tr ':' '\n' | grep -v -F -x "$JQ_DIR" | tr '\n' ':' | sed 's/:$//') ;;
-  esac
-  NOJQ_PATH="$FAKEBIN:$NOJQ_PATH"
-fi
+  NOJQ_PATH=$(printf '%s' "$NOJQ_PATH" | tr ':' '\n' | grep -v -F -x "$JQ_DIR" | tr '\n' ':' | sed 's/:$//')
+done
 # 验证隔离有效
 if PATH="$NOJQ_PATH" command -v jq >/dev/null 2>&1; then
   fail "强制 -mac 无 jq 路径：构造 PATH 后仍能找到 jq（隔离失败）"

@@ -15,6 +15,8 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     - Product-Spec.md → 缺失则提示先调用 /product-spec-builder
 
     可选（降级模式）：
+    - Architecture-Design.md → 有则 Phase 按模块边界拆、目录结构直接沿用其骨架、依赖正序按其依赖图排；缺失则按功能依赖自行推导
+    - DFX-Spec.md → 有则把各维验证手段折进对应 Phase 的验收标准（critical/high 档验证不许推到最后一个 Phase）；缺失则验收只含功能项
     - Design-Brief.md → 缺失则标记"无设计规范模式"，视觉相关细节标注 [待 Design Brief 补充]
     - 设计工具 MCP → 未连接或无文件则仅依据文字描述，标记"无设计稿模式"
     - 已有项目代码 → 有则扫描现有结构作为约束，进入迭代模式

@@ -9,6 +9,11 @@ signals.jsonl
 harness/receipts/
 # 结构化 per-check 豁免（运行态，永不入库）
 harness/waivers/
+# 架构漂移趋势台账（arch-check --record 快照，默认每机各持；团队要共享趋势可自行取消忽略）
+harness/trend/
+
+# supervisor 进程守护运行态（pid / state / service 日志，永不入库；supervisor.mjs 本体照常分发）
+.runtime/
 
 # 系统垃圾
 .DS_Store

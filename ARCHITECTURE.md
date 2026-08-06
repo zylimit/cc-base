@@ -126,15 +126,17 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 需求 → 交付全流程（详见 `.claude/CLAUDE.md` [工作流程]）：
 
 ```
-需求收集 → 设计规范 → 设计图 → 开发计划 → 项目开发 → Bug修复 → 代码审查 → 系统测试 → 构建发布
-  product-spec  design-brief  design-maker  dev-planner  dev-builder  bug-fixer  code-review  test-builder  release-builder
+需求收集 → 架构设计 → DFX设计 → 设计规范 → 设计图 → 开发计划 → 项目开发 → Bug修复 → 代码审查 → 系统测试 → 构建发布
+  product-spec  arch-designer  dfx-designer  design-brief  design-maker  dev-planner  dev-builder  bug-fixer  code-review  test-builder  release-builder
 ```
+
+架构设计与 DFX 设计为可选层（M/L 档项目推荐）：arch-designer 用七大设计原则（开闭/依赖倒置/单一职责/接口隔离/迪米特/里氏替换/合成聚合）做模块划分推演与自检，产出 Architecture-Design.md + ADR，L 档同步产出 module-catalog.json 骨架接通 arch-check 防腐闸；dfx-designer 把 12 维 DFX（可靠性/韧性/安全/功能安全/隐私/性能/可服务性/可安装性/可测试性/可修改性/归一化/成本）过堂成可度量场景并按模块定档，落进 harness 五性质量门。
 
 **per-Task 闭环**（dev-builder 核心，evaluator-optimizer 模式）：编码 → code-reviewer 三阶段审查（Stage0 静态闸 / Stage1 规格符合性 / Stage2 代码质量）→ 通过则 `echo clean > .claude/.needs-review` + commit → 下一个 Task；失败则 bug-fixer 修复后重审。
 
 **Phase 完成四步走验证**：Code Review → 测试完整性（test-builder 真卡点）→ 编译验证 → 功能测试。全过才算 Phase 完成。
 
-15 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
+17 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
 
 ---
 
@@ -185,19 +187,31 @@ project/
 ├── <project-name>/                       # 项目代码子文件夹
 └── .claude/
     ├── CLAUDE.md                         # 主控
-    ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo）
+    ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
     ├── agents/                           # 7 个专职 Sub-Agent
-    ├── skills/                           # 15 个 Skill
+    ├── skills/                           # 17 个 Skill
     ├── hooks/                            # 14 个注册闸门 + static-check 工具
-    ├── harness/                          # 大仓治理 harness（harness.mjs，默认关闭，放 module-catalog.json 才启用）
+    ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
-    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit）
-    ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / cases）
+    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit / supervisor 进程守护）
+    ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / test-supervisor / cases）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎
 ```
 
-运行时文件（`.claude/.needs-review`、`settings.local.json`）由 `.gitignore` 排除，不入库。**无安装步骤**——Claude Code 原生读 `.claude/`，无 daemon/tmux/CLI 工具要装。
+运行时文件（`.claude/.needs-review`、`.claude/.runtime/`、`settings.local.json`）由 `.gitignore` 排除，不入库。**无安装步骤**——Claude Code 原生读 `.claude/`，无 daemon/tmux/CLI 工具要装。
+
+---
+
+## 9.5 大仓治理 harness（60 万行级 + 五性证据化）
+
+`harness.mjs` 单文件零依赖，catalog 存在才启用（唯一开关），十三个子命令三层展开：
+
+- **定向层**（花小钱看清爆炸半径）：`impact` 反向依赖闭包 / `context-pack` 预算化上下文（DENY 密钥路径永不入包）/ `catalog-lint` 全量归类（UNMAPPED/OVERLAP/CATCH_ALL 全拦）。unmapped / global / 非 git / truncated 一律保守全 fanout——宁可全跑，不可漏测。
+- **证据层**（口头承诺升级为机器可验证）：`receipt` diff-bound 审查回执（diff 变一字节即 stale，stop-gate 拦停）/ `verify` 四态质量门（缺命令 BLOCKED 不假绿）+ **五性覆盖门**（受影响模块声明的 critical/high 属性必须有 PASS 的认领 check，反证压过佐证）/ `waiver` 结构化豁免（security/safety 永不可豁免）。
+- **防腐层**（架构不靠自觉守）：`arch-check` 真实 import 边对照声明图（越禁边 / 分层违规 / 依赖漂移 / 虚边 / 环）/ `adr-check` ADR 执法引用校验（幽灵引用 fail，manual 显式留痕）/ `arch-trend` 漂移棘轮（--record 快照 + --gate 新债零容忍，老仓带债接入路径）/ `attributes` 五性接线静态审计 / `fitness` 内置五性反模式规则 / `adapters` 外部工具按属性接线。
+
+开发态韧性由 `scripts/supervisor.mjs` 兜底：长驻服务宕机自动拉起（指数退避）、健康探针治假活、重启风暴熔断 fail-visible。设计蓝本吸收自 cursor-base（五性分级 + arch-check + fitness）、codex-base（planHash/四态门审计法）、pi-base（有界扫描 + evidence 台账）四仓交叉授粉，取舍记录见 `.claude/research/`。
 
 ---
 

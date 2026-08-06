@@ -827,6 +827,386 @@ else
 fi
 rm -rf "$TMPP"
 
+# ⑲ arch-check CLI：契约 = 图干净 rc 0 / 越禁边或未声明边 rc 1 / 无 catalog rc 3
+#   造迷你双模块仓：analytics import pii-store（forbiddenDependencies 命中）+ 未声明边。
+TMPA="$(mktemp -d)"; mkdir -p "$TMPA/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "pii-store", paths: ["pii/**"], riskTier: "high" },
+      { id: "analytics", paths: ["analytics/**"], riskTier: "medium", forbiddenDependencies: ["pii-store"] },
+      { id: "web", paths: ["web/**"], riskTier: "low" }
+    ], global: [], ignored: ["**/*.md"]
+  }));
+' "$TMPA/.claude/harness/module-catalog.json"
+( cd "$TMPA" && git init -q && git config core.autocrlf false \
+  && git config user.email t@t.t && git config user.name t \
+  && mkdir -p pii analytics web \
+  && echo "export const store = 1;" > pii/store.ts \
+  && printf 'import { store } from "../pii/store";\nexport const track = () => store;\n' > analytics/track.ts \
+  && printf 'import { track } from "../analytics/track";\ntrack();\n' > web/page.ts \
+  && git add -A && git commit -qm init ) >/dev/null 2>&1
+
+# ⑲a 越禁边（analytics->pii-store）+ 未声明边（web->analytics）-> rc 1，两类分开报
+RC=0
+OUT=$(cd "$TMPA" && CLAUDE_PROJECT_DIR="$TMPA" node "$HARNESS" arch-check) || RC=$?
+AOK=$(printf '%s' "$OUT" | python3 -c '
+import sys,json
+d=json.load(sys.stdin)
+fb=[(v["from"],v["to"]) for v in d["forbiddenDependencies"]]
+ud=[(v["from"],v["to"]) for v in d["undeclaredDependencies"]]
+print("OK" if (("analytics","pii-store") in fb and ("web","analytics") in ud and d["ok"]==False) else "BAD")
+')
+if [ "$RC" -eq 1 ] && [ "$AOK" = "OK" ]; then
+  pass "arch-check 越禁边 + 未声明边 -> rc 1（两类分开报：禁令 vs 漂移）"
+else
+  fail "arch-check 违规应 rc 1（rc=$RC，aok=$AOK，输出：$OUT）"
+fi
+
+# ⑲b 修 catalog（web 声明依赖 analytics）+ 删越禁 import -> rc 0 干净
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "pii-store", paths: ["pii/**"], riskTier: "high" },
+      { id: "analytics", paths: ["analytics/**"], riskTier: "medium", forbiddenDependencies: ["pii-store"] },
+      { id: "web", paths: ["web/**"], riskTier: "low", dependsOn: ["analytics"] }
+    ], global: [], ignored: ["**/*.md"]
+  }));
+' "$TMPA/.claude/harness/module-catalog.json"
+printf 'export const track = () => 1;\n' > "$TMPA/analytics/track.ts"
+RC=0
+OUT=$(cd "$TMPA" && CLAUDE_PROJECT_DIR="$TMPA" node "$HARNESS" arch-check) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "arch-check 修复后 -> rc 0 图干净"
+else
+  fail "arch-check 修复后应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPA"
+
+# ⑲c 无 catalog -> rc 3
+TMPA="$(mktemp -d)"
+( cd "$TMPA" && git init -q ) >/dev/null 2>&1
+RC=0
+OUT=$(cd "$TMPA" && CLAUDE_PROJECT_DIR="$TMPA" node "$HARNESS" arch-check) || RC=$?
+if [ "$RC" -eq 3 ]; then
+  pass "arch-check 无 catalog -> rc 3"
+else
+  fail "arch-check 无 catalog 应 rc 3（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPA"
+
+# ⑳ fitness CLI：契约 = error 命中 rc 1 / 压制后 rc 0（--paths 显式指定，无需 catalog）
+TMPF="$(mktemp -d)"
+printf 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"
+RC=0
+OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths leak.ts) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"no-secret-literal"'; then
+  pass "fitness 密钥字面量 -> rc 1 + no-secret-literal 命中"
+else
+  fail "fitness 密钥应 rc 1（rc=$RC，输出：$OUT）"
+fi
+printf '// harness-fitness:ignore\nconst apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"
+RC=0
+OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths leak.ts) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "fitness 行内压制 -> rc 0"
+else
+  fail "fitness 压制后应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPF"
+
+# ㉑ attributes CLI：契约 = blocking 属性未接线 rc 1 / 接线后 rc 0 / 无 catalog rc 3
+TMPQ="$(mktemp -d)"; mkdir -p "$TMPQ/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [{ id: "pay", paths: ["pay/**"], riskTier: "high", verification: ["lint"], attributes: { security: "critical" } }],
+    checks: { lint: { command: "node --version", class: "static" } }
+  }));
+' "$TMPQ/.claude/harness/module-catalog.json"
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPQ" node "$HARNESS" attributes --catalog "$TMPQ/.claude/harness/module-catalog.json") || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"unwiredBlocking":1'; then
+  pass "attributes critical 声明未接线 -> rc 1 可见缺口"
+else
+  fail "attributes 未接线应 rc 1（rc=$RC，输出：$OUT）"
+fi
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [{ id: "pay", paths: ["pay/**"], riskTier: "high", verification: ["sec"], attributes: { security: "critical" } }],
+    checks: { sec: { command: "node --version", class: "security", attributes: ["security"] } }
+  }));
+' "$TMPQ/.claude/harness/module-catalog.json"
+RC=0
+OUT=$(CLAUDE_PROJECT_DIR="$TMPQ" node "$HARNESS" attributes --catalog "$TMPQ/.claude/harness/module-catalog.json") || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "attributes 接线后 -> rc 0"
+else
+  fail "attributes 接线后应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPQ"
+
+# ㉒ verify 五性门端到端：check 全 PASS 但 critical 属性无认领 -> rc 2 BLOCKED_BY_ATTRIBUTES；
+#    认领 check PASS 后 -> rc 0。「check 全绿但没人证明过 security」不再能读作完成。
+verify_attr_setup() {
+  local catalog_js="$1" tmp
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/.claude/harness"
+  node -e "$catalog_js" "$tmp/.claude/harness/module-catalog.json"
+  ( cd "$tmp" && git init -q && git config core.autocrlf false \
+    && git config user.email t@t.t && git config user.name t \
+    && mkdir -p pay && echo "x" > pay/a.ts && git add -A && git commit -qm init \
+    && echo "changed" >> pay/a.ts ) >/dev/null 2>&1
+  printf '%s' "$tmp"
+}
+TMPV="$(verify_attr_setup '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [{ id: "pay", paths: ["pay/**"], riskTier: "high", verification: ["lint"], attributes: { security: "critical" } }],
+    checks: { lint: { command: "node -e \"process.exit(0)\"", class: "static" } }
+  }));
+')"
+RC=0
+OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '"gate":"BLOCKED_BY_ATTRIBUTES"' \
+   && printf '%s' "$OUT" | grep -q '"state":"PASS"'; then
+  pass "verify check 全 PASS 但 critical 属性缺证据 -> rc 2 BLOCKED_BY_ATTRIBUTES"
+else
+  fail "verify 属性门应 rc 2（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPV"
+
+TMPV="$(verify_attr_setup '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [{ id: "pay", paths: ["pay/**"], riskTier: "high", verification: ["sec"], attributes: { security: "critical" } }],
+    checks: { sec: { command: "node -e \"process.exit(0)\"", class: "security", attributes: ["security"] } }
+  }));
+')"
+RC=0
+OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"gate":"PASS"'; then
+  pass "verify 认领 check PASS 覆盖 critical 属性 -> rc 0 gate:PASS"
+else
+  fail "verify 属性覆盖后应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPV"
+
+# ㉓ adapters CLI：list rc 0 含内置工具；add --dry-run rc 0；add 未知 id rc 1
+TMPD="$(mktemp -d)"; mkdir -p "$TMPD/.claude/harness"
+cp "$ROOT/.claude/harness/adapters.json" "$TMPD/.claude/harness/adapters.json"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({ version: 1, modules: [{ id: "core", paths: ["core/**"] }] }));
+' "$TMPD/.claude/harness/module-catalog.json"
+RC=0
+OUT=$(cd "$TMPD" && CLAUDE_PROJECT_DIR="$TMPD" node "$HARNESS" adapters list) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"sast-semgrep"'; then
+  pass "adapters list -> rc 0 含 sast-semgrep"
+else
+  fail "adapters list 应 rc 0（rc=$RC，输出：$OUT）"
+fi
+RC=0
+OUT=$(cd "$TMPD" && CLAUDE_PROJECT_DIR="$TMPD" node "$HARNESS" adapters add secrets-gitleaks --dry-run) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"changed":true' \
+   && ! grep -q 'secrets-gitleaks' "$TMPD/.claude/harness/module-catalog.json"; then
+  pass "adapters add --dry-run -> rc 0 且不落盘"
+else
+  fail "adapters add --dry-run 应 rc 0 不落盘（rc=$RC，输出：$OUT）"
+fi
+RC=0
+OUT=$(cd "$TMPD" && CLAUDE_PROJECT_DIR="$TMPD" node "$HARNESS" adapters add secrets-gitleaks) || RC=$?
+if [ "$RC" -eq 0 ] && grep -q '"secrets-gitleaks"' "$TMPD/.claude/harness/module-catalog.json"; then
+  pass "adapters add 真写 -> check 落进 catalog.checks"
+else
+  fail "adapters add 真写应落盘（rc=$RC，输出：$OUT）"
+fi
+RC=0
+OUT=$(cd "$TMPD" && CLAUDE_PROJECT_DIR="$TMPD" node "$HARNESS" adapters add no-such-tool-xyz 2>/dev/null) || RC=$?
+if [ "$RC" -eq 1 ]; then
+  pass "adapters add 未知 id -> rc 1"
+else
+  fail "adapters add 未知 id 应 rc 1（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPD"
+
+# ㉔ adr-check CLI：契约 = 无 ADR rc 0 / 缺执法或幽灵引用 rc 1 / manual-only 与 retired 放行
+TMPADR="$(mktemp -d)"
+# ㉔a 无任何 ADR 文档 -> rc 0 + records:0
+RC=0
+OUT=$(cd "$TMPADR" && CLAUDE_PROJECT_DIR="$TMPADR" node "$HARNESS" adr-check) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"records":0'; then
+  pass "adr-check 无 ADR 文档 -> rc 0 nothing to enforce"
+else
+  fail "adr-check 无文档应 rc 0（rc=$RC，输出：$OUT）"
+fi
+
+# ㉔b 四条 ADR：机器执法 ok / manual-only ok / 缺执法 fail / 幽灵引用 fail / retired 豁免
+cat > "$TMPADR/Architecture-Design.md" <<'EOF'
+# Architecture Design
+
+## 6. 架构决策记录（ADR）
+
+### ADR-001：分层依赖
+- **状态**：accepted
+- **执法方式**：arch-check 禁边 / layers
+
+### ADR-002：选 PostgreSQL
+- **状态**：accepted
+- **执法方式**：无法机器执法，靠评审
+
+### ADR-003：缺执法的决策
+- **状态**：accepted
+
+### ADR-004：幽灵引用
+- **状态**：accepted
+- **执法方式**：ghost-gate-xyz
+
+### ADR-005：已废弃的旧决策
+- **状态**：superseded
+EOF
+RC=0
+OUT=$(cd "$TMPADR" && CLAUDE_PROJECT_DIR="$TMPADR" node "$HARNESS" adr-check) || RC=$?
+AOK=$(printf '%s' "$OUT" | python3 -c '
+import sys,json
+d=json.load(sys.stdin)
+failing={f["id"] for f in d["failing"]}
+ok = (d["ok"]==False and failing=={"ADR-003","ADR-004"}
+  and "ADR-002" in d["manualOnly"] and "ADR-005" in d["retired"] and d["records"]==5)
+print("OK" if ok else "BAD")
+')
+if [ "$RC" -eq 1 ] && [ "$AOK" = "OK" ]; then
+  pass "adr-check 五态齐验 -> rc 1（缺执法+幽灵 fail；manual-only/retired/机器执法放行）"
+else
+  fail "adr-check 判定错（rc=$RC，aok=$AOK，输出：$OUT）"
+fi
+
+# ㉔c 修复缺口后 -> rc 0
+python3 - "$TMPADR/Architecture-Design.md" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p, encoding="utf-8").read()
+t = t.replace("### ADR-003：缺执法的决策\n- **状态**：accepted\n",
+  "### ADR-003：缺执法的决策\n- **状态**：accepted\n- **执法方式**：fitness 规则 no-silent-failure\n")
+t = t.replace("- **执法方式**：ghost-gate-xyz", "- **执法方式**：人工评审（ghost-gate-xyz 已改名）")
+open(p, "w", encoding="utf-8").write(t)
+PY
+RC=0
+OUT=$(cd "$TMPADR" && CLAUDE_PROJECT_DIR="$TMPADR" node "$HARNESS" adr-check) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
+  pass "adr-check 修复执法引用后 -> rc 0"
+else
+  fail "adr-check 修复后应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPADR"
+
+# ㉕ arch-trend 漂移棘轮端到端：record 基线（带债）-> 改善 record -> gate rc 0；回退 -> gate rc 1
+TMPT="$(mktemp -d)"; mkdir -p "$TMPT/.claude/harness"
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "core", paths: ["core/**"], riskTier: "low" },
+      { id: "web", paths: ["web/**"], riskTier: "low" }
+    ], global: [], ignored: ["**/*.md"]
+  }));
+' "$TMPT/.claude/harness/module-catalog.json"
+( cd "$TMPT" && git init -q && git config core.autocrlf false \
+  && git config user.email t@t.t && git config user.name t \
+  && mkdir -p core web \
+  && echo "export const c = 1;" > core/c.ts \
+  && printf 'import { c } from "../core/c";\nexport const w = c;\n' > web/w.ts \
+  && git add -A && git commit -qm init ) >/dev/null 2>&1
+
+# ㉕a 无趋势数据 -> arch-trend rc 0 + 提示先 record
+RC=0
+OUT=$(cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-trend) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"records":0'; then
+  pass "arch-trend 无数据 -> rc 0 提示先 record"
+else
+  fail "arch-trend 无数据应 rc 0（rc=$RC，输出：$OUT）"
+fi
+
+# ㉕b 带债基线 record（web->core 未声明，undeclared=1，arch-check rc 1 但照记）
+RC=0
+OUT=$(cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-check --record) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"recordedTo":".claude/harness/trend/arch-trend.jsonl"'; then
+  pass "arch-check --record 带债基线照记（rc 1 不挡记录）"
+else
+  fail "arch-check --record 应记录（rc=$RC，输出：$OUT）"
+fi
+
+# ㉕c 修 catalog 声明该边 -> record 改善 -> gate rc 0 + improved 含 undeclared
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "core", paths: ["core/**"], riskTier: "low" },
+      { id: "web", paths: ["web/**"], riskTier: "low", dependsOn: ["core"] }
+    ], global: [], ignored: ["**/*.md"]
+  }));
+' "$TMPT/.claude/harness/module-catalog.json"
+( cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-check --record ) >/dev/null 2>&1 || true
+RC=0
+OUT=$(cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-trend --gate) || RC=$?
+TOK=$(printf '%s' "$OUT" | python3 -c '
+import sys,json
+d=json.load(sys.stdin)
+print("OK" if (d["ok"]==True and d["summary"]["undeclared"]["latest"]==0
+  and any(i["metric"]=="undeclared" for i in d["improved"])) else "BAD")
+')
+if [ "$RC" -eq 0 ] && [ "$TOK" = "OK" ]; then
+  pass "arch-trend --gate 改善 -> rc 0 + improved 记 undeclared 1->0"
+else
+  fail "arch-trend 改善应 rc 0（rc=$RC，tok=$TOK，输出：$OUT）"
+fi
+
+# ㉕d 回退（撤销声明，漂移重现）-> record -> gate rc 1 + regressed
+node -e '
+  const fs = require("fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    version: 1,
+    modules: [
+      { id: "core", paths: ["core/**"], riskTier: "low" },
+      { id: "web", paths: ["web/**"], riskTier: "low" }
+    ], global: [], ignored: ["**/*.md"]
+  }));
+' "$TMPT/.claude/harness/module-catalog.json"
+( cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-check --record ) >/dev/null 2>&1 || true
+RC=0
+OUT=$(cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-trend --gate) || RC=$?
+TOK=$(printf '%s' "$OUT" | python3 -c '
+import sys,json
+d=json.load(sys.stdin)
+print("OK" if (d["ok"]==False and any(r["metric"]=="undeclared" and r["latest"]==1 and r["bestBefore"]==0 for r in d["regressed"])) else "BAD")
+')
+if [ "$RC" -eq 1 ] && [ "$TOK" = "OK" ]; then
+  pass "arch-trend --gate 棘轮回退 -> rc 1 + regressed（undeclared 0->1 超历史最优）"
+else
+  fail "arch-trend 回退应 rc 1（rc=$RC，tok=$TOK，输出：$OUT）"
+fi
+
+# ㉕e 不带 --gate 纯报告 -> 永远 rc 0
+RC=0
+OUT=$(cd "$TMPT" && CLAUDE_PROJECT_DIR="$TMPT" node "$HARNESS" arch-trend) || RC=$?
+if [ "$RC" -eq 0 ]; then
+  pass "arch-trend 纯报告（无 --gate）-> rc 0 信息态"
+else
+  fail "arch-trend 纯报告应 rc 0（rc=$RC，输出：$OUT）"
+fi
+rm -rf "$TMPT"
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

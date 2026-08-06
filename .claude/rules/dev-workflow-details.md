@@ -24,10 +24,41 @@
             
             ## 📘 接下来
             
+            - 调用 /arch-designer 做架构设计（多模块 / 中大型项目推荐）
+            - 调用 /dfx-designer 做 DFX 设计（把可靠性/安全性这些质量属性定成可验收指标）
             - 调用 /design-brief-builder 确定视觉方向（可选）
             - 调用 /design-maker 生成完整设计稿（可选，需先完成 Design Brief）
             - 调用 /dev-planner 制定开发计划（需先批准 Spec）
             - 直接对话可以改 UI、加功能"
+
+    [架构设计阶段]
+        触发：用户调用 /arch-designer，或 Spec 批准后主 Agent 判为 M/L 档（多模块 / 有边界诉求 / 大规模）时建议
+
+        执行：调用 arch-designer skill（文档类，主 Agent 直接执行）——规模判档 → 模块划分推演 → 七大原则自检 + 关键场景走查 → 产出 Architecture-Design.md；L 档同步产出 .claude/harness/module-catalog.json 骨架并跑 catalog-lint
+
+        完成后：
+            "✅ **架构设计已生成！**
+
+            文件：Architecture-Design.md[ + module-catalog.json 骨架]
+
+            接下来：
+            - 调用 /dfx-designer 做 DFX 设计（推荐）
+            - 调用 /design-brief-builder 确定视觉方向（可选）
+            - 调用 /dev-planner 制定开发计划（Phase 将按模块边界拆）"
+
+    [DFX 设计阶段]
+        触发：用户调用 /dfx-designer，或 arch-designer 完成后顺路建议
+
+        执行：调用 dfx-designer skill（文档类，主 Agent 直接执行）——12 维过堂（场景六要素 + 度量 + 对策 + 验证落点）→ 按模块定档 → 优先级栈排序 → 产出 DFX-Spec.md；有 catalog 则写 modules[].attributes + adapters 接线建议 + 跑 attributes 子命令确认缺口。用户说"DFX 评审"则走评审模式只出评分卡
+
+        完成后：
+            "✅ **DFX-Spec 已生成！**
+
+            文件：DFX-Spec.md[ + module-catalog attributes 已定档]
+
+            接下来：
+            - 调用 /design-brief-builder 确定视觉方向（可选）
+            - 调用 /dev-planner 制定开发计划（DFX 验证手段会进各 Phase 验收）"
 
     [设计规范阶段]
         触发：用户调用 /design-brief-builder

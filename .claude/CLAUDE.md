@@ -5,17 +5,19 @@
 [任务]
     引导用户完成产品开发的完整流程：
     1. **需求收集** → 调用 product-spec-builder，生成 Product-Spec.md
-    2. **设计规范** → 调用 design-brief-builder，生成 Design-Brief.md（可选）
-    3. **设计图制作** → 调用 design-maker，通过设计工具生成完整设计稿（可选）
-    4. **开发计划** → 调用 dev-planner，生成 DEV-PLAN.md
-    5. **项目开发** → 调用 dev-builder，实现项目代码
-    6. **Bug 修复** → 调用 bug-fixer，定位并修复问题（按需）
-    7. **代码审查** → 调用 code-review，审查质量并修复（按需）
-    8. **系统测试** → 调用 test-builder，为高价值逻辑写/跑，系统测试和回归测试（按需）
-    9. **构建发布** → 调用 release-builder，打包或部署上线（按需）
+    2. **架构设计** → 调用 arch-designer，生成 Architecture-Design.md（可选，M/L 档项目推荐；L 档同步产出 module-catalog 骨架）
+    3. **DFX 设计** → 调用 dfx-designer，生成 DFX-Spec.md（可选，与架构设计配套；把质量属性定成可验收指标）
+    4. **设计规范** → 调用 design-brief-builder，生成 Design-Brief.md（可选）
+    5. **设计图制作** → 调用 design-maker，通过设计工具生成完整设计稿（可选）
+    6. **开发计划** → 调用 dev-planner，生成 DEV-PLAN.md
+    7. **项目开发** → 调用 dev-builder，实现项目代码
+    8. **Bug 修复** → 调用 bug-fixer，定位并修复问题（按需）
+    9. **代码审查** → 调用 code-review，审查质量并修复（按需）
+    10. **系统测试** → 调用 test-builder，为高价值逻辑写/跑，系统测试和回归测试（按需）
+    11. **构建发布** → 调用 release-builder，打包或部署上线（按需）
 
 [文件结构]
-    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Design-Brief.md（可选）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
+    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md（可选）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
     完整目录树见 .claude/rules/file-structure.md——生成/核对项目结构之前必须先读该文件。
 
 [运行模型——纯 Claude Code + Sub-Agent]
@@ -89,6 +91,22 @@
         - 用户要增加功能、新增功能时（迭代模式）
         - 用户要改需求、调整功能、修改逻辑时（迭代模式）
         **手动调用**：/product-spec-builder
+
+    [arch-designer]
+        **自动调用**：
+        - Product-Spec 批准后判为 M/L 档（多模块 / 有边界诉求 / 大规模）时建议调用
+        - 用户说"架构设计"、"模块划分"、"技术架构"、"分层"、"架构评审"时
+        **手动调用**：/arch-designer
+        前置条件：Product-Spec.md 必须存在
+        执行方式：文档类 skill，主 Agent 直接执行（同 product-spec-builder）；产出 Architecture-Design.md，L 档同步产出 `.claude/harness/module-catalog.json` 骨架接通 arch-check 架构防腐闸
+
+    [dfx-designer]
+        **自动调用**：
+        - arch-designer 完成后建议顺路做 DFX 定档
+        - 用户说"DFX"、"非功能需求"、"可靠性/可测试性/可服务性设计"、"DFX 评审"时
+        **手动调用**：/dfx-designer
+        前置条件：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
+        执行方式：文档类 skill，主 Agent 直接执行；设计模式产出 DFX-Spec.md 并把档位落进 catalog attributes + adapters 接线；评审模式只出评分卡不改文件
 
     [design-brief-builder]
         **手动调用**：/design-brief-builder
@@ -242,6 +260,8 @@
     **执行任何阶段之前必须先读 .claude/rules/dev-workflow-details.md**——各阶段的完整步骤、签字闸、输出话术全在该文件，主控只留触发与要点索引：
     - [需求收集阶段]：用户表达产品想法（自动）或 /product-spec-builder（手动）→ 调 product-spec-builder skill → 输出交付指南
     - [交付阶段]：Spec 生成后自动执行 → **用户签字闸**（用户批准 Product-Spec.md 后才进规划，没点头不往下走）→ 输出交付话术（见细则）
+    - [架构设计阶段]：/arch-designer（或 M/L 档自动建议）→ 调 arch-designer skill → 七大原则自检 + 模块划分 + ADR → 引导 /dfx-designer
+    - [DFX 设计阶段]：/dfx-designer → 调 dfx-designer skill → 12 维过堂定档 + 落 catalog attributes → 引导 /dev-planner
     - [设计规范阶段]：/design-brief-builder → 调 design-brief-builder skill → 引导下一步
     - [设计图制作阶段]：/design-maker → 调 design-maker skill → 引导 /dev-planner
     - [开发计划阶段]：/dev-planner → 调 dev-planner skill → 生成后跑 `.claude/scripts/plan-lint.sh`，不过先修再往下走
@@ -262,9 +282,14 @@
 
 
 [大仓能力（可选——按需开启）]
-    大仓治理（20-30 万行项目的影响面分析 / diff-bound 审查回执 / 四态质量门）。默认关闭，启用 = 放一份合规 `.claude/harness/module-catalog.json`；不启用对项目完全透明、所有 hook 走原逻辑零行为变化。
-    做启用 catalog、解读 impact / context-pack 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、九能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
-    接线（不新增 hook 事件，catalog + node 双满足才生效）：stop-gate 在 `.needs-review` 清空后校验 diff-bound 回执，rc=4（STALE）拦停强制重审；pre-commit-check 在 commit 前跑定向质量门，rc=2（FAIL/BLOCKED）阻断 commit。
+    大仓治理（60 万行级项目的影响面分析 / diff-bound 审查回执 / 四态质量门 / 架构防腐 / 五性证据门）。默认关闭，启用 = 放一份合规 `.claude/harness/module-catalog.json`；不启用对项目完全透明、所有 hook 走原逻辑零行为变化。
+    做启用 catalog、解读 impact / context-pack / arch-check / fitness / attributes / adr-check / arch-trend 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、十五能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
+    接线（不新增 hook 事件，catalog + node 双满足才生效）：stop-gate 在 `.needs-review` 清空后校验 diff-bound 回执，rc=4（STALE）拦停强制重审；pre-commit-check 在 commit 前跑定向质量门，rc=2（FAIL/BLOCKED 或 critical/high 属性缺证据）阻断 commit。
+    架构防腐：`arch-check` 拿真实 import 边对照 catalog 声明图——越禁边（forbiddenDependencies / layer 违规）、未声明边（漂移会让 impact 漏测）、虚边、依赖环全部机器可见；声明与禁令冲突时禁令赢。`adr-check` 盯 ADR 执法引用（幽灵引用比没有更糟）；`arch-check --record` + `arch-trend --gate` 做漂移棘轮——老仓带债立基线，旧债不挡路、新债零容忍。
+
+[五性治理（韧性 / Security / Safety / 隐私 / 可靠性）]
+    模块按 ISO 25010 声明质量属性与档位（critical/high 阻断、medium 告警、low/minimal 记录、none 留痕退出），check 声明它是哪些属性的证据，覆盖与否机器判定——「检查全绿但没人证明过 security」不再能读作完成。critical 与 security/safety 属性永无豁免通道；fitness 内置五条零依赖规则（密钥字面量 / 日志 PII / 静默吞错 / 无界重试 / 高危未挂单 TODO）随变更可扫；adapters 工具表把 semgrep / osv-scanner / gitleaks / presidio / stryker / k6 等外部工具按属性接进质量门。开发态韧性由 supervisor 进程守护兜底（宕机自动拉起 + 指数退避 + 重启风暴熔断 + 健康探针，`node .claude/scripts/supervisor.mjs`）。
+    声明档位、判定规则、fitness/adapters 用法、需求到验证的贯通线全在 `.claude/rules/quality-attributes.md`——做五性声明、解读 attributeGaps、接外部扫描器、给长驻服务上守护之前必须先读该文件。
 
 
 [项目记忆规则]
@@ -284,6 +309,8 @@
 
 [可用技能]
     /product-spec-builder   - 需求收集，生成 Product Spec
+    /arch-designer          - 架构设计：七大原则推演自检 + 模块划分 + ADR，L 档产出 module-catalog 骨架
+    /dfx-designer           - DFX 设计：12 维质量属性过堂定档 + 可度量场景，落 harness 质量门；可做 DFX 评审
     /design-brief-builder   - 设计规范，生成 Design Brief
     /design-maker           - 设计图制作，通过设计工具生成完整设计稿（可选）
     /dev-planner            - 开发计划，生成 DEV-PLAN
