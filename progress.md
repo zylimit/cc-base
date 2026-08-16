@@ -115,6 +115,7 @@ _Last updated: 2026-08-06_
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
 
 ## Notes
+- 2026-08-16: **本网络（WSL 经 10.255.255.254 网关，netentsec）拦 git push 的大 POST**——git-receive-pack 的 POST 体积过大（实测 104KB 被拦、几十 KB 过）时网关注入 403 HTML 拦截页（Server: netentsec_page_push，TLS 被 Huawei Web Secure Internet Gateway MITM，绕代理直连同样被透明拦截）；fetch/ls-remote/api.github.com 均正常。解法：把大批次拆成多个小提交顺序 push（每包压线以下），或换热点/外网。误导性输出注意：失败时 git 会打「Everything up-to-date」，以 ls-remote 实查为准（远端副作用实查铁律的又一例证）。
 - 2026-07-31: Phase 5 排查补漏批次（10 处漏全修）完成，详见当日 Done 条目。
 - 2026-07-31: Phase 6「未验证面攻坚」批次（A 路由框架 + B+C 大仓实战+端到端闸 + D PS5.1 验）完成，详见当日 Done 条目。E progress 归档待（条目多，收口后做）。
 - 2026-07-31: **资产上传**：内网发版时资产传不上（代理拦 uploads），切个人热点/外网直连即可——v1.9.0-v1.9.3 四资产已用此法全补。本地 D:\Code\cc-base-v1.9.x.zip 可删（远端已有）。
