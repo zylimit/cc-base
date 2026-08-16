@@ -4,6 +4,8 @@ description: 需要打包、构建镜像、部署上线时，由主 Agent 派发
 skills: release-builder
 model: opus
 color: orange
+disallowedTools: Task
+maxTurns: 60
 ---
 
 [角色]

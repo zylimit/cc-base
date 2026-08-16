@@ -1,6 +1,8 @@
 ---
 name: release-builder
 description: 当用户说要打包、部署、发布、上线，或项目开发完成准备交付时使用。
+disable-model-invocation: true
+argument-hint: "[版本号或部署目标（可选）]"
 ---
 
 [任务]

@@ -4,6 +4,8 @@ description: 完成重大任务/实现功能/做出架构决策后，或 /record
 skills: progress-recorder
 model: sonnet
 color: cyan
+disallowedTools: Bash, Task
+maxTurns: 25
 ---
 
 [角色]

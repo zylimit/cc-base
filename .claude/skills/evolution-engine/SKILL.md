@@ -1,6 +1,8 @@
 ---
 name: evolution-engine
 description: 当 session 初始化时自动触发，或用户说"帮我看看有没有该升级的规则"、"检查进化建议"时手动触发。由 evolution-runner sub-agent 调用。
+context: fork
+agent: evolution-runner
 ---
 
 [任务]

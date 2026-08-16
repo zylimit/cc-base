@@ -27,12 +27,12 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 注入式安装把以下框架资产复制进 target 项目的 `.claude/`，并把 hooks 合并进 `target/.claude/settings.json`（不覆盖你已有的其他配置）：
 
 - `CLAUDE.md` —— 主控规则（职责边界、Skill 调用、四步走验证、记忆规则）
-- `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / **大仓能力 harness-large-repo**），主控留指针按需读取
-- `hooks/` —— 闸门钩子（stop-gate 待审拦截 + diff-bound 回执网关、no-direct-code-guard、tdd-gate、pre-commit-check + 四态质量门、dangerous-pkill-guard、three-file-sync-gate 等；harness 接线经 `lib-harness`，有 catalog 才启用）
+- `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / **大仓能力 harness-large-repo**），主控留指针按需读取；harness/workflow 相关细则带 `paths:` frontmatter，Claude Code 原生按需加载（碰到匹配文件才进上下文）
+- `hooks/` —— 闸门钩子（stop-gate 待审拦截 + diff-bound 回执网关、no-direct-code-guard、tdd-gate、pre-commit-check + 四态质量门、dangerous-pkill-guard、**secret-exfil-guard 密钥读/拷/外传闸**、three-file-sync-gate、**precompact-gate 压缩前守门**、**release-gate 发布前置闸**、**harness-async-verify 编辑期后台早警**、**notify 桌面通知**等；harness 接线经 `lib-harness`，有 catalog 才启用）
 - `harness/` —— 大仓治理 harness（`harness.mjs`，**默认关闭**，放 `module-catalog.json` 才启用——见下方「大仓能力」）
 - `skills/` —— 17 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
-- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit）
+- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / statusline 状态行）
 - `tests/` —— 框架自测（selftest / test-setup / test-routing / 闸回归 / cases，`run-all.sh` 统一跑）
 - `workflows/` —— Workflow 编排脚本（code-review-fanout.js，opt-in 多维审查）
 - `feedback/` —— 经验教训库 + 索引
@@ -78,6 +78,16 @@ target/
 
 安装器仍是推荐路径（自动排除运行时产物、合并 settings、重置 FEEDBACK-INDEX）；拷贝即用适合快速试用或无 bash/pwsh 安装环境的场合。
 
+## 原生安全层与状态行（settings.json 自带）
+
+框架 settings.json 在 hooks 之外带三层 Claude Code 原生配置：
+
+- **permissions deny/ask（密钥红线 + HIGH 档机器化）**：`Read(**/.env)`、`Read(**/id_rsa*)`、`Read(secrets/**)` 等 deny 规则让密钥文件对任何工具不可读（同路径 Edit/Write 连带被挡，Bash 里的 cat/head/sed 也认；任意子进程绕读由 secret-exfil-guard hook 补拦）；`Bash(git push*)`、`Bash(gh release *)`、`Bash(npm publish*)`、`Bash(docker push*)` ask 规则把「发布/push 必停等审批」做成机器强制——**bypassPermissions 模式下 ask 规则照样弹审批**（官方语义），与审批三档的 HIGH 档一致。
+- **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.sh|.ps1` 显示 `[模型] | ctx N% | $成本 | FAST-MODE 剩余h | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
+- **env**：`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`——Claude Code 对 Stop 闸有「连拦 8 次强制放行」的原生上限，提额到 25 作兜底（stop-gate 自身三振熔断先触发）。
+
+可选进阶（默认不开，按需自取）：`/sandbox` 开原生 OS 级沙箱（文件系统/网络域名白名单/凭据 mask；Linux/WSL2 需 `apt install bubblewrap socat`，原生 Windows 不支持）；`CLAUDE_CODE_TOOL_MEMORY_LIMIT` 给 Bash 命令加 cgroup 内存上限防跑飞 build 拖死会话（Linux，取值格式见官方 env 文档）；权限模式想要「不打扰 + 分类器兜底」可把 `defaultMode` 改 `"auto"`。五性视角的定位见 `.claude/rules/quality-attributes.md`「Claude Code 原生安全层」节。
+
 ## .sh / .ps1 双写机制
 
 每个 hook 同时提供 `.sh`（Mac/Linux）和 `.ps1`（Windows）两份等价实现，同名不同扩展放在 `.claude/hooks/`。两套逻辑严格行为等价：相同输入 → 相同 exit code（0=放行 / 2=拦截）。
@@ -105,7 +115,7 @@ bash .claude/scripts/fix-platform.sh
 pwsh -File .claude/scripts/fix-platform.ps1
 ```
 
-`fix-platform` 独立工作——不依赖 cc-base 仓库在场、不依赖 jq（`.sh` 用 python3，`.ps1` 用 pwsh 内置），保守只清框架 hook command 残留、不动你的自定义 hook，幂等可重复跑。
+`fix-platform` 独立工作——不依赖 cc-base 仓库在场、不依赖 jq（`.sh` 用 python3，`.ps1` 用 pwsh 内置），保守只清框架 hook command 残留、不动你的自定义 hook，幂等可重复跑。statusLine 的 command 同样被归一（框架 statusline 路径才动，用户自定义状态行不碰）。
 
 也可直接重跑对应平台的 `setup.sh` / `setup.ps1`：setup 的 settings 合并会先清异平台残留再追加本平台 command（需 jq；无 jq 时 setup 走降级不清，用 `fix-platform` 兜底）。
 

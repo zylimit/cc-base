@@ -1,6 +1,7 @@
 ---
 name: feedback-writer
 description: 当用户修正了 AI 行为、提出改进意见、或 Skill 执行后需要记录效能评估时，由 feedback-observer sub-agent 调用。
+user-invocable: false
 ---
 
 [任务]

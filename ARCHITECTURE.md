@@ -14,7 +14,7 @@
 |---|---|---|
 | 编排 | CCB daemon + tmux 多进程 | Claude Code 原生 Sub-Agent / Workflow |
 | worker | 异构（claude / codex / gemini） | 同构（全 Claude） |
-| 派单 | `ccb ask` 异步 + 轮询 | Task 工具同步返回 / Workflow 引擎 |
+| 派单 | `ccb ask` 异步 + 轮询 | Task 工具派发（v2.1.198+ 默认后台、完成自动回传）/ Workflow 引擎 |
 | 上下文保护 | coordinator 协调员中间层 | Sub-Agent 本就隔离，无需中间层 |
 | fan-out | coordinator 串外部 agent | **Dynamic Workflows（纯 CC 红利）** |
 
@@ -55,7 +55,7 @@
 | **直接 Task 派单**（默认） | 单 Task / 一问一答 | 一次一个专职 Sub-Agent |
 | **Workflow 编排**（规模化上层） | 多个无依赖单位的 fan-out / pipeline | 同一批专职 Sub-Agent，由脚本编排 |
 
-两者工人相同，只是编排粒度不同。Task 工具**同步返回**，不存在"提交后轮询"。
+两者工人相同，只是编排粒度不同。Task 工具派发在 Claude Code v2.1.198+ **默认后台运行**：spawn 立即返回 async_launched，Sub-Agent 完成时结果自动回传进主 Agent 上下文（无需手工轮询；notify hook 会同步给用户桌面通知）。验收时序不变——结果到手才验收，"已派发"不等于"已完成"。
 
 ---
 
@@ -142,7 +142,7 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
-settings.json 实际注册 14 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+settings.json 实际注册 19 个 hook（每个均 `.sh` + `.ps1` 双平台）：
 
 | Hook | 触发 | 作用 |
 |------|------|------|
@@ -153,10 +153,15 @@ settings.json 实际注册 14 个 hook（每个均 `.sh` + `.ps1` 双平台）�
 | `pre-commit-check.sh` | PreToolUse(Bash) | git commit 前按技术栈编译/语法门禁（tsc / ruff / py_compile） |
 | `kill-dev-ports.sh` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
 | `dangerous-pkill-guard.sh` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
+| `secret-exfil-guard.sh` | PreToolUse(Bash) | 拦截密钥文件读/拷/网络外传（.env/id_rsa/*.pem/credentials），带 sudo/timeout/bash -c 套壳剥离再判；Fast Mode 不豁免 |
 | `tdd-gate.sh` | PreToolUse(Bash) | 测试相关命令前提示 TDD 工作流（red-locks-the-bug） |
 | `no-direct-code-guard.sh` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer |
 | `mark-review-needed.sh` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
 | `auto-push.sh` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
+| `harness-async-verify.sh` | PostToolUse(Edit/Write，asyncRewake 后台) | 大仓启用时编辑期后台跑 verify，FAIL/BLOCKED 唤醒主 Agent 早警（不硬拦，commit 硬门仍是 pre-commit-check；180s 防抖） |
+| `release-gate.sh` | UserPromptExpansion(release-builder) | /release-builder 展开前查待审清单——未清则拦，干净则注入发布卡点提醒（测试卡点/三件套验收） |
+| `precompact-gate.sh` | PreCompact | 压缩前守门：待审未清或 progress.md 未同步则拦一次压缩，提示先 /record 固化（10 分钟冷却窗防砖，出错 fail-open） |
+| `notify.sh` | Notification(agent_needs_input/agent_completed/permission_prompt) | 后台 subagent 完成/需输入/待审批时发终端桌面通知（OSC 777+BEL，经 terminalSequence 官方通道） |
 | `stop-gate.sh` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
 | `three-file-sync-gate.sh` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
 | `subagent-acceptance-reminder.sh` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
@@ -165,14 +170,17 @@ settings.json 实际注册 14 个 hook（每个均 `.sh` + `.ps1` 双平台）�
 
 **设计要点**：所有 hook 在 jq 缺失时优雅降级；review 闸门按文件登记（非全局布尔）+ flock 防并发 + 优先级反转（clean 与待审混存时正确 block）。hook 本就 provider 无关，与 ccb-base 逐字节相同。
 
+settings.json 同时带三层原生配置（hook 之外的机器执法）：**permissions deny/ask**——密钥文件 Read deny（连带挡 Edit/Write 与 Bash 内 cat/head/sed），`git push`/`gh release`/`npm publish`/`docker push` ask（bypassPermissions 下 ask 规则照样弹审批，HIGH 档机器化）；**statusLine**——`.claude/scripts/statusline.sh|.ps1` 常驻显示模型/context%/成本/Fast Mode 剩余/待审数/harness 开关；**env**——`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`（Stop 闸原生 8 次强制放行上限提额；stop-gate 自身三振熔断先触发，此为兜底边界）。
+
 ---
 
-## 8. 项目记忆 + 反馈进化（两套独立系统）
+## 8. 项目记忆 + 反馈进化（多套记忆系统各司其职）
 
-- **项目记忆**：`progress-recorder` agent 维护项目根目录的 `progress.md`（决策/约束/完成/待办/风险），>100 条自动归档到 `progress.archive.md`。指令 `/record` `/archive` `/recap`。
-- **反馈进化**：用户修正 AI 行为 → `feedback-observer` 写 `.claude/feedback/` → `evolution-runner`（session 初始化自动派发）扫描并生成进化建议 → 用户逐条确认后改进 Skill/规则。
+- **项目记忆**：`progress-recorder` agent 维护项目根目录的 `progress.md`（决策/约束/完成/待办/风险），>100 条自动归档到 `progress.archive.md`。指令 `/record` `/archive` `/recap`。记录类角色（progress-recorder / feedback-observer）可用 fork 形态派发（`subagent_type:"fork"` 继承主对话全文），免主 Agent 转述失真。
+- **反馈进化**：用户修正 AI 行为 → `feedback-observer` 写 `.claude/feedback/` → `evolution-runner`（session 初始化自动派发；skill 已声明 `context: fork` 后台运行不阻塞开场）扫描并生成进化建议 → 用户逐条确认后改进 Skill/规则。
+- **角色记忆**：code-reviewer / tester 挂 `memory: project`（Claude Code 原生 agent memory）——跨会话积累本项目高发缺陷模式 / flaky 区，审查测试越用越准；角色自维护，不承载框架规则与项目事实。
 
-> ⚠️ feedback（改进框架）与 memory（跨 session 记住用户偏好）是两套不同系统，用户修正行为必须走 feedback。
+> ⚠️ feedback（改进框架）、memory（跨 session 用户偏好）、agent memory（角色战术笔记）、原生 auto memory（机器本地琐碎）是四套系统：用户修正行为必须走 feedback；决策/约束/完成只认 progress.md（auto memory 不豁免三文件同步铁律）。
 
 ---
 
@@ -190,10 +198,10 @@ project/
     ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
     ├── agents/                           # 7 个专职 Sub-Agent
     ├── skills/                           # 17 个 Skill
-    ├── hooks/                            # 14 个注册闸门 + static-check 工具
+    ├── hooks/                            # 19 个注册闸门 + static-check 工具
     ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
-    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit / supervisor 进程守护）
+    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）
     ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / test-supervisor / cases）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎

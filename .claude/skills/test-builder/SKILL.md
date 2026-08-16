@@ -1,6 +1,7 @@
 ---
 name: test-builder
 description: 当功能开发完成需要测试、用户要求加测试/跑测试、或 dev-builder 四步走第2步「测试完整性」需要真卡点时使用。
+argument-hint: "[测试范围（可选，默认高价值逻辑）]"
 ---
 
 [任务]

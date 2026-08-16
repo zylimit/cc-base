@@ -139,6 +139,7 @@ merge_settings() {
             end
         )
       )
+    | if (has("statusLine") | not) and ($source | has("statusLine")) then .statusLine = $source.statusLine else . end
   ' "$dest" "$src" >"$tmp" || { rm -f "$tmp"; die "无法合并 settings.json"; }
   mv "$tmp" "$dest" || { rm -f "$tmp"; die "无法更新 settings.json"; }
 }

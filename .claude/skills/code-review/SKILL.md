@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: 当用户说要审查代码、检查质量、验证功能是否完整，或需要对照 Spec 和设计稿验证代码实现时使用。
+argument-hint: "[审查范围（可选，默认本轮改动）]"
 ---
 
 [任务]

@@ -124,6 +124,9 @@ function Convert-ToPs1Command([string]$cmd) {
     $name = $Matches[1]
     return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
   }
+  if ($cmd -match '[/\\]\.claude[/\\]scripts[/\\]statusline\.sh') {
+    return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\scripts\statusline.ps1\""'
+  }
   return $cmd
 }
 
@@ -135,6 +138,10 @@ foreach ($event in $src.hooks.PSObject.Properties) {
       if ($h.PSObject.Properties['timeout']) { $h.timeout = 30 }
     }
   }
+}
+# statusLine command goes through the same .sh -> .ps1 rewrite (statusline.ps1 lives under .claude/scripts/)
+if ($src.PSObject.Properties['statusLine'] -and $src.statusLine.command) {
+  $src.statusLine.command = Convert-ToPs1Command $src.statusLine.command
 }
 
 # Recursively collect every .command value in the object (for merge dedup)
@@ -201,6 +208,10 @@ if ((Test-Path $targetSettings) -and -not $Force) {
         $tgt.hooks.($event.Name) = @($tgt.hooks.($event.Name)) + $ng
       }
     }
+  }
+  # Adopt the framework statusLine only when the target has none (never clobber a user statusline)
+  if ($src.PSObject.Properties['statusLine'] -and -not $tgt.PSObject.Properties['statusLine']) {
+    $tgt | Add-Member -NotePropertyName statusLine -NotePropertyValue $src.statusLine
   }
   Copy-Item $targetSettings "$targetSettings.bak" -Force
   Write-Host "backup: $targetSettings.bak"

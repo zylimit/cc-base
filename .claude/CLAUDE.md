@@ -24,7 +24,7 @@
     本框架是**纯 Claude Code 方案**：所有委派一律走 Claude Code 原生的 **Sub-Agent（Task/Agent 工具）**，不依赖任何外部 Agent 编排进程（无 CCB / 无 codex/gemini 外部驱动 / 无 daemon / 无 tmux 编排）。
     - 主 Agent = 编排者：负责需求分析、任务拆分、排序、派发、验收。
     - 专职 Sub-Agent = 工人：implementer（编码）、code-reviewer（审查）、tester（测试）、deployer（部署）各司其职，每次派发都是 **fresh 实例**，互不继承上下文。
-    - 派发 = 用 Task/Agent 工具启动对应 Sub-Agent，传入完整任务上下文，等其返回结构化报告后由主 Agent 验收。Sub-Agent 是同步返回的，不存在"提交后轮询"那一套。
+    - 派发 = 用 Task/Agent 工具启动对应 Sub-Agent，传入完整任务上下文，等其返回结构化报告后由主 Agent 验收。Claude Code v2.1.198 起交互会话里 Sub-Agent 默认**后台运行**（spawn 即返 async_launched，完成时结果自动回传进主 Agent 上下文并有 agent_completed 通知）——派发后可继续别的编排，但**验收必须等结果到手才做**，不许拿"已派发"当"已完成"。
     - **两种派发形态**：① **直接 Task 派单**（默认）——单 Task / 一问一答，主 Agent 用 Task/Agent 工具一次派一个 Sub-Agent。② **Workflow 编排**（规模化上层）——多个无依赖单位（一个 Phase 多 Task、多审查维度、多文件批处理）时，主 Agent **写 Workflow 脚本**做 fan-out / pipeline。两者工人相同（都是 implementer/code-reviewer/tester/deployer），只是编排粒度不同。判据与铁律见 [Sub-Agent 调度规则] 的「Workflow 编排模式」。
     - **扁平编排（铁律）**：主 Agent 是**唯一编排者**。Sub-Agent 不再拉 Sub-Agent；Workflow 也由主 Agent 编写、其内 `workflow()` 嵌套仅允许一层。纯 CC 的 Sub-Agent 本就上下文隔离（只回传最终结论进主 Agent），不需要 ccb-base 那种「coordinator 协调员」中间层——那是 CCB 为驱动外部 codex worker 才有的，纯 CC 不照搬。
 
@@ -149,9 +149,9 @@
         执行方式：务实回归——主 Agent 写测试提示词，**测试代码交独立方编写（写测≠被测作者：派 tester Sub-Agent，或非该功能作者的另一 implementer fresh 实例）**，主 Agent 独立复核运行输出后验收；测试失败按代码错/测试错分流（bug-fixer 修代码 / tester 修测试）
 
     [release-builder]
-        **手动调用**：/release-builder
+        **手动调用**：/release-builder（skill 设 disable-model-invocation——发布是副作用工作流，主 Agent 不能代触发；用户口头说"发布/打包/上线"时，主 Agent 回指该命令请用户亲自敲，这是 HIGH 档显式人触发的机器化）
         前置条件：项目代码已创建
-        执行方式：打包前先过测试卡点（复用 test-builder 作前置闸门，证据=运行器真实输出，卡点未过不许打包交付）；部署派发 deployer Sub-Agent 执行，主 Agent 不亲自执行、只验收（独立核查三件套，见 [总体规则] 验收铁律）
+        执行方式：用户敲命令时 release-gate hook 先查待审清单（未清直接拦、干净则注入卡点提醒）；打包前先过测试卡点（复用 test-builder 作前置闸门，证据=运行器真实输出，卡点未过不许打包交付）；部署派发 deployer Sub-Agent 执行，主 Agent 不亲自执行、只验收（独立核查三件套，见 [总体规则] 验收铁律）
 
     [red-blue-review]
         **自动调用**：
@@ -162,9 +162,9 @@
         执行方式：主 Agent 编排 Blue → Red → Judge 三遍——跑 red-blue-review.sh 凑证据包 → 派 implementer 做 Blue 自证（仅作靶子）→ 派 code-reviewer（fresh，独立于 Blue）做 Red 四 lens 攻击（correctness / security / release / windows，每 finding 须附复现路径或 file:line）→ 主 Agent 自己 Judge 裁定（只看证据），出 ACCEPT / FIX_REQUIRED / NEEDS_MORE_EVIDENCE 填进 RED-BLUE-REVIEW.md
 
     [branch-finisher]
-        **自动调用**：
-        - Phase / 功能完成后，建议收尾当前开发分支
-        - 用户说"收尾"、"合并分支"、"这个分支弄完了"时
+        **自动建议**（skill 设 disable-model-invocation，主 Agent 只建议不能代触发——合并/清分支是副作用工作流，须用户亲自敲命令）：
+        - Phase / 功能完成后，建议用户敲 /branch-finisher 收尾当前开发分支
+        - 用户说"收尾"、"合并分支"、"这个分支弄完了"时，回指 /branch-finisher 请用户确认触发
         **手动调用**：/branch-finisher
         前置条件：项目代码已创建
         执行方式：先检测环境状态，测试全绿为前置闸门；据状态给出条件化菜单（合并 / 提 PR / 清理分支），按用户选择执行
@@ -183,7 +183,7 @@
     [evolution-engine]
         **自动调用**：session 初始化时自动派发 evolution-runner sub-agent
         **手动调用**：/evolution-engine
-        执行方式：永远通过 evolution-runner sub-agent 执行
+        执行方式：永远通过 evolution-runner sub-agent 执行（skill 已声明 `context: fork` + `agent: evolution-runner`——直接调 skill 也会自动落到该 sub-agent 后台运行，不阻塞开场；建议返回后仍逐条展示给用户确认）
 
     [progress-recorder]
         **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
@@ -219,6 +219,8 @@
     - 这不是可选的最佳实践，是隔离保证：防止 Task A 的错误假设污染 Task B
     - **统一派单包**：每次派发明确六字段——**Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Verification**（本任务允许且需要的最小客观核查；用户明确豁免时写明豁免）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。不适用的字段写 N/A，不让 fresh 实例靠猜。
     - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md
+    - **记录类角色可走 fork 派发**：progress-recorder / feedback-observer 这类「必须看见对话原文才能记录」的角色，优先用 fork 形态派发（Task 工具 `subagent_type: "fork"`，继承主对话全文与 prompt cache）——省掉主 Agent 手工转述 delta 这层失真；fork 提示词里写明角色与任务（如「按 progress-recorder skill 规则把本轮决策/完成合并进 progress.md」）。执行类四角色（implementer / code-reviewer / tester / deployer）仍必须 fresh 隔离，fork 对它们是污染不是红利。
+    - **模型分档（成本档位）**：各 agent 默认模型在其 frontmatter（code-reviewer/implementer/tester/deployer=opus 承重；feedback-observer/progress-recorder/evolution-runner=sonnet 提炼类够用）。派发时可传 per-invocation model 参数对单次任务降档——简单机械任务（改文案 / 样式微调 / 纯搬运）派 implementer 可显式传 sonnet 降本；有疑虑保持默认档，宁贵不糊。
     - **并行（按业界结论收紧）**：**编码是最不该并行的环节**——Anthropic 实证「most coding tasks involve fewer truly parallelizable tasks than research」，Cognition「Flappy Bird」证明并行编码会因不共享上下文而决策冲突（共享类型/契约/命名各写各的）。所以：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环）；只有当多个 Task **真正独立 + 已全规格化**（接口契约、命名、文件边界都已在 DEV-PLAN/Spec 钉死）时，才并行派 implementer，且必须 worktree 隔离、不并行改同一文件、各自独立完成 review→fix 后由主 Agent 合并。同文件改动或有依赖 → 一律串行。**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。用户说「加速/快点」≠ 授权并行铺开——加速的正解是砍范围、串行提效、减少返工，并行仍按本条判据。
 
     **Workflow 编排模式**：多个无依赖单位的规模化 fan-out 上层（判据轴 = 单元决策要不要自洽；须用户显式 opt-in，多 Agent 耗 token ~15x）。**写或提议任何 workflow 之前必须先读 .claude/rules/workflow-orchestration.md**（判据轴 / 三个推荐场景 / agentType 集成点 / 三铁律 / 成本闸门 / worktree 操作纪律全在该文件）。
@@ -229,11 +231,14 @@
     - **任务时长红线**：单次派单预期 **>60min 多半是任务分解不合理**——回到任务分解重切，而非让 Sub-Agent 长跑。对应 Anthropic「clear task boundaries」——每次派单都要有明确 objective / 输出格式 / 工具与文件范围 / 边界。
     - **统一回执信封**：所有 Sub-Agent 回传先给通用信封，再追加角色专属内容——**Status**（四态，见下；tester 可用 PASS/FAIL 表示运行器结果）/ **Changed**（实际修改的文件或产物；只读角色写 None）/ **Verified**（实际执行并得到结果的核查）/ **Not verified**（没执行或无法证明的事项，必须列出）/ **Needs review by**（需主 Agent、用户或其他专职角色接管的事项）/ **Evidence**（路径 / commit / 输出位置 / 时间戳等句柄，不贴长日志）。
     - **implementer 四态自评开头**：implementer 回传消息须以自评状态四选一开头——**DONE**（完成、无遗留疑虑）/ **DONE_WITH_CONCERNS**（完成但有疑虑，逐条列出疑虑点）/ **NEEDS_CONTEXT**（缺上下文做不下去，列明缺什么）/ **BLOCKED**（受阻，说明阻塞在哪、需要什么）。主 Agent 据此前置决策（补上下文 / 先解阻塞 / 直接进 review），不必等 code-reviewer 才把疑虑暴露出来。四态即信封的 Status 字段，各 Sub-Agent 同样以之开头。
+    - **BLOCKED/NEEDS_CONTEXT 升级阶梯（禁原样重试）**：收到这两态后按阶梯处理——① 缺什么补什么，带齐上下文重派 fresh 实例；② 补不齐则砍范围重切任务（回任务分解）；③ 属缺陷定位类换 bug-fixer 路线；④ 三步都走不通升级用户拍板。同一 prompt 同一模型原样重发一遍属于赌运气，禁止——重派必须至少变更一项（上下文 / 范围 / 角色 / 模型）。
 
     **⚠️ feedback 和 memory 是两套不同的系统，不能混淆：**
     - feedback 记录到 .claude/feedback/ 目录，由 evolution-engine 扫描并生成进化建议，用于改进 Skill 和规则
     - memory 记录到用户的 memory/ 目录，用于跨 session 记住用户偏好和项目上下文
     - 用户修正 AI 行为时，必须走 feedback 流程（派发 feedback-observer），不能只写 memory
+    - **agent memory（第三类，别和前两者混）**：code-reviewer / tester 挂了 `memory: project` 持久记忆，存的是角色自己的战术笔记（本项目高发缺陷模式 / flaky 区），由角色自维护、无人工审核——它不承载框架规则（那是 feedback 的事），也不承载项目事实。
+    - **Claude Code 原生 auto memory 的边界**：原生 auto memory（~/.claude/projects/<repo>/memory/）默认开启，只许存机器本地琐碎（构建命令、调试线索）；**决策 / 约束 / 完成事项只认 progress.md**——三文件同步铁律不因 auto memory 存了什么而豁免，恢复上下文以 /recap 三份文件为准、不以 auto memory 为准。
 
 [项目状态检测与路由]
     初始化时自动检测项目进度，路由到对应阶段：

@@ -1,4 +1,9 @@
-本文件由 CLAUDE.md 下沉；主控命中指针时必须完整读取本文件再行动，不得凭指针行猜测内容。
+---
+paths:
+  - ".claude/harness/**"
+---
+
+本文件由 CLAUDE.md 下沉；主控命中指针时必须完整读取本文件再行动，不得凭指针行猜测内容。（frontmatter 的 paths 让 Claude Code 原生按需加载本规则——碰 .claude/harness/ 下文件时自动进上下文；未碰时靠 CLAUDE.md 指针手动读，两条路都通。）
 
 [启用条件（铁律：唯一开关）]
     唯一开关 = `.claude/harness/module-catalog.json` 存在。存在即启用全部大仓能力；不存在即默认关闭、所有 hook 静默走原逻辑（零行为变化）。
@@ -82,7 +87,9 @@
     守卫库 `.claude/hooks/lib-harness.sh|.ps1` 提供 `harness_enabled`（catalog 存在）/ `harness_node_ok`（node 可用）/ `harness_run`（跑子命令）。两处接线，**不新增 hook 事件**：
     - **stop-gate ↔ receipt verify**：`.needs-review` 清单清空（口头释放）后再校验当前 diff 是否有已通过回执绑定。rc=4（STALE）= 代码越过所有已审回执 → 拦停强制重审、保留 `.needs-review` 让下轮仍拦；rc=0/3 照原逻辑清理放行。位置：`stop-gate.sh:32-50` / `stop-gate.ps1` 对应段。
     - **pre-commit-check ↔ verify**：staged 就绪后、commit 之前跑定向质量门。rc=2（受影响模块 FAIL/BLOCKED **或属性缺证据**）= 阻断 commit；rc=3（无 catalog / 非 git）静默跳过；rc=0 放行。位置：`pre-commit-check.sh:61-74` / `.ps1` 对应段。
+    - **harness-async-verify ↔ verify（编辑期后台早警）**：PostToolUse(Edit|Write) 挂 `harness-async-verify.sh|.ps1`（settings 里 `asyncRewake:true` 后台形态）——两次 commit 之间的编辑期后台跑同一套 verify，rc=2 时唤醒主 Agent 读 stderr 摘要（gate + 失败 check 前 5 条 + 属性缺口数）。**早警不硬拦**（commit 硬门仍是 pre-commit-check）；180 秒防抖（`.claude/.async-verify-last`）；catalog/node 缺任一静默跳过；Fast Mode 放行。
     - arch-check / fitness / attributes 不走 hook 自动触发（成本考量），推荐进 catalog checks 由 verify 定向带跑（如 `"arch": {"command": "node .claude/harness/harness.mjs arch-check", "class": "static"}`），或 code-review Stage 0 / 发版前手动跑。
+    - **闸的原生边界（防跑飞视角必须知道）**：Claude Code 对 Stop hook 有「同 turn 连拦 8 次强制放行」的原生上限（防 hook 死循环），框架 settings.json 已把 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` 提到 25——stop-gate 自身的三振熔断（3 次）会先触发，正常永远碰不到原生上限；但要知道这层「泄闸」边界存在，闸不是无限次的。
 
 [与 per-Task review→fix 闭环的关系]
     diff-bound 回执把「`.needs-review` 空 marker + `echo clean`」从口头承诺升级为机器可验证事实：当前工作树 diff 的 SHA256 必须等于某条已通过回执绑定的 diffHash。
@@ -97,16 +104,17 @@
     - `PASS`：命令 exit 0
     - `FAIL`：命令 exit ≠ 0
     - `BLOCKED`：缺 command 定义 / 二进制找不到（**不假绿**）
-    - `SKIPPED`：Fast Mode + 非 security/safety + check 声明 `allowFastSkip:true`
+    - `SKIPPED`：Fast Mode + 非 security/safety/privacy + check 声明 `allowFastSkip:true`
     聚合：任一 FAIL → FAIL；任一 BLOCKED → BLOCKED；否则 PASS（SKIPPED 不阻断）。
+    **空验证计划 = BLOCKED（不算绿）**：受影响模块存在但一条 check 都没解析出来（模块没配 verification 且 riskChecks 无该档默认）→ 整体 BLOCKED、输出 `emptyPlan:true`——什么都没跑就什么都没建立，配置缺口必须可见（借鉴 codex-base v3「空计划=配置失败」）。无受影响模块（无变更）仍 PASS。
     check 聚合之上再叠五性覆盖门：受影响模块声明的 critical/high 属性若无 PASS 的 claiming check（或有 claiming check FAIL/BLOCKED 反证），`gate=BLOCKED_BY_ATTRIBUTES`、rc 2——「check 全绿但没有任何检查证明过 security」不再能读作完成。细则见 .claude/rules/quality-attributes.md。
 
 [waiver——结构化 per-check 豁免]
     schema（`.claude/harness/waivers/*.json`，git 忽略）：`version:1` / `owner` / `reason` / `scope`（= 被豁免 check id，或 `attribute:<module>/<属性>` 豁免一条 high 档属性缺口）/ `expiry`（ISO，必须未来）/ `compensation` / `created_at` / `contentHash`（create 时写入防篡改）。
-    命中规则：FAIL 或 BLOCKED + **非 security/safety 类** + scope == check id → 降级 SKIPPED（reason: `waiver:<scope>`）。
-    **security / safety 类永不可豁免**——class:security|safety 的 check 即使有匹配 waiver 仍保留 FAIL/BLOCKED。
-    属性豁免：scope 写 `attribute:<module>/<属性>` 只能推迟 **high** 档缺口（critical 永不可豁免）；且禁词校验天然使 `attribute:x/security`、`attribute:x/safety` 不可表示——安全与功能安全的属性缺口没有豁免通道。
-    禁词（reason + scope 联合正则，命中即 create/validate 拒绝）：`safety|security|secret|credential|destructive|push|deploy|production`。
+    命中规则：FAIL 或 BLOCKED + **非 security/safety/privacy 类** + scope == check id → 降级 SKIPPED（reason: `waiver:<scope>`）。
+    **security / safety / privacy 类永不可豁免**——这三类 check 即使有匹配 waiver 仍保留 FAIL/BLOCKED（隐私与安全同为不可协商项，借鉴 codex-base v3 保护属性集）。
+    属性豁免：scope 写 `attribute:<module>/<属性>` 只能推迟 **high** 档缺口（critical 永不可豁免）；且禁词校验天然使 `attribute:x/security`、`attribute:x/safety`、`attribute:x/privacy` 不可表示——安全、功能安全与隐私的属性缺口没有豁免通道。
+    禁词（reason + scope 联合正则，命中即 create/validate 拒绝）：`safety|security|privacy|pii|secret|credential|destructive|push|deploy|production`。
     与 Fast Mode 关系：**Fast Mode = 非 security/safety + allowFastSkip 的提前 SKIP 路径；waiver = FAIL/BLOCKED 事后降级**。两者正交，不互相替代。
 
 [运行态文件]
@@ -127,3 +135,4 @@
     5. 审查：code-reviewer 通过后用 `receipt write` 写回执（stdin JSON：taskId / reviewer / verdict / scope 四字段，命令签名见能力清单 receipt 条）。
     6. 验收：`receipt verify` 确认 diff 绑定、`verify` 确认定向质量门 + 五性覆盖通过。
     7. 防漂移日常：arch-designer 产出的 ADR 用 `adr-check` 盯执法引用（Architecture-Design.md 改动后、发版前跑）；接入老仓先 `arch-check --record` 立债务基线，此后周期性（Phase 收尾 / 发版前）`--record` + `arch-trend --gate`——旧债不挡路，新债零容忍。
+    8. 漂移哨兵（长 session 可选）：Claude Code 原生定时任务（CronCreate 工具 / `/loop`）可在长会话里周期性跑 `node .claude/harness/harness.mjs arch-trend --gate` 与 `fitness`——让漂移在会话内就被点名，不等发版前才发现。用法：让主 Agent 建一条 30-60 分钟间隔的 cron 提示（内容即上述命令 + 解读要求）；`CLAUDE_CODE_DISABLE_CRON=1` 可全局关停。成本极低（命令本地跑，只有解读吃 token），长会话才值得开。

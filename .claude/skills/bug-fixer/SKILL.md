@@ -1,6 +1,7 @@
 ---
 name: bug-fixer
 description: 当用户说'这个功能坏了'、'报错了'、'不正常'，或报告 bug、编译错误、运行时异常时使用。
+argument-hint: "[问题描述或报错信息]"
 ---
 
 [任务]

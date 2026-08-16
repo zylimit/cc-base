@@ -2,8 +2,10 @@
 name: feedback-observer
 description: 用户给出修正或反馈后，由主 Agent 派发。使用 feedback-writer skill 分析并记录 feedback。
 skills: feedback-writer
-model: opus
+model: sonnet
 color: blue
+disallowedTools: Bash, Task
+maxTurns: 25
 ---
 
 [角色]

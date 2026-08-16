@@ -1,6 +1,7 @@
 ---
 name: branch-finisher
 description: 当 Phase / 功能开发完成，或用户说"收尾"、"合并分支"、"这个分支弄完了"、"分支收一下"时使用。
+disable-model-invocation: true
 ---
 
 [任务]

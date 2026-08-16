@@ -1,6 +1,7 @@
 ---
 name: product-spec-builder
 description: 当用户说想做一个产品、应用或工具，或者说要加功能、改需求、调 UI 时使用。
+argument-hint: "[产品想法或需求变更]"
 ---
 
 [任务]

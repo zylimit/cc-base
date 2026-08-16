@@ -4,6 +4,8 @@ description: 当项目规模较大，主 Agent 需要将 Phase 拆分为独立 T
 skills: dev-builder
 model: opus
 color: green
+disallowedTools: Task
+maxTurns: 100
 ---
 
 [角色]
