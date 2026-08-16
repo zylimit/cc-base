@@ -99,22 +99,33 @@ if isinstance(hooks, dict):
                 existing_sh.add(name)
             group['hooks'] = new_list
 
+# statusLine：框架状态行 command 同口径归一为 .sh 形态（只认框架 statusline 路径，不动用户自定义状态行）
+STATUSLINE_PS1_RE = re.compile(r'\.claude[/\\]scripts[/\\]statusline\.ps1', re.IGNORECASE)
+statusline_fixed = 0
+sl = data.get('statusLine')
+if isinstance(sl, dict):
+    cmd = sl.get('command', '') or ''
+    if PS1_RESIDUE_RE.search(cmd) and STATUSLINE_PS1_RE.search(cmd):
+        sl['command'] = '"$CLAUDE_PROJECT_DIR"/.claude/scripts/statusline.sh'
+        statusline_fixed = 1
+
 # 写回（indent=2 保结构；ensure_ascii=False 保中文若存在）
 with open(settings_path, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write('\n')
 
-print('fix-platform: deleted .ps1 residue commands=%d, added .sh commands=%d' % (deleted_ps1, added_sh))
+print('fix-platform: deleted .ps1 residue commands=%d, added .sh commands=%d, statusline fixed=%d' % (deleted_ps1, added_sh, statusline_fixed))
 PYEOF
 py_rc=$?
 [ $py_rc -eq 0 ] || die "python3 归一失败（exit $py_rc）"
 
-# chmod 0755 .claude/hooks/*.sh（补执行位——.sh 在 Linux/Mac 必须有执行位才能被 hook 触发）
+# chmod 0755 .claude/hooks/*.sh 与 .claude/scripts/*.sh（补执行位——.sh 在 Linux/Mac 必须有执行位才能被 hook / statusLine 触发）
 chmod_count=0
-if [ -d "$hooks_dir" ]; then
+for d in "$hooks_dir" "$project_root/.claude/scripts"; do
+  [ -d "$d" ] || continue
   while IFS= read -r -d '' sh; do
     if chmod 0755 "$sh"; then chmod_count=$((chmod_count + 1)); fi
-  done < <(find "$hooks_dir" -maxdepth 1 -type f -name '*.sh' -print0 2>/dev/null)
-fi
+  done < <(find "$d" -maxdepth 1 -type f -name '*.sh' -print0 2>/dev/null)
+done
 printf 'fix-platform: chmod 0755 hooks/*.sh files=%d\n' "$chmod_count"
 printf '完成。settings.json 已归一为 .sh 形态（Linux/Mac）。路径：%s\n' "$settings"

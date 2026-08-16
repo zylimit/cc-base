@@ -439,6 +439,23 @@ function selftestCases() {
     ['aggregateStates: any FAIL -> FAIL', () => assert.equal(aggregateStates(['PASS', 'FAIL', 'BLOCKED']), 'FAIL')],
     ['aggregateStates: no FAIL, has BLOCKED -> BLOCKED', () => assert.equal(aggregateStates(['PASS', 'BLOCKED', 'SKIPPED']), 'BLOCKED')],
     ['aggregateStates: all PASS/SKIPPED -> PASS', () => assert.equal(aggregateStates(['PASS', 'SKIPPED', 'PASS']), 'PASS')],
+    ['runCheck fast + privacy class -> never SKIPPED (runs for real)', () => {
+      const r = runCheck({ id: 'pii-scan', command: 'node --version', class: 'privacy', allowFastSkip: true }, { fastActive: true });
+      assert.notEqual(r.state, 'SKIPPED');
+      assert.equal(r.state, 'PASS');
+    }],
+    ['verifyPlan: affected modules with zero checks -> BLOCKED emptyPlan (config failure, not green)', () => {
+      const cat = { modules: [{ id: 'a', paths: ['a/**'] }] };
+      const plan = verifyPlan(['a/x.js'], cat);
+      assert.equal(plan.state, 'BLOCKED');
+      assert.equal(plan.emptyPlan, true);
+    }],
+    ['verifyPlan: no changes -> PASS (nothing affected, nothing owed)', () => {
+      const cat = { modules: [{ id: 'a', paths: ['a/**'] }] };
+      const plan = verifyPlan([], cat);
+      assert.equal(plan.state, 'PASS');
+      assert.equal(plan.emptyPlan, false);
+    }],
     ['requiredChecks: module.verification overrides catalog.riskChecks[risk]', () => {
       const cat = { riskChecks: { high: ['a', 'b'] } };
       assert.deepEqual(requiredChecks('high', { verification: ['x'] }, cat), ['x']);
@@ -537,6 +554,25 @@ function selftestCases() {
       };
       const errs = validateWaiver(w);
       assert.ok(errs.some(e => /forbidden|keyword/i.test(e)));
+    }],
+    ['validateWaiver privacy/pii keyword -> reject (privacy joins the protected set)', () => {
+      const base = {
+        version: 1, owner: 't', expiry: '2099-01-01T00:00:00.000Z',
+        compensation: 'x', created_at: '2026-01-01T00:00:00.000Z',
+      };
+      const w1 = { ...base, reason: 'skip privacy scan for demo', scope: 'lint' };
+      const w2 = { ...base, reason: 'temp', scope: 'pii-log-check' };
+      assert.ok(validateWaiver(w1).some(e => /forbidden|keyword/i.test(e)));
+      assert.ok(validateWaiver(w2).some(e => /forbidden|keyword/i.test(e)));
+    }],
+    ['applyWaiver: FAIL + class privacy -> still FAIL (never waivable)', () => {
+      const res = { id: 'pii-scan', class: 'privacy', state: 'FAIL', exit: 1 };
+      const waivers = [{
+        version: 1, owner: 't', reason: 'flake', scope: 'pii-scan',
+        expiry: '2099-01-01T00:00:00.000Z', compensation: 'x',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }];
+      assert.equal(applyWaiver(res, waivers).state, 'FAIL');
     }],
     ['findWaiverForCheck returns first matching scope', () => {
       const list = [
@@ -1764,9 +1800,10 @@ function cmdVerify(flags) {
 // S8 quality  (four-state verification gate; command-missing -> BLOCKED, never fake green)
 // ===========================================================================
 // runCheck maps one declared check to PASS/FAIL/BLOCKED/SKIPPED. A missing binary is
-// BLOCKED (not a silent pass); fast-mode may SKIP a non-security check that opts in, but
-// security checks always run for real. Aggregation: any FAIL -> FAIL; else any BLOCKED ->
-// BLOCKED; else PASS (SKIPPED counts toward the report but does not block).
+// BLOCKED (not a silent pass); fast-mode may SKIP a non-security/safety/privacy check that
+// opts in, but security/safety/privacy checks always run for real. Aggregation: any FAIL ->
+// FAIL; else any BLOCKED -> BLOCKED; else PASS (SKIPPED counts toward the report but does
+// not block). An empty plan with affected modules is BLOCKED (config failure, not green).
 
 /**
  * Resolve whether an executable is reachable, without running it. Zero-dep, cross-platform:
@@ -1819,7 +1856,7 @@ function runCheck(check, { fastActive = false } = {}) {
   if (!check || !check.command) return { ...base, state: 'BLOCKED', reason: 'no-command' };
   const exe = String(check.command).trim().split(/\s+/)[0];
   if (!whichCmd(exe)) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
-  if (fastActive && cls !== 'security' && cls !== 'safety' && check.allowFastSkip) {
+  if (fastActive && cls !== 'security' && cls !== 'safety' && cls !== 'privacy' && check.allowFastSkip) {
     return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
   }
   const r = spawnCmd(check.command);
@@ -1898,9 +1935,14 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {
   // declared, no passing claiming check, no attribute waiver) close the gate alongside
   // FAIL/BLOCKED so "all checks green but nothing evidenced security" stops reading as done.
   const attrs = assessAttributes(imp.affected, catalog, waived, waivers);
+  // Empty verification plan while modules ARE affected is a configuration failure, not a
+  // green: nothing ran, so nothing was established. BLOCKED (never fake green), same class
+  // as command-missing. No affected modules (no changes) still aggregates to PASS.
+  const emptyPlan = imp.affected.length > 0 && waived.length === 0;
   return {
-    state: aggregateStates(waived.map(c => c.state)),
+    state: emptyPlan ? 'BLOCKED' : aggregateStates(waived.map(c => c.state)),
     checks: waived, affected: imp.affected, degraded: imp.degraded,
+    emptyPlan,
     attributes: attrs.attributes, attributeGaps: attrs.blockingGaps,
   };
 }
@@ -1958,7 +2000,7 @@ function verifyPlanCmd(flags) {
 // Forbidden keywords in reason|scope block create/validate (safety net for HIGH gates).
 
 /** Forbidden whole-word tokens in reason+scope (case-insensitive). */
-const WAIVER_FORBIDDEN_RE = /\b(safety|security|secret|credential|destructive|push|deploy|production)\b/i;
+const WAIVER_FORBIDDEN_RE = /\b(safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)\b/i;
 
 /** Where waiver JSON files are stored (project-relative, git-ignored). */
 function waiversDir() {
@@ -1989,7 +2031,7 @@ function validateWaiver(w) {
   }
   const blob = (String(w.reason || '') + ' ' + String(w.scope || '')).toLowerCase();
   if (WAIVER_FORBIDDEN_RE.test(blob)) {
-    errors.push('forbidden keyword in reason|scope (safety|security|secret|credential|destructive|push|deploy|production)');
+    errors.push('forbidden keyword in reason|scope (safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)');
   }
   return errors;
 }
@@ -2043,7 +2085,7 @@ function applyWaiver(result, waivers) {
   if (!result || typeof result !== 'object') return result;
   const state = result.state;
   if (state !== 'FAIL' && state !== 'BLOCKED') return result;
-  if (result.class === 'security' || result.class === 'safety') return result;
+  if (result.class === 'security' || result.class === 'safety' || result.class === 'privacy') return result;
   const hit = findWaiverForCheck(result.id, waivers);
   if (!hit) return result;
   return { ...result, state: 'SKIPPED', reason: 'waiver:' + hit.scope };

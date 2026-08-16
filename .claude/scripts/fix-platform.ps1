@@ -109,10 +109,21 @@ if ($data.hooks) {
   }
 }
 
+# statusLine: normalize the framework statusline command to .ps1 form (same conservative rule --
+# only rewrite a pure .sh form that points at .claude/scripts/statusline.sh; user statuslines stay).
+$statusFixed = 0
+if ($data.PSObject.Properties['statusLine'] -and $data.statusLine.command) {
+  $c = $data.statusLine.command
+  if (($c -notmatch 'powershell|pwsh') -and ($c -match '\.claude[/\\]scripts[/\\]statusline\.sh') -and ($c -notmatch '\$env')) {
+    $data.statusLine.command = $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\scripts\statusline.ps1\""'
+    $statusFixed = 1
+  }
+}
+
 # Backup then write back
 Copy-Item $settings "$settings.bak" -Force
 Write-Host "backup: $settings.bak"
 $data | ConvertTo-Json -Depth 20 | Set-Content $settings -Encoding UTF8
-Write-Host "fix-platform: deleted .sh residue commands=$deletedSh, added .ps1 commands=$addedPs1" -ForegroundColor Green
+Write-Host "fix-platform: deleted .sh residue commands=$deletedSh, added .ps1 commands=$addedPs1, statusline fixed=$statusFixed" -ForegroundColor Green
 Write-Host "Done. settings.json normalized to .ps1 form (Windows). Path: $settings" -ForegroundColor Green
 exit 0
