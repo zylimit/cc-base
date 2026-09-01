@@ -17,6 +17,13 @@ import {
 import {
   DEFAULT_FITNESS_RULES, assessAdrRecords, parseInlineAdrs, resolveEnforcement, scanFitness,
 } from './scan.mjs';
+import {
+  GENESIS, auditGates, buildPlan, chainHash, gateReason, ledgerLine, ledgerReferencedEvidence,
+  planRetention, riskFindings, sha256Lf, verifyLedgerChain, waiversApplied,
+} from './evidence.mjs';
+import {
+  acceptingReceipt, assessBudget, buildTaskRecord, completeBlockers, validateEnvelope,
+} from './task.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -32,6 +39,32 @@ function selftestCases() {
   const good = loadFx('catalog-good.json');
   // A tracked set where every path is claimed by a module/global/ignored (no unmapped/overlap).
   const goodTracked = ['core/index.ts', 'db/schema.ts', 'auth/login.ts', 'api/routes.ts', 'package.json', 'README.md', 'docs/guide.md'];
+
+  // S17/S18 fixtures. chainLines() links records exactly the way appendLedger does, so the
+  // tamper cases below start from a chain that is genuinely valid rather than one hand-built
+  // to pass -- a forgery detector proved against a forged baseline detects nothing.
+  const chainLines = (records) => {
+    const out = [];
+    let prev = GENESIS;
+    for (const r of records) { const line = ledgerLine(r, prev); prev = line.chain; out.push(line); }
+    return out;
+  };
+  const gateRec = (over = {}) => ({
+    command: 'gate', at: '2020-01-01T00:00:00.000Z', gate: 'PASS',
+    reason: 'all-executed-checks-passed', diffHash: 'D0', planHash: 'P0',
+    modules: ['pay'], degraded: false, fastActive: false, skippedByFastMode: [], results: [],
+    ...over,
+  });
+  const envelope = (over = {}) => ({
+    id: 'T1', goal: 'g', scope: 's', outOfScope: 'o',
+    existingPattern: 'p', verification: 'v', escalation: 'e', ...over,
+  });
+  const okReceipt = (over = {}) => {
+    const r = { taskId: 'T1', baseCommit: 'c0', diffHash: 'D0', reviewer: 'rev', verdict: 'ACCEPT', scope: 's', timestamp: '2020-01-01T00:00:00.000Z', ...over };
+    r.contentHash = contentHash(r);
+    return r;
+  };
+  const budgetCat = { maxChangedFiles: 3, maxChangedLines: 100, maxModulesTouched: 2, maxNewFiles: 1 };
 
   return [
     // S3 glob -- trailing ** must match files at any depth (T0.1 P1 target).
@@ -671,6 +704,303 @@ function selftestCases() {
         { undeclared: 0, forbidden: 0, cycles: 0, unresolved: 50, unused: 5 },
       ]);
       assert.equal(r.regressed.length, 0);
+    }],
+
+    // S17.2 ledger -- the chain is the evidence, so every way of editing it must be named.
+    ['ledger: chain = sha256(prev + NUL + contentHash)', () => {
+      const line = ledgerLine({ a: 1 }, GENESIS);
+      assert.equal(line.contentHash, sha256Lf(JSON.stringify({ a: 1 })));
+      assert.equal(line.chain, chainHash(GENESIS, line.contentHash));
+    }],
+    ['ledger: contentHash is LF-normalized (CRLF checkout cannot break the chain)', () => {
+      assert.equal(sha256Lf('a\r\nb'), sha256Lf('a\nb'));
+    }],
+    ['ledger: an untouched three-line chain verifies, head is the last link', () => {
+      const lines = chainLines([gateRec(), gateRec({ gate: 'FAIL' }), gateRec()]);
+      const r = verifyLedgerChain(lines);
+      assert.ok(r.ok, JSON.stringify(r.breaks));
+      assert.equal(r.entries, 3);
+      assert.equal(r.head, lines[2].chain);
+    }],
+    ['ledger: empty ledger is intact and sits at genesis', () => {
+      const r = verifyLedgerChain([]);
+      assert.ok(r.ok);
+      assert.equal(r.head, GENESIS);
+    }],
+    ['ledger: editing a recorded field -> content-hash-mismatch on that line', () => {
+      const lines = chainLines([gateRec(), gateRec({ gate: 'FAIL' }), gateRec()]);
+      lines[1].gate = 'PASS';                       // the interesting forgery: turn a red green
+      const r = verifyLedgerChain(lines);
+      assert.ok(!r.ok);
+      assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'content-hash-mismatch'), JSON.stringify(r.breaks));
+    }],
+    ['ledger: an unparseable line is reported by line number', () => {
+      const lines = chainLines([gateRec(), gateRec()]);
+      lines.splice(1, 0, { corrupt: true, raw: 'not json' });
+      const r = verifyLedgerChain(lines);
+      assert.ok(!r.ok);
+      assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'unparseable-line'));
+    }],
+    ['ledger: reordering two lines breaks the predecessor link', () => {
+      const lines = chainLines([gateRec(), gateRec({ gate: 'FAIL' }), gateRec()]);
+      const swapped = [lines[0], lines[2], lines[1]];
+      const r = verifyLedgerChain(swapped);
+      assert.ok(!r.ok);
+      assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'chain-predecessor-mismatch'));
+    }],
+    ['ledger: a forged chain value -> chain-hash-mismatch', () => {
+      const lines = chainLines([gateRec(), gateRec()]);
+      lines[1].chain = 'f'.repeat(64);
+      const r = verifyLedgerChain(lines);
+      assert.ok(!r.ok);
+      assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'chain-hash-mismatch'));
+    }],
+    ['ledger: deleting a middle line is visible (the chain does not silently re-link)', () => {
+      const lines = chainLines([gateRec(), gateRec({ gate: 'FAIL' }), gateRec()]);
+      const r = verifyLedgerChain([lines[0], lines[2]]);
+      assert.ok(!r.ok);
+      assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'chain-predecessor-mismatch'));
+    }],
+
+    // S17.3 gate plan -- planHash must describe the plan, not the catalog's key order.
+    ['buildPlan: entries sorted by check id, modules sorted, empty flag', () => {
+      const p = buildPlan(['pay'], attrCatalog({ verification: ['sec-audit', 'sec-scan'] }));
+      assert.deepEqual(p.entries.map(e => e.checkId), ['sec-audit', 'sec-scan']);
+      assert.deepEqual(p.entries[0].modules, ['pay']);
+      assert.equal(p.empty, false);
+      assert.equal(buildPlan([], attrCatalog()).empty, true);
+    }],
+    ['buildPlan: planHash is independent of the order checks were declared in', () => {
+      const a = buildPlan(['pay'], attrCatalog({ verification: ['sec-scan', 'sec-audit'] }));
+      const b = buildPlan(['pay'], attrCatalog({ verification: ['sec-audit', 'sec-scan'] }));
+      assert.equal(a.hash, b.hash);
+    }],
+    ['buildPlan: planHash moves when a check joins the plan', () => {
+      const a = buildPlan(['pay'], attrCatalog({ verification: ['sec-scan'] }));
+      const b = buildPlan(['pay'], attrCatalog({ verification: ['sec-scan', 'sec-audit'] }));
+      assert.notEqual(a.hash, b.hash);
+    }],
+    ['gateReason: every gate state gets its own why', () => {
+      assert.equal(gateReason('FAIL', { checks: [], attributeGaps: [], emptyPlan: false }), 'at-least-one-check-failed');
+      assert.equal(gateReason('BLOCKED', { checks: [], attributeGaps: [], emptyPlan: false }), 'at-least-one-check-blocked');
+      assert.ok(gateReason('BLOCKED', { checks: [], attributeGaps: [], emptyPlan: true }).startsWith('empty-plan:'));
+      assert.ok(gateReason('BLOCKED_BY_ATTRIBUTES', { checks: [], attributeGaps: [1], emptyPlan: false }).startsWith('1 blocking'));
+      assert.equal(gateReason('PASS', { checks: [], attributeGaps: [], emptyPlan: false }), 'no-affected-module');
+      assert.equal(gateReason('PASS', { checks: [{ state: 'SKIPPED' }], attributeGaps: [], emptyPlan: false }), 'every-check-skipped');
+      assert.equal(gateReason('PASS', { checks: [{ state: 'PASS' }], attributeGaps: [], emptyPlan: false }), 'all-executed-checks-passed');
+    }],
+    ['waiversApplied: only waiver-downgraded checks are recorded, with the granting file', () => {
+      const out = waiversApplied(
+        [{ id: 'a', reason: 'waiver:a' }, { id: 'b', reason: 'fast-mode' }, { id: 'c' }],
+        [{ scope: 'a', expiry: '2099-01-01T00:00:00.000Z', _path: '/x/.claude/harness/waivers/a.json' }],
+      );
+      assert.equal(out.length, 1);
+      assert.equal(out[0].check, 'a');
+      assert.equal(out[0].expiry, '2099-01-01T00:00:00.000Z');
+    }],
+
+    // S17.4 gate-audit -- a control that never intervened is cost plus false confidence.
+    ['gate-audit: a check that never failed is listed as neverIntervened', () => {
+      const cat = { checks: { 'sec-scan': {}, 'unit': {} } };
+      const r = auditGates(chainLines([gateRec({ results: [{ id: 'sec-scan', state: 'PASS' }] })]), cat);
+      assert.equal(r.gateRuns, 1);
+      assert.deepEqual(r.neverIntervened, ['sec-scan', 'unit']);
+      assert.deepEqual(r.neverExecuted, ['unit']);
+    }],
+    ['gate-audit: one failure drops a check off neverIntervened', () => {
+      const cat = { checks: { 'sec-scan': {} } };
+      const r = auditGates(chainLines([gateRec({ results: [{ id: 'sec-scan', state: 'FAIL' }] })]), cat);
+      assert.deepEqual(r.neverIntervened, []);
+      assert.ok(r.advice.includes('intervened at least once'));
+    }],
+    ['gate-audit: BLOCKED counts as intervention but not as execution', () => {
+      const cat = { checks: { 'sec-scan': {} } };
+      const r = auditGates(chainLines([gateRec({ results: [{ id: 'sec-scan', state: 'BLOCKED' }] })]), cat);
+      assert.deepEqual(r.neverIntervened, []);
+      assert.deepEqual(r.neverExecuted, ['sec-scan']);
+    }],
+    ['gate-audit: non-gate and corrupt ledger lines are not counted as gate runs', () => {
+      const r = auditGates([{ corrupt: true, raw: 'x' }, { command: 'other' }], { checks: {} });
+      assert.equal(r.gateRuns, 0);
+    }],
+
+    // S17.5 retention -- privacy includes disposal, but never of the proof behind a green.
+    ['retention: a ledger-referenced evidence file is never a candidate', () => {
+      const files = [{ path: 'e/a.log', mtimeMs: 10 }, { path: 'e/b.log', mtimeMs: 5 }];
+      const plan = planRetention(files, { protectedPaths: new Set(['e/b.log']), keep: 0, cutoffMs: 0 });
+      assert.deepEqual(plan.map(p => p.path), ['e/a.log']);
+    }],
+    ['retention: the newest `keep` files survive, the rest are over-count', () => {
+      const files = [{ path: 'a', mtimeMs: 30 }, { path: 'b', mtimeMs: 20 }, { path: 'c', mtimeMs: 10 }];
+      const plan = planRetention(files, { keep: 2, cutoffMs: 0 });
+      assert.deepEqual(plan, [{ path: 'c', reason: 'over-count' }]);
+    }],
+    ['retention: a file past the cutoff is over-age even inside the keep window', () => {
+      const files = [{ path: 'a', mtimeMs: 30 }, { path: 'b', mtimeMs: 5 }];
+      const plan = planRetention(files, { keep: 10, cutoffMs: 20 });
+      assert.deepEqual(plan, [{ path: 'b', reason: 'over-age' }]);
+    }],
+    ['retention: evidence paths are collected from gate records', () => {
+      const set = ledgerReferencedEvidence(chainLines([
+        gateRec({ results: [{ id: 'a', evidence: 'e/a.log' }, { id: 'b', evidence: null }] }),
+      ]));
+      assert.deepEqual([...set], ['e/a.log']);
+    }],
+
+    // S17.6 risk -- each decay code must fire on its own trigger and stay quiet otherwise.
+    ['risk: clean state produces no findings', () => {
+      const r = riskFindings({ ledgerEntries: chainLines([gateRec()]), catalog: null, waivers: [], task: null });
+      assert.ok(r.ok);
+      assert.equal(r.findings.length, 0);
+    }],
+    ['risk: a broken chain is LEDGER_BROKEN at error severity', () => {
+      const lines = chainLines([gateRec(), gateRec()]);
+      lines[1].gate = 'FAIL';
+      const r = riskFindings({ ledgerEntries: lines });
+      assert.ok(!r.ok);
+      assert.ok(r.findings.some(f => f.code === 'LEDGER_BROKEN' && f.severity === 'error'));
+    }],
+    ['risk: an expired waiver is EXPIRED_WAIVER, a future one is silent', () => {
+      const expired = riskFindings({ waivers: [{ scope: 'x', expiry: '2020-01-01T00:00:00.000Z' }], now: Date.parse('2026-01-01T00:00:00.000Z') });
+      assert.ok(expired.findings.some(f => f.code === 'EXPIRED_WAIVER' && f.severity === 'error'));
+      const live = riskFindings({ waivers: [{ scope: 'x', expiry: '2099-01-01T00:00:00.000Z' }] });
+      assert.ok(live.ok);
+    }],
+    ['risk: a blocking attribute with no claiming check is UNWIRED_ATTRIBUTE', () => {
+      const gap = riskFindings({ catalog: attrCatalog({ attributes: { privacy: 'critical' } }) });
+      assert.ok(gap.findings.some(f => f.code === 'UNWIRED_ATTRIBUTE' && f.attribute === 'privacy'));
+      const wired = riskFindings({ catalog: attrCatalog() });    // security:critical, sec-scan claims it
+      assert.ok(!wired.findings.some(f => f.code === 'UNWIRED_ATTRIBUTE'));
+    }],
+    ['risk: three consecutive failures are FAIL_STREAK; a pass resets the count', () => {
+      const three = [1, 2, 3].map(() => gateRec({ gate: 'FAIL', results: [{ id: 'unit', state: 'FAIL' }] }));
+      assert.ok(riskFindings({ ledgerEntries: chainLines(three) }).findings.some(f => f.code === 'FAIL_STREAK'));
+      const reset = chainLines(three.concat([gateRec({ results: [{ id: 'unit', state: 'PASS' }] })]));
+      assert.ok(!riskFindings({ ledgerEntries: reset }).findings.some(f => f.code === 'FAIL_STREAK'));
+    }],
+    ['risk: fast-mode skips in the newest gate are FAST_MODE_DEBT (deferred, not waived)', () => {
+      const lines = chainLines([gateRec({ fastActive: true, skippedByFastMode: ['unit'] })]);
+      const r = riskFindings({ ledgerEntries: lines });
+      assert.ok(!r.ok);
+      assert.ok(r.findings.some(f => f.code === 'FAST_MODE_DEBT' && f.severity === 'error'));
+    }],
+    ['risk: a task active past 72h is STALE_TASK at warning severity', () => {
+      const now = Date.parse('2026-01-05T00:00:00.000Z');
+      const stale = riskFindings({ task: { id: 'T1', state: 'active', startedAt: '2026-01-01T00:00:00.000Z' }, now });
+      assert.ok(stale.ok, 'a warning must not close the exit code');
+      assert.ok(stale.findings.some(f => f.code === 'STALE_TASK'));
+      const fresh = riskFindings({ task: { id: 'T1', state: 'active', startedAt: '2026-01-04T23:00:00.000Z' }, now });
+      assert.equal(fresh.findings.length, 0);
+    }],
+
+    // S18.1 task envelope -- a missing field must be named, not summarised.
+    ['envelope: a complete six-field envelope validates', () => {
+      const v = validateEnvelope(envelope());
+      assert.ok(v.ok);
+      assert.deepEqual(v.missing, []);
+    }],
+    ['envelope: missing fields are named one by one', () => {
+      const v = validateEnvelope(envelope({ outOfScope: undefined, escalation: undefined }));
+      assert.ok(!v.ok);
+      assert.deepEqual(v.missing, ['outOfScope', 'escalation']);
+    }],
+    ['envelope: a whitespace-only field counts as missing', () => {
+      assert.deepEqual(validateEnvelope(envelope({ goal: '   ' })).missing, ['goal']);
+    }],
+    ['envelope: a non-object is missing everything', () => {
+      const v = validateEnvelope('not an envelope');
+      assert.equal(v.missing.length, 7);
+      assert.ok(v.detail.includes('JSON object'));
+    }],
+    ['envelope: an id of only illegal characters is rejected by name', () => {
+      assert.deepEqual(validateEnvelope(envelope({ id: '..' })).missing, ['id']);
+    }],
+    ['task record: id is sanitized and capped, engine fields are added', () => {
+      // Separators are what escape a directory, so those are the characters that die;
+      // dots survive, and the result can no longer name anything outside one segment.
+      const rec = buildTaskRecord(envelope({ id: '../../etc/passwd' }), { now: 'T', baseCommit: 'c0' });
+      assert.equal(rec.id, '.._.._etc_passwd');
+      assert.equal(rec.state, 'active');
+      assert.equal(rec.baseCommit, 'c0');
+      assert.equal(rec.startedAt, 'T');
+      const long = buildTaskRecord(envelope({ id: 'a'.repeat(200) }), { now: 'T', baseCommit: null });
+      assert.equal(long.id.length, 120);
+    }],
+
+    // S18.1 task complete -- four conditions, each blocking on its own.
+    ['task complete: all four conditions met -> no blockers', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec({ gate: 'PASS', diffHash: 'D0' }), currentDiffHash: 'D0',
+        receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      });
+      assert.deepEqual(blockers, []);
+    }],
+    ['task complete: a gate bound to another diff blocks', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec({ gate: 'PASS', diffHash: 'OTHER' }), currentDiffHash: 'D0',
+        receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('no PASS gate record bound to the current diffHash'));
+    }],
+    ['task complete: a failing gate blocks even when it is the current diff', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec({ gate: 'FAIL', diffHash: 'D0' }), currentDiffHash: 'D0',
+        receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+    }],
+    ['task complete: no accepting receipt for this diff blocks', () => {
+      const stale = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0',
+        receipts: [okReceipt({ diffHash: 'OTHER' })], ledgerOk: true, planEmpty: false,
+      });
+      assert.ok(stale.some(b => b.includes('accepting review receipt')));
+      const rejected = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0',
+        receipts: [okReceipt({ verdict: 'FIX_REQUIRED' })], ledgerOk: true, planEmpty: false,
+      });
+      assert.ok(rejected.some(b => b.includes('accepting review receipt')));
+    }],
+    ['task complete: a broken chain blocks (prior evidence is unproven)', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: false, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('ledger chain is broken'));
+    }],
+    ['task complete: an empty verification plan blocks', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: true, planEmpty: true,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('verification plan is empty'));
+    }],
+    ['task complete: a tampered receipt does not accept', () => {
+      const forged = { ...okReceipt(), scope: 'rewritten after signing' };
+      assert.equal(acceptingReceipt([forged], 'D0'), null);
+    }],
+
+    // S18.2 budget -- over the line is a signal, so the finding must carry the numbers.
+    ['budget: within every limit -> ok', () => {
+      const r = assessBudget({ changedFiles: 2, changedLines: 10, modulesTouched: 1, newFiles: 0 }, budgetCat);
+      assert.ok(r.ok);
+      assert.deepEqual(r.findings, []);
+    }],
+    ['budget: over a limit reports metric, actual and limit', () => {
+      const r = assessBudget({ changedFiles: 9, changedLines: 10, modulesTouched: 1, newFiles: 0 }, budgetCat);
+      assert.ok(!r.ok);
+      assert.deepEqual(r.findings, [{ metric: 'changedFiles', actual: 9, limit: 3 }]);
+    }],
+    ['budget: all four metrics can trip independently', () => {
+      const r = assessBudget({ changedFiles: 9, changedLines: 900, modulesTouched: 7, newFiles: 4 }, budgetCat);
+      assert.deepEqual(r.findings.map(f => f.metric), ['changedFiles', 'changedLines', 'modulesTouched', 'newFiles']);
+    }],
+    ['budget: a non-numeric limit is report-only, never a finding', () => {
+      const r = assessBudget({ changedFiles: 999 }, { ...budgetCat, maxChangedFiles: null });
+      assert.ok(r.ok);
     }],
 
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x

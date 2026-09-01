@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[十五能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[二十二能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 规模冒烟）。失败 rc 1。
@@ -53,6 +53,13 @@ paths:
     - **adapters list|add**：外部工具表（semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo，各自映射到五性属性）。`list` 报 available（PATH 上有没有）+ wired（catalog.checks 接没接）；`add <id>` 把 check 写进 catalog.checks——接线只是半步，模块 verification 列表引用它才会被选中。
     - **adr-check**：ADR 执法校验——没人盯的架构决策必然漂移。扫 `Architecture-Design.md` 的 `### ADR-xxx` 内联块 + `docs/adr/*.md` 独立文件（均可选，`--file`/`--dir` 可改），每条**活跃** ADR 的「执法方式/Enforced-by」必须能解析出至少一个真实存在的执法点：catalog check id / fitness 规则 id / harness 能力名（arch-check / layers / forbiddenDependencies / fitness / verify / receipt…）/ 或显式人工标记（评审/人工/manual/review——诚实的"人守"放行但单列 `manualOnly`）。**幽灵引用比没有更糟**（读起来像被执法实际没有）：零可识别 token = fail；已废弃（superseded/deprecated/rejected/已废弃…）豁免；认识的 token 旁边搭车的未知词只上报 `unrecognized` 不拦。
     - **arch-trend**：架构漂移棘轮——arch-check 对任何 undeclared 边都 rc 1，存量带债的老仓根本用不成闸。台账给出接入路径：`arch-check --record` 快照漂移指标（undeclared / forbidden / cycles + 上下文量），`arch-trend` 看趋势报告（基线/历史最优/最新/较上次 delta），`arch-trend --gate` 只在**最新值超过历史最优**时 rc 1——棘轮只朝一个方向转：旧债可以慢慢还，新债一分不许添。unresolved/unused 是上下文量不进棘轮。首条记录只立基线不比较。
+    - **gate**：`verify` 的带证据版——同一套 verifyPlan（四态聚合 + waiver + 五性属性门，不是另写一份），额外把每条执行过的 check 的 stdout+stderr 落 `.claude/harness/evidence/<check>-<epoch>.log` 并记 `evidence` 路径 + `evidenceSha256`（LF 归一后算），算 `planHash`（已解析的 check-id/模块计划的 sha256），整条 gate 记录追加进账本。退出码与 `verify` 同契约。**没跑的 check 不写证据文件**（BLOCKED/SKIPPED 写空日志会和「跑了但没输出」混成一回事）。`verify` 本身一字不动——三对 hook 在消费它。
+    - **ledger**：哈希链账本，防证据被静默改写。`contentHash=sha256(LF(JSON.stringify(record)))` / `chain=sha256(prev+NUL+contentHash)` / `prev`=上一行 chain（首行 64 个 0），落 `.claude/harness/state/ledger.jsonl`，append-only。子命令重算整条链，逐条报断裂：`unparseable-line` / `content-hash-mismatch` / `chain-predecessor-mismatch` / `chain-hash-mismatch`（行号 1 起），任一断裂 rc 1。**fail-closed**：链断 = 此前全部验证按未证明处理（`task complete` 阻断、`risk` 报 LEDGER_BROKEN）。**没有也不会有「修复账本」的命令**——链本身就是证据，能改成自洽的工具就是伪造工具，唯一诚实的恢复是把该跑的门重跑一遍。
+    - **gate-audit**：扫账本，列出 catalog 里定义了但**从未 FAIL/BLOCKED 过**的 check（`neverIntervened`）与从未真正跑过的 check（`neverExecuted`）——没拦过任何东西的闸是成本 + 假安全。报告态，始终 rc 0（无 catalog rc 3）。**与 `.claude/scripts/gate-audit.sh` 是两物**：那个审的是 **hook 闸**、读 `.claude/evidence/gate-block.log`；这个审的是 **catalog check**、读 harness 账本。两者不合并、不互相覆盖，合了「哪个闸没响过」就只剩一半答案。
+    - **retention**：按龄（`--max-age-days` 默认 30）+ 数量（evidence `--max-evidence` 默认 400、context pack `--max-packs` 默认 60）修剪运行态。**账本引用到的 evidence 文件永不删**——删了新鲜回执就没法验证了。默认 dry-run 只报告，`--apply` 才真删；`--apply` 删不掉时 rc 1（删除失败是失败，不静默）。五性把隐私定义成含「销毁合规」，自家运行态只积不销是自我不一致。
+    - **risk**：状态衰变扫描——`LEDGER_BROKEN`（链断）/ `EXPIRED_WAIVER`（过期 waiver 仍在）/ `UNWIRED_ATTRIBUTE`（blocking 档属性无 check 认领）/ `FAIL_STREAK`（同一 check 连败 ≥3 → 停止重跑转根因）/ `FAST_MODE_DEBT`（最新一次 gate 在 Fast Mode 下 SKIP 掉的证据尚未由完整 gate 偿还）/ `FAST_MODE_OPEN` / `STALE_TASK`（活跃 task 超 72h）。error 级 finding rc 1，warning 不改退出码。catalog 可无（无则只少 UNWIRED_ATTRIBUTE 一项）。
+    - **task start|status|complete**：六字段信封机器校验。`start` 从 stdin 读 JSON——`id` + `goal`/`scope`/`outOfScope`/`existingPattern`/`verification`/`escalation`，缺任一 rc 3 并**点名缺哪个**（不含糊成一句「信封不全」）；`id` 消毒为 `[A-Za-z0-9._-]` 并截到 120 字符；引擎补 `state:"active"`/`baseCommit`/`startedAt` 写 `.claude/harness/state/task.json`，一个工作树一个活跃 task。`status` 返回记录 + 当前 diffHash（始终 rc 0）。**`complete` 是硬闸**：四项全成立才 rc 0——① 有绑当前 diffHash 的 PASS gate 记录 ② 有绑同一 diffHash 的**新鲜且完整**的 accept 回执（verdict 认 `ACCEPT`/`pass`，被篡改的回执不算）③ 账本链完好 ④ 验证计划非空；否则 rc 2 + `blockers[]` 逐条列出缺哪项。
+    - **budget**：爆炸半径信号——`maxChangedFiles`/`maxChangedLines`/`maxModulesTouched`/`maxNewFiles`，从 `catalog.budget` 读，缺省 30/1000/5/15（限额写 null 即只报数不判定）。超限 rc 1。**这是「拆分或升级」的信号，不是禁令**：广泛改动有时是对的，这个数只是让人停下想一秒；把它当禁令用，结果一定是整条关掉。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -76,6 +83,15 @@ paths:
     | adapters | list / add 成功 | add 未知 id | — | add 无 catalog / 子命令错 | — |
     | adr-check | 全部活跃 ADR 有真实执法（或无 ADR） | 有 ADR 缺执法 / 纯幽灵引用 | — | — | — |
     | arch-trend | 报告态总是；--gate 无回退 | --gate 有指标超历史最优 | — | — | — |
+    | gate | PASS | — | FAIL / BLOCKED / 属性缺口 | 无 catalog / 非 git | — |
+    | ledger | 链完好 | 有断裂 | — | — | — |
+    | gate-audit | 总是 | — | — | 无 catalog | — |
+    | retention | 报告或修剪完成 | --apply 有文件删不掉 | — | — | — |
+    | risk | 无 error 级 finding | 有 error 级 finding | — | — | — |
+    | task start | 写入成功 | — | — | stdin 非 JSON / 信封缺字段 | — |
+    | task status | 总是 | — | — | — | — |
+    | task complete | 四项条件全成立 | — | 有 blockers / 无活跃 task | 无 catalog | — |
+    | budget | 未超限 | 有指标超限 | — | 无 catalog / 非 git | — |
     | unknown / missing | — | — | — | 总是 | — |
 
     要点：
@@ -126,6 +142,9 @@ paths:
     - `.claude/harness/receipts/*.json`：审查回执，**git 忽略**（永不入库）。
     - `.claude/harness/waivers/*.json`：结构化豁免，**git 忽略**（永不入库）。
     - `.claude/harness/trend/arch-trend.jsonl`：漂移趋势台账（`arch-check --record` 追加，超 1000 行自动保留最近 500），**默认 git 忽略**（每机各持；团队要共享趋势可自行取消忽略）；不进 diff 指纹、不进 context-pack。
+    - `.claude/harness/state/`：证据层运行态，**git 忽略**——`ledger.jsonl`（`gate` 追加的哈希链账本，append-only，**不许手工编辑**：改了 `ledger` 就报断裂，而断裂 = 此前全部验证按未证明处理）+ `task.json`（当前活跃 task 信封，一个工作树一份）。
+    - `.claude/harness/evidence/*.log`：每条执行过的 check 的原始 stdout+stderr（`gate` 落盘，文件名 `<check>-<epoch>.log`），**git 忽略**；`retention` 按龄和数修剪，但**账本引用到的永不删**。
+    - 上面两条与 receipts / waivers / trend 一样**排除出 diff 指纹**（跑引擎不会 stale 掉自己刚写的证据）、**排除出 context-pack**（运行态永不进交给 delegate 的包）。
     - `.claude/.runtime/supervisor/`：supervisor 进程守护运行态（state/pid/service 日志），**git 忽略**（见 dev-workflow-details 的本地运行阶段与 README「进程守护」）。
     - `.claude/.needs-review` / `.fast-mode` / `.stop-gate-strikes`：原框架运行态（harness 复用，git 忽略）。
 

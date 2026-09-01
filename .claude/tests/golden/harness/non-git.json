@@ -28,7 +28,14 @@
           "fitness",
           "adapters",
           "adr-check",
-          "arch-trend"
+          "arch-trend",
+          "gate",
+          "ledger",
+          "gate-audit",
+          "retention",
+          "risk",
+          "task",
+          "budget"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -60,7 +67,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 106
+        "tests": 152
       },
       "stderr": []
     },
@@ -736,6 +743,259 @@
       "stderr": []
     },
     {
+      "id": "gate",
+      "argv": [
+        "gate"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "gate": "DEGRADED",
+        "degraded": true,
+        "reason": "non-git",
+        "modules": [],
+        "results": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "gate-2",
+      "argv": [
+        "gate"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "gate": "DEGRADED",
+        "degraded": true,
+        "reason": "non-git",
+        "modules": [],
+        "results": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "ledger",
+      "argv": [
+        "ledger"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "entries": 0,
+        "breaks": [],
+        "head": "<HASH>",
+        "path": ".claude/harness/state/ledger.jsonl"
+      },
+      "stderr": []
+    },
+    {
+      "id": "gate-audit",
+      "argv": [
+        "gate-audit"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "scope": "catalog checks in the harness ledger (hook gates are audited by .claude/scripts/gate-audit.sh)",
+        "gateRuns": 0,
+        "declaredChecks": 3,
+        "neverIntervened": [
+          "absent-binary",
+          "always-fail",
+          "always-pass"
+        ],
+        "neverExecuted": [
+          "absent-binary",
+          "always-fail",
+          "always-pass"
+        ],
+        "advice": "These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence."
+      },
+      "stderr": []
+    },
+    {
+      "id": "retention",
+      "argv": [
+        "retention"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "applied": false,
+        "candidates": 0,
+        "removed": 0,
+        "protectedByLedger": 0,
+        "limits": {
+          "maxAgeDays": 30,
+          "maxEvidence": 400,
+          "maxPacks": 60
+        },
+        "dirs": {
+          "evidence": ".claude/harness/evidence",
+          "contextPacks": ".claude/harness/state/context"
+        },
+        "plan": [],
+        "errors": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "budget",
+      "argv": [
+        "budget"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "reason": "non-git"
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-start",
+      "argv": [
+        "task",
+        "start"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "path": ".claude/harness/state/task.json",
+        "task": {
+          "id": "golden-task",
+          "goal": "exercise the task envelope end to end",
+          "scope": "the sandbox fixture tree",
+          "outOfScope": "anything outside the sandbox",
+          "existingPattern": "core/util.ts",
+          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
+          "escalation": "stop and report if the catalog itself needs changing",
+          "state": "active",
+          "baseCommit": null,
+          "startedAt": "<TS>"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-start--incomplete",
+      "argv": [
+        "task",
+        "start"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "task-envelope-incomplete",
+        "missing": [
+          "scope",
+          "outOfScope",
+          "existingPattern",
+          "verification",
+          "escalation"
+        ],
+        "detail": null
+      },
+      "stderr": [
+        "task envelope is incomplete; missing: scope, outOfScope, existingPattern, verification, escalation"
+      ]
+    },
+    {
+      "id": "task-status",
+      "argv": [
+        "task",
+        "status"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "active": true,
+        "task": {
+          "id": "golden-task",
+          "goal": "exercise the task envelope end to end",
+          "scope": "the sandbox fixture tree",
+          "outOfScope": "anything outside the sandbox",
+          "existingPattern": "core/util.ts",
+          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
+          "escalation": "stop and report if the catalog itself needs changing",
+          "state": "active",
+          "baseCommit": null,
+          "startedAt": "<TS>"
+        },
+        "diffHash": null,
+        "note": null
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-complete",
+      "argv": [
+        "task",
+        "complete"
+      ],
+      "exitCode": 2,
+      "stdout": {
+        "ok": false,
+        "task": "golden-task",
+        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
+        "blockers": [
+          "no PASS gate record bound to the current diffHash (no gate has ever run); run: harness.mjs gate"
+        ]
+      },
+      "stderr": [
+        "task complete blocked: no PASS gate record bound to the current diffHash (no gate has ever run); run: harness.mjs gate"
+      ]
+    },
+    {
+      "id": "task--bad-sub",
+      "argv": [
+        "task",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "task-subcommand",
+        "detail": "usage: task start|status|complete",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "risk",
+      "argv": [
+        "risk"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "findings": [
+          {
+            "severity": "error",
+            "code": "UNWIRED_ATTRIBUTE",
+            "module": "db",
+            "attribute": "privacy",
+            "tier": "high",
+            "message": "module \"db\" declares privacy at tier high but no check in its verification plan claims that attribute"
+          },
+          {
+            "severity": "error",
+            "code": "UNWIRED_ATTRIBUTE",
+            "module": "auth",
+            "attribute": "safety",
+            "tier": "high",
+            "message": "module \"auth\" declares safety at tier high but no check in its verification plan claims that attribute"
+          }
+        ],
+        "counts": {
+          "error": 2,
+          "warning": 0
+        },
+        "catalogPresent": true
+      },
+      "stderr": [
+        "UNWIRED_ATTRIBUTE: module \"db\" declares privacy at tier high but no check in its verification plan claims that attribute",
+        "UNWIRED_ATTRIBUTE: module \"auth\" declares safety at tier high but no check in its verification plan claims that attribute"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -928,13 +1188,20 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
+        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
+        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  task        start|status|complete: six-field envelope in, four blocking conditions out",
+        "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "planned (not-implemented):"
       ]
     },
@@ -946,13 +1213,20 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
+        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
+        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  task        start|status|complete: six-field envelope in, four blocking conditions out",
+        "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "planned (not-implemented):"
       ]
     },

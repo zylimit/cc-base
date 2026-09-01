@@ -196,25 +196,33 @@ function cmdVerify(flags) {
  * Run one shell command, returning its exit code. win32 uses cmd /c with
  * windowsVerbatimArguments so nested quotes in the command survive to the child
  * (plain cmd /c mangles e.g. node -e "process.exit(3)" into a 0 exit -- a false green).
+ * Both streams are returned alongside the code; spawnSync captures them either way, and
+ * S17 gate needs them to write the evidence log. runCheck ignores them unless asked.
  * @param {string} command
- * @returns {{code:number}}
+ * @returns {{code:number,stdout:string,stderr:string}}
  */
 function spawnCmd(command) {
   const r = process.platform === 'win32'
     ? spawnSync('cmd', ['/c', command], { maxBuffer: 1 << 28, windowsVerbatimArguments: true })
     : spawnSync('sh', ['-c', command], { maxBuffer: 1 << 28 });
-  return { code: r.status };
+  return {
+    code: r.status,
+    stdout: r.stdout ? r.stdout.toString('utf8') : '',
+    stderr: r.stderr ? r.stderr.toString('utf8') : '',
+  };
 }
 
 /**
  * Evaluate one check to a four-state result. Never fakes green: an absent binary is BLOCKED.
  * Security checks ignore fast-mode entirely (always run). Non-security opt-in checks may SKIP
  * under fast-mode.
+ * `capture` adds the command's stdout/stderr to the result; it is off by default so the
+ * shape verify emits is unchanged, and only S17 gate (which persists them) asks for it.
  * @param {{id?:string,command?:string,class?:string,allowFastSkip?:boolean}} check
- * @param {{fastActive?:boolean}} [opts]
+ * @param {{fastActive?:boolean,capture?:boolean}} [opts]
  * @returns {CheckResult}
  */
-function runCheck(check, { fastActive = false } = {}) {
+function runCheck(check, { fastActive = false, capture = false } = {}) {
   const id = check && check.id ? check.id : (check && check.command) || 'check';
   const cls = check && check.class;
   const base = { id, class: cls, cmd: check && check.command };
@@ -225,7 +233,8 @@ function runCheck(check, { fastActive = false } = {}) {
     return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
   }
   const r = spawnCmd(check.command);
-  return r.code === 0 ? { ...base, state: 'PASS', exit: 0 } : { ...base, state: 'FAIL', exit: r.code };
+  const res = r.code === 0 ? { ...base, state: 'PASS', exit: 0 } : { ...base, state: 'FAIL', exit: r.code };
+  return capture ? { ...res, stdout: r.stdout, stderr: r.stderr } : res;
 }
 
 /** Aggregate check states: any FAIL -> FAIL; else any BLOCKED -> BLOCKED; else PASS. */
@@ -262,12 +271,16 @@ function resolveCheck(ref, catalog) {
  * Plan + run verification for a changed-path set: compute impact, gather each affected
  * module's required checks, run them four-state, aggregate. Missing catalog fields degrade
  * gracefully (empty check list per module).
+ * `runCheckFn` swaps in a different per-check runner and defaults to runCheck, so S17 gate
+ * can persist each check's output without a second copy of the aggregation, the waiver
+ * rules and the attribute assessment living somewhere else and drifting away from these.
  * @param {string[]} changed
  * @param {Catalog} catalog
- * @param {{fastActive?:boolean,nonGit?:boolean}} [opts]
+ * @param {{fastActive?:boolean,nonGit?:boolean,runCheckFn?:Function}} [opts]
  * @returns {{state:string,checks:CheckResult[],affected:string[],degraded:boolean}}
  */
-function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {}) {
+function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runCheckFn = null } = {}) {
+  const run = typeof runCheckFn === 'function' ? runCheckFn : runCheck;
   const imp = analyzeImpact(changed, catalog, { nonGit });
   const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
   const checks = [];
@@ -281,7 +294,7 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {
       const key = id + '::' + (spec.id || spec.command || JSON.stringify(ref));
       if (seen.has(key)) continue;
       seen.add(key);
-      const res = runCheck(spec, { fastActive });
+      const res = run(spec, { fastActive });
       checks.push({ module: id, ...res });
     }
   }

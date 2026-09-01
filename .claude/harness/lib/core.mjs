@@ -157,6 +157,8 @@ const STATE_EXCLUDE = [
   ':(exclude).claude/harness/receipts/**',
   ':(exclude).claude/harness/waivers/**',
   ':(exclude).claude/harness/trend/**',
+  ':(exclude).claude/harness/state/**',
+  ':(exclude).claude/harness/evidence/**',
 ];
 const STATE_EXCLUDE_PATHS = [
   '.claude/.needs-review',
@@ -168,6 +170,8 @@ const STATE_EXCLUDE_PREFIXES = [
   '.claude/harness/receipts/',
   '.claude/harness/waivers/',
   '.claude/harness/trend/',
+  '.claude/harness/state/',
+  '.claude/harness/evidence/',
 ];
 function isStateExcluded(p) {
   const n = p.replace(/\\/g, '/');
@@ -344,7 +348,7 @@ function normalizeTier(req) {
 // stay includable.
 const DENY = [
   /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
-  /(^|\/)\.claude\/(evidence|harness\/receipts|harness\/waivers|harness\/trend)\//,
+  /(^|\/)\.claude\/(evidence|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,
   /(^|\/)\.env(\.|$)/,
   /\.(pem|key|p12|pfx)$/, /(^|\/)id_rsa/, /(^|\/)\.(ssh|aws|azure|gnupg|kube)\//,
 ];

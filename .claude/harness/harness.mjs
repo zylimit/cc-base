@@ -19,10 +19,13 @@
 //   lib/quality.mjs   S7 receipt + S8 quality gate + S10 waiver + S11 attributes
 //   lib/scan.mjs      S13 fitness + S14 adapters + S15 adr-check
 //   lib/context.mjs   S6 context-pack
+//   lib/evidence.mjs  S17 gate + ledger + gate-audit + retention + risk
+//   lib/task.mjs      S18 task envelope + budget
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
-// quality -> core, catalog, graph; scan -> core, catalog; selftest -> all of the above;
-// this file -> all of the above. No cycles.
+// quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
+// quality; task -> the same plus evidence; selftest -> all of the above; this file -> all
+// of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -39,12 +42,14 @@ import { cmdArchCheck, cmdArchTrend, cmdImpact } from './lib/graph.mjs';
 import { cmdContextPack } from './lib/context.mjs';
 import { cmdAttributes, cmdReceipt, cmdVerify, cmdWaiver, loadWaivers, waiversDir } from './lib/quality.mjs';
 import { adaptersFilePath, cmdAdapters, cmdAdrCheck, cmdFitness } from './lib/scan.mjs';
+import { cmdGate, cmdGateAudit, cmdLedger, cmdRetention, cmdRisk } from './lib/evidence.mjs';
+import { cmdBudget, cmdTask } from './lib/task.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -92,6 +97,13 @@ function main() {
     case 'adapters':     return cmdAdapters(flags, positional);
     case 'adr-check':    return cmdAdrCheck(flags);
     case 'arch-trend':   return cmdArchTrend(flags);
+    case 'gate':         return cmdGate(flags);
+    case 'ledger':       return cmdLedger(flags);
+    case 'gate-audit':   return cmdGateAudit(flags);
+    case 'retention':    return cmdRetention(flags);
+    case 'risk':         return cmdRisk(flags);
+    case 'task':         return cmdTask(flags, positional);
+    case 'budget':       return cmdBudget(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -108,6 +120,13 @@ function usage(cmd) {
     '  adapters    list external quality tools, or add one into catalog checks\n' +
     '  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)\n' +
     '  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state\n' +
+    '  gate        verify plus evidence: each check output on disk, planHash, one ledger entry\n' +
+    '  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)\n' +
+    '  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)\n' +
+    '  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted\n' +
+    '  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task\n' +
+    '  task        start|status|complete: six-field envelope in, four blocking conditions out\n' +
+    '  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

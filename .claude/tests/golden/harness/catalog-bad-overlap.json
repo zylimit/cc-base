@@ -28,7 +28,14 @@
           "fitness",
           "adapters",
           "adr-check",
-          "arch-trend"
+          "arch-trend",
+          "gate",
+          "ledger",
+          "gate-audit",
+          "retention",
+          "risk",
+          "task",
+          "budget"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -60,7 +67,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 106
+        "tests": 152
       },
       "stderr": []
     },
@@ -1012,6 +1019,283 @@
       "stderr": []
     },
     {
+      "id": "gate",
+      "argv": [
+        "gate"
+      ],
+      "exitCode": 2,
+      "stdout": {
+        "command": "gate",
+        "at": "<TS>",
+        "gate": "BLOCKED",
+        "reason": "empty-plan: modules were affected but no check resolved, so nothing was established",
+        "baseCommit": "<SHA>",
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "planHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "modules": [
+          "core",
+          "shared"
+        ],
+        "degraded": true,
+        "fastActive": false,
+        "skippedByFastMode": [],
+        "results": [],
+        "attributeCoverage": [],
+        "attributeGaps": [],
+        "waivers": [],
+        "ledger": {
+          "path": ".claude/harness/state/ledger.jsonl",
+          "chain": "<HASH>"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "gate-2",
+      "argv": [
+        "gate"
+      ],
+      "exitCode": 2,
+      "stdout": {
+        "command": "gate",
+        "at": "<TS>",
+        "gate": "BLOCKED",
+        "reason": "empty-plan: modules were affected but no check resolved, so nothing was established",
+        "baseCommit": "<SHA>",
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "planHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "modules": [
+          "core",
+          "shared"
+        ],
+        "degraded": true,
+        "fastActive": false,
+        "skippedByFastMode": [],
+        "results": [],
+        "attributeCoverage": [],
+        "attributeGaps": [],
+        "waivers": [],
+        "ledger": {
+          "path": ".claude/harness/state/ledger.jsonl",
+          "chain": "<HASH>"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "ledger",
+      "argv": [
+        "ledger"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "entries": 2,
+        "breaks": [],
+        "head": "<HASH>",
+        "path": ".claude/harness/state/ledger.jsonl"
+      },
+      "stderr": []
+    },
+    {
+      "id": "gate-audit",
+      "argv": [
+        "gate-audit"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "scope": "catalog checks in the harness ledger (hook gates are audited by .claude/scripts/gate-audit.sh)",
+        "gateRuns": 2,
+        "declaredChecks": 0,
+        "neverIntervened": [],
+        "neverExecuted": [],
+        "advice": "Every declared check has intervened at least once."
+      },
+      "stderr": []
+    },
+    {
+      "id": "retention",
+      "argv": [
+        "retention"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "applied": false,
+        "candidates": 0,
+        "removed": 0,
+        "protectedByLedger": 0,
+        "limits": {
+          "maxAgeDays": 30,
+          "maxEvidence": 400,
+          "maxPacks": 60
+        },
+        "dirs": {
+          "evidence": ".claude/harness/evidence",
+          "contextPacks": ".claude/harness/state/context"
+        },
+        "plan": [],
+        "errors": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "budget",
+      "argv": [
+        "budget"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "findings": [],
+        "metrics": {
+          "changedFiles": 4,
+          "changedLines": 4,
+          "added": 4,
+          "removed": 0,
+          "modulesTouched": 1,
+          "newFiles": 2,
+          "affectedModules": 2
+        },
+        "limits": {
+          "maxChangedFiles": 30,
+          "maxChangedLines": 1000,
+          "maxModulesTouched": 5,
+          "maxNewFiles": 15
+        },
+        "degraded": true,
+        "advice": "blast radius is within the declared budget"
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-start",
+      "argv": [
+        "task",
+        "start"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "path": ".claude/harness/state/task.json",
+        "task": {
+          "id": "golden-task",
+          "goal": "exercise the task envelope end to end",
+          "scope": "the sandbox fixture tree",
+          "outOfScope": "anything outside the sandbox",
+          "existingPattern": "core/util.ts",
+          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
+          "escalation": "stop and report if the catalog itself needs changing",
+          "state": "active",
+          "baseCommit": "<SHA>",
+          "startedAt": "<TS>"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-start--incomplete",
+      "argv": [
+        "task",
+        "start"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "task-envelope-incomplete",
+        "missing": [
+          "scope",
+          "outOfScope",
+          "existingPattern",
+          "verification",
+          "escalation"
+        ],
+        "detail": null
+      },
+      "stderr": [
+        "task envelope is incomplete; missing: scope, outOfScope, existingPattern, verification, escalation"
+      ]
+    },
+    {
+      "id": "task-status",
+      "argv": [
+        "task",
+        "status"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "active": true,
+        "task": {
+          "id": "golden-task",
+          "goal": "exercise the task envelope end to end",
+          "scope": "the sandbox fixture tree",
+          "outOfScope": "anything outside the sandbox",
+          "existingPattern": "core/util.ts",
+          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
+          "escalation": "stop and report if the catalog itself needs changing",
+          "state": "active",
+          "baseCommit": "<SHA>",
+          "startedAt": "<TS>"
+        },
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "note": null
+      },
+      "stderr": []
+    },
+    {
+      "id": "task-complete",
+      "argv": [
+        "task",
+        "complete"
+      ],
+      "exitCode": 2,
+      "stdout": {
+        "ok": false,
+        "task": "golden-task",
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "blockers": [
+          "no PASS gate record bound to the current diffHash (newest gate: BLOCKED on 2eafce438fad); run: harness.mjs gate",
+          "the verification plan is empty: nothing would have run, so nothing was established"
+        ]
+      },
+      "stderr": [
+        "task complete blocked: no PASS gate record bound to the current diffHash (newest gate: BLOCKED on 2eafce438fad); run: harness.mjs gate",
+        "task complete blocked: the verification plan is empty: nothing would have run, so nothing was established"
+      ]
+    },
+    {
+      "id": "task--bad-sub",
+      "argv": [
+        "task",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "task-subcommand",
+        "detail": "usage: task start|status|complete",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "risk",
+      "argv": [
+        "risk"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "findings": [],
+        "counts": {
+          "error": 0,
+          "warning": 0
+        },
+        "catalogPresent": true
+      },
+      "stderr": []
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -1204,13 +1488,20 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
+        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
+        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  task        start|status|complete: six-field envelope in, four blocking conditions out",
+        "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "planned (not-implemented):"
       ]
     },
@@ -1222,13 +1513,20 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
+        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
+        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  task        start|status|complete: six-field envelope in, four blocking conditions out",
+        "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "planned (not-implemented):"
       ]
     },

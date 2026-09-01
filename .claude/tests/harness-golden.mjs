@@ -24,8 +24,9 @@
 // -------------------------------------------------------------------------------------
 // Normalization is deliberately narrow and keyed by field name, never by a blanket regex
 // over every string. `--probe` runs the matrix three times with only path substitution
-// applied and reports what moved; across all eight scenarios exactly three fields move on
-// their own, and those three are the only ones masked on evidence:
+// applied and reports what moved. Two fields move on their own in every scenario, and those
+// two are the only ones masked globally on observed movement (the evidence layer adds more,
+// but each is scoped to one command -- see the `volatile` list further down):
 //
 //   <TS>    receipt `timestamp` and arch-trend `latestAt`. Wall clock, new value per run.
 //   <HASH>  receipt `contentHash` only. It folds the receipt timestamp into the digest, so
@@ -55,14 +56,36 @@
 //           BLOCKED command-missing for it. The sibling field `wired` is catalog state,
 //           not environment, and stays byte for byte.
 //
-// One field is masked for a single command rather than globally: `waiver create` stamps
-// created_at from the wall clock, while the checked-in waiver fixture carries a fixed one
-// that is worth asserting. So the mask is attached to the two waiver-create entries in
-// COMMANDS (`volatile`), and every other record still compares created_at verbatim.
+// Some fields are masked for a single command rather than globally, through the `volatile`
+// map on a COMMANDS entry. `waiver create` stamps created_at from the wall clock, while the
+// checked-in waiver fixture carries a fixed one that is worth asserting, so that mask is
+// attached to the two waiver-create entries and every other record still compares
+// created_at verbatim. The evidence layer adds four of the same kind, all wall-clock
+// derived and none of them describing behaviour:
 //
-// <ROOT> (this checkout's path) and <MS> (duration fields) are wired up but never fire
-// today -- no subcommand currently emits either. They are guards, and they cannot mask a
-// newly added field, because the diff compares each object's key set explicitly.
+//   at            the gate record's timestamp, and the ledger break timestamps that echo it.
+//   chain / head  the hash chain folds that timestamp in, so both move whenever it does.
+//                 What the chain actually proves is asserted far harder in selftest, which
+//                 links a real chain and then tampers with it four different ways.
+//   evidence      the evidence log path carries the epoch it was written at.
+//   evidenceSha256  digests the check's real output, and catalog-good's checks are real
+//                 npm invocations whose error text names a per-run debug log
+//                 (.npm/_logs/<iso>-debug-0.log). The timestamp inside that path moves the
+//                 digest every run, and it is hashed before any path substitution can see
+//                 it. Same category as <TMP>: the environment, not the harness.
+//   startedAt / completedAt   the task record's clock fields.
+//
+// Both evidence masks only fire on a non-empty value, so a check that produced no log still
+// records null and "wrote evidence" stays distinguishable from "never ran" -- which is the
+// assertion that actually matters here, BLOCKED and SKIPPED checks writing no log at all.
+//
+// planHash and diffHash on the gate record stay verbatim, for the same reason packHash
+// does: they are the digests a re-record would most easily hide a change behind.
+//
+// <MS> now fires on the gate record's per-check durationMs, which is wall clock by
+// definition. <ROOT> (this checkout's path) is still a guard that never fires -- no
+// subcommand emits it, and it cannot mask a newly added field, because the diff compares
+// each object's key set explicitly.
 //
 // What is deliberately left VERBATIM matters more than what is masked:
 //   - diffHash and packHash. The probe proves both are stable for a fixed tree across
@@ -134,7 +157,7 @@ const SCENARIOS = [
   { name: 'non-git', catalog: path.join(GOLDEN_FIXTURES, 'catalog-rich.json'), git: false },
 ];
 
-// All fifteen subcommands plus the sub-forms that take a different code path.
+// All twenty-two subcommands plus the sub-forms that take a different code path.
 // Order matters three times: `receipt write` must precede every `receipt verify` (verify
 // checks the receipt the write just bound to the current diff), `arch-check --record`
 // must precede the arch-trend pair (the ratchet needs a ledger entry to compare against),
@@ -153,6 +176,19 @@ const RECEIPT_INPUT = JSON.stringify({
   verdict: 'pass',
   scope: 'sandbox fixture tree',
 });
+
+// A complete six-field envelope, and one missing four of them. The second is the point:
+// `task start` has to name each absent field rather than answer "incomplete".
+const TASK_INPUT = JSON.stringify({
+  id: 'golden-task',
+  goal: 'exercise the task envelope end to end',
+  scope: 'the sandbox fixture tree',
+  outOfScope: 'anything outside the sandbox',
+  existingPattern: 'core/util.ts',
+  verification: 'harness.mjs gate -> expect exit 0 and gate PASS',
+  escalation: 'stop and report if the catalog itself needs changing',
+});
+const TASK_INPUT_INCOMPLETE = JSON.stringify({ id: 'golden-task', goal: 'the rest is missing' });
 
 const COMMANDS = [
   { id: 'doctor', argv: ['doctor'] },
@@ -177,6 +213,27 @@ const COMMANDS = [
   { id: 'adr-check', argv: ['adr-check'] },
   { id: 'arch-trend', argv: ['arch-trend'] },
   { id: 'arch-trend--gate', argv: ['arch-trend', '--gate'] },
+
+  // The evidence layer. Order is load-bearing here too: `gate` must run before anything
+  // that reads the ledger, it runs twice so the chain has a real predecessor link to
+  // verify rather than just a genesis line, and the task trio runs start -> status ->
+  // complete. All of it writes only into .claude/harness/{state,evidence}, which the
+  // harness excludes from the diff fingerprint, so none of it perturbs a later command.
+  // `task complete` reaches exit 0 in catalog-pass (PASS gate + the receipt written
+  // above, both bound to this diff) and is blocked everywhere else -- both halves of the
+  // hard gate are recorded, which is the only way the blocked half can be trusted.
+  { id: 'gate', volatile: { at: '<TS>', evidence: '<EVIDENCE>', evidenceSha256: '<HASH>', chain: '<HASH>' }, argv: ['gate'] },
+  { id: 'gate-2', volatile: { at: '<TS>', evidence: '<EVIDENCE>', evidenceSha256: '<HASH>', chain: '<HASH>' }, argv: ['gate'] },
+  { id: 'ledger', volatile: { head: '<HASH>', at: '<TS>' }, argv: ['ledger'] },
+  { id: 'gate-audit', argv: ['gate-audit'] },
+  { id: 'retention', argv: ['retention'] },
+  { id: 'budget', argv: ['budget'] },
+  { id: 'task-start', volatile: { startedAt: '<TS>' }, argv: ['task', 'start'], stdin: TASK_INPUT },
+  { id: 'task-start--incomplete', argv: ['task', 'start'], stdin: TASK_INPUT_INCOMPLETE },
+  { id: 'task-status', volatile: { startedAt: '<TS>' }, argv: ['task', 'status'] },
+  { id: 'task-complete', volatile: { startedAt: '<TS>', completedAt: '<TS>' }, argv: ['task', 'complete'] },
+  { id: 'task--bad-sub', argv: ['task', 'bogus'] },
+  { id: 'risk', volatile: { at: '<TS>' }, argv: ['risk'] },
 
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
@@ -597,7 +654,8 @@ function diffScenario(expected, actual) {
 const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subcommands,'
   + 'waiversDirExists,activeWaivers,attributesDeclared,modulesWithLayer,forbiddenEdges,adaptersPresent';
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
-  + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend';
+  + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
+  + 'gate,ledger,gate-audit,retention,risk,task,budget';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */
