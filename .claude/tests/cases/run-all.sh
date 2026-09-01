@@ -34,6 +34,24 @@ done
 # harness 自测在 cases/（无需 claude CLI，只需 node），归第二段跑；无 node 时其自身打 SKIPPED 非假绿。
 echo "----- 运行 test-harness.sh -----"
 bash "$DIR/test-harness.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+# harness golden 基线：同样只需 node，归第二段跑。test-harness.sh 卡退出码契约，
+#   这条卡 stdout JSON 全字段 + stderr——拆库重构要证「零行为变化」靠的就是它。
+#   基线漂了先看 diff 再决定是真回归还是该重录（node .claude/tests/harness-golden.mjs --record）。
+#   --strict 让「没跑成」以退出码 3 现形：不加它时 SKIPPED 也返回 0，被 `||` 读成通过。
+echo "----- 运行 harness-golden.mjs --check -----"
+GOLDEN_NOTE=""
+if command -v node >/dev/null 2>&1; then
+    GOLDEN_RC=0
+    node "$TESTS_DIR/harness-golden.mjs" --check --strict || GOLDEN_RC=$?
+    if [ "$GOLDEN_RC" -eq 3 ]; then
+        GOLDEN_NOTE="；golden 基线 SKIPPED（未执行 != 通过）"
+    elif [ "$GOLDEN_RC" -ne 0 ]; then
+        STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
+    fi
+else
+    echo "SKIPPED: 无 node（command -v node 未找到）——golden 基线比对跳过，未执行 != 通过。"
+    GOLDEN_NOTE="；golden 基线 SKIPPED（无 node）"
+fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
     echo "########## 结果：静态自测失败（安装器/路由一致性不过），停止。 ##########"
@@ -46,7 +64,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -64,10 +82,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测 + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"

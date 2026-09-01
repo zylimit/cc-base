@@ -1,0 +1,992 @@
+{
+  "scenario": "non-git",
+  "commands": [
+    {
+      "id": "doctor",
+      "argv": [
+        "doctor"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "node": "<NODE>",
+        "catalogPresent": true,
+        "gitRepo": false,
+        "headCommit": null,
+        "harnessDir": ".claude/harness",
+        "subcommands": [
+          "doctor",
+          "diff-hash",
+          "selftest",
+          "catalog-lint",
+          "impact",
+          "context-pack",
+          "receipt",
+          "verify",
+          "waiver",
+          "attributes",
+          "arch-check",
+          "fitness",
+          "adapters",
+          "adr-check",
+          "arch-trend"
+        ],
+        "waiversDirExists": true,
+        "activeWaivers": 1,
+        "attributesDeclared": 5,
+        "modulesWithLayer": 4,
+        "forbiddenEdges": 1,
+        "adaptersPresent": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "diff-hash",
+      "argv": [
+        "diff-hash"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
+        "baseCommit": null,
+        "nonGit": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "selftest",
+      "argv": [
+        "selftest"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "tests": 106
+      },
+      "stderr": []
+    },
+    {
+      "id": "catalog-lint",
+      "argv": [
+        "catalog-lint"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "stats": {
+          "modules": 4,
+          "trackedPaths": 0,
+          "unmapped": 0,
+          "overlaps": 0
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "impact",
+      "argv": [
+        "impact"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "affected": [
+          "core",
+          "db",
+          "auth",
+          "api"
+        ],
+        "direct": [],
+        "expansionReasons": [
+          "non-git"
+        ],
+        "verification": {
+          "core": [
+            "always-pass"
+          ],
+          "db": [
+            "always-pass",
+            "always-fail"
+          ],
+          "auth": [
+            "always-pass",
+            "absent-binary"
+          ],
+          "api": [
+            "always-pass"
+          ]
+        },
+        "degraded": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "impact--changed",
+      "argv": [
+        "impact",
+        "--changed",
+        "core/util.ts,api/legacy.ts"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "affected": [
+          "core",
+          "api",
+          "db",
+          "auth"
+        ],
+        "direct": [
+          "core",
+          "api"
+        ],
+        "expansionReasons": [],
+        "verification": {
+          "core": [
+            "always-pass"
+          ],
+          "api": [
+            "always-pass"
+          ],
+          "db": [
+            "always-pass",
+            "always-fail"
+          ],
+          "auth": [
+            "always-pass",
+            "absent-binary"
+          ]
+        },
+        "degraded": false
+      },
+      "stderr": []
+    },
+    {
+      "id": "context-pack",
+      "argv": [
+        "context-pack",
+        "--task",
+        "golden-task"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "budgets": {
+          "maxTotalChars": 120000,
+          "maxFiles": 40,
+          "maxFileChars": 6000,
+          "maxDiffChars": 40000
+        },
+        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
+        "included": [
+          {
+            "path": "<task-envelope>",
+            "bytes": 22,
+            "reason": "envelope"
+          },
+          {
+            "path": "<canonical-diff>",
+            "bytes": 7,
+            "reason": "diff"
+          }
+        ],
+        "denied": [],
+        "affected": [
+          "core",
+          "db",
+          "auth",
+          "api"
+        ],
+        "degraded": true,
+        "packHash": "82fa512aef7ca121a27c6e380d448978d41d5dd0be38c3cfde9f9a2ee9e75ac8"
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt-write",
+      "argv": [
+        "receipt",
+        "write"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "taskId": "golden-task",
+        "baseCommit": null,
+        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
+        "reviewer": "golden-baseline",
+        "verdict": "pass",
+        "scope": "sandbox fixture tree",
+        "timestamp": "<TS>",
+        "contentHash": "<HASH>"
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt-verify",
+      "argv": [
+        "receipt",
+        "verify",
+        "--task",
+        "golden-task"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "note": "non-git",
+        "diffHash": null,
+        "degraded": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "verify",
+      "argv": [
+        "verify"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "degraded": true,
+        "note": "non-git",
+        "checks": [],
+        "affected": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "waiver-list",
+      "argv": [
+        "waiver",
+        "list"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "waivers": [
+          {
+            "path": "<TMP>/.claude/harness/waivers/golden.json",
+            "version": 1,
+            "owner": "@team-db",
+            "reason": "sandbox check is intentionally red; golden baseline needs the downgrade path exercised",
+            "scope": "always-fail",
+            "expiry": "2099-01-01T00:00:00.000Z",
+            "compensation": "the real suite runs the same check nightly",
+            "created_at": "2020-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "stderr": []
+    },
+    {
+      "id": "waiver-check",
+      "argv": [
+        "waiver",
+        "check",
+        "--file",
+        "<WAIVER>"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "valid": true,
+        "errors": [],
+        "waiver": {
+          "version": 1,
+          "owner": "@team-db",
+          "reason": "sandbox check is intentionally red; golden baseline needs the downgrade path exercised",
+          "scope": "always-fail",
+          "expiry": "2099-01-01T00:00:00.000Z",
+          "compensation": "the real suite runs the same check nightly",
+          "created_at": "2020-01-01T00:00:00.000Z"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "attributes",
+      "argv": [
+        "attributes"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "declared": 5,
+        "byTier": {
+          "medium": 2,
+          "high": 2,
+          "critical": 1
+        },
+        "unwiredBlocking": 2,
+        "attributes": [
+          {
+            "module": "core",
+            "attribute": "reliability",
+            "tier": "medium",
+            "enforcement": "warn",
+            "wired": [
+              "always-pass"
+            ]
+          },
+          {
+            "module": "db",
+            "attribute": "privacy",
+            "tier": "high",
+            "enforcement": "block",
+            "wired": [],
+            "gap": "declared but no claiming check is wired"
+          },
+          {
+            "module": "auth",
+            "attribute": "security",
+            "tier": "critical",
+            "enforcement": "block",
+            "wired": [
+              "absent-binary"
+            ]
+          },
+          {
+            "module": "auth",
+            "attribute": "safety",
+            "tier": "high",
+            "enforcement": "block",
+            "wired": [],
+            "gap": "declared but no claiming check is wired"
+          },
+          {
+            "module": "api",
+            "attribute": "resilience",
+            "tier": "medium",
+            "enforcement": "warn",
+            "wired": [],
+            "gap": "declared but no claiming check is wired"
+          }
+        ]
+      },
+      "stderr": []
+    },
+    {
+      "id": "arch-check",
+      "argv": [
+        "arch-check"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "detail": "arch-check enumerates tracked files via git"
+      },
+      "stderr": []
+    },
+    {
+      "id": "arch-check--record",
+      "argv": [
+        "arch-check",
+        "--record"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "detail": "arch-check enumerates tracked files via git"
+      },
+      "stderr": []
+    },
+    {
+      "id": "arch-check--record-2",
+      "argv": [
+        "arch-check",
+        "--record"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "detail": "arch-check enumerates tracked files via git"
+      },
+      "stderr": []
+    },
+    {
+      "id": "fitness",
+      "argv": [
+        "fitness"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "scope": "changed",
+        "scannedFiles": 0,
+        "rules": 5,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        },
+        "findings": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "fitness--all",
+      "argv": [
+        "fitness",
+        "--all"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "detail": "fitness --all enumerates tracked files via git"
+      },
+      "stderr": []
+    },
+    {
+      "id": "adapters-list",
+      "argv": [
+        "adapters",
+        "list"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "adapters": [
+          {
+            "id": "sast-semgrep",
+            "attributes": [
+              "security"
+            ],
+            "class": "security",
+            "executable": "semgrep",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://semgrep.dev/docs/getting-started/",
+            "rationale": "Rule-based SAST that scans in seconds and accepts repository-specific rules. Weakest on cross-function logic flaws."
+          },
+          {
+            "id": "sca-osv-scanner",
+            "attributes": [
+              "security"
+            ],
+            "class": "security",
+            "executable": "osv-scanner",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://google.github.io/osv-scanner/",
+            "rationale": "High-precision dependency scanning against the OSV database; fast and low-noise enough to run as a per-change gate."
+          },
+          {
+            "id": "scan-trivy",
+            "attributes": [
+              "security"
+            ],
+            "class": "security",
+            "executable": "trivy",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://trivy.dev/latest/getting-started/installation/",
+            "rationale": "Breadth in one binary: dependencies, container images, IaC, secrets, licences. Better as a scheduled sweep than a per-change gate."
+          },
+          {
+            "id": "secrets-gitleaks",
+            "attributes": [
+              "security",
+              "privacy"
+            ],
+            "class": "security",
+            "executable": "gitleaks",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://github.com/gitleaks/gitleaks",
+            "rationale": "History-aware secret detection. Complements the built-in fitness rule, which only sees the current working tree."
+          },
+          {
+            "id": "sbom-syft",
+            "attributes": [
+              "security"
+            ],
+            "class": "integrity",
+            "executable": "syft",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://github.com/anchore/syft",
+            "rationale": "Produces the artifact inventory (SBOM) that later vulnerability rescans and provenance attestation depend on."
+          },
+          {
+            "id": "pii-presidio",
+            "attributes": [
+              "privacy"
+            ],
+            "class": "privacy",
+            "executable": "presidio",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://microsoft.github.io/presidio/",
+            "rationale": "Detects personal data in text and structured data. Its own docs state it cannot find everything; treat it as one layer, not a boundary."
+          },
+          {
+            "id": "mutation-stryker",
+            "attributes": [
+              "reliability"
+            ],
+            "class": "test",
+            "executable": "npx",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://stryker-mutator.io/",
+            "rationale": "Measures whether the tests would actually catch a defect. Run per change with incremental mode; a nightly-only signal arrives after the merge."
+          },
+          {
+            "id": "contract-schemathesis",
+            "attributes": [
+              "reliability"
+            ],
+            "class": "integration",
+            "executable": "schemathesis",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://schemathesis.readthedocs.io/",
+            "rationale": "Generates adversarial requests from the API schema, covering inputs no hand-written case would include."
+          },
+          {
+            "id": "load-k6",
+            "attributes": [
+              "availability",
+              "performance",
+              "resilience"
+            ],
+            "class": "runtime",
+            "executable": "k6",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://grafana.com/docs/k6/latest/set-up/install-k6/",
+            "rationale": "Asserts latency and error-rate objectives under load. Its result describes a deployed system, not the current diff."
+          },
+          {
+            "id": "iac-checkov",
+            "attributes": [
+              "security",
+              "availability"
+            ],
+            "class": "security",
+            "executable": "checkov",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://www.checkov.io/",
+            "rationale": "Infrastructure misconfiguration is where availability and security failures usually originate rather than in application code."
+          },
+          {
+            "id": "slo-openslo",
+            "attributes": [
+              "availability",
+              "reliability"
+            ],
+            "class": "static",
+            "executable": "oslo",
+            "available": "<ENV>",
+            "wired": false,
+            "install": "https://github.com/OpenSLO/oslo",
+            "rationale": "Validates service level objectives declared as code so the availability target is reviewable and machine-readable."
+          }
+        ]
+      },
+      "stderr": []
+    },
+    {
+      "id": "adr-check",
+      "argv": [
+        "adr-check"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "records": 6,
+        "machineEnforced": 3,
+        "manualOnly": [
+          "ADR-006"
+        ],
+        "retired": [
+          "ADR-005"
+        ],
+        "failing": [
+          {
+            "id": "ADR-004",
+            "source": "Architecture-Design.md",
+            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)",
+            "unrecognized": [
+              "the team keeps an eye on it"
+            ]
+          }
+        ],
+        "details": [
+          {
+            "id": "ADR-001",
+            "source": "Architecture-Design.md",
+            "status": "accepted",
+            "retired": false,
+            "ok": true,
+            "machineEnforced": [
+              {
+                "kind": "harness",
+                "id": "arch-check"
+              }
+            ],
+            "manualOnly": false,
+            "unrecognized": [],
+            "reason": "machine-enforced"
+          },
+          {
+            "id": "ADR-002",
+            "source": "Architecture-Design.md",
+            "status": "accepted",
+            "retired": false,
+            "ok": true,
+            "machineEnforced": [
+              {
+                "kind": "check",
+                "id": "always-pass"
+              }
+            ],
+            "manualOnly": false,
+            "unrecognized": [],
+            "reason": "machine-enforced"
+          },
+          {
+            "id": "ADR-003",
+            "source": "Architecture-Design.md",
+            "status": "accepted",
+            "retired": false,
+            "ok": true,
+            "machineEnforced": [
+              {
+                "kind": "fitness-rule",
+                "id": "no-secret-literal"
+              }
+            ],
+            "manualOnly": false,
+            "unrecognized": [],
+            "reason": "machine-enforced"
+          },
+          {
+            "id": "ADR-004",
+            "source": "Architecture-Design.md",
+            "status": "accepted",
+            "retired": false,
+            "ok": false,
+            "machineEnforced": [],
+            "manualOnly": false,
+            "unrecognized": [
+              "the team keeps an eye on it"
+            ],
+            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)"
+          },
+          {
+            "id": "ADR-005",
+            "source": "Architecture-Design.md",
+            "status": "superseded",
+            "retired": true,
+            "ok": true,
+            "machineEnforced": [],
+            "manualOnly": false,
+            "unrecognized": [
+              "replaced by ADR-001"
+            ],
+            "reason": "retired; exempt"
+          },
+          {
+            "id": "ADR-006",
+            "source": "Architecture-Design.md",
+            "status": "accepted",
+            "retired": false,
+            "ok": true,
+            "machineEnforced": [],
+            "manualOnly": true,
+            "unrecognized": [],
+            "reason": "manual enforcement declared"
+          }
+        ]
+      },
+      "stderr": []
+    },
+    {
+      "id": "arch-trend",
+      "argv": [
+        "arch-trend"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "records": 0,
+        "note": "no trend data; run `arch-check --record` to establish a baseline"
+      },
+      "stderr": []
+    },
+    {
+      "id": "arch-trend--gate",
+      "argv": [
+        "arch-trend",
+        "--gate"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "records": 0,
+        "note": "no trend data; run `arch-check --record` to establish a baseline"
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt-verify--missing",
+      "argv": [
+        "receipt",
+        "verify",
+        "--task",
+        "golden-absent"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "note": "non-git",
+        "diffHash": null,
+        "degraded": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt-verify--tampered",
+      "argv": [
+        "receipt",
+        "verify",
+        "--task",
+        "golden-tampered"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "note": "non-git",
+        "diffHash": null,
+        "degraded": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt--bad-sub",
+      "argv": [
+        "receipt",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "receipt-subcommand",
+        "detail": "usage: receipt write|verify",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "waiver-create--dry-run",
+      "argv": [
+        "waiver",
+        "create",
+        "--dry-run",
+        "--owner",
+        "@team-db",
+        "--reason",
+        "sandbox fixture for the create path",
+        "--scope",
+        "always-fail",
+        "--expiry",
+        "2099-01-01T00:00:00.000Z",
+        "--compensation",
+        "nightly suite runs it"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "dryRun": true,
+        "path": null,
+        "waiver": {
+          "version": 1,
+          "owner": "@team-db",
+          "reason": "sandbox fixture for the create path",
+          "scope": "always-fail",
+          "expiry": "2099-01-01T00:00:00.000Z",
+          "compensation": "nightly suite runs it",
+          "created_at": "<TS>",
+          "contentHash": "<HASH>"
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "waiver-create--rejected",
+      "argv": [
+        "waiver",
+        "create",
+        "--dry-run",
+        "--owner",
+        "@team-db",
+        "--reason",
+        "security exception, just this once",
+        "--scope",
+        "always-fail",
+        "--expiry",
+        "2099-01-01T00:00:00.000Z",
+        "--compensation",
+        "none"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "errors": [
+          "forbidden keyword in reason|scope (safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)"
+        ],
+        "waiver": {
+          "version": 1,
+          "owner": "@team-db",
+          "reason": "security exception, just this once",
+          "scope": "always-fail",
+          "expiry": "2099-01-01T00:00:00.000Z",
+          "compensation": "none",
+          "created_at": "<TS>"
+        }
+      },
+      "stderr": [
+        "waiver create rejected: forbidden keyword in reason|scope (safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)"
+      ]
+    },
+    {
+      "id": "waiver--bad-sub",
+      "argv": [
+        "waiver",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "waiver-subcommand",
+        "detail": "usage: waiver list|check|create",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "adapters-add--dry-run",
+      "argv": [
+        "adapters",
+        "add",
+        "secrets-gitleaks",
+        "--dry-run"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "id": "secrets-gitleaks",
+        "changed": true,
+        "dryRun": true,
+        "executableAvailable": "<ENV>",
+        "install": "https://github.com/gitleaks/gitleaks",
+        "nextStep": "add \"secrets-gitleaks\" to the verification list of every module that needs security/privacy evidence"
+      },
+      "stderr": []
+    },
+    {
+      "id": "adapters-add--unknown",
+      "argv": [
+        "adapters",
+        "add",
+        "cc-base-golden-absent-adapter"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "error": "adapter-unknown",
+        "detail": "cc-base-golden-absent-adapter"
+      },
+      "stderr": []
+    },
+    {
+      "id": "adapters--bad-sub",
+      "argv": [
+        "adapters",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "adapters-subcommand",
+        "detail": "usage: adapters list|add <id>",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "unknown-subcommand",
+      "argv": [
+        "cc-base-golden-absent-subcommand"
+      ],
+      "exitCode": 3,
+      "stdout": null,
+      "stderr": [
+        "unknown subcommand: cc-base-golden-absent-subcommand",
+        "usage: node harness.mjs <subcommand>",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "  attributes  static wiring audit: declared quality attributes vs claiming checks",
+        "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
+        "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
+        "  adapters    list external quality tools, or add one into catalog checks",
+        "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
+        "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "planned (not-implemented):"
+      ]
+    },
+    {
+      "id": "missing-subcommand",
+      "argv": [],
+      "exitCode": 3,
+      "stdout": null,
+      "stderr": [
+        "missing subcommand",
+        "usage: node harness.mjs <subcommand>",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend",
+        "  attributes  static wiring audit: declared quality attributes vs claiming checks",
+        "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
+        "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
+        "  adapters    list external quality tools, or add one into catalog checks",
+        "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
+        "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
+        "planned (not-implemented):"
+      ]
+    },
+    {
+      "id": "receipt-verify--diff-moved",
+      "argv": [
+        "receipt",
+        "verify",
+        "--task",
+        "golden-task"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "note": "non-git",
+        "diffHash": null,
+        "degraded": true
+      },
+      "stderr": []
+    },
+    {
+      "id": "receipt-verify--no-match",
+      "argv": [
+        "receipt",
+        "verify"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "state": "DEGRADED",
+        "note": "non-git",
+        "diffHash": null,
+        "degraded": true
+      },
+      "stderr": []
+    }
+  ]
+}

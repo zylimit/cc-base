@@ -1,0 +1,7 @@
+- [cc-base 是框架仓，审的是 .claude/ 配置本身](project_cc-base-is-a-framework-repo.md) — 交付物是 hooks/skills/agents/引擎，不是业务代码；仓里自带可跑的闸
+- [高发缺陷：闸脚本"覆盖缺口不进机器判据"](pattern_gate-scripts-false-green-in-machine-channel.md) — findings 里记了，rc 和 ok 字段仍报绿，CI 消费即假绿
+- [高发缺陷：压制标记 / 自指悖论的处置](pattern_suppression-markers-need-honesty-audit.md) — 每次新增标记都要逐条验"没标记会不会真的响"
+- [审查本仓的踩坑：secret-exfil-guard 会拦住造 .env 样例](gotcha_secret-exfil-guard-blocks-env-fixtures.md) — 临时仓造密钥样例别用 .env 文件名
+- [审 golden/基线尺子的四条固定攻法](pattern_golden-baseline-rulers.md) — 矩阵不进判据 / selftest 撑绿 / 环境字段入库 / 正则只测一支；playground 突变法
+- [审正则扫描器要出两个数字](pattern_regex-scanner-fp-fn-budget.md) — 真语料量误报 + 真凭据格式表量漏报，只给正向样例等于只测一半
+- [手搓 YAML/语法子集校验器必须对拍](pattern_handrolled-parser-needs-differential.md) — 4 条 fixture 不算对齐；30 条新样例才照出 5 条假阴
