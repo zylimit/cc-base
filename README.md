@@ -138,7 +138,7 @@ pwsh -File .claude/scripts/fix-platform.ps1
 - **adapters 工具表**：semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo 按属性一键接进质量门（`adapters add <id>`），工具缺失报 BLOCKED 不假绿。
 - **结构化 waiver**：per-check 豁免（owner / reason / scope / expiry），security / safety 永不可豁免；high 档属性缺口可留痕推迟，critical 不行。
 
-完整启用条件、catalog schema、十五能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
+完整启用条件、catalog schema、二十二能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
 
 ## 进程守护（开发态韧性）
 

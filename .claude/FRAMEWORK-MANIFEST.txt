@@ -3,7 +3,7 @@
 # format: <path relative to .claude/>	sha256
 # 不在本清单里的文件 = 项目私有层，升级安装一律不动。
 .gitignore	dacdb1cbf0268f1dff970e76fdaf9cc74e570b7832abc7e0d5930a3c6bfbc06c
-CLAUDE.md	63ee6349a280acdcead59b75ae839571ec93ccb752d80ce1a7df185746c9ab1c
+CLAUDE.md	911d6e7b1e0a7778f5225f140504705a2d09ff6b6cd29cecc4793676e347e37c
 EVOLUTION.md	cbbfe1ec8ea8c04b87c73c8947fc2509ee5e77adc01a3da756f17a8acf0e95c2
 agent-memory/code-reviewer/MEMORY.md	0f51d3491ea67fe6d1285bf56ddbfc44033fd291f731b5a712b0a8332dbaff38
 agent-memory/code-reviewer/gotcha_secret-exfil-guard-blocks-env-fixtures.md	9baf9bce8765d750a1ac8e466c6bdc2463608f7d06dbd5d1e9aa7bb817f8db1c
