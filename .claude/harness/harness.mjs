@@ -747,11 +747,11 @@ function selftestCases() {
 
     // S13 -- fitness rules (pure over injected contents).
     ['fitness: secret literal is an error finding', () => {
-      const f = scanFitness([{ path: 'src/cfg.ts', content: 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' }], null, DEFAULT_FITNESS_RULES);
+      const f = scanFitness([{ path: 'src/cfg.ts', content: 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' }], null, DEFAULT_FITNESS_RULES);  // scan-secrets:ignore fixture
       assert.ok(f.some(x => x.rule === 'no-secret-literal' && x.severity === 'error'));
     }],
     ['fitness: suppression marker kills exactly that finding', () => {
-      const content = '// harness-fitness:ignore\nconst password = "abcdefghijklmnop123456";\n';
+      const content = '// harness-fitness:ignore\nconst password = "abcdefghijklmnop123456";\n';  // scan-secrets:ignore fixture
       const f = scanFitness([{ path: 'src/cfg.ts', content }], null, DEFAULT_FITNESS_RULES);
       assert.ok(!f.some(x => x.rule === 'no-secret-literal'));
     }],

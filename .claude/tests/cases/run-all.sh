@@ -52,6 +52,21 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——golden 基线比对跳过，未执行 != 通过。"
     GOLDEN_NOTE="；golden 基线 SKIPPED（无 node）"
 fi
+# audit 三只哨兵：同样只需 node + git，归第二段跑。两套分工不同，都要跑——
+#   test-audit-scripts 锁「脚本该有的行为」（干净仓 rc 0 / 坏样例 rc 1 / 豁免可见 / 非 git rc 3），
+#   test-audit-defects 锁「已修的那批缺陷不再复发」（--staged 只判索引、压制外置、超限不假绿……）。
+#   无 node 时这两个脚本自身是 exit 1 而不是 SKIPPED，所以守卫放在这里：没装 node 打 SKIPPED，
+#   不让「跑不了」冒充「没通过」，也不让它冒充通过。
+AUDIT_NOTE=""
+if command -v node >/dev/null 2>&1; then
+    for s in test-audit-scripts.sh test-audit-defects.sh; do
+        echo "----- 运行 $s -----"
+        bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    done
+else
+    echo "SKIPPED: 无 node（command -v node 未找到）——audit 三只哨兵的两套测试跳过，未执行 != 通过。"
+    AUDIT_NOTE="；audit 测试 SKIPPED（无 node）"
+fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
     echo "########## 结果：静态自测失败（安装器/路由一致性不过），停止。 ##########"
@@ -64,7 +79,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -82,10 +97,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"

@@ -901,7 +901,7 @@ rm -rf "$TMPA"
 
 # ⑳ fitness CLI：契约 = error 命中 rc 1 / 压制后 rc 0（--paths 显式指定，无需 catalog）
 TMPF="$(mktemp -d)"
-printf 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"
+printf 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"  # scan-secrets:ignore 假密钥，测的就是 fitness 规则本身
 RC=0
 OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths leak.ts) || RC=$?
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"no-secret-literal"'; then
@@ -909,7 +909,7 @@ if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"no-secret-literal"'; then
 else
   fail "fitness 密钥应 rc 1（rc=$RC，输出：$OUT）"
 fi
-printf '// harness-fitness:ignore\nconst apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"
+printf '// harness-fitness:ignore\nconst apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"  # scan-secrets:ignore 同上
 RC=0
 OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths leak.ts) || RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then

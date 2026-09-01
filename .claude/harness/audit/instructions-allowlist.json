@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "_schema": "entries[] = {file, line, rule, sha256, reason}. sha256 is the SHA-256 of that line's exact bytes, without the trailing newline. Change the line by one character and the exemption stops applying -- that is the point. Every exemption that fires is printed by scan-instructions and listed in its JSON under allowlisted; an exemption nobody can see is a blind spot, not a decision. Exemptions live here rather than inside the scanned file because the scanned files are the untrusted input: a mute written in the payload's own file is written by whoever wrote the payload.",
+  "entries": [
+    {
+      "file": ".claude/settings.json",
+      "line": 5,
+      "rule": "secret-file-read",
+      "sha256": "9c94c388bdc7c4f2a4fe97213792755a015d6990f8ef0faeee62294afc6091e1",
+      "reason": "This is a permissions deny rule. The file has to name .env in order to block reads of it -- naming the path here is the protection, not a pointer to a secret."
+    }
+  ]
+}
