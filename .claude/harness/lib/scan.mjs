@@ -1,0 +1,425 @@
+// lib/scan.mjs -- the three capabilities that read source and documents rather than the
+// module graph: S13 fitness (built-in pattern rules), S14 adapters (the external tool
+// table) and S15 adr-check (every active decision must name a real enforcement).
+// adr-check sits here because it resolves enforcement references against fitness rule ids.
+// Depends on core.mjs + catalog.mjs.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  HARNESS_DIR, SOURCE_EXTS, TIER_RANK,
+  catalogFilePath, changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny,
+  normalizeTier, parseCsv, projectRoot, whichCmd,
+} from './core.mjs';
+import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
+
+// ===========================================================================
+// S13 fitness  (built-in day-one quality-attribute rules; no external tools)
+// ===========================================================================
+// Pattern rules that need no toolchain, so they work immediately in any language:
+// credential literals, personal data in logs, silent failure handlers, unbounded retry
+// loops, unreferenced deferral markers. Heuristics over text -- they reduce the set of
+// defects nobody looked for; they do not establish that a property holds. Suppress one
+// finding with `harness-fitness:ignore` on the line or the line above.
+
+const FITNESS_IGNORE = 'harness-fitness:ignore';
+
+const DEFAULT_FITNESS_RULES = [
+  {
+    id: 'no-secret-literal', attributes: ['security'], severity: 'error',
+    forbid: '(?:api[_-]?key|secret|password|passwd|token|private[_-]?key|credential)\\s*[:=]\\s*["\'][A-Za-z0-9/+_\\-]{16,}["\']'
+      + '|["\'](?:sk|pk|rk)[_-]live[_-][A-Za-z0-9]{12,}["\']'
+      + '|["\']gh[pousr]_[A-Za-z0-9]{16,}["\']'
+      + '|["\']xox[abposr]-[A-Za-z0-9-]{10,}["\']'
+      + '|["\']AKIA[0-9A-Z]{16}["\']'
+      + '|-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----',
+    rationale: 'a credential written into source is published the moment the repository is shared',
+    fix: 'read the value from the environment or a secrets manager; keep only a placeholder in code',
+  },
+  {
+    id: 'no-pii-in-logs', attributes: ['privacy'], severity: 'error',
+    forbid: '(?:log|logger|console|print|println|fmt\\.Print\\w*)[.\\w]*\\s*\\([^)\\n]*\\b(?:email|e_mail|ssn|social_security|passport|credit_card|card_number|phone_number|date_of_birth|dob|national_id|id_card)\\b',
+    rationale: 'personal data in logs spreads to systems with weaker access control and longer retention',
+    fix: 'log a stable pseudonymous identifier instead of the personal field',
+  },
+  {
+    id: 'no-silent-failure', attributes: ['reliability'], severity: 'error',
+    forbid: 'catch\\s*(?:\\([^)]*\\))?\\s*\\{\\s*\\}|except[^:\\n]*:\\s*(?:pass|\\.\\.\\.)\\s*$',
+    rationale: 'an empty handler converts a failure into a wrong answer that nothing reports',
+    fix: 'handle the error, rethrow it, or log it with enough context to diagnose',
+  },
+  {
+    id: 'no-unbounded-retry', attributes: ['resilience'], severity: 'warning',
+    forbid: '(?:while\\s*\\(\\s*true\\s*\\)|while\\s+True\\s*:|for\\s*\\(\\s*;\\s*;\\s*\\))[\\s\\S]{0,240}?\\b(?:retry|reconnect|fetch|request|poll)\\b',
+    rationale: 'a retry loop with no bound or backoff turns a transient fault into a sustained outage',
+    fix: 'add a maximum attempt count and exponential backoff with jitter',
+  },
+  {
+    id: 'no-unreferenced-deferral', attributes: ['safety'], severity: 'warning', minimumTier: 'high',
+    forbid: '\\b(?:TODO|FIXME|XXX|HACK)\\b(?![^\\n]*\\b(?:issue|ticket|#\\d+)\\b)',
+    rationale: 'an unreferenced marker in a high-tier module is work nobody has agreed to do',
+    fix: 'link the marker to a tracked issue, or resolve it',
+  },
+];
+
+/** Built-in rules, optionally extended/replaced by .claude/harness/fitness-rules.json. */
+function loadFitnessRules() {
+  const fp = path.join(projectRoot(), '.claude', 'harness', 'fitness-rules.json');
+  if (!fs.existsSync(fp)) return DEFAULT_FITNESS_RULES;
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_e) { return DEFAULT_FITNESS_RULES; }
+  if (!raw || !Array.isArray(raw.rules)) return DEFAULT_FITNESS_RULES;
+  const extra = raw.rules.filter(r => r && typeof r.id === 'string' && typeof r.forbid === 'string');
+  return raw.replace === true ? extra : [...DEFAULT_FITNESS_RULES, ...extra];
+}
+
+/** True when the owner module declared one of the rule's attributes at >= rule.minimumTier. */
+function meetsMinimumTier(module, rule) {
+  if (!module) return false;
+  const floor = TIER_RANK[rule.minimumTier] || 0;
+  const declared = module.attributes || {};
+  return (rule.attributes || []).some(attr => {
+    const req = declared[attr];
+    if (req === undefined) return false;
+    return (TIER_RANK[normalizeTier(req).tier] || 0) >= floor;
+  });
+}
+
+/** True when the owner module set every one of the rule's attributes to none. */
+function ruleOptedOut(module, rule) {
+  if (!module || !(rule.attributes || []).length) return false;
+  const declared = module.attributes || {};
+  return rule.attributes.every(attr => {
+    const req = declared[attr];
+    if (req === undefined) return false;
+    return normalizeTier(req).tier === 'none';
+  });
+}
+
+/**
+ * Scan file contents against fitness rules (pure over provided contents; injectable for
+ * selftest). Suppression marker on the finding line or the line above kills one finding.
+ * @param {Array<{path:string,content:string}>} files
+ * @param {Catalog|null} catalog     module scoping (minimumTier/opt-out); null = no scoping
+ * @param {Array} rules
+ * @returns {Array} findings
+ */
+function scanFitness(files, catalog, rules) {
+  const findings = [];
+  for (const f of files) {
+    const owner = catalog ? (() => {
+      const id = moduleForPath(f.path, catalog);
+      return id ? (catalog.modules || []).find(m => m.id === id) : null;
+    })() : null;
+    const lines = f.content.split('\n');
+    for (const rule of rules) {
+      if (rule.appliesTo && rule.appliesTo.length && !matchAny(f.path, rule.appliesTo)) continue;
+      if (owner && ruleOptedOut(owner, rule)) continue;
+      if (rule.minimumTier && !meetsMinimumTier(owner, rule)) continue;
+      let pattern;
+      try { pattern = new RegExp(rule.forbid, 'gmi'); } catch (_e) { continue; }
+      let m = pattern.exec(f.content);
+      while (m) {
+        const line = f.content.slice(0, m.index).split('\n').length;
+        const suppressed = (lines[line - 1] || '').includes(FITNESS_IGNORE) || (lines[line - 2] || '').includes(FITNESS_IGNORE);
+        if (!suppressed) {
+          findings.push({
+            rule: rule.id, attributes: rule.attributes || [], severity: rule.severity || 'warning',
+            module: owner ? owner.id : null, path: f.path, line,
+            excerpt: String(lines[line - 1] || '').trim().slice(0, 200),
+            rationale: rule.rationale || '', fix: rule.fix || '',
+          });
+        }
+        if (m.index === pattern.lastIndex) pattern.lastIndex++;
+        m = pattern.exec(f.content);
+      }
+    }
+  }
+  return findings;
+}
+
+function cmdFitness(flags) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const catalog = loaded.ok ? loaded.catalog : null;
+  const rules = loadFitnessRules();
+  const root = projectRoot();
+  let subjects;
+  if (typeof flags.paths === 'string') {
+    subjects = parseCsv(flags.paths);
+  } else if (flags.all === true) {
+    if (!isGitRepo()) return emit({ ok: false, degraded: true, error: 'non-git', detail: 'fitness --all enumerates tracked files via git' }, 3);
+    subjects = trackedFiles(catalog && catalog.maxTrackedPaths).paths;
+  } else {
+    const cp = changedPaths();
+    subjects = Array.isArray(cp) ? cp : cp.paths;
+  }
+  const files = [];
+  for (const p of subjects) {
+    const ext = p.slice(p.lastIndexOf('.'));
+    if (!SOURCE_EXTS.has(ext)) continue;
+    if (isDenied(p) || isStateExcluded(p)) continue;
+    let content;
+    try {
+      const st = fs.statSync(path.join(root, p));
+      if (!st.isFile() || st.size > 1000000) continue;
+      const buf = fs.readFileSync(path.join(root, p));
+      if (buf.includes(0)) continue;   // binary
+      content = buf.toString('utf8');
+    } catch (_e) { continue; }
+    files.push({ path: p.replace(/\\/g, '/'), content });
+  }
+  const findings = scanFitness(files, catalog, rules);
+  const errors = findings.filter(f => f.severity === 'error');
+  return emit({
+    ok: errors.length === 0,
+    scope: flags.all === true ? 'all-tracked' : (typeof flags.paths === 'string' ? 'explicit' : 'changed'),
+    scannedFiles: files.length, rules: rules.length,
+    counts: {
+      error: errors.length,
+      warning: findings.filter(f => f.severity === 'warning').length,
+      info: findings.filter(f => f.severity === 'info').length,
+    },
+    findings: findings.slice(0, 200),
+  }, errors.length === 0 ? 0 : 1);
+}
+
+// ===========================================================================
+// S14 adapters  (curated external tools mapped to attributes; nothing bundled)
+// ===========================================================================
+// The harness installs nothing. `adapters list` shows curated command templates with the
+// attributes they evidence and whether the executable is on PATH; `adapters add <id>`
+// wires the check into catalog.checks. Wiring is only half the job: nothing selects the
+// check until a module lists it in `verification` (or a riskChecks tier includes it).
+
+function adaptersFilePath() {
+  const local = path.join(projectRoot(), '.claude', 'harness', 'adapters.json');
+  if (fs.existsSync(local)) return local;
+  return path.join(HARNESS_DIR, 'adapters.json');
+}
+
+function loadAdapters() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(adaptersFilePath(), 'utf8')); } catch (_e) { return []; }
+  return (raw && Array.isArray(raw.adapters)) ? raw.adapters : [];
+}
+
+function cmdAdapters(flags, positional = []) {
+  const sub = positional[0] || 'list';
+  const catalogue = loadAdapters();
+  if (sub === 'list') {
+    const want = typeof flags.attribute === 'string' ? flags.attribute : null;
+    const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+    const wiredIds = loaded.ok ? Object.keys(loaded.catalog.checks || {}) : [];
+    const list = catalogue
+      .filter(a => !want || (a.attributes || []).includes(want))
+      .map(a => ({
+        id: a.id, attributes: a.attributes || [], class: a.class, executable: a.executable,
+        available: whichCmd(a.executable), wired: wiredIds.includes(a.id),
+        install: a.install, rationale: a.rationale,
+      }));
+    return emit({ ok: true, adapters: list }, 0);
+  }
+  if (sub === 'add') {
+    const id = positional[1] || (typeof flags.id === 'string' ? flags.id : '');
+    const adapter = catalogue.find(a => a.id === id);
+    if (!adapter) return emit({ ok: false, error: 'adapter-unknown', detail: id || null }, 1);
+    const cp = typeof flags.catalog === 'string' ? flags.catalog : catalogFilePath();
+    const loaded = loadCatalog(cp);
+    if (!loaded.ok) return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
+    const catalog = loaded.catalog;
+    catalog.checks = catalog.checks || {};
+    const already = !!catalog.checks[adapter.id];
+    catalog.checks[adapter.id] = {
+      command: adapter.command, class: adapter.class,
+      ...(Array.isArray(adapter.attributes) ? { attributes: adapter.attributes } : {}),
+    };
+    if (flags['dry-run'] !== true && flags.dryRun !== true) {
+      fs.writeFileSync(cp, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
+    }
+    return emit({
+      ok: true, id: adapter.id, changed: !already, dryRun: flags['dry-run'] === true || flags.dryRun === true,
+      executableAvailable: whichCmd(adapter.executable), install: adapter.install,
+      nextStep: 'add "' + adapter.id + '" to the verification list of every module that needs ' + (adapter.attributes || []).join('/') + ' evidence',
+    }, 0);
+  }
+  return emit({ error: 'adapters-subcommand', detail: 'usage: adapters list|add <id>', got: sub || null }, 3);
+}
+
+// ===========================================================================
+// S15 adr-check  (an architecture decision nothing checks is one the codebase drifts from)
+// ===========================================================================
+// Every active ADR must name how it is enforced. A phantom reference (naming a check or
+// rule that does not exist) is worse than none, because it reads as enforced. Explicitly
+// manual enforcement is accepted but reported separately -- an honest "a human guards
+// this" beats a fake machine claim. Retired ADRs (superseded/deprecated/rejected) are
+// exempt: they no longer bind anyone.
+//
+// Sources scanned: inline `### ADR-xxx` blocks in Architecture-Design.md (arch-designer
+// format) and standalone docs/adr/*.md files (one record per file). Both optional.
+
+const ADR_RETIRED_RE = /superseded|deprecated|rejected|retired|\u5df2\u5e9f\u5f03|\u5e9f\u5f03|\u5df2\u53d6\u4ee3|\u5df2\u5426\u51b3|\u5df2\u66ff\u4ee3/i;
+const ADR_MANUAL_RE = /\u4eba\u5de5|\u8bc4\u5ba1|manual|review/i;
+// Harness capabilities that ARE machine enforcement when named directly.
+const ADR_HARNESS_CAPS = ['arch-check', 'forbiddendependencies', 'layers', 'catalog-lint', 'fitness', 'verify', 'receipt', 'attributes', 'stop-gate', 'pre-commit', 'supervisor', 'arch-trend'];
+
+/** Strip markdown decoration and template brackets from a field value. */
+function stripMdDecoration(s) {
+  return String(s == null ? '' : s).replace(/\*\*|`|\[|\]/g, '').trim();
+}
+
+/** First `- **字段**：value` / `字段: value` style line for any of the given labels. */
+function adrField(block, labels) {
+  for (const label of labels) {
+    const re = new RegExp('(?:^|\\n)\\s*[-*]?\\s*(?:\\*\\*)?' + label + '(?:\\*\\*)?\\s*[:\\uFF1A]\\s*([^\\n]+)', 'i');
+    const m = re.exec(block);
+    if (m) return stripMdDecoration(m[1]);
+  }
+  return '';
+}
+
+/**
+ * Parse inline `### ADR-xxx` blocks out of a markdown document (pure; injectable).
+ * @param {string} content
+ * @returns {Array<{id:string,title:string,status:string,enforcedRaw:string}>}
+ */
+function parseInlineAdrs(content) {
+  const text = String(content == null ? '' : content).replace(/\r\n?/g, '\n');
+  const out = [];
+  const heading = /^###\s*(ADR-[A-Za-z0-9._-]+)\s*[:\uFF1A]?\s*(.*)$/gm;
+  const starts = [];
+  let m = heading.exec(text);
+  while (m) {
+    starts.push({ id: m[1], title: stripMdDecoration(m[2]), at: m.index, bodyFrom: m.index + m[0].length });
+    m = heading.exec(text);
+  }
+  for (let i = 0; i < starts.length; i++) {
+    const from = starts[i].bodyFrom;
+    // Block ends at the next heading of ### or shallower (##, #), or EOF.
+    const nextHeading = text.slice(from).search(/\n#{1,3}\s/);
+    const block = nextHeading === -1 ? text.slice(from) : text.slice(from, from + nextHeading);
+    out.push({
+      id: starts[i].id,
+      title: starts[i].title,
+      status: adrField(block, ['\u72b6\u6001', 'Status']) || 'accepted',
+      enforcedRaw: adrField(block, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
+    });
+  }
+  return out;
+}
+
+/**
+ * Resolve one enforcement fragment against known ids (pure).
+ * Longest known token wins so "arch-check 禁边" resolves to arch-check, and a catalog
+ * check id embedded in prose still counts.
+ * @returns {{kind:('check'|'fitness-rule'|'harness'|'manual'|'unknown'),id?:string,text:string}|null}
+ */
+function resolveEnforcement(fragment, knownChecks, knownRules) {
+  const f = stripMdDecoration(fragment);
+  if (!f) return null;
+  const lower = f.toLowerCase();
+  let best = null;
+  const consider = (kind, id) => {
+    if (!id) return;
+    if (lower.includes(String(id).toLowerCase())) {
+      if (!best || String(id).length > String(best.id).length) best = { kind, id: String(id), text: f };
+    }
+  };
+  for (const id of (knownChecks || [])) consider('check', id);
+  for (const id of (knownRules || [])) consider('fitness-rule', id);
+  for (const cap of ADR_HARNESS_CAPS) consider('harness', cap);
+  if (best) return best;
+  if (ADR_MANUAL_RE.test(f)) return { kind: 'manual', text: f };
+  return { kind: 'unknown', text: f };
+}
+
+/**
+ * Assess ADR records (pure): an active record passes when its enforcement resolves to at
+ * least one known machine token or an explicit manual marker; zero recognizable tokens
+ * (missing field, or only phantom names) fails. Unrecognized fragments riding along a
+ * known one are surfaced, not failed -- prose is allowed, silence about it is not.
+ * @param {Array<{id,title?,status,enforcedRaw,source?}>} records
+ * @param {string[]} knownChecks
+ * @param {string[]} knownRules
+ */
+function assessAdrRecords(records, knownChecks, knownRules) {
+  const out = [];
+  for (const r of (records || [])) {
+    const retired = ADR_RETIRED_RE.test(String(r.status || ''));
+    const fragments = String(r.enforcedRaw || '').split(/[,\uFF0C\u3001;\uFF1B/]+/).map(s => s.trim()).filter(Boolean);
+    const resolved = fragments.map(f => resolveEnforcement(f, knownChecks, knownRules)).filter(Boolean);
+    const machine = resolved.filter(t => t.kind === 'check' || t.kind === 'fitness-rule' || t.kind === 'harness');
+    const manual = resolved.filter(t => t.kind === 'manual');
+    const unknown = resolved.filter(t => t.kind === 'unknown');
+    const recognized = machine.length + manual.length;
+    const ok = retired || recognized > 0;
+    out.push({
+      id: r.id, source: r.source || null, status: r.status || 'accepted', retired,
+      ok,
+      machineEnforced: machine.map(t => ({ kind: t.kind, id: t.id })),
+      manualOnly: !retired && machine.length === 0 && manual.length > 0,
+      unrecognized: unknown.map(t => t.text),
+      reason: retired ? 'retired; exempt'
+        : recognized === 0 && fragments.length === 0 ? 'no enforcement declared (\u6267\u6cd5\u65b9\u5f0f/Enforced-by missing)'
+        : recognized === 0 ? 'names nothing recognizable (phantom reference reads as enforced but is not)'
+        : machine.length > 0 ? 'machine-enforced'
+        : 'manual enforcement declared',
+    });
+  }
+  return { records: out, failing: out.filter(r => !r.ok) };
+}
+
+/** Standalone ADR files: docs/adr/*.md, one record per file (cursor-style layout). */
+function parseAdrDir(dir) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names.sort()) {
+    if (!n.endsWith('.md')) continue;
+    let content;
+    try { content = fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_e) { continue; }
+    out.push({
+      id: n.replace(/\.md$/, ''),
+      source: path.join(dir, n),
+      status: adrField(content, ['\u72b6\u6001', 'Status']) || 'accepted',
+      enforcedRaw: adrField(content, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
+    });
+  }
+  return out;
+}
+
+function cmdAdrCheck(flags) {
+  const root = projectRoot();
+  const file = typeof flags.file === 'string' ? flags.file : 'Architecture-Design.md';
+  const dir = typeof flags.dir === 'string' ? flags.dir : 'docs/adr';
+  const records = [];
+  const filePath = path.join(root, file);
+  if (fs.existsSync(filePath)) {
+    let content = '';
+    try { content = fs.readFileSync(filePath, 'utf8'); } catch (_e) { /* unreadable -> no records */ }
+    for (const r of parseInlineAdrs(content)) records.push({ ...r, source: file });
+  }
+  for (const r of parseAdrDir(path.join(root, dir))) records.push(r);
+  if (records.length === 0) {
+    return emit({ ok: true, records: 0, note: 'no ADR records found (' + file + ' / ' + dir + '); nothing to enforce' }, 0);
+  }
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const knownChecks = loaded.ok ? Object.keys(loaded.catalog.checks || {}) : [];
+  const knownRules = loadFitnessRules().map(r => r.id);
+  const assessed = assessAdrRecords(records, knownChecks, knownRules);
+  return emit({
+    ok: assessed.failing.length === 0,
+    records: assessed.records.length,
+    machineEnforced: assessed.records.filter(r => r.ok && !r.retired && !r.manualOnly).length,
+    manualOnly: assessed.records.filter(r => r.manualOnly).map(r => r.id),
+    retired: assessed.records.filter(r => r.retired).map(r => r.id),
+    failing: assessed.failing.map(r => ({ id: r.id, source: r.source, reason: r.reason, unrecognized: r.unrecognized })),
+    details: assessed.records,
+  }, assessed.failing.length === 0 ? 0 : 1);
+}
+
+export {
+  FITNESS_IGNORE, DEFAULT_FITNESS_RULES, loadFitnessRules, meetsMinimumTier, ruleOptedOut,
+  scanFitness, cmdFitness,
+  adaptersFilePath, loadAdapters, cmdAdapters,
+  parseInlineAdrs, resolveEnforcement, assessAdrRecords, parseAdrDir, cmdAdrCheck,
+};

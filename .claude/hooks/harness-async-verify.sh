@@ -34,8 +34,23 @@ if [ -f "$MARK" ]; then
 fi
 printf '%s\n' "$NOW" > "$MARK" 2>/dev/null || true
 
-OUT=$(harness_run verify 2>/dev/null)
+ERRF=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/cc-async-verify.$$")
+OUT=$(harness_run verify 2>"$ERRF")
 RC=$?
+ERR_HEAD=$(harness_err_head "$(cat "$ERRF" 2>/dev/null)")
+rm -f "$ERRF"
+
+# 契约外退出码（verify 契约只有 0/2/3）= 引擎自己崩了、门没跑成。早警不硬拦（commit 硬门仍是
+# pre-commit-check），但闸跑不起来这件事同样得说话——照唤醒形态发一条可见诊断，不静默 exit 0 吞掉。
+if ! harness_rc_in_contract "$RC" 0 2 3; then
+  echo "[harness-async-verify] 编辑期后台质量门跑不起来：harness verify 以契约外退出码 $RC 退出（契约只有 0/2/3）。" >&2
+  printf '%s\n' "${ERR_HEAD:-（引擎无 stderr 输出）}" >&2
+  echo "这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是门未过；commit 时 pre-commit-check 会硬拦，建议现在就修引擎。" >&2
+  # shellcheck source=/dev/null
+  . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+  gate_log "harness-async-verify" "后台 verify 以契约外退出码 $RC 退出（引擎异常，早警）"
+  exit 2
+fi
 [ "$RC" -eq 2 ] || exit 0
 
 SUMMARY=$(printf '%s' "$OUT" | python3 -c "

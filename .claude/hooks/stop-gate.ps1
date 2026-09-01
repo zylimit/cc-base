@@ -37,11 +37,40 @@ if ($files.Count -eq 0) {
   # missing -> original logic, zero behaviour change): once the list is cleared (verbal release),
   # verify the current worktree diff is bound to a passed receipt -- if the code moved past every
   # reviewed receipt (STALE, rc=4) force re-review, keeping .needs-review so the next stop still blocks.
+  # An out-of-contract exit code (receipt verify contract is only 0/3/4) means the engine itself
+  # crashed and the gate never ran -- releasing there would be a fake pass, so it blocks too, names
+  # the actual code, keeps .needs-review, and runs through the same .stop-gate-strikes breaker so a
+  # permanently broken engine cannot brick the session.
   . (Join-Path $PSScriptRoot 'lib-harness.ps1')
   if ((Test-HarnessEnabled) -and (Get-HarnessNode)) {
     $rv = Invoke-Harness @('receipt', 'verify')
     if ($rv -and $rv.Code -eq 4) {
       $r = 'Code changed after the last review; no matching passed receipt (diff moved past every reviewed receipt). Re-dispatch code-reviewer for the current diff and write a receipt before stopping.'
+      try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $r } catch { }
+      Write-Output ([pscustomobject]@{ decision = 'block'; reason = $r } | ConvertTo-Json -Compress)
+      exit 0
+    }
+    if ($rv -and -not (Test-HarnessRcInContract -Code $rv.Code -Contract @(0, 3))) {
+      # Strike accounting reuses the same state file; the fingerprint is the exit code (a different
+      # code starts over at 1), so it never mixes with the pending-list fingerprints.
+      $hsig = "harness-receipt-verify-rc$($rv.Code)"
+      $hstrikes = 0
+      if (Test-Path $strikeFile) {
+        $hprev = @(Get-Content $strikeFile -ErrorAction SilentlyContinue)
+        $hprevSig = @($hprev | Where-Object { $_ -like 'sig=*' })[0] -replace '^sig=', ''
+        $hprevCount = @($hprev | Where-Object { $_ -like 'count=*' })[0] -replace '^count=', ''
+        if ($hprevSig -eq $hsig) { [void][int]::TryParse($hprevCount, [ref]$hstrikes) }
+      }
+      $rvHead = Get-HarnessErrHead -Text $rv.Err
+      if ($hstrikes -ge 3) {
+        Remove-Item $strikeFile -ErrorAction SilentlyContinue
+        $notice = "stop-gate: harness receipt verify exited with out-of-contract code $($rv.Code) three times in a row (engine failure, NOT a stale receipt) -- consecutive-block limit reached, releasing this stop. The receipt binding was never verified, the debt stands: fix the engine with 'node .claude/harness/harness.mjs receipt verify'. Engine error: $rvHead"
+        try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $notice } catch { }
+        Write-Output ([pscustomobject]@{ systemMessage = $notice } | ConvertTo-Json -Compress)
+        exit 0
+      }
+      Set-Content -Path $strikeFile -Value @("sig=$hsig", ("count=" + ($hstrikes + 1)))
+      $r = "stop-gate: harness receipt verify exited with out-of-contract code $($rv.Code) (the contract is only 0/3/4), so the receipt gate never ran -- this is an engine failure (missing .claude/harness/lib/, broken node), NOT a stale receipt. Run 'node .claude/harness/harness.mjs receipt verify' for the real error and fix the engine before stopping. Engine error: $rvHead"
       try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $r } catch { }
       Write-Output ([pscustomobject]@{ decision = 'block'; reason = $r } | ConvertTo-Json -Compress)
       exit 0

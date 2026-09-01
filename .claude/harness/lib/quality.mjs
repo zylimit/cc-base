@@ -1,0 +1,637 @@
+// lib/quality.mjs -- the verification half of the runtime: S7 diff-bound review receipts,
+// S8 the four-state quality gate, S10 structured waivers and S11 quality-attribute
+// coverage. They ship together because verifyPlan() runs checks, applies waivers and
+// assesses attributes in one pass. Depends on core.mjs + catalog.mjs + graph.mjs.
+
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  TIER_ENFORCEMENT,
+  changedPaths, emit, gitFingerprint, headCommit, isGitRepo, isStateExcluded, normalizeTier,
+  parseCsv, projectRoot, readStdin, sha256, stableJson, whichCmd,
+} from './core.mjs';
+import { loadCatalog } from './catalog.mjs';
+import { analyzeImpact } from './graph.mjs';
+
+// ===========================================================================
+// S7 receipt  (diff-bound review receipts; stale/tamper -> exit 4)
+// ===========================================================================
+// Receipts live under .claude/harness/receipts/<taskId>.json (git-ignored runtime state).
+// The receipt binds a review verdict to the exact working-tree diff it reviewed via
+// diffHash = gitFingerprint(). If code moves past that diff, the receipt goes stale.
+
+/** Where receipts are stored (project-relative, git-ignored). */
+function receiptsDir() {
+  return path.join(projectRoot(), '.claude', 'harness', 'receipts');
+}
+
+/** Sanitize a taskId into a safe single filename segment (guards path traversal). */
+function safeTaskId(id) {
+  const s = String(id == null ? '' : id).replace(/[^A-Za-z0-9._-]/g, '_');
+  return (s === '' || s === '.' || s === '..') ? '' : s;
+}
+
+/**
+ * Tamper-evident content hash: stable JSON of the receipt with contentHash blanked out,
+ * then sha256. Recompute on verify; any field mutation changes the hash. Pure + injectable
+ * so selftest exercises round-trip / tamper detection without touching fs.
+ * @param {Object} r
+ * @returns {string}
+ */
+function contentHash(r) {
+  return sha256(stableJson({ ...r, contentHash: undefined }));
+}
+
+/** True if the working tree carries code changes vs HEAD (state files excluded). */
+function hasCodeChange() {
+  const cp = changedPaths();
+  const list = Array.isArray(cp) ? cp : cp.paths;
+  return list.some(p => !isStateExcluded(p));
+}
+
+/**
+ * Build + persist a receipt bound to the current working-tree diff. taskId is required.
+ * baseCommit/diffHash are captured live; timestamp is injectable for deterministic tests.
+ * @param {Object} input   { taskId, reviewer?, verdict?, scope? }
+ * @param {{timestamp?:string}} [opts]
+ * @returns {Receipt}
+ */
+function writeReceipt(input, { timestamp } = {}) {
+  const input0 = input && typeof input === 'object' ? input : {};
+  const taskId = safeTaskId(input0.taskId);
+  if (!taskId) throw new Error('writeReceipt: taskId required (allowed chars: A-Za-z0-9._-)');
+  const receipt = {
+    taskId,
+    baseCommit: headCommit(),
+    diffHash: gitFingerprint(),
+    reviewer: typeof input0.reviewer === 'string' ? input0.reviewer : 'unknown',
+    verdict: typeof input0.verdict === 'string' ? input0.verdict : 'pass',
+    scope: input0.scope === undefined ? null : input0.scope,
+    timestamp: timestamp || new Date().toISOString(),
+  };
+  receipt.contentHash = contentHash(receipt);
+  const dir = receiptsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, taskId + '.json'), JSON.stringify(receipt, null, 2) + '\n', 'utf8');
+  return receipt;
+}
+
+/** True if a receipt object's stored contentHash matches a fresh recompute (untampered). */
+function receiptIntact(r) {
+  return !!r && typeof r === 'object' && typeof r.contentHash === 'string'
+    && contentHash(r) === r.contentHash;
+}
+
+/**
+ * Pure matcher (fs-free, injectable): does any intact receipt bind to diffHash D?
+ * @param {Receipt[]} receipts
+ * @param {string} D  current gitFingerprint()
+ * @returns {{matched:string|null,hadReceipts:boolean}}
+ */
+function matchReceipts(receipts, D) {
+  const list = Array.isArray(receipts) ? receipts : [];
+  for (const r of list) {
+    if (receiptIntact(r) && r.diffHash === D) return { matched: r.taskId || true, hadReceipts: true };
+  }
+  return { matched: null, hadReceipts: list.length > 0 };
+}
+
+/** Load every receipt JSON in the receipts dir (skips unreadable/unparseable). */
+function loadReceipts() {
+  const dir = receiptsDir();
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith('.json')) continue;
+    try { out.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))); } catch (_e) { /* skip bad file */ }
+  }
+  return out;
+}
+
+/**
+ * Diff-centric verification. Semantics (no active-task concept):
+ *  - non-git            -> DEGRADED, exit 3 (cannot compute a trustworthy diff; do not block).
+ *  - --task <id>        -> that receipt must exist + be intact + bind to current diff, else exit 4.
+ *  - no --task (stop-gate default):
+ *      * no code change            -> PASS exit 0 (nothing to review).
+ *      * no receipts yet           -> PASS exit 0, note:"no-receipts" (adoption grace, never over-block).
+ *      * some receipt binds diff   -> PASS exit 0.
+ *      * receipts exist, none bind -> STALE exit 4 (code moved past every reviewed diff).
+ * @param {{task?:string}} [flags]
+ * @returns {{result:Object,code:number}}
+ */
+function verifyReceipt(flags = {}) {
+  if (!isGitRepo()) {
+    return { result: { state: 'DEGRADED', note: 'non-git', diffHash: null, degraded: true }, code: 3 };
+  }
+  const D = gitFingerprint();
+
+  if (typeof flags.task === 'string' && flags.task) {
+    const id = safeTaskId(flags.task);
+    const file = path.join(receiptsDir(), id + '.json');
+    let receipt;
+    try { receipt = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_e) {
+      return { result: { state: 'STALE', note: 'receipt-missing', task: flags.task, diffHash: D }, code: 4 };
+    }
+    if (!receiptIntact(receipt)) {
+      return { result: { state: 'STALE', note: 'tampered', task: flags.task, diffHash: D }, code: 4 };
+    }
+    if (receipt.diffHash === D) {
+      return { result: { state: 'PASS', matched: receipt.taskId, diffHash: D }, code: 0 };
+    }
+    return { result: { state: 'STALE', note: 'diff-moved', task: flags.task, diffHash: D, receiptDiffHash: receipt.diffHash }, code: 4 };
+  }
+
+  if (!hasCodeChange()) {
+    return { result: { state: 'PASS', note: 'no-change', diffHash: D }, code: 0 };
+  }
+  const receipts = loadReceipts();
+  if (receipts.length === 0) {
+    return { result: { state: 'PASS', note: 'no-receipts', diffHash: D }, code: 0 };
+  }
+  const m = matchReceipts(receipts, D);
+  if (m.matched) {
+    return { result: { state: 'PASS', matched: m.matched, diffHash: D }, code: 0 };
+  }
+  return { result: { state: 'STALE', note: 'no-matching-receipt', diffHash: D }, code: 4 };
+}
+
+function cmdReceipt(flags, positional = []) {
+  const sub = positional[0];   // parseArgs: cmd=argv[0], positional=argv[1..], so sub is positional[0]
+  if (sub === 'write') {
+    const raw = readStdin();
+    let input;
+    try { input = raw.trim() ? JSON.parse(raw) : {}; } catch (e) {
+      return emit({ error: 'receipt-parse-error', detail: String(e && e.message || e) }, 3);
+    }
+    let receipt;
+    try { receipt = writeReceipt(input); } catch (e) {
+      return emit({ error: 'receipt-write-error', detail: String(e && e.message || e) }, 3);
+    }
+    return emit(receipt, 0);
+  }
+  if (sub === 'verify') {
+    const { result, code } = verifyReceipt(flags);
+    return emit(result, code);
+  }
+  return emit({ error: 'receipt-subcommand', detail: 'usage: receipt write|verify', got: sub || null }, 3);
+}
+
+function cmdVerify(flags) {
+  const { result, code } = verifyPlanCmd(flags);
+  return emit(result, code);
+}
+
+// ===========================================================================
+// S8 quality  (four-state verification gate; command-missing -> BLOCKED, never fake green)
+// ===========================================================================
+// runCheck maps one declared check to PASS/FAIL/BLOCKED/SKIPPED. A missing binary is
+// BLOCKED (not a silent pass); fast-mode may SKIP a non-security/safety/privacy check that
+// opts in, but security/safety/privacy checks always run for real. Aggregation: any FAIL ->
+// FAIL; else any BLOCKED -> BLOCKED; else PASS (SKIPPED counts toward the report but does
+// not block). An empty plan with affected modules is BLOCKED (config failure, not green).
+/**
+ * Run one shell command, returning its exit code. win32 uses cmd /c with
+ * windowsVerbatimArguments so nested quotes in the command survive to the child
+ * (plain cmd /c mangles e.g. node -e "process.exit(3)" into a 0 exit -- a false green).
+ * @param {string} command
+ * @returns {{code:number}}
+ */
+function spawnCmd(command) {
+  const r = process.platform === 'win32'
+    ? spawnSync('cmd', ['/c', command], { maxBuffer: 1 << 28, windowsVerbatimArguments: true })
+    : spawnSync('sh', ['-c', command], { maxBuffer: 1 << 28 });
+  return { code: r.status };
+}
+
+/**
+ * Evaluate one check to a four-state result. Never fakes green: an absent binary is BLOCKED.
+ * Security checks ignore fast-mode entirely (always run). Non-security opt-in checks may SKIP
+ * under fast-mode.
+ * @param {{id?:string,command?:string,class?:string,allowFastSkip?:boolean}} check
+ * @param {{fastActive?:boolean}} [opts]
+ * @returns {CheckResult}
+ */
+function runCheck(check, { fastActive = false } = {}) {
+  const id = check && check.id ? check.id : (check && check.command) || 'check';
+  const cls = check && check.class;
+  const base = { id, class: cls, cmd: check && check.command };
+  if (!check || !check.command) return { ...base, state: 'BLOCKED', reason: 'no-command' };
+  const exe = String(check.command).trim().split(/\s+/)[0];
+  if (!whichCmd(exe)) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
+  if (fastActive && cls !== 'security' && cls !== 'safety' && cls !== 'privacy' && check.allowFastSkip) {
+    return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
+  }
+  const r = spawnCmd(check.command);
+  return r.code === 0 ? { ...base, state: 'PASS', exit: 0 } : { ...base, state: 'FAIL', exit: r.code };
+}
+
+/** Aggregate check states: any FAIL -> FAIL; else any BLOCKED -> BLOCKED; else PASS. */
+function aggregateStates(states) {
+  if (states.some(s => s === 'FAIL')) return 'FAIL';
+  if (states.some(s => s === 'BLOCKED')) return 'BLOCKED';
+  return 'PASS';
+}
+
+/**
+ * Required checks for a module: module-level `verification` overrides the catalog's
+ * per-risk-tier default (catalog.riskChecks[risk]). Returns an array of check ids/specs.
+ * @param {string} risk
+ * @param {Module} module
+ * @param {Catalog} catalog
+ * @returns {any[]}
+ */
+function requiredChecks(risk, module, catalog) {
+  if (module && Array.isArray(module.verification)) return module.verification;
+  const riskChecks = (catalog && catalog.riskChecks && typeof catalog.riskChecks === 'object') ? catalog.riskChecks : {};
+  return (risk && Array.isArray(riskChecks[risk])) ? riskChecks[risk] : [];
+}
+
+/** Resolve a check ref (string id or inline object) against catalog.checks. */
+function resolveCheck(ref, catalog) {
+  if (ref && typeof ref === 'object') return ref;
+  const defs = (catalog && catalog.checks && typeof catalog.checks === 'object') ? catalog.checks : {};
+  const def = defs[ref];
+  if (def && typeof def === 'object') return { id: ref, ...def };
+  return { id: String(ref), command: undefined };   // unresolved -> BLOCKED no-command
+}
+
+/**
+ * Plan + run verification for a changed-path set: compute impact, gather each affected
+ * module's required checks, run them four-state, aggregate. Missing catalog fields degrade
+ * gracefully (empty check list per module).
+ * @param {string[]} changed
+ * @param {Catalog} catalog
+ * @param {{fastActive?:boolean,nonGit?:boolean}} [opts]
+ * @returns {{state:string,checks:CheckResult[],affected:string[],degraded:boolean}}
+ */
+function verifyPlan(changed, catalog, { fastActive = false, nonGit = false } = {}) {
+  const imp = analyzeImpact(changed, catalog, { nonGit });
+  const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
+  const checks = [];
+  const seen = new Set();
+  for (const id of imp.affected) {
+    const m = byId.get(id);
+    if (!m) continue;
+    const risk = m.riskTier;
+    for (const ref of requiredChecks(risk, m, catalog)) {
+      const spec = resolveCheck(ref, catalog);
+      const key = id + '::' + (spec.id || spec.command || JSON.stringify(ref));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const res = runCheck(spec, { fastActive });
+      checks.push({ module: id, ...res });
+    }
+  }
+  // S10: apply structured waivers at the orchestration layer (not inside runCheck).
+  // Non-security/safety FAIL/BLOCKED with a matching valid waiver become SKIPPED
+  // (reason waiver:<scope>). Security/safety classes are never rewritten. Fast-mode
+  // SKIPPED stays orthogonal.
+  const waivers = loadWaivers();
+  const waived = checks.map(c => {
+    const next = applyWaiver(c, waivers);
+    // preserve module field if present
+    if (c.module !== undefined && next.module === undefined) return { ...next, module: c.module };
+    return next;
+  });
+  // S11: attribute coverage over the executed results. Blocking gaps (critical/high
+  // declared, no passing claiming check, no attribute waiver) close the gate alongside
+  // FAIL/BLOCKED so "all checks green but nothing evidenced security" stops reading as done.
+  const attrs = assessAttributes(imp.affected, catalog, waived, waivers);
+  // Empty verification plan while modules ARE affected is a configuration failure, not a
+  // green: nothing ran, so nothing was established. BLOCKED (never fake green), same class
+  // as command-missing. No affected modules (no changes) still aggregates to PASS.
+  const emptyPlan = imp.affected.length > 0 && waived.length === 0;
+  return {
+    state: emptyPlan ? 'BLOCKED' : aggregateStates(waived.map(c => c.state)),
+    checks: waived, affected: imp.affected, degraded: imp.degraded,
+    emptyPlan,
+    attributes: attrs.attributes, attributeGaps: attrs.blockingGaps,
+  };
+}
+
+/** True if fast-mode flag file is present and unexpired (mirrors lib-fast-mode.sh). */
+function fastModeActive() {
+  const flag = path.join(projectRoot(), '.claude', '.fast-mode');
+  let raw;
+  try { raw = fs.readFileSync(flag, 'utf8'); } catch (_e) { return false; }
+  const m = raw.match(/^expires_epoch=(\d+)$/m);
+  if (!m) return false;
+  return Number(m[1]) * 1000 > Date.now();
+}
+
+/**
+ * `verify` subcommand driver. Exit convention:
+ *   PASS or all-SKIPPED, no blocking attribute gap -> 0
+ *   FAIL or BLOCKED, or a critical/high attribute lacks evidence -> 2 (never fake green)
+ *   no catalog / non-git -> 3 (degraded, gate skipped rather than block or fake-pass)
+ */
+function verifyPlanCmd(flags) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  if (!loaded.ok) {
+    return { result: { state: 'DEGRADED', degraded: true, error: loaded.error, detail: loaded.detail, checks: [], affected: [] }, code: 3 };
+  }
+  let changed;
+  let nonGit = false;
+  if (typeof flags.changed === 'string') {
+    changed = parseCsv(flags.changed);
+  } else {
+    const cp = changedPaths();
+    if (Array.isArray(cp)) { changed = cp; }
+    else { changed = cp.paths; nonGit = !!cp.nonGit; }
+  }
+  if (nonGit) {
+    return { result: { state: 'DEGRADED', degraded: true, note: 'non-git', checks: [], affected: [] }, code: 3 };
+  }
+  const fastActive = fastModeActive();
+  const plan = verifyPlan(changed, loaded.catalog, { fastActive, nonGit });
+  const attrBlocked = Array.isArray(plan.attributeGaps) && plan.attributeGaps.length > 0;
+  const gate = (plan.state === 'FAIL' || plan.state === 'BLOCKED') ? plan.state
+    : attrBlocked ? 'BLOCKED_BY_ATTRIBUTES' : 'PASS';
+  const code = gate === 'PASS' ? 0 : 2;
+  return { result: { ...plan, gate, fastActive }, code };
+}
+
+// ===========================================================================
+// S10 waiver  (structured per-check exemptions; security never waivable)
+// ===========================================================================
+// Waivers live under .claude/harness/waivers/*.json (git-ignored runtime state).
+// A valid waiver can demote a non-security FAIL/BLOCKED check to SKIPPED with
+// reason "waiver:<scope>". Security-class checks are never rewritten, even if a
+// file claims their id. Fast Mode remains a bulk sugar path orthogonal to this.
+// Forbidden keywords in reason|scope block create/validate (safety net for HIGH gates).
+
+/** Forbidden whole-word tokens in reason+scope (case-insensitive). */
+const WAIVER_FORBIDDEN_RE = /\b(safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)\b/i;
+
+/** Where waiver JSON files are stored (project-relative, git-ignored). */
+function waiversDir() {
+  return path.join(projectRoot(), '.claude', 'harness', 'waivers');
+}
+
+/**
+ * Validate a waiver object. Returns a list of human-readable error strings
+ * (empty => valid). Does not touch fs. Expired expiry is an error.
+ * @param {any} w
+ * @returns {string[]}
+ */
+function validateWaiver(w) {
+  const errors = [];
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return ['waiver must be an object'];
+  if (w.version !== 1) errors.push('version must be 1');
+  for (const k of ['owner', 'reason', 'scope', 'expiry', 'compensation', 'created_at']) {
+    if (typeof w[k] !== 'string' || !String(w[k]).trim()) errors.push(k + ' required (non-empty string)');
+  }
+  const createdMs = Date.parse(w.created_at);
+  if (typeof w.created_at === 'string' && Number.isNaN(createdMs)) {
+    errors.push('created_at must be ISO timestamp');
+  }
+  const expMs = Date.parse(w.expiry);
+  if (typeof w.expiry === 'string') {
+    if (Number.isNaN(expMs)) errors.push('expiry must be ISO timestamp');
+    else if (expMs <= Date.now()) errors.push('expiry must be in the future (not expired)');
+  }
+  const blob = (String(w.reason || '') + ' ' + String(w.scope || '')).toLowerCase();
+  if (WAIVER_FORBIDDEN_RE.test(blob)) {
+    errors.push('forbidden keyword in reason|scope (safety|security|privacy|pii|secret|credential|destructive|push|deploy|production)');
+  }
+  return errors;
+}
+
+/**
+ * Load *.json waivers that pass validateWaiver (skips bad/expired files).
+ * Each entry is annotated with _path (absolute) for list/CLI.
+ * @returns {Array<Waiver & {_path?:string}>}
+ */
+function loadWaivers() {
+  const dir = waiversDir();
+  let names;
+  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith('.json')) continue;
+    const fp = path.join(dir, n);
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_e) { continue; }
+    if (validateWaiver(obj).length) continue;
+    out.push({ ...obj, _path: fp });
+  }
+  return out;
+}
+
+/**
+ * First waiver whose scope exactly equals checkId, or null.
+ * @param {string} checkId
+ * @param {Array<{scope?:string}>} waivers
+ */
+function findWaiverForCheck(checkId, waivers) {
+  const id = String(checkId == null ? '' : checkId);
+  const list = Array.isArray(waivers) ? waivers : [];
+  for (const w of list) {
+    if (w && w.scope === id) return w;
+  }
+  return null;
+}
+
+/**
+ * If result is FAIL|BLOCKED, class is not security/safety, and a waiver matches scope==id,
+ * rewrite to SKIPPED with reason waiver:<scope>. Otherwise return result unchanged.
+ * Safety-class checks sit beside security: a failing functional-safety gate must never be
+ * waived into green, for the same reason a security gate must not.
+ * Pure + injectable (waivers array passed in) so selftest stays fs-free.
+ * @param {CheckResult} result
+ * @param {Array<Waiver>} waivers
+ * @returns {CheckResult}
+ */
+function applyWaiver(result, waivers) {
+  if (!result || typeof result !== 'object') return result;
+  const state = result.state;
+  if (state !== 'FAIL' && state !== 'BLOCKED') return result;
+  if (result.class === 'security' || result.class === 'safety' || result.class === 'privacy') return result;
+  const hit = findWaiverForCheck(result.id, waivers);
+  if (!hit) return result;
+  return { ...result, state: 'SKIPPED', reason: 'waiver:' + hit.scope };
+}
+
+/**
+ * CLI: waiver list | check | create.
+ *   list (default)                         -> {ok, waivers:[{path,...fields}]} exit 0
+ *   check --file path | positional path    -> {ok, valid, errors, waiver} exit 0/1
+ *   create --owner --reason --scope --expiry --compensation [--dry-run]
+ *                                          -> validate then write waivers/<ts>-<hash10>.json
+ * @param {Object} flags
+ * @param {string[]} positional
+ */
+function cmdWaiver(flags = {}, positional = []) {
+  const sub = (positional[0] || flags.sub || 'list');
+  if (sub === 'list') {
+    const list = loadWaivers().map(w => {
+      const { _path, ...rest } = w;
+      return { path: _path || null, ...rest };
+    });
+    return emit({ ok: true, waivers: list }, 0);
+  }
+  if (sub === 'check') {
+    const file = (typeof flags.file === 'string' && flags.file) || positional[1] || '';
+    if (!file) return emit({ ok: false, valid: false, errors: ['--file or path required'], waiver: null }, 1);
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (e) { return emit({ ok: false, valid: false, errors: ['read/parse: ' + String(e && e.message || e)], waiver: null }, 1); }
+    const errors = validateWaiver(obj);
+    const valid = errors.length === 0;
+    return emit({ ok: valid, valid, errors, waiver: obj }, valid ? 0 : 1);
+  }
+  if (sub === 'create') {
+    const now = new Date().toISOString();
+    const waiver = {
+      version: 1,
+      owner: typeof flags.owner === 'string' ? flags.owner : '',
+      reason: typeof flags.reason === 'string' ? flags.reason : '',
+      scope: typeof flags.scope === 'string' ? flags.scope : '',
+      expiry: typeof flags.expiry === 'string' ? flags.expiry : '',
+      compensation: typeof flags.compensation === 'string' ? flags.compensation : '',
+      created_at: now,
+    };
+    const errors = validateWaiver(waiver);
+    if (errors.length) {
+      process.stderr.write('waiver create rejected: ' + errors.join('; ') + '\n');
+      return emit({ ok: false, errors, waiver }, 1);
+    }
+    waiver.contentHash = contentHash(waiver);
+    if (flags['dry-run'] === true || flags.dryRun === true) {
+      return emit({ ok: true, dryRun: true, path: null, waiver }, 0);
+    }
+    const dir = waiversDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const ts = now.replace(/[:.]/g, '-');
+    const h10 = String(waiver.contentHash).slice(0, 10);
+    const fname = ts + '-' + h10 + '.json';
+    const fp = path.join(dir, fname);
+    fs.writeFileSync(fp, JSON.stringify(waiver, null, 2) + '\n', 'utf8');
+    return emit({ ok: true, path: fp, waiver }, 0);
+  }
+  return emit({ error: 'waiver-subcommand', detail: 'usage: waiver list|check|create', got: sub || null }, 3);
+}
+
+// ===========================================================================
+// S11 attributes  (quality attributes per module: the five-property governance layer)
+// ===========================================================================
+// A passing check proves it ran; it does not say what property it established. This layer
+// closes the gap: modules declare which attributes they must hold evidence for (and how
+// strongly), checks declare which attributes a passing run evidences, and coverage becomes
+// decidable. Drawn from ISO/IEC 25010, narrowed to what a repository can hold evidence for.
+/** Check ids in a module's resolved verification list whose spec claims `attr`. */
+function claimingChecks(module, catalog, attr) {
+  const out = [];
+  for (const ref of requiredChecks(module && module.riskTier, module, catalog)) {
+    const spec = resolveCheck(ref, catalog);
+    if (Array.isArray(spec.attributes) && spec.attributes.includes(attr)) out.push(spec.id);
+  }
+  return out;
+}
+
+/**
+ * Attribute coverage over executed check results (pure + injectable for selftest).
+ * Coverage rules: an attribute is covered when a check the module itself selected claims
+ * it and PASSed, and no claiming check FAILed/BLOCKED -- a demonstration of absence is
+ * stronger evidence than a partial demonstration of presence. SKIPPED neither covers nor
+ * contradicts. Declaring without wiring produces a visible gap, not silent success.
+ * A `high` gap may be deferred by a waiver with scope "attribute:<module>/<attr>"
+ * (the forbidden-keyword rule makes security/safety attribute waivers unrepresentable);
+ * `critical` is beyond waiver.
+ * @param {string[]} affectedIds
+ * @param {Catalog} catalog
+ * @param {Array<{module:string,id:string,state:string}>} checkResults
+ * @param {Array<Waiver>} [waivers]
+ * @returns {{attributes:Array,blockingGaps:Array}}
+ */
+function assessAttributes(affectedIds, catalog, checkResults, waivers = []) {
+  const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
+  const attributes = [];
+  const blockingGaps = [];
+  for (const moduleId of (affectedIds || [])) {
+    const m = byId.get(moduleId);
+    if (!m || !m.attributes) continue;
+    for (const [attr, req] of Object.entries(m.attributes)) {
+      const { tier, reason } = normalizeTier(req);
+      const enforcement = TIER_ENFORCEMENT[tier] || 'warn';
+      if (tier === 'none') {
+        attributes.push({ module: moduleId, attribute: attr, tier, enforcement, covered: true, evidence: [], reason: 'opted out: ' + reason });
+        continue;
+      }
+      const claiming = claimingChecks(m, catalog, attr);
+      const evidence = claiming.map(id => {
+        const r = checkResults.find(c => c.module === moduleId && c.id === id);
+        return { check: id, state: r ? r.state : 'MISSING' };
+      });
+      const passing = evidence.filter(e => e.state === 'PASS');
+      const contradicting = evidence.filter(e => e.state === 'FAIL' || e.state === 'BLOCKED');
+      const covered = passing.length > 0 && contradicting.length === 0;
+      const entry = {
+        module: moduleId, attribute: attr, tier, enforcement, covered, evidence,
+        reason: contradicting.length > 0 ? 'contradicted by ' + contradicting.map(e => e.check + '(' + e.state + ')').join(',')
+          : covered ? 'evidenced by ' + passing.map(e => e.check).join(',')
+          : claiming.length === 0 ? 'no check in this module verification list claims ' + attr
+          : 'claiming checks have not passed for the current change',
+      };
+      if (!covered && enforcement === 'block') {
+        const w = tier === 'high' ? findWaiverForCheck('attribute:' + moduleId + '/' + attr, waivers) : null;
+        if (w) {
+          entry.waived = true;
+          entry.reason = entry.reason + '; deferred by waiver:' + w.scope;
+        } else {
+          blockingGaps.push({ module: moduleId, attribute: attr, tier, reason: entry.reason });
+        }
+      }
+      attributes.push(entry);
+    }
+  }
+  return { attributes, blockingGaps };
+}
+
+/**
+ * `attributes` subcommand: static wiring audit, no execution. For every module (or
+ * --module <id>), report declared attributes, tier, enforcement, and which checks claim
+ * them. A blocking-tier attribute with no claiming check is a visible gap -> exit 1.
+ */
+function cmdAttributes(flags) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  if (!loaded.ok) {
+    return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
+  }
+  const catalog = loaded.catalog;
+  const only = typeof flags.module === 'string' ? flags.module : null;
+  const report = [];
+  let unwiredBlocking = 0;
+  const byTier = {};
+  for (const m of (catalog.modules || [])) {
+    if (only && m.id !== only) continue;
+    for (const [attr, req] of Object.entries(m.attributes || {})) {
+      const { tier, reason } = normalizeTier(req);
+      const enforcement = TIER_ENFORCEMENT[tier] || 'warn';
+      byTier[tier] = (byTier[tier] || 0) + 1;
+      if (tier === 'none') {
+        report.push({ module: m.id, attribute: attr, tier, enforcement, wired: [], reason });
+        continue;
+      }
+      const wired = claimingChecks(m, catalog, attr);
+      const entry = { module: m.id, attribute: attr, tier, enforcement, wired };
+      if (wired.length === 0) {
+        entry.gap = 'declared but no claiming check is wired';
+        if (enforcement === 'block') unwiredBlocking++;
+      }
+      report.push(entry);
+    }
+  }
+  return emit({ ok: unwiredBlocking === 0, declared: report.length, byTier, unwiredBlocking, attributes: report }, unwiredBlocking === 0 ? 0 : 1);
+}
+
+export {
+  receiptsDir, safeTaskId, contentHash, hasCodeChange, writeReceipt, receiptIntact,
+  matchReceipts, loadReceipts, verifyReceipt, cmdReceipt, cmdVerify,
+  runCheck, aggregateStates, requiredChecks, resolveCheck, verifyPlan, fastModeActive, verifyPlanCmd,
+  WAIVER_FORBIDDEN_RE, waiversDir, validateWaiver, loadWaivers, findWaiverForCheck, applyWaiver, cmdWaiver,
+  claimingChecks, assessAttributes, cmdAttributes,
+};

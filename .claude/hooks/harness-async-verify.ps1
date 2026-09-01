@@ -38,6 +38,19 @@ Set-Content -Path $mark -Value "$now" -ErrorAction SilentlyContinue
 
 $res = Invoke-Harness -HarnessArgs @('verify')
 if (-not $res) { exit 0 }
+
+# Out-of-contract exit code (the verify contract is only 0/2/3) -> the engine itself crashed and the
+# gate never ran. The early warning stays a warning (the hard commit door is still pre-commit-check),
+# but a gate that cannot run must still speak: wake the main Agent instead of a silent exit 0.
+if (-not (Test-HarnessRcInContract -Code $res.Code -Contract @(0, 2, 3))) {
+  $head = Get-HarnessErrHead -Text $res.Err
+  if (-not $head) { $head = '(the engine wrote nothing to stderr)' }
+  [Console]::Error.WriteLine("[harness-async-verify] background quality gate could not run: harness verify exited with out-of-contract code $($res.Code) (the contract is only 0/2/3).")
+  [Console]::Error.WriteLine($head)
+  [Console]::Error.WriteLine('This is an engine failure (missing .claude/harness/lib/, broken node), NOT a failed gate; pre-commit-check will hard-block the commit, so fix the engine now.')
+  try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'harness-async-verify' "background verify exited with out-of-contract code $($res.Code) (engine failure, early warning)" } catch { }
+  exit 2
+}
 if ($res.Code -ne 2) { exit 0 }
 
 $summary = ''

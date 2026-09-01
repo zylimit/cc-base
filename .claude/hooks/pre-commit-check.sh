@@ -63,13 +63,22 @@ _HARNESS_LIB="$(dirname "$0")/lib-harness.sh"
 if [ -f "$_HARNESS_LIB" ]; then
   . "$_HARNESS_LIB"
   if harness_enabled && harness_node_ok; then
-    HV_OUT=$(harness_run verify 2>/dev/null); HV_RC=$?
+    # stderr 落临时文件：rc=2 时用不上，引擎崩掉时它是唯一有用的线索
+    HV_ERRF=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/cc-harness-verify.$$")
+    HV_OUT=$(harness_run verify 2>"$HV_ERRF"); HV_RC=$?
     # RC=2 → 受影响模块的定向门未过（FAIL/BLOCKED），阻断 commit；RC=3 降级（无 catalog/非 git）静默跳过；RC=0 放行
     if [ "$HV_RC" -eq 2 ]; then
       echo "❌ 大仓四态质量门未通过（受影响模块定向检查 FAIL/BLOCKED），commit 被阻止：" >&2
       echo "$HV_OUT" >&2
       FAIL=1
+    elif ! harness_rc_in_contract "$HV_RC" 0 3; then
+      # 契约外退出码（verify 契约只有 0/2/3）= 引擎自己崩了、门压根没跑成，放行就是假绿
+      echo "❌ 大仓四态质量门跑不起来（harness verify 以契约外退出码 $HV_RC 退出，契约只有 0/2/3），commit 被阻止：" >&2
+      harness_err_head "$(cat "$HV_ERRF" 2>/dev/null)" >&2
+      echo "这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是门未过——跑 node .claude/harness/harness.mjs verify 看真实报错。" >&2
+      FAIL=1
     fi
+    rm -f "$HV_ERRF"
   fi
 fi
 

@@ -134,6 +134,13 @@ try {
       [Console]::Error.WriteLine("[x] Monorepo four-state gate failed (affected-module checks FAIL/BLOCKED), commit blocked:")
       [Console]::Error.WriteLine($hv.Out)
       $fail = 1
+    } elseif ($hv -and -not (Test-HarnessRcInContract -Code $hv.Code -Contract @(0, 3))) {
+      # Out-of-contract exit code (the verify contract is only 0/2/3) -> the engine itself crashed
+      # and the gate never ran; passing here would be a fake green.
+      [Console]::Error.WriteLine("[x] Monorepo four-state gate could not run (harness verify exited with out-of-contract code $($hv.Code), the contract is only 0/2/3), commit blocked:")
+      [Console]::Error.WriteLine((Get-HarnessErrHead -Text $hv.Err))
+      [Console]::Error.WriteLine("This is an engine failure (missing .claude/harness/lib/, broken node), NOT a failed gate -- run 'node .claude/harness/harness.mjs verify' for the real error.")
+      $fail = 1
     }
   }
 } catch {}

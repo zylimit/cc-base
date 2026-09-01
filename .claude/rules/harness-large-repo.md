@@ -37,7 +37,7 @@ paths:
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
 [十五能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 规模冒烟）。失败 rc 1。
@@ -84,10 +84,11 @@ paths:
     - 缺命令 / 二进制找不到 = `verify` 内部 BLOCKED（reason: `command-missing:<exe>`），**绝不假绿**。
 
 [接线点（hook 侧，catalog + node 双满足才启用，否则静默走原逻辑）]
-    守卫库 `.claude/hooks/lib-harness.sh|.ps1` 提供 `harness_enabled`（catalog 存在）/ `harness_node_ok`（node 可用）/ `harness_run`（跑子命令）。两处接线，**不新增 hook 事件**：
+    守卫库 `.claude/hooks/lib-harness.sh|.ps1` 提供 `harness_enabled`（catalog 存在）/ `harness_node_ok`（node 可用）/ `harness_run`（跑子命令）/ `harness_rc_in_contract`（退出码是否在契约内）/ `harness_err_head`（引擎 stderr 头几行）。三处接线，**不新增 hook 事件**：
     - **stop-gate ↔ receipt verify**：`.needs-review` 清单清空（口头释放）后再校验当前 diff 是否有已通过回执绑定。rc=4（STALE）= 代码越过所有已审回执 → 拦停强制重审、保留 `.needs-review` 让下轮仍拦；rc=0/3 照原逻辑清理放行。位置：`stop-gate.sh:32-50` / `stop-gate.ps1` 对应段。
     - **pre-commit-check ↔ verify**：staged 就绪后、commit 之前跑定向质量门。rc=2（受影响模块 FAIL/BLOCKED **或属性缺证据**）= 阻断 commit；rc=3（无 catalog / 非 git）静默跳过；rc=0 放行。位置：`pre-commit-check.sh:61-74` / `.ps1` 对应段。
     - **harness-async-verify ↔ verify（编辑期后台早警）**：PostToolUse(Edit|Write) 挂 `harness-async-verify.sh|.ps1`（settings 里 `asyncRewake:true` 后台形态）——两次 commit 之间的编辑期后台跑同一套 verify，rc=2 时唤醒主 Agent 读 stderr 摘要（gate + 失败 check 前 5 条 + 属性缺口数）。**早警不硬拦**（commit 硬门仍是 pre-commit-check）；180 秒防抖（`.claude/.async-verify-last`）；catalog/node 缺任一静默跳过；Fast Mode 放行。
+    - **契约外退出码 = 引擎崩了，不是闸的结论**（三处一律不静默放行）：契约表之外的码（引擎异常、缺 `lib/`、node 出岔给的 rc 1 之类）不许落进「其余一律放行」。stop-gate 出 `decision:"block"`、pre-commit-check exit 2、harness-async-verify 照唤醒形态发诊断（早警仍不硬拦）；三处诊断都**点名实际退出码**并带上引擎 stderr 头几行——「引擎崩了」和「回执不匹配 / 门真没过」要采取的行动完全不同，混成一句话等于没说。stop-gate 这条**不清 `.needs-review`**（清了等于销毁下轮该拦的状态），并走同一套 `.stop-gate-strikes` 三振熔断（sig 按退出码记）：引擎长期崩是「拦三次 + 每次说清为什么 → 放行」，不是无限拦。回归锁：`.claude/tests/test-hook-failopen.sh`。
     - arch-check / fitness / attributes 不走 hook 自动触发（成本考量），推荐进 catalog checks 由 verify 定向带跑（如 `"arch": {"command": "node .claude/harness/harness.mjs arch-check", "class": "static"}`），或 code-review Stage 0 / 发版前手动跑。
     - **闸的原生边界（防跑飞视角必须知道）**：Claude Code 对 Stop hook 有「同 turn 连拦 8 次强制放行」的原生上限（防 hook 死循环），框架 settings.json 已把 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` 提到 25——stop-gate 自身的三振熔断（3 次）会先触发，正常永远碰不到原生上限；但要知道这层「泄闸」边界存在，闸不是无限次的。
 
@@ -119,6 +120,7 @@ paths:
 
 [运行态文件]
     - `.claude/harness/module-catalog.json`：唯一开关，**本体照常分发**（catalog 仓库可选择性提交共享配置；不提交即每工作树独立）。
+    - `.claude/harness/lib/*.mjs`：引擎实现本体，与 harness.mjs 同批分发、同批升级（安装器按整棵树 find 复制，天然带上；手工搬运须整目录一起搬）。不是运行态，列在此处只为提醒它与入口不可拆散。
     - `.claude/harness/adapters.json`：外部工具表，本体照常分发（项目可自行增删条目）。
     - `.claude/harness/fitness-rules.json`：可选项目自定义 fitness 规则（`{"replace":false,"rules":[...]}`），有则并入内置规则。
     - `.claude/harness/receipts/*.json`：审查回执，**git 忽略**（永不入库）。

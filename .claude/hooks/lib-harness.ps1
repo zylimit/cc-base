@@ -33,12 +33,37 @@ function Invoke-Harness {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $err = [System.IO.Path]::GetTempFileName()
+    $errText = ''
     try {
         $out = & $node $script @HarnessArgs 2> $err
         $code = $LASTEXITCODE
+        # Keep stderr: when the engine itself crashes those lines are the only useful clue,
+        # and the caller puts them into the gate diagnostic.
+        $errText = (Get-Content $err -Raw -ErrorAction SilentlyContinue)
     } finally {
         Remove-Item $err -Force -ErrorAction SilentlyContinue
         $ErrorActionPreference = $prev
     }
-    [pscustomobject]@{ Out = ($out | Out-String); Code = $code }
+    [pscustomobject]@{ Out = ($out | Out-String); Code = $code; Err = $errText }
+}
+
+# Is the exit code inside the contract? $true = in contract, $false = out of contract.
+# Out of contract = the engine itself crashed (missing lib/, broken node, internal error), not a
+# verdict from the gate -- callers keep "the engine cannot run" and "stale receipt / gate really
+# failed" apart, because the two need completely different actions.
+# Contract table: .claude/rules/harness-large-repo.md, exit-code contract section.
+function Test-HarnessRcInContract {
+    param([int]$Code, [int[]]$Contract)
+    return ($Contract -contains $Code)
+}
+
+# First few stderr lines from the engine (blank lines dropped, first 3 joined into one line,
+# truncated to 400 chars) for the gate diagnostic; empty string when there is nothing.
+function Get-HarnessErrHead {
+    param([string]$Text, [int]$Lines = 3)
+    if (-not $Text) { return '' }
+    $head = @($Text -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First $Lines)
+    $joined = ($head -join ' ')
+    if ($joined.Length -gt 400) { $joined = $joined.Substring(0, 400) }
+    return $joined
 }

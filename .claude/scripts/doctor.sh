@@ -80,6 +80,8 @@ command -v jq   >/dev/null 2>&1 && ok "jq 可用（可选）"      || note "未�
 # 大仓治理 harness（默认关闭，catalog 存在即启用）——只报告状态，不 fail 小项目
 [ -f .claude/harness/harness.mjs ] && ok "harness.mjs 存在" \
   || note "harness.mjs 缺失（大仓治理运行时；若不用大仓治理可忽略）"
+[ -f .claude/harness/lib/core.mjs ] && ok "harness lib/ 存在（引擎拆库后 harness.mjs 单文件跑不起来）" \
+  || note "harness lib/ 缺失（只拷 harness.mjs 不够，须连 .claude/harness/lib/ 一起装）"
 if [ -f .claude/harness/module-catalog.json ]; then
   ok "module-catalog.json 存在（大仓治理已启用）"
   command -v node >/dev/null 2>&1 && ok "node 可用（harness 可跑）" \

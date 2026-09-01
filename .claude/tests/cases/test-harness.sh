@@ -17,6 +17,19 @@ if ! command -v node >/dev/null 2>&1; then
   exit 0
 fi
 [ -f "$HARNESS" ] || { echo "  [FAIL] 缺 harness.mjs：$HARNESS" >&2; exit 1; }
+HARNESS_DIR="$(cd "$(dirname "$HARNESS")" && pwd)"
+
+# 把整台引擎搬进沙箱：harness.mjs 拆库后 import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND 起不来。
+# lib/ 路径由 $HARNESS 推导、按目录整拷，后续新增模块自动跟着走，不写死文件名。
+install_harness() {
+  local dest="$1/.claude/harness"
+  mkdir -p "$dest"
+  cp "$HARNESS" "$dest/harness.mjs"
+  if [ -d "$HARNESS_DIR/lib" ]; then
+    mkdir -p "$dest/lib"
+    cp -R "$HARNESS_DIR/lib/." "$dest/lib/"
+  fi
+}
 
 PASS=0
 FAIL=0
@@ -668,8 +681,7 @@ fi
 # ⑯ 性能计时 + context-pack 预算（packHash 稳定 + verification 路径进包 + DENY 不入包）
 # ⑯a 35 模块 impact + context-pack 全流程 <5s（性能断言，贴实测毫秒）
 TMPG="$(mktemp -d)"
-mkdir -p "$TMPG/.claude/harness"
-cp "$HARNESS" "$TMPG/.claude/harness/harness.mjs"   # 端到端需要 harness.mjs 在 $CLAUDE_PROJECT_DIR
+install_harness "$TMPG"                             # 端到端需要引擎（harness.mjs + lib/）在 $CLAUDE_PROJECT_DIR
 cp "$BIGCAT" "$TMPG/.claude/harness/module-catalog.json"
 ( cd "$TMPG" && git init -q && git config core.autocrlf false \
   && git config user.email t@t.t && git config user.name t \
@@ -740,8 +752,7 @@ STOP_GATE="$ROOT/.claude/hooks/stop-gate.sh"
 
 # ⑰a 有 stale receipt + diff 变动 + .needs-review=clean -> stop-gate decision:block（rc=4 路径）
 TMPS="$(mktemp -d)"
-mkdir -p "$TMPS/.claude/harness"
-cp "$HARNESS" "$TMPS/.claude/harness/harness.mjs"
+install_harness "$TMPS"
 node -e 'const fs=require("fs"); fs.writeFileSync(process.argv[1], JSON.stringify({version:1, modules:[{id:"core",paths:["core/**"],riskTier:"medium"}]}));' "$TMPS/.claude/harness/module-catalog.json"
 ( cd "$TMPS" && git init -q && git config core.autocrlf false \
   && git config user.email t@t.t && git config user.name t \
@@ -780,8 +791,7 @@ PRECOMMIT="$ROOT/.claude/hooks/pre-commit-check.sh"
 
 # ⑱a catalog verification FAIL -> pre-commit exit 2（阻断 commit）
 TMPP="$(mktemp -d)"
-mkdir -p "$TMPP/.claude/harness"
-cp "$HARNESS" "$TMPP/.claude/harness/harness.mjs"
+install_harness "$TMPP"
 node -e '
   const fs = require("fs");
   fs.writeFileSync(process.argv[1], JSON.stringify({

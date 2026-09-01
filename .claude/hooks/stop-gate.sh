@@ -32,19 +32,57 @@ if [ -z "$FILES" ]; then
   # 大仓回执网关（catalog 存在才启用；node 缺失或 lib 不在时静默跳过、走原逻辑零行为变化）：清单已清空
   # （口头释放）后，再校验当前工作树 diff 是否有已通过回执绑定——代码越过所有已审回执（STALE, rc=4）则
   # 强制重审，此时不清状态文件、保留 .needs-review 让下轮仍拦；rc=0/3 照原样清理放行。
+  # 契约外退出码（receipt verify 契约只有 0/3/4）= 引擎自己崩了、闸压根没跑成，放行就是假绿：同样拦停、
+  # 点名实际退出码、保留 .needs-review，并走同一套 .stop-gate-strikes 三振熔断（引擎长期崩不至于拦死人）。
   _HARNESS_LIB="$(dirname "$0")/lib-harness.sh"
   if [ -f "$_HARNESS_LIB" ]; then
     # shellcheck source=/dev/null
     . "$_HARNESS_LIB"
     if harness_enabled && harness_node_ok; then
       # 用 if 捕获退出码：set -E/ERR trap 下裸赋值遇非零会误触 fail-closed，if 条件内命令失败不触发（rc 4/3 均属正常返回）
-      if harness_run receipt verify >/dev/null 2>&1; then RV_RC=0; else RV_RC=$?; fi
+      # stderr 收进变量、stdout 照旧丢弃：引擎崩掉时那几行是唯一有用的线索，要带进诊断
+      if RV_ERR=$(harness_run receipt verify 2>&1 >/dev/null); then RV_RC=0; else RV_RC=$?; fi
       if [ "$RV_RC" -eq 4 ]; then
         R="代码在上次审查后又有改动，无匹配的已通过回执（diff 已越过所有已审回执）。请重新派 code-reviewer 审查当前改动并写回执后再停止。"
         # shellcheck source=/dev/null
         . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
         gate_log "stop-gate" "$R"
         if command -v jq >/dev/null 2>&1; then jq -nc --arg r "$R" '{decision:"block",reason:$r}'; else echo '{"decision":"block","reason":"代码在审查后又有改动，无匹配已通过回执，请重新审查。"}'; fi
+        exit 0
+      fi
+      if ! harness_rc_in_contract "$RV_RC" 0 3; then
+        # 连拦计数复用同一状态文件，sig 按退出码记（码一变即清零重计），与待审清单那套互不串味
+        HSIG="harness-receipt-verify-rc$RV_RC"
+        HSTRIKES=0
+        if [ -f "$STRIKE_FILE" ]; then
+          H_OLD_SIG=$(sed -n 's/^sig=//p' "$STRIKE_FILE" 2>/dev/null | head -1)
+          H_OLD_N=$(sed -n 's/^count=//p' "$STRIKE_FILE" 2>/dev/null | head -1)
+          if [ "$H_OLD_SIG" = "$HSIG" ]; then
+            case "$H_OLD_N" in ''|*[!0-9]*) ;; *) HSTRIKES=$H_OLD_N ;; esac
+          fi
+        fi
+        RV_HEAD=$(harness_err_head "$RV_ERR")
+        # shellcheck source=/dev/null
+        . "$(dirname "$0")/lib-gate-log.sh" 2>/dev/null || true
+        if [ "$HSTRIKES" -ge 3 ]; then
+          rm -f "$STRIKE_FILE"
+          NOTICE="stop-gate：harness receipt verify 连续 3 次以契约外退出码 ${RV_RC} 退出（引擎异常，不是回执过期），达连拦上限本次放行——但回执绑定始终没被验过，欠账仍在，请尽快修引擎：node .claude/harness/harness.mjs receipt verify。引擎报错：${RV_HEAD}"
+          gate_log "stop-gate" "$NOTICE"
+          if command -v jq >/dev/null 2>&1; then
+            jq -nc --arg m "$NOTICE" '{systemMessage:$m}'
+          else
+            printf '{"systemMessage":"stop-gate：harness receipt verify 以契约外退出码 %s 连拦达上限，本次放行；引擎仍是坏的，回执绑定未被验过，尽快修引擎。"}\n' "$RV_RC"
+          fi
+          exit 0
+        fi
+        printf 'sig=%s\ncount=%s\n' "$HSIG" "$((HSTRIKES + 1))" > "$STRIKE_FILE"
+        R="stop-gate：harness receipt verify 以契约外退出码 ${RV_RC} 退出（契约只有 0/3/4），回执闸没跑成——这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是回执过期。跑 node .claude/harness/harness.mjs receipt verify 看真实报错，修好引擎再停止。引擎报错：${RV_HEAD}"
+        gate_log "stop-gate" "$R"
+        if command -v jq >/dev/null 2>&1; then
+          jq -nc --arg r "$R" '{decision:"block",reason:$r}'
+        else
+          printf '{"decision":"block","reason":"stop-gate：harness receipt verify 以契约外退出码 %s 退出，回执闸没跑成（引擎异常，不是回执过期）。修好引擎再停止。"}\n' "$RV_RC"
+        fi
         exit 0
       fi
     fi
