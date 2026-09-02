@@ -121,6 +121,14 @@ _Last updated: 2026-09-01_
 - 审查轴：对抗式 QA + 三阶段（Stage 0 静态闸/Stage 1 规格/Stage 2 质量）+ CoVe 证据锚定，比温和 QA 强，但**同模型**——「第二个脑子挑盲区」补不了，是 CCB 唯一硬优势。
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
+## 当前断点（2026-09-02 暂停，回来从这儿接）
+- **P3 评审层已完成并本地 commit，尚未 push**（push 属 HIGH 档，主 Agent 未趁用户不在执行）。回来第一步：`git push origin main` + `git ls-remote` 实查。
+- **已入库并推远端**：`ecb7c16`（本地=远端一致）。引擎 **26 个子命令**，`dod` 本仓 rc 0，全量 run-all RC=0（十套测试）。v1.11.0 已发。
+- **在跑**：P3 评审层 implementer（`lib/review.mjs`：`review start|blue|lens|verdict|backlog` + `review-pack` + `authorship record|show`，26→32）。它正在写 `harness.mjs` / `core.mjs` / `selftest.mjs` / golden 基线——**工作树里那批未提交改动是它的，不是残留，别清**。
+- **回来第一件事**：跑 `node .claude/harness/harness.mjs selftest`、`node .claude/tests/harness-golden.mjs --check --strict`、`bash .claude/tests/cases/run-all.sh` 三条看它落没落定；若 agent 已完成则验收收口 commit，若被中断则按「剩余范围」重派（模式参照本轮 audit 那次续跑）。
+- **Fast Mode 开着**，剩约 21.7 小时自动过期。期间不派 code-reviewer / tester、不走红锁闭环、不新增测试用例；静态闸与安全护栏照旧。要收回严格模式：`bash .claude/scripts/fast-mode.sh off`。
+- **剩余路线**：P3（在跑）→ P4 记忆层（`recap`/`invariants`/`archive`/`sync-check` + **`PostCompact` 不变量回注**，治 Governance Decay）→ P5 宪法层（CLAUDE.md 索引化 + `rules-audit` + `skills-lint`/`claude-md-lint` + `fast` 债务化 + 关 Agent Teams）→ P6 边界层（`cochange`/`fleet`/`init` 自动发现 + 架构债 per-edge 基线）。
+
 ## TODO
 - [P2][OPEN][#19d] **`parseArgs` 静默吞未知 flag（单独排队，不许混进拆库批）**：写错 flag 不报错、静默退化成「不带参数」形态照跑照出 JSON——是假绿生成器（录基线时会录出「看着正常实则什么都没测」的假基线）。修法：未知 flag → rc 2 用法错并点名。**必须与拆库分批**：修它会改变行为、会让 golden 报红，把结构重构和行为变更混在一批等于亲手废掉「零行为变化」这个唯一判据。
 - [P3][OPEN][#19e] **两条测试卫生项**：① `test-audit-defects.sh` §6 的 P2-6e 断言描述已过时（写的是「check-syntax 不支持 --paths → 未知参数 rc 2」，而 check-syntax 现已支持 `--paths`，rc 2 是「全部路径不存在=参数错」分档的巧合结果）——断言通过但描述是假话，属测试套件里的潜伏谎言，须由 tester 改述。② `test-audit-scripts.sh` / `test-audit-defects.sh` 无 node 时是 `exit 1` 而非 SKIPPED（`test-harness.sh` 是 SKIPPED），当前靠 run-all 侧的守卫块兜住，更正的做法是脚本自带守卫。

@@ -36,11 +36,11 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[二十六能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[二十九能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
-    - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 规模冒烟）。失败 rc 1。
+    - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
     - **catalog-lint**：按 schema 校验 catalog。无参 = 对当前仓 `git ls-files` 全量归类（NUL 分隔 + 截断警告）。
     - **impact**：反向依赖闭包——传变更路径，返 `affected`（直接 + 反向闭包）/ `direct` / `expansionReasons` / `verification`（每模块绑的 check）/ `degraded`。
     - **context-pack**：预算化打包——P1 任务信封 + Spec/Plan 指针 → P2 canonical diff（截断 maxDiffChars）→ P3 变更文件（每个截断 maxFileChars）→ P4-6 受影响模块 verification 路径串。DENY 路径永不入包（.git / node_modules / dist / build / .next / .venv / .env / *.pem|key|p12|pfx / id_rsa / .ssh|.aws|.azure|.gnupg|.kube / .claude/evidence|receipts|waivers 等；白名单 `.env.example|.sample|.template` 可入包）。产出 `packHash`（仅含 path+bytes 清单 + budgets + diffHash，对空白变动稳定）。
@@ -64,6 +64,16 @@ paths:
     - **trace**：需求编号 ↔ 测试引用覆盖。**编号是可选的，没有编号就明说追溯不可用**（rc 3 + 一句「本规格未声明需求编号；要启用请在功能需求条目前加 `[REQ-<模块>-<三位数>]`」），**不硬造锚点**——行号 / 标题 / 散文哈希做出来的链接下次编辑就断，却读起来像覆盖率。有编号则扫全仓 tracked 文件：测试文件（`**/test(s)/**`、`*.test.*`、`*.spec.*` 等，`--tests` 可覆盖）引用 = `verified`，其余代码引用 = `implemented`。未被任何测试引用 → `unverified` rc 1；**代码/测试里引用了规格没声明的编号 = `dangling` rc 1**（指向一条已经不存在的需求），**.md 散文里的同类引用只报 `danglingInDocs` 不判失败**（CHANGELOG 引用历史编号是正当的）。`--min-coverage` 默认 1。非 git rc 3。
     - **spec**：按变更取相关需求的**预算化视图**——需求只增不减，唯一让它读得起的办法是不再整份读。`--paths a,b` 指定变更面、`--all` 全量、`--budget N` 字符预算（默认 6000，超预算**整条丢弃不截半句**）。收窄走的是质量门同一条路：impact 选模块 → trace 把编号映到模块 → 只渲染交集，并给每条标 `_verified by:`。**收窄需要编号 + catalog 同时具备**；缺任一则渲染整个功能需求段并把 `narrowed:false` 与原因同时写进 JSON 和渲染出的标题——**降级可以，闭口不谈不行**。始终 rc 0（无规格文档 rc 3）。
     - **dod**：Definition of Done——十一步静态治理一次跑完（catalog-lint / spec-lint / trace / attributes / arch-check / adr-check / fitness --all / ledger / arch-trend --gate 九步阻断，risk / budget 两步只报信号不阻断）。每步以**子进程**跑，判据就是各子命令自己的退出码（0=PASS / 3=DEGRADED / 其余=FAIL），所以 dod 断言的是 hook 消费的同一份契约，不是另一套私有返回值。**降级不阻断**（没有 catalog 的仓不等于架构检查失败）；任一阻断步 FAIL → rc 2；**阻断步全部降级 = 什么都没建立 → rc 3 而不是 0**（同「空验证计划=不算绿」）。**只管静态治理**：过了不代表代码能跑，那半边归 `gate`，输出里的 `note` 就写着这句。
+    - **review start|blue|lens <name>|verdict|backlog|status|team**：结构化分歧评审引擎。这一层不靠 catalog——评审是本领域唯一有实测效果的杠杆（一个 agentic review loop 把某模型在 SWE-bench Verified 上从 27.5% 拉到 56.9%，token 效率是重采样的 6.5 倍；另有研究报告三个结构化分歧的 agent 打得过五个共识型 agent），把它锁在大仓开关后面等于在最需要它的仓里废掉它，所以无 catalog 时按默认 profile 跑并在会话里记 `catalogPresent:false`。
+      · **lens 团队**：九个 lens 各占一种失效模式，分三阶段——stage 1 `code`（correctness / architecture / maintainability）、stage 2 `functional`（testing / performance）、stage 3 `trust`（security / privacy / reliability / resilience）。召集顺序：`catalog.review.lenses` 显式清单最大，否则按 `catalog.review.profile`（personal / team / production / regulated，默认 team）定队，再**减去**受影响模块没声明到 low 以上的属性对应的 lens——属性只能减不能加（都声明成 high 就等于全员到齐，正是要防的那种噪声）；correctness 永不被减（stage 1 空掉会让阶段模型失效）。显式清单里的陌生 lens 名按 stage 1 处理，项目可以自带 lens。
+      · **分阶段闸就是预算**：晚阶段 lens 在早阶段**通过**之前一律拒收（rc 1 + `stageGated`）。**报了 ≠ 过了**：某阶段有 error 级 finding 或有 lens 报 `unable`，该阶段就一直卡住，后面的贵 lens 根本不会被召集——这比姊妹仓更硬（那边阶段一报完就放行，只靠裁决短路挡）。
+      · **blue**：被审方自证，stdin `{claims:[{statement,evidence}]}`，**每条主张必须带证据**（命令+退出码 / file:line），任一条没有整份拒收 rc 1。靶子也不能是空气。
+      · **lens**：stdin `{findings:[{severity,location|reproduction,summary}],unable?,unableReason?}`，`--agent <id>` 记这份报告是谁出的。`severity` 限 `error|warning|info`；**每条 finding 必须能被定位**（`file:line` 形态的 location，或可复现的 reproduction），有一条不合格整份拒收 rc 1——定位不了的印象没法行动，而没法行动的 finding 会让整套评审变成表演。
+      · **verdict**：裁决**由引擎算，不由人断言**。blue 没报 / 当前阶段有必召 lens 没报 → 拒绝出裁决（rc 1，列 blockers）；任一 error → `FIX_REQUIRED`；任一 `unable` → `NEEDS_MORE_EVIDENCE`；否则 `ACCEPT`（rc 0，其余裁决 rc 2）。**一个 lens 报 error 不会被投票稀释**——四个干净的 lens 抵不掉一个有定位的错误，这条是本设计与「共识型评审」的分界线，函数里没有任何投票。轮次上限 `catalog.review.maxRounds`（默认 3）：同一份改动连续 FIX_REQUIRED 到上限，裁决带 `escalate:true` 并明说停——要么改动错、要么标准错，再来一轮也分不出是哪个，交人。`ACCEPT` 且是最终阶段时**自动写一条 receipt**（复用 receipt write，scope 里记哪些 lens 覆盖了这个 diff），stop-gate 由此放行。
+      · **树一动就 stale**：评审绑的是它判过的那份 diff、不是一个意图，blue / lens / verdict / backlog add 一律 rc 4，重开评审。`status`、`backlog list` 是只读报告，始终 rc 0。
+      · **backlog add|list**：finding 可以被背，不可以被删。`add` 需 `owner` / `expiry`（必须未来）/ `summary` / `lens`；`list` 报过期项。**security / safety / privacy 的 finding 永不可入 backlog**——backlog 会变成这套设计在别处拒绝提供的那种豁免（禁词与 waiver 同源）。
+    - **review-pack**：给评审者的证据包（commits / diffstat / **删除与重命名单独成节** / untracked 清单 / diff，超 `--max-diff-lines`（默认 800）溢出到 `.patch`）。`--base` 默认 `HEAD`。落 `.claude/harness/state/context/`，文件名由 base + diffHash 前 12 位决定而不是时钟——同一份改动重打就覆盖同一个文件，不给 retention 攒一堆同样的包。**删除单独成节**是因为评审者系统性地漏看「删掉了什么」；重命名的旧路径也算「走了」，一并列在这节而不是只埋在 diff 里。非 git rc 3。
+    - **authorship record|show**：作者账本，把姊妹仓在宪法里标 **prompt-only** 的那条规则（「评审者永远不是作者」，它自陈「引擎只会数 lens，看不出谁写的代码」）变成引擎能判的事——Claude Code 的 hook 事件带 `agent_id` / `agent_type`，这是 cc-base 有而它没有的东西。`record` 从 stdin 读 `{agentId,agentType?,files:[...]}` 追加进 `.claude/harness/state/authorship.jsonl`（跨进程锁，坏行保留计数不静默丢弃）；`show` 报当前 diff 涉及文件的作者集与未归属文件。`review verdict` 消费它：某 lens 的 `agentId` ∈ 当前 diff 的作者集 → **拒绝出 ACCEPT** 并点名（自审不算独立评审）。**诚实边界**：没有账本、账本里没有一条命中本次 diff、或没有任何 lens 带 `--agent` 时，verdict **不阻断**，但输出 `authorshipEnforced:false` 并写明缺的是哪一半——没数据时假装验过了比原来的散文规则更糟。**本批只建引擎侧能力**，把 `SubagentStart` / `SubagentStop` 接进 `authorship record` 是下一批的事。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -100,6 +110,15 @@ paths:
     | trace | 覆盖达标且无悬空编号 | 有未追溯需求 / 悬空编号 | — | 无规格文档 / 未声明编号 / 非 git | — |
     | spec | 渲染完成（`narrowed` 字段说明收窄与否） | — | — | 无规格文档 | — |
     | dod | 阻断步无 FAIL 且至少一步有结论 | — | 有阻断步 FAIL | 阻断步全降级（什么都没建立） | — |
+    | review start | 开成功 | — | — | 非 git / 无变更 | — |
+    | review blue | 记下 | 主张缺证据 | — | stdin 非 JSON / 无会话 | 树已移动 |
+    | review lens | 记下 | finding 无定位 / severity 非法 / 未召集 / 阶段未过 | — | stdin 非 JSON / 无会话 / 缺 lens 名 | 树已移动 |
+    | review verdict | ACCEPT | 有 blockers（blue 未报 / 当前阶段缺报 / 作者自审挡 ACCEPT） | FIX_REQUIRED / NEEDS_MORE_EVIDENCE | 无会话 | 树已移动 |
+    | review backlog add | 记下 | 保护属性 / 缺字段 / 过期 | — | stdin 非 JSON / 无会话 | 树已移动 |
+    | review backlog list / status / team | 总是 | — | — | — | — |
+    | review-pack | 写出 | — | — | 非 git | — |
+    | authorship record | 追加成功 | — | — | stdin 非 JSON / 缺 agentId 或 files / 追加失败 | — |
+    | authorship show | 总是 | — | — | 非 git / 账本读不出来 | — |
     | unknown / missing | — | — | — | 总是 | — |
 
     要点：
@@ -122,6 +141,7 @@ paths:
     - `contentHash` 防 JSON 字段被改（reviewer / verdict / scope / timestamp 等任一字段变动 → hash 不匹配 → 回执作废）。
     - `taskId` 限定 `[A-Za-z0-9._-]`，路径穿越 / 分隔符被替换（safeTaskId）。
     - 回执落 `.claude/harness/receipts/`（git 忽略的运行态）。
+    - 回执谁来写：手写 `receipt write` 是轻量路子；走评审引擎时不用手写——`review verdict` 判出 ACCEPT 且已到最终阶段才自动写，写不出来就说明评审没走完，闸自然不放行。两条路产出同一份 diff-bound 回执，stop-gate 只认这一件事。
 
 [四态质量门（verify 细则）]
     verification 解析优先级：`module.verification` > `catalog.riskChecks[module.riskTier]`。
@@ -150,6 +170,9 @@ paths:
     - `.claude/harness/receipts/*.json`：审查回执，**git 忽略**（永不入库）。
     - `.claude/harness/waivers/*.json`：结构化豁免，**git 忽略**（永不入库）。
     - `.claude/harness/trend/arch-trend.jsonl`：漂移趋势台账（`arch-check --record` 追加，超 1000 行自动保留最近 500），**默认 git 忽略**（每机各持；团队要共享趋势可自行取消忽略）；不进 diff 指纹、不进 context-pack。
+    - `.claude/harness/state/review.json`：当前评审会话（绑 diffHash、召集的 lens、blue、各 lens 报告、backlog、lineage），**git 忽略**；一个工作树一份，`review start` 覆盖前会把上一次 FIX_REQUIRED 记进 lineage 供轮次上限用。
+    - `.claude/harness/state/authorship.jsonl`：作者账本（append-only，跨进程锁），**git 忽略**。
+    - `.claude/harness/state/context/`：`review-pack` 的证据包与 diff 溢出文件，**git 忽略**；与 context-pack 共用一个可回收目录，`retention --max-packs` 一起修剪——隐私含销毁合规，只积不销是自我不一致。
     - `.claude/harness/state/`：证据层运行态，**git 忽略**——`ledger.jsonl`（`gate` 追加的哈希链账本，append-only，**不许手工编辑**：改了 `ledger` 就报断裂，而断裂 = 此前全部验证按未证明处理）+ `ledger.lock`（追加期间的跨进程互斥目录，超 60s 视为陈旧锁回收；并发 gate 靠它才不会各写各的 prev 把链写死）+ `task.json`（当前活跃 task 信封，一个工作树一份）。
     - `.claude/harness/evidence/*.log`：每条执行过的 check 的原始 stdout+stderr（`gate` 落盘，文件名 `<check>-<epoch>.log`），**git 忽略**；`retention` 按龄和数修剪，但**账本引用到的永不删**。
     - 上面两条与 receipts / waivers / trend 一样**排除出 diff 指纹**（跑引擎不会 stale 掉自己刚写的证据）、**排除出 context-pack**（运行态永不进交给 delegate 的包）。
@@ -161,7 +184,7 @@ paths:
     2. 接线五性：给关键模块声明 `attributes`（如支付模块 security:critical）→ `attributes` 子命令看接线缺口 → `adapters list --attribute security` 挑工具 → `adapters add <id>` 接线 → 模块 verification 引用该 check。
     3. 开发：正常 per-Task 编码 → review → fix 闭环（hook 自动接线，无需手工调用）。
     4. 诊断：`doctor` 看启用态、`impact` 看变更影响面、`context-pack` 看 LLM 上下文预算分配、`arch-check` 看依赖漂移与越禁边、`fitness` 扫变更文件的五性反模式。
-    5. 审查：code-reviewer 通过后用 `receipt write` 写回执（stdin JSON：taskId / reviewer / verdict / scope 四字段，命令签名见能力清单 receipt 条）。
+    5. 审查（两条路，二选一）：轻量走 `receipt write` 手写回执（stdin JSON：taskId / reviewer / verdict / scope 四字段，命令签名见能力清单 receipt 条）；要结构化分歧就走评审引擎——`review-pack` 凑证据 → `review start` 开会（看它召集了谁）→ 被审方 `review blue` 自证 → 每个 lens **派不同的 fresh 实例**报 `review lens <name> --agent <id>`（写这段代码的那个 agent 先 `authorship record` 记账，verdict 才拦得住自审）→ `review verdict` 让引擎算裁决，ACCEPT 且到最终阶段时 receipt 自动写出。
     6. 验收：`receipt verify` 确认 diff 绑定、`verify` 确认定向质量门 + 五性覆盖通过。
     7. 防漂移日常：arch-designer 产出的 ADR 用 `adr-check` 盯执法引用（Architecture-Design.md 改动后、发版前跑）；接入老仓先 `arch-check --record` 立债务基线，此后周期性（Phase 收尾 / 发版前）`--record` + `arch-trend --gate`——旧债不挡路，新债零容忍。
     8. 漂移哨兵（长 session 可选）：Claude Code 原生定时任务（CronCreate 工具 / `/loop`）可在长会话里周期性跑 `node .claude/harness/harness.mjs arch-trend --gate` 与 `fitness`——让漂移在会话内就被点名，不等发版前才发现。用法：让主 Agent 建一条 30-60 分钟间隔的 cron 提示（内容即上述命令 + 解读要求）；`CLAUDE_CODE_DISABLE_CRON=1` 可全局关停。成本极低（命令本地跑，只有解读吃 token），长会话才值得开。

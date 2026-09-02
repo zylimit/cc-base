@@ -22,11 +22,13 @@
 //   lib/evidence.mjs  S17 gate + ledger + gate-audit + retention + risk
 //   lib/task.mjs      S18 task envelope + budget
 //   lib/spec.mjs      S19 spec-lint + trace + spec + dod
+//   lib/review.mjs    S20 review engine + review-pack + the authorship ledger
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
-// quality; task -> the same plus evidence; spec -> core, catalog, graph; selftest -> all of
-// the above; this file -> all of the above. No cycles.
+// quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
+// catalog, graph, quality, evidence; selftest -> all of the above; this file -> all of the
+// above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -46,12 +48,13 @@ import { adaptersFilePath, cmdAdapters, cmdAdrCheck, cmdFitness } from './lib/sc
 import { cmdGate, cmdGateAudit, cmdLedger, cmdRetention, cmdRisk } from './lib/evidence.mjs';
 import { cmdBudget, cmdTask } from './lib/task.mjs';
 import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
+import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -110,6 +113,9 @@ function main() {
     case 'trace':        return cmdTrace(flags);
     case 'spec':         return cmdSpec(flags);
     case 'dod':          return cmdDod(flags);
+    case 'review':       return cmdReview(flags, positional);
+    case 'review-pack':  return cmdReviewPack(flags);
+    case 'authorship':   return cmdAuthorship(flags, positional);
     default:
       return die(usage(cmd), 3);
   }
@@ -137,6 +143,9 @@ function usage(cmd) {
     '  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing\n' +
     '  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)\n' +
     '  dod         every static governance check once; blocking failure exits 2, nothing established exits 3\n' +
+    '  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted\n' +
+    '  review-pack evidence for a reviewer, with what the change removed in a section of its own\n' +
+    '  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

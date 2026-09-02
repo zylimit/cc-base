@@ -73,7 +73,8 @@
 //                 (.npm/_logs/<iso>-debug-0.log). The timestamp inside that path moves the
 //                 digest every run, and it is hashed before any path substitution can see
 //                 it. Same category as <TMP>: the environment, not the harness.
-//   startedAt / completedAt   the task record's clock fields.
+//   startedAt / completedAt   the task record's clock fields, and the review session's.
+//   at (again)    the authorship record, the backlog entry and the verdict all stamp one.
 //
 // Both evidence masks only fire on a non-empty value, so a check that produced no log still
 // records null and "wrote evidence" stays distinguishable from "never ran" -- which is the
@@ -98,6 +99,11 @@
 //     against the recording machine before re-recording anything.
 //   - waiver `expiry` and `created_at`. Fixed in the fixture, therefore stable, therefore
 //     asserted -- this is what proves waiver fields still round-trip.
+//   - `review-pack` -> packPath, and the stderr line that names it. The probe caught this
+//     one moving: the pack was named from the clock. It is now named from the base ref and
+//     the tree fingerprint, which makes it a fact about what was packed rather than about
+//     when, so it is asserted instead of masked -- and re-packing the same change overwrites
+//     one file instead of leaving retention a pile of identical ones.
 //   - everything else: field names, key sets, array lengths, ordering, exit codes, counts,
 //     findings, messages and stderr.
 //
@@ -163,7 +169,7 @@ const SCENARIOS = [
   { name: 'non-git', catalog: path.join(GOLDEN_FIXTURES, 'catalog-rich.json'), git: false },
 ];
 
-// All twenty-six subcommands plus the sub-forms that take a different code path.
+// All twenty-nine subcommands plus the sub-forms that take a different code path.
 // Order matters three times: `receipt write` must precede every `receipt verify` (verify
 // checks the receipt the write just bound to the current diff), `arch-check --record`
 // must precede the arch-trend pair (the ratchet needs a ledger entry to compare against),
@@ -195,6 +201,29 @@ const TASK_INPUT = JSON.stringify({
   escalation: 'stop and report if the catalog itself needs changing',
 });
 const TASK_INPUT_INCOMPLETE = JSON.stringify({ id: 'golden-task', goal: 'the rest is missing' });
+
+// The review layer's stdin payloads. Each rejection has a matching acceptance beside it,
+// because a refusal recorded on its own only proves the command can say no.
+const AUTHORSHIP_INPUT = JSON.stringify({
+  agentId: 'golden-implementer',
+  agentType: 'implementer',
+  files: ['core/util.ts'],
+});
+const BLUE_INPUT = JSON.stringify({
+  claims: [{ statement: 'the sandbox tree still parses', evidence: 'node --check core/util.ts -> exit 0' }],
+});
+const BLUE_INPUT_NO_EVIDENCE = JSON.stringify({ claims: [{ statement: 'it works' }] });
+const LENS_INPUT = JSON.stringify({ findings: [] });
+const LENS_INPUT_UNLOCATED = JSON.stringify({ findings: [{ severity: 'error', summary: 'feels wrong' }] });
+const BACKLOG_INPUT = JSON.stringify({
+  owner: '@golden', expiry: '2099-01-01T00:00:00.000Z',
+  summary: 'the legacy route has no bound on its retry loop', lens: 'reliability',
+  location: 'api/legacy.ts:1',
+});
+const BACKLOG_INPUT_PROTECTED = JSON.stringify({
+  owner: '@golden', expiry: '2099-01-01T00:00:00.000Z',
+  summary: 'the legacy route has no bound on its retry loop', lens: 'security',
+});
 
 const COMMANDS = [
   { id: 'doctor', argv: ['doctor'] },
@@ -256,6 +285,39 @@ const COMMANDS = [
   { id: 'spec--file', argv: ['spec', '--file', '<SPEC>', '--all', '--budget', '600'] },
   { id: 'dod', argv: ['dod'] },
 
+  // The review layer. It writes only into .claude/harness/{state,receipts}, both excluded
+  // from the diff fingerprint, so a session cannot stale itself and none of this perturbs a
+  // later command. Order is the protocol: pack the evidence, record who wrote the code, open
+  // the review, blue self-reports, the lenses report, then the verdict is computed.
+  // The two halves of the author rule are both recorded, and that pairing is the point of the
+  // sequence: `review-lens` reports as golden-red, who wrote nothing, so the verdict may
+  // conclude; `review-lens--by-author` re-reports the same lens as golden-implementer, who
+  // `authorship-record` just named as the author of core/util.ts, and the verdict that follows
+  // has to refuse. A recording of only the refusal would not show the rule can ever pass, and
+  // one of only the pass would not show it can ever fire.
+  // What each scenario actually convenes differs, and that is worth recording rather than
+  // engineering away: the team profile drops a lens whose attribute no affected module
+  // declares, so the fixtures without attributes convene correctness alone (verdict reaches
+  // ACCEPT and writes a receipt) while the richer ones convene more and the verdict has to
+  // refuse until they report.
+  { id: 'review-pack', argv: ['review-pack'] },
+  { id: 'authorship-record', volatile: { at: '<TS>' }, argv: ['authorship', 'record'], stdin: AUTHORSHIP_INPUT },
+  { id: 'authorship-show', argv: ['authorship', 'show'] },
+  { id: 'review-team', argv: ['review', 'team'] },
+  { id: 'review-start', argv: ['review', 'start', '--scope', 'golden sandbox'] },
+  { id: 'review-blue--no-evidence', argv: ['review', 'blue'], stdin: BLUE_INPUT_NO_EVIDENCE },
+  { id: 'review-blue', argv: ['review', 'blue'], stdin: BLUE_INPUT },
+  { id: 'review-lens--unlocated', argv: ['review', 'lens', 'correctness'], stdin: LENS_INPUT_UNLOCATED },
+  { id: 'review-lens', argv: ['review', 'lens', 'correctness', '--agent', 'golden-red'], stdin: LENS_INPUT },
+  { id: 'review-lens--gated', argv: ['review', 'lens', 'testing', '--agent', 'golden-red'], stdin: LENS_INPUT },
+  { id: 'review-status', volatile: { startedAt: '<TS>' }, argv: ['review', 'status'] },
+  { id: 'review-backlog-add--protected', argv: ['review', 'backlog', 'add'], stdin: BACKLOG_INPUT_PROTECTED },
+  { id: 'review-backlog-add', volatile: { at: '<TS>' }, argv: ['review', 'backlog', 'add'], stdin: BACKLOG_INPUT },
+  { id: 'review-backlog-list', volatile: { at: '<TS>' }, argv: ['review', 'backlog', 'list'] },
+  { id: 'review-verdict', volatile: { at: '<TS>' }, argv: ['review', 'verdict', '--reviewer', 'golden-judge'] },
+  { id: 'review-lens--by-author', argv: ['review', 'lens', 'correctness', '--agent', 'golden-implementer'], stdin: LENS_INPUT },
+  { id: 'review-verdict--self-reviewed', volatile: { at: '<TS>' }, argv: ['review', 'verdict', '--reviewer', 'golden-judge'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -278,6 +340,9 @@ const COMMANDS = [
   { id: 'adapters-add--dry-run', argv: ['adapters', 'add', 'secrets-gitleaks', '--dry-run'] },
   { id: 'adapters-add--unknown', argv: ['adapters', 'add', 'cc-base-golden-absent-adapter'] },
   { id: 'adapters--bad-sub', argv: ['adapters', 'bogus'] },
+  { id: 'review--bad-sub', argv: ['review', 'bogus'] },
+  { id: 'review-backlog--bad-act', argv: ['review', 'backlog', 'bogus'] },
+  { id: 'authorship--bad-sub', argv: ['authorship', 'bogus'] },
   { id: 'unknown-subcommand', argv: ['cc-base-golden-absent-subcommand'] },
   { id: 'missing-subcommand', argv: [] },
 
@@ -679,7 +744,8 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
   + 'waiversDirExists,activeWaivers,attributesDeclared,modulesWithLayer,forbiddenEdges,adaptersPresent';
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
-  + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod';
+  + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
+  + 'review,review-pack,authorship';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

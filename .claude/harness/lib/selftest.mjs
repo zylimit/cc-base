@@ -38,6 +38,11 @@ import {
   collectReferences, dodStatus, dodVerdict, lintSpecDoc, parseRequirements, placeholderBrackets,
   renderSpecView, splitSections, traceReport,
 } from './spec.mjs';
+import {
+  REVIEW_PROFILES, authorSetFor, authorshipStatus, backlogViolations, computeVerdict,
+  currentStage, deletionAudit, freshness, lensExclusions, parseAuthorshipLines, parseNameStatus,
+  reviewLenses, selfReviewedLenses, stagePassed, validateClaims, validateFindings,
+} from './review.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -86,6 +91,20 @@ function selftestCases() {
     return r;
   };
   const budgetCat = { maxChangedFiles: 3, maxChangedLines: 100, maxModulesTouched: 2, maxNewFiles: 1 };
+
+  // S20 fixtures. A session is built from the same shape review start writes, and a lens
+  // report from the shape recordLens stores, so a change to either surface breaks these
+  // rather than leaving them asserting against a shape nothing produces any more.
+  const lensRec = (over = {}) => ({ at: '2020-01-01T00:00:00.000Z', agentId: null, unable: false, unableReason: null, findings: [], ...over });
+  const errFinding = { severity: 'error', location: 'src/a.js:12', reproduction: null, summary: 'off by one' };
+  const reviewSession = (over = {}) => ({
+    version: 1, diffHash: 'D0', baseCommit: 'c0', startedAt: '2020-01-01T00:00:00.000Z',
+    scope: '', packPath: null, profile: 'regulated', catalogPresent: true, affected: ['core'],
+    requiredLenses: ['correctness', 'architecture', 'testing', 'security'],
+    excludedLenses: [], lineage: [], blue: { at: '2020-01-01T00:00:00.000Z', claims: [{ statement: 's', evidence: 'e' }] },
+    lenses: {}, backlog: [], verdict: null, ...over,
+  });
+  const allClean = { correctness: lensRec(), architecture: lensRec(), testing: lensRec(), security: lensRec() };
 
   // S19 fixture. The section labels come from the module rather than being re-escaped here:
   // the runtime source is ASCII-only, and a second hand-escaped copy of four Chinese headings
@@ -1534,6 +1553,181 @@ function selftestCases() {
         { id: 'risk', blocking: false, status: 'PASS' },
       ]);
       assert.deepEqual([r.ok, r.exit, r.degraded, r.established], [false, 3, true, 0]);
+    }],
+
+    // S20 review -- the team is chosen from what the change touches, and attributes may only
+    // shrink it. A project that declared everything would otherwise convene everybody, which
+    // is the nitpick flood that stops a review loop from being believed.
+    ['review team: an explicit catalog list wins over the profile', () => {
+      const cat = { version: 1, modules: [], review: { profile: 'personal', lenses: ['correctness', 'windows'] } };
+      assert.deepEqual(reviewLenses(cat, {}), ['correctness', 'windows']);
+      assert.deepEqual(lensExclusions(cat, null), [], 'an explicit list excludes nothing implicitly');
+    }],
+    ['review team: an undeclared attribute drops its lens, correctness never drops', () => {
+      const cat = {
+        version: 1,
+        modules: [{ id: 'core', paths: ['src/**'], attributes: { reliability: 'high' } }],
+        review: { profile: 'production' },
+      };
+      const kept = reviewLenses(cat, { affected: ['core'] });
+      assert.ok(kept.includes('correctness'), 'correctness is the floor of every review');
+      assert.ok(kept.includes('testing'), 'reliability is declared high, so testing stays');
+      assert.ok(!kept.includes('security'), 'nothing declares security, so no security lens');
+      assert.deepEqual(lensExclusions(cat, ['core']).map(x => x.lens).sort(), ['architecture', 'performance', 'security']);
+      // No affected list at all means no basis for subtracting: convene the whole profile.
+      assert.deepEqual(reviewLenses(cat, {}), REVIEW_PROFILES.production);
+    }],
+    ['review stage: reporting is not passing, and a failed stage holds the gate shut', () => {
+      const reported = reviewSession({ lenses: { correctness: lensRec(), architecture: lensRec() } });
+      assert.equal(stagePassed(reported, 1), true);
+      assert.equal(currentStage(reported), 2, 'a clean stage 1 opens stage 2');
+      const failed = reviewSession({ lenses: { correctness: lensRec({ findings: [errFinding] }), architecture: lensRec() } });
+      assert.equal(stagePassed(failed, 1), false);
+      assert.equal(currentStage(failed), 1, 'expensive lenses must not open on code the cheap ones rejected');
+      const unable = reviewSession({ lenses: { correctness: lensRec({ unable: true }), architecture: lensRec() } });
+      assert.equal(currentStage(unable), 1, 'a lens that could not conclude has not passed either');
+      const silent = reviewSession({ lenses: { correctness: lensRec() } });
+      assert.equal(currentStage(silent), 1, 'stage 1 is not done while one of its lenses is silent');
+    }],
+    ['review stage: a stage this profile never convenes is stepped over, not waited on', () => {
+      const s = reviewSession({ requiredLenses: ['correctness', 'security'], lenses: { correctness: lensRec() } });
+      assert.equal(currentStage(s), 3, 'there is no stage 2 lens to wait for');
+    }],
+
+    // S20 report shape -- a finding nobody can locate cannot be acted on, and a claim with no
+    // evidence is an opinion. Both reject the whole report rather than half-recording it.
+    ['review lens: a finding needs a file:line or a reproduction, or the report is refused', () => {
+      const bad = validateFindings({ findings: [{ severity: 'error', summary: 'feels wrong' }] });
+      assert.equal(bad.ok, false);
+      assert.deepEqual(bad.unlocated, [0]);
+      const byLine = validateFindings({ findings: [{ severity: 'warning', location: 'src/a.js:3', summary: 'x' }] });
+      assert.equal(byLine.ok, true);
+      const byRepro = validateFindings({ findings: [{ severity: 'info', reproduction: 'node t.js -> exit 1', summary: 'x' }] });
+      assert.equal(byRepro.ok, true);
+      // A path with no line number is not a location: "somewhere in this file" is an impression.
+      const noLine = validateFindings({ findings: [{ severity: 'error', location: 'src/a.js', summary: 'x' }] });
+      assert.equal(noLine.ok, false);
+      const sev = validateFindings({ findings: [{ severity: 'critical', location: 'src/a.js:3', summary: 'x' }] });
+      assert.deepEqual([sev.ok, sev.badSeverity], [false, [0]]);
+      assert.equal(validateFindings({ findings: [] }).ok, true, 'a clean lens reports nothing, and that is a report');
+    }],
+    ['review blue: every claim carries evidence or the whole self-report is rejected', () => {
+      assert.equal(validateClaims({ claims: [] }).ok, false, 'blue must say something');
+      const bad = validateClaims({ claims: [{ statement: 'it works', evidence: '' }] });
+      assert.deepEqual([bad.ok, bad.bad[0].why], [false, 'no evidence']);
+      const good = validateClaims({ claims: [{ statement: 'tsc is clean', evidence: 'tsc --noEmit -> exit 0' }] });
+      assert.deepEqual([good.ok, good.claims.length], [true, 1]);
+    }],
+
+    // S20 verdict -- computed, never asserted. The line that separates this from a consensus
+    // review is that there is no vote anywhere in it.
+    ['review verdict: every lens clean and final gives ACCEPT', () => {
+      const v = computeVerdict(reviewSession({ lenses: allClean }));
+      assert.deepEqual([v.ok, v.verdict, v.stage, v.isFinal, v.errorCount], [true, 'ACCEPT', 3, true, 0]);
+    }],
+    ['review verdict: one located error is not outvoted by the lenses that found nothing', () => {
+      const s = reviewSession({ lenses: { ...allClean, correctness: lensRec({ findings: [errFinding] }) } });
+      const v = computeVerdict(s);
+      assert.deepEqual([v.ok, v.verdict, v.errorCount, v.stage], [true, 'FIX_REQUIRED', 1, 1]);
+      assert.equal(v.recordedLenses.length, 4, 'three clean reports beside it change nothing');
+    }],
+    ['review verdict: a lens that could not conclude asks for evidence, not acceptance', () => {
+      const s = reviewSession({ lenses: { ...allClean, security: lensRec({ unable: true }) } });
+      const v = computeVerdict(s);
+      assert.deepEqual([v.verdict, v.unableLenses], ['NEEDS_MORE_EVIDENCE', ['security']]);
+    }],
+    ['review verdict: no blue and no current-stage report are refusals, not verdicts', () => {
+      const noBlue = computeVerdict(reviewSession({ blue: null, lenses: allClean }));
+      assert.deepEqual([noBlue.ok, noBlue.verdict], [false, null]);
+      assert.ok(noBlue.blockers.some(b => b.includes('blue')));
+      const silent = computeVerdict(reviewSession({ lenses: { correctness: lensRec() } }));
+      assert.deepEqual([silent.ok, silent.verdict, silent.missingLenses], [false, null, ['architecture']]);
+    }],
+    ['review verdict: the round limit stops the loop instead of repeating it', () => {
+      const withErr = { ...allClean, correctness: lensRec({ findings: [errFinding] }) };
+      const first = computeVerdict(reviewSession({ lenses: withErr }), { maxRounds: 3 });
+      assert.deepEqual([first.round, first.escalate], [1, false]);
+      const third = computeVerdict(reviewSession({ lenses: withErr, lineage: [{}, {}] }), { maxRounds: 3 });
+      assert.deepEqual([third.round, third.verdict, third.escalate], [3, 'FIX_REQUIRED', true]);
+      // The limit only fires on repeated rejection: a clean third round still accepts.
+      const clean = computeVerdict(reviewSession({ lenses: allClean, lineage: [{}, {}] }), { maxRounds: 3 });
+      assert.deepEqual([clean.verdict, clean.escalate], ['ACCEPT', false]);
+    }],
+
+    // S20 authorship -- the rule the sibling engine has to leave as prose, made decidable.
+    ['authorship: only a record naming a file this diff touches makes anyone an author', () => {
+      const records = [
+        { agentId: 'impl-1', agentType: 'implementer', files: ['src/a.js', 'src/b.js'] },
+        { agentId: 'impl-2', agentType: 'implementer', files: ['docs/old.md'] },
+        { corrupt: true, raw: '{' },
+        { agentType: 'implementer', files: ['src/a.js'] },
+      ];
+      const authors = authorSetFor(records, new Set(['src/a.js']));
+      assert.deepEqual([...authors.keys()], ['impl-1'], 'a record about an untouched file says nothing here');
+      assert.deepEqual(authors.get('impl-1').files, ['src/a.js']);
+    }],
+    ['authorship: a lens reported by an author cannot carry an ACCEPT', () => {
+      const authors = authorSetFor([{ agentId: 'impl-1', files: ['src/a.js'] }], new Set(['src/a.js']));
+      const s = reviewSession({ lenses: { ...allClean, correctness: lensRec({ agentId: 'impl-1' }) } });
+      assert.deepEqual(selfReviewedLenses(s, authors).map(x => x.lens), ['correctness']);
+      const v = computeVerdict(s, { authors });
+      assert.deepEqual([v.ok, v.verdict], [false, null]);
+      assert.ok(v.blockers[0].includes('self-review is not independent review'));
+      // An outsider reporting the same lens is exactly what the rule asks for.
+      const clean = computeVerdict(reviewSession({ lenses: { ...allClean, correctness: lensRec({ agentId: 'red-1' }) } }), { authors });
+      assert.equal(clean.verdict, 'ACCEPT');
+    }],
+    ['authorship: an unenforceable rule reports itself unenforced, with which half is missing', () => {
+      const s = reviewSession({ lenses: { ...allClean, correctness: lensRec({ agentId: 'red-1' }) } });
+      const none = authorshipStatus(s, new Map(), { records: 0 });
+      assert.equal(none.enforced, false);
+      assert.ok(none.reason.includes('no authorship was ever recorded'));
+      const elsewhere = authorshipStatus(s, new Map(), { records: 4 });
+      assert.ok(elsewhere.reason.includes('none of them names a file this diff touches'));
+      const authors = authorSetFor([{ agentId: 'impl-1', files: ['src/a.js'] }], new Set(['src/a.js']));
+      const anonymous = authorshipStatus(reviewSession({ lenses: allClean }), authors, { records: 1 });
+      assert.deepEqual([anonymous.enforced, anonymous.lensesWithoutAgent.length], [false, 4]);
+      assert.ok(anonymous.reason.includes('no lens was reported with --agent'));
+      const enforced = authorshipStatus(s, authors, { records: 1 });
+      assert.deepEqual([enforced.enforced, enforced.reason], [true, null]);
+      const unreadable = authorshipStatus(s, new Map(), { unreadable: 'EACCES', records: 0 });
+      assert.equal(unreadable.enforced, false);
+      assert.ok(unreadable.reason.includes('could not be read'));
+    }],
+    ['authorship: an unparseable ledger line is kept and counted, never dropped', () => {
+      const parsed = parseAuthorshipLines('{"agentId":"a","files":["x"]}\nnot json\n');
+      assert.deepEqual([parsed.length, !!parsed[1].corrupt], [2, true]);
+    }],
+
+    // S20 backlog -- a finding may be carried, never deleted, and three kinds may not even be
+    // carried: the backlog would be the waiver this engine refuses everywhere else.
+    ['review backlog: security, safety and privacy are never backloggable', () => {
+      const base = { owner: '@me', expiry: '2099-01-01T00:00:00.000Z', summary: 'a missing bound', lens: 'reliability' };
+      assert.deepEqual(backlogViolations(base), []);
+      assert.equal(backlogViolations({ ...base, lens: 'security' }).length, 1);
+      assert.equal(backlogViolations({ ...base, lens: 'privacy' }).length, 1);
+      assert.equal(backlogViolations({ ...base, summary: 'a credential is logged' }).length, 1);
+      assert.ok(backlogViolations({ ...base, expiry: '2000-01-01T00:00:00.000Z' })[0].includes('future'));
+      assert.ok(backlogViolations({ owner: '@me' })[0].includes('expiry'), 'missing fields are named');
+    }],
+
+    // S20 review-pack -- reviewers systematically read what arrived and skip what left, so a
+    // rename has to appear beside the deletions rather than only inside the diff.
+    ['review-pack: deletions and the old side of a rename are both what left', () => {
+      const entries = parseNameStatus(['M', 'src/a.js', 'D', 'src/gone.js', 'R100', 'src/old.js', 'src/new.js', 'A', 'src/added.js']);
+      assert.deepEqual(entries.map(e => e.status), ['M', 'D', 'R', 'A']);
+      const audit = deletionAudit(entries);
+      assert.deepEqual(audit.deleted, ['src/gone.js']);
+      assert.deepEqual(audit.movedAway, ['src/old.js -> src/new.js']);
+    }],
+
+    // S20 freshness -- a session is evidence about the tree it was opened against and no other.
+    ['review session: a moved tree stales the review, an absent one is not a stale one', () => {
+      assert.deepEqual(freshness(reviewSession(), 'D0').ok, true);
+      const stale = freshness(reviewSession(), 'D1');
+      assert.deepEqual([stale.ok, !!stale.stale], [false, true]);
+      const none = freshness(null, 'D0');
+      assert.deepEqual([none.ok, !!none.missing, !!none.stale], [false, true, false]);
     }],
 
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x

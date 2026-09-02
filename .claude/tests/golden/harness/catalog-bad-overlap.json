@@ -39,7 +39,10 @@
           "spec-lint",
           "trace",
           "spec",
-          "dod"
+          "dod",
+          "review",
+          "review-pack",
+          "authorship"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -71,7 +74,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 200
+        "tests": 218
       },
       "stderr": []
     },
@@ -1669,6 +1672,508 @@
       ]
     },
     {
+      "id": "review-pack",
+      "argv": [
+        "review-pack"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "base": "HEAD",
+        "packPath": ".claude/harness/state/context/review-pack-HEAD-2eafce438fad.md",
+        "commits": 0,
+        "deleted": [],
+        "movedAway": [],
+        "untracked": [
+          "api/new-route.ts",
+          "db/server.pem"
+        ],
+        "diffLines": 21,
+        "spilled": null,
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c"
+      },
+      "stderr": [
+        "review pack written to .claude/harness/state/context/review-pack-HEAD-2eafce438fad.md"
+      ]
+    },
+    {
+      "id": "authorship-record",
+      "argv": [
+        "authorship",
+        "record"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "record",
+        "path": ".claude/harness/state/authorship.jsonl",
+        "record": {
+          "at": "<TS>",
+          "agentId": "golden-implementer",
+          "agentType": "implementer",
+          "baseCommit": "<SHA>",
+          "files": [
+            "core/util.ts"
+          ]
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "authorship-show",
+      "argv": [
+        "authorship",
+        "show"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "show",
+        "records": 1,
+        "corruptLines": 0,
+        "changedFiles": 4,
+        "authors": [
+          {
+            "agentId": "golden-implementer",
+            "agentTypes": [
+              "implementer"
+            ],
+            "files": [
+              "core/util.ts"
+            ]
+          }
+        ],
+        "unattributed": [
+          "api/new-route.ts",
+          "auth/login.ts",
+          "db/server.pem"
+        ],
+        "path": ".claude/harness/state/authorship.jsonl"
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-team",
+      "argv": [
+        "review",
+        "team"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "team",
+        "profile": "team",
+        "catalogPresent": true,
+        "affected": [
+          "core",
+          "shared"
+        ],
+        "convened": [
+          {
+            "lens": "correctness",
+            "stage": 1,
+            "asks": "does it do what the requirement says, at the boundaries and in the error paths, not only on the happy path"
+          }
+        ],
+        "excluded": [
+          {
+            "lens": "testing",
+            "reason": "no affected module declares reliability at low or above"
+          },
+          {
+            "lens": "architecture",
+            "reason": "no affected module declares maintainability at low or above"
+          }
+        ],
+        "stages": {
+          "1": "code",
+          "2": "functional",
+          "3": "trust"
+        },
+        "maxRounds": 3
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-start",
+      "argv": [
+        "review",
+        "start",
+        "--scope",
+        "golden sandbox"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "start",
+        "path": ".claude/harness/state/review.json",
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "profile": "team",
+        "catalogPresent": true,
+        "affected": [
+          "core",
+          "shared"
+        ],
+        "requiredLenses": [
+          "correctness"
+        ],
+        "excludedLenses": [
+          {
+            "lens": "testing",
+            "reason": "no affected module declares reliability at low or above"
+          },
+          {
+            "lens": "architecture",
+            "reason": "no affected module declares maintainability at low or above"
+          }
+        ],
+        "round": 1,
+        "maxRounds": 3
+      },
+      "stderr": [
+        "review opened against diff 2eafce438fad (profile team)",
+        "  convened: correctness",
+        "  not convened: testing -- no affected module declares reliability at low or above",
+        "  not convened: architecture -- no affected module declares maintainability at low or above",
+        "  delegate each lens to a separate agent; agreement reached cheaply is not review"
+      ]
+    },
+    {
+      "id": "review-blue--no-evidence",
+      "argv": [
+        "review",
+        "blue"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "sub": "blue",
+        "reason": "1 claim(s) carry no statement or no evidence; a claim with no command, no exit code and no file:line is an opinion, and the whole report is rejected rather than half-recorded",
+        "bad": [
+          {
+            "index": 0,
+            "why": "no evidence"
+          }
+        ]
+      },
+      "stderr": [
+        "review blue rejected: 1 claim(s) carry no statement or no evidence; a claim with no command, no exit code and no file:line is an opinion, and the whole report is rejected rather than half-recorded"
+      ]
+    },
+    {
+      "id": "review-blue",
+      "argv": [
+        "review",
+        "blue"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "blue",
+        "claims": 1
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-lens--unlocated",
+      "argv": [
+        "review",
+        "lens",
+        "correctness"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "correctness",
+        "reason": "1 finding(s) carry neither a file:line location nor a reproduction (index 0); a finding nobody can locate cannot be acted on, and findings nobody acts on are what make review theatre",
+        "unlocated": [
+          0
+        ],
+        "badSeverity": []
+      },
+      "stderr": [
+        "review lens rejected: 1 finding(s) carry neither a file:line location nor a reproduction (index 0); a finding nobody can locate cannot be acted on, and findings nobody acts on are what make review theatre"
+      ]
+    },
+    {
+      "id": "review-lens",
+      "argv": [
+        "review",
+        "lens",
+        "correctness",
+        "--agent",
+        "golden-red"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "lens",
+        "lens": "correctness",
+        "stage": 1,
+        "findings": 0,
+        "unable": false,
+        "agentId": "golden-red",
+        "errors": 0
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-lens--gated",
+      "argv": [
+        "review",
+        "lens",
+        "testing",
+        "--agent",
+        "golden-red"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "testing",
+        "reason": "lens \"testing\" was not convened for this review; it requires correctness"
+      },
+      "stderr": [
+        "review lens rejected: lens \"testing\" was not convened for this review; it requires correctness"
+      ]
+    },
+    {
+      "id": "review-status",
+      "argv": [
+        "review",
+        "status"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "status",
+        "stale": false,
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "sessionDiffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "startedAt": "<TS>",
+        "profile": "team",
+        "catalogPresent": true,
+        "stage": 3,
+        "stageName": "trust",
+        "requiredLenses": [
+          "correctness"
+        ],
+        "reportedLenses": [
+          "correctness"
+        ],
+        "missingLenses": [],
+        "blue": true,
+        "round": 1,
+        "backlog": 0,
+        "verdict": null,
+        "authorshipEnforced": true,
+        "authorshipReason": null,
+        "lensesWithoutAgent": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-backlog-add--protected",
+      "argv": [
+        "review",
+        "backlog",
+        "add"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "sub": "backlog",
+        "act": "add",
+        "errors": [
+          "a security, safety or privacy finding cannot be backlogged: carrying one is exactly the waiver this engine refuses to grant anywhere else"
+        ]
+      },
+      "stderr": [
+        "backlog rejected: a security, safety or privacy finding cannot be backlogged: carrying one is exactly the waiver this engine refuses to grant anywhere else"
+      ]
+    },
+    {
+      "id": "review-backlog-add",
+      "argv": [
+        "review",
+        "backlog",
+        "add"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "backlog",
+        "act": "add",
+        "entry": {
+          "at": "<TS>",
+          "owner": "@golden",
+          "expiry": "2099-01-01T00:00:00.000Z",
+          "lens": "reliability",
+          "summary": "the legacy route has no bound on its retry loop",
+          "location": "api/legacy.ts:1"
+        },
+        "count": 1
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-backlog-list",
+      "argv": [
+        "review",
+        "backlog",
+        "list"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "backlog",
+        "act": "list",
+        "count": 1,
+        "expired": 0,
+        "entries": [
+          {
+            "at": "<TS>",
+            "owner": "@golden",
+            "expiry": "2099-01-01T00:00:00.000Z",
+            "lens": "reliability",
+            "summary": "the legacy route has no bound on its retry loop",
+            "location": "api/legacy.ts:1",
+            "expired": false
+          }
+        ]
+      },
+      "stderr": [
+        "  open     @golden  2099-01-01T00:00:00.000Z  reliability  the legacy route has no bound on its retry loop"
+      ]
+    },
+    {
+      "id": "review-verdict",
+      "argv": [
+        "review",
+        "verdict",
+        "--reviewer",
+        "golden-judge"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "verdict",
+        "verdict": "ACCEPT",
+        "blockers": [],
+        "stage": 3,
+        "stageName": "trust",
+        "isFinal": true,
+        "round": 1,
+        "maxRounds": 3,
+        "escalate": false,
+        "errors": [],
+        "errorCount": 0,
+        "unableLenses": [],
+        "missingLenses": [],
+        "selfReviewed": [],
+        "requiredLenses": [
+          "correctness"
+        ],
+        "recordedLenses": [
+          "correctness"
+        ],
+        "at": "<TS>",
+        "authorshipEnforced": true,
+        "authorshipReason": null,
+        "lensesWithoutAgent": [],
+        "authors": [
+          "golden-implementer"
+        ],
+        "receipt": {
+          "taskId": "golden-task",
+          "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c"
+        },
+        "advice": "every stage passed, every convened lens reported, and none of them found an error"
+      },
+      "stderr": [
+        "verdict: ACCEPT at stage 3 (trust) [final] round 1 of 3",
+        "  every stage passed, every convened lens reported, and none of them found an error"
+      ]
+    },
+    {
+      "id": "review-lens--by-author",
+      "argv": [
+        "review",
+        "lens",
+        "correctness",
+        "--agent",
+        "golden-implementer"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "lens",
+        "lens": "correctness",
+        "stage": 1,
+        "findings": 0,
+        "unable": false,
+        "agentId": "golden-implementer",
+        "errors": 0
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-verdict--self-reviewed",
+      "argv": [
+        "review",
+        "verdict",
+        "--reviewer",
+        "golden-judge"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "sub": "verdict",
+        "verdict": null,
+        "blockers": [
+          "lens \"correctness\" was reported by golden-implementer, who authored core/util.ts in this change; self-review is not independent review, so it cannot carry an ACCEPT"
+        ],
+        "stage": 3,
+        "stageName": "trust",
+        "isFinal": true,
+        "round": 1,
+        "maxRounds": 3,
+        "escalate": false,
+        "errors": [],
+        "errorCount": 0,
+        "unableLenses": [],
+        "missingLenses": [],
+        "selfReviewed": [
+          {
+            "lens": "correctness",
+            "agentId": "golden-implementer",
+            "files": [
+              "core/util.ts"
+            ]
+          }
+        ],
+        "requiredLenses": [
+          "correctness"
+        ],
+        "recordedLenses": [
+          "correctness"
+        ],
+        "at": "<TS>",
+        "authorshipEnforced": true,
+        "authorshipReason": null,
+        "lensesWithoutAgent": [],
+        "authors": [
+          "golden-implementer"
+        ],
+        "advice": "no verdict: the review happened, but part of it was carried by the author of the change; have an agent that did not write these files report correctness again"
+      },
+      "stderr": [
+        "  BLOCKER  lens \"correctness\" was reported by golden-implementer, who authored core/util.ts in this change; self-review is not independent review, so it cannot carry an ACCEPT",
+        "no verdict: the review happened, but part of it was carried by the author of the change; have an agent that did not write these files report correctness again"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -1852,6 +2357,51 @@
       "stderr": []
     },
     {
+      "id": "review--bad-sub",
+      "argv": [
+        "review",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "review-subcommand",
+        "detail": "usage: review start|blue|lens <name>|verdict|backlog list|add|status|team",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-backlog--bad-act",
+      "argv": [
+        "review",
+        "backlog",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "backlog",
+        "error": "backlog-action",
+        "detail": "usage: review backlog list|add",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "authorship--bad-sub",
+      "argv": [
+        "authorship",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "authorship-subcommand",
+        "detail": "usage: authorship record|show",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
       "id": "unknown-subcommand",
       "argv": [
         "cc-base-golden-absent-subcommand"
@@ -1861,7 +2411,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1879,6 +2429,9 @@
         "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
         "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
         "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
+        "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
+        "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
+        "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
         "planned (not-implemented):"
       ]
     },
@@ -1890,7 +2443,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1908,6 +2461,9 @@
         "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
         "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
         "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
+        "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
+        "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
+        "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
         "planned (not-implemented):"
       ]
     },

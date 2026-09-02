@@ -199,6 +199,12 @@ function headCommit() {
 }
 
 // State files that must not perturb the diff fingerprint (runtime state, not code).
+// The three lists below, the DENY entry further down and .claude/.gitignore are exclusions of
+// the same set, and they are written per DIRECTORY rather than per file on purpose: everything
+// the runtime writes lands under one of these prefixes, so a new kind of state -- the review
+// session and the authorship ledger under harness/state/, for instance -- is covered by all
+// four the moment it is put there. A per-file rule would have to be added in four places, and
+// missing one of them is a fresh source of false green.
 const STATE_EXCLUDE = [
   ':(exclude).claude/.needs-review',
   ':(exclude).claude/.needs-review.lock',

@@ -39,7 +39,10 @@
           "spec-lint",
           "trace",
           "spec",
-          "dod"
+          "dod",
+          "review",
+          "review-pack",
+          "authorship"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -71,7 +74,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 200
+        "tests": 218
       },
       "stderr": []
     },
@@ -1306,6 +1309,342 @@
       ]
     },
     {
+      "id": "review-pack",
+      "argv": [
+        "review-pack"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "reason": "non-git",
+        "detail": "there is no diff to pack outside a git repository"
+      },
+      "stderr": []
+    },
+    {
+      "id": "authorship-record",
+      "argv": [
+        "authorship",
+        "record"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "record",
+        "path": ".claude/harness/state/authorship.jsonl",
+        "record": {
+          "at": "<TS>",
+          "agentId": "golden-implementer",
+          "agentType": "implementer",
+          "baseCommit": null,
+          "files": [
+            "core/util.ts"
+          ]
+        }
+      },
+      "stderr": []
+    },
+    {
+      "id": "authorship-show",
+      "argv": [
+        "authorship",
+        "show"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "show",
+        "degraded": true,
+        "reason": "non-git",
+        "detail": "without a diff there is no set of changed files to attribute"
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-team",
+      "argv": [
+        "review",
+        "team"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "team",
+        "profile": "team",
+        "catalogPresent": true,
+        "affected": null,
+        "convened": [
+          {
+            "lens": "correctness",
+            "stage": 1,
+            "asks": "does it do what the requirement says, at the boundaries and in the error paths, not only on the happy path"
+          },
+          {
+            "lens": "testing",
+            "stage": 2,
+            "asks": "does a test fail without the fix, is every case reachable from an anchor, is a failure classified rather than retried"
+          },
+          {
+            "lens": "architecture",
+            "stage": 1,
+            "asks": "is the change inside its declared boundary, is every new edge in the catalog, does it respect the layer direction"
+          }
+        ],
+        "excluded": [],
+        "stages": {
+          "1": "code",
+          "2": "functional",
+          "3": "trust"
+        },
+        "maxRounds": 3
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-start",
+      "argv": [
+        "review",
+        "start",
+        "--scope",
+        "golden sandbox"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "reason": "non-git",
+        "detail": "a review binds the diff it judged, and a non-git tree has no diff to bind to"
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-blue--no-evidence",
+      "argv": [
+        "review",
+        "blue"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "blue",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review blue: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-blue",
+      "argv": [
+        "review",
+        "blue"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "blue",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review blue: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-lens--unlocated",
+      "argv": [
+        "review",
+        "lens",
+        "correctness"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "correctness",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review lens: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-lens",
+      "argv": [
+        "review",
+        "lens",
+        "correctness",
+        "--agent",
+        "golden-red"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "correctness",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review lens: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-lens--gated",
+      "argv": [
+        "review",
+        "lens",
+        "testing",
+        "--agent",
+        "golden-red"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "testing",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review lens: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-status",
+      "argv": [
+        "review",
+        "status"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": false,
+        "sub": "status",
+        "note": "no-review-session",
+        "session": null,
+        "diffHash": null
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-backlog-add--protected",
+      "argv": [
+        "review",
+        "backlog",
+        "add"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "backlog",
+        "act": "add",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review backlog add: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-backlog-add",
+      "argv": [
+        "review",
+        "backlog",
+        "add"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "backlog",
+        "act": "add",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review backlog add: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-backlog-list",
+      "argv": [
+        "review",
+        "backlog",
+        "list"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "sub": "backlog",
+        "act": "list",
+        "count": 0,
+        "expired": 0,
+        "entries": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-verdict",
+      "argv": [
+        "review",
+        "verdict",
+        "--reviewer",
+        "golden-judge"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "verdict",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review verdict: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-lens--by-author",
+      "argv": [
+        "review",
+        "lens",
+        "correctness",
+        "--agent",
+        "golden-implementer"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "lens",
+        "lens": "correctness",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review lens: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
+      "id": "review-verdict--self-reviewed",
+      "argv": [
+        "review",
+        "verdict",
+        "--reviewer",
+        "golden-judge"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "verdict",
+        "missing": true,
+        "reason": "no review session; open one with \"harness.mjs review start\""
+      },
+      "stderr": [
+        "review verdict: no review session; open one with \"harness.mjs review start\""
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -1489,6 +1828,51 @@
       "stderr": []
     },
     {
+      "id": "review--bad-sub",
+      "argv": [
+        "review",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "review-subcommand",
+        "detail": "usage: review start|blue|lens <name>|verdict|backlog list|add|status|team",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "review-backlog--bad-act",
+      "argv": [
+        "review",
+        "backlog",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "sub": "backlog",
+        "error": "backlog-action",
+        "detail": "usage: review backlog list|add",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
+      "id": "authorship--bad-sub",
+      "argv": [
+        "authorship",
+        "bogus"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "error": "authorship-subcommand",
+        "detail": "usage: authorship record|show",
+        "got": "bogus"
+      },
+      "stderr": []
+    },
+    {
       "id": "unknown-subcommand",
       "argv": [
         "cc-base-golden-absent-subcommand"
@@ -1498,7 +1882,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1516,6 +1900,9 @@
         "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
         "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
         "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
+        "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
+        "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
+        "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
         "planned (not-implemented):"
       ]
     },
@@ -1527,7 +1914,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1545,6 +1932,9 @@
         "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
         "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
         "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
+        "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
+        "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
+        "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
         "planned (not-implemented):"
       ]
     },
