@@ -16,7 +16,7 @@
     └── .claude/
         ├── CLAUDE.md                      # 主控
         ├── settings.json                  # hooks 等 Claude Code 配置
-        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
+        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / harness-large-repo / quality-attributes）
         ├── hooks/                         # 闸门钩子（stop-gate / no-direct-code-guard / tdd-gate / pre-commit-check / three-file-sync-gate / dangerous-pkill-guard / secret-exfil-guard / precompact-gate / release-gate / harness-async-verify / notify / session-rules-banner 等，.sh + .ps1 成对）
         ├── harness/                       # 大仓治理（harness.mjs + adapters.json；module-catalog.json 放置即启用）
         ├── workflows/                     # Workflow 编排脚本（code-review-fanout.js）
