@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[二十九能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[三十三能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
@@ -74,6 +74,10 @@ paths:
       · **backlog add|list**：finding 可以被背，不可以被删。`add` 需 `owner` / `expiry`（必须未来）/ `summary` / `lens`；`list` 报过期项。**security / safety / privacy 的 finding 永不可入 backlog**——backlog 会变成这套设计在别处拒绝提供的那种豁免（禁词与 waiver 同源）。
     - **review-pack**：给评审者的证据包（commits / diffstat / **删除与重命名单独成节** / untracked 清单 / diff，超 `--max-diff-lines`（默认 800）溢出到 `.patch`）。`--base` 默认 `HEAD`。落 `.claude/harness/state/context/`，文件名由 base + diffHash 前 12 位决定而不是时钟——同一份改动重打就覆盖同一个文件，不给 retention 攒一堆同样的包。**删除单独成节**是因为评审者系统性地漏看「删掉了什么」；重命名的旧路径也算「走了」，一并列在这节而不是只埋在 diff 里。非 git rc 3。
     - **authorship record|show**：作者账本，把姊妹仓在宪法里标 **prompt-only** 的那条规则（「评审者永远不是作者」，它自陈「引擎只会数 lens，看不出谁写的代码」）变成引擎能判的事——Claude Code 的 hook 事件带 `agent_id` / `agent_type`，这是 cc-base 有而它没有的东西。`record` 从 stdin 读 `{agentId,agentType?,files:[...]}` 追加进 `.claude/harness/state/authorship.jsonl`（跨进程锁，坏行保留计数不静默丢弃）；`show` 报当前 diff 涉及文件的作者集与未归属文件。`review verdict` 消费它：某 lens 的 `agentId` ∈ 当前 diff 的作者集 → **拒绝出 ACCEPT** 并点名（自审不算独立评审）。**诚实边界**：没有账本、账本里没有一条命中本次 diff、或没有任何 lens 带 `--agent` 时，verdict **不阻断**，但输出 `authorshipEnforced:false` 并写明缺的是哪一半——没数据时假装验过了比原来的散文规则更糟。**本批只建引擎侧能力**，把 `SubagentStart` / `SubagentStop` 接进 `authorship record` 是下一批的事。
+    - **invariants**：把「不可交易集 + 当前活跃状态」从 `.claude/CLAUDE.md`（铁律标记的粗体条目）、`progress.md` 的 Pinned 段和运行态**重新派生**出来，约 1200 字符预算（`--budget` 可调，`--rules` / `--file` 可指别的源）。要点是「什么不能被交易掉 + 现在处在什么状态」，不是把宪法复读一遍——所以只取粗体标签、正文里引用某条铁律的段落不算。活跃状态含：有无活跃 task（含超 72h 的 stale 标记）/ Fast Mode 窗口开着没开着还剩多久 / 最近一次 gate 的判决**以及它绑不绑当前 diff** / 账本链完好与否 / 待审清单几个。**状态块排在最前**，预算从尾巴吃——被压缩最先毁掉的就是它。两个源都读不出条目 → rc 3 并写明缺哪个（状态块照给）。**为什么需要它**：压缩不是把治理约束稀释了，是把它们删了，而摘要不修正漂移、只把漂移原样带过去；`PostCompact` 钩子（`.claude/hooks/postcompact-reinject.sh|.ps1`）在压缩边界后自动跑它、把结果经 `additionalContext` 回注；那个钩子不看 catalog 开关，小项目也一样生效，node 不在或引擎报错时打可见降级说明而不静默。
+    - **recap**：从 artifact 派生当前处境，预算化（默认 4000 字符，`--budget` 可调）。读 `progress.md` 的当前断点 / Pinned / TODO 的 P0-P1（已 DONE|完成 的不算）/ 近期 Decisions / 近期 Done / 近期 Notes，加 `Product-Spec.md` 与 `Product-Spec-CHANGELOG.md`（**存在才读，不存在跳过不报错**，并在输出头上写明没读哪些）。渲染顺序就是优先级——预算从尾巴吃，「工作停在哪」先出。**关键性质**：跑了一周还是两年，恢复成本恒定，靠预算而不是靠全读。**它读的是 artifact 不是压缩摘要**——摘要是一种主张，不是事实。三份都不存在 rc 3。
+    - **archive**：`progress.md` 超预算时把最老的 Done / Notes 条目移进 `progress.archive.md`，原地留一行指针。**默认 dry-run 只报计划，`--apply` 才动**（`--max-entries` 每段上限默认 100，`--file` / `--archive` 可指路径）。**只搬不改写**：条目连同它的续行整块搬走、字节不动，更正是在正文写新条目而不是回去改旧的。哪一端算「老」由日期读出来而不是拍脑袋（newest-first 搬尾巴、oldest-first 搬头，读不出来按尾巴并写明），猜反了会把最新的工作归掉档。写盘顺序是先 archive 后 progress——中间崩了条目在两边都在，读得见也修得回；反过来就丢了。Pinned 与 TODO 永不归档（还在生效的东西藏起来是反的）。以前归档留下的指针行不计入条目数、也不再被搬第二次。无 `progress.md` rc 3。
+    - **sync-check**：三文件同步铁律的机器判定。`MEMORY_BEHIND_CODE`（有代码/家底改动但 `progress.md` 不在同一改动集里）/ `SPEC_WITHOUT_CHANGELOG`（`Product-Spec.md` 变了而 `Product-Spec-CHANGELOG.md` 没变）。`--staged` 判索引（供 git hook 用），无参判工作树。运行态（`.claude/evidence|harness/state|...`）、`node_modules`、纯文档不算「该被记住的改动」——那种误报会让人把闸关掉。仓里没有 `progress.md` 就不报 MEMORY_BEHIND_CODE（不存在的不强造）。**它只能判「文件动没动在一起」，判不了写下来的是不是真的**，findings 说到这儿为止。同步 rc 0 / 不同步 rc 1 / 非 git 或索引读不出来 rc 3。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -119,6 +123,10 @@ paths:
     | review-pack | 写出 | — | — | 非 git | — |
     | authorship record | 追加成功 | — | — | stdin 非 JSON / 缺 agentId 或 files / 追加失败 | — |
     | authorship show | 总是 | — | — | 非 git / 账本读不出来 | — |
+    | invariants | 派生到条目 | — | — | 两个源都读不出条目（状态块照给） | — |
+    | recap | 至少读到一份 | — | — | 三份 artifact 都不存在 | — |
+    | archive | 报告或归档完成 | --apply 写盘失败 | — | 无 progress.md | — |
+    | sync-check | 同步 | 不同步（点名 findings） | — | 非 git / 索引读不出来 | — |
     | unknown / missing | — | — | — | 总是 | — |
 
     要点：

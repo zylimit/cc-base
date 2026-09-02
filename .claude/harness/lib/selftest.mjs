@@ -43,6 +43,11 @@ import {
   currentStage, deletionAudit, freshness, lensExclusions, parseAuthorshipLines, parseNameStatus,
   reviewLenses, selfReviewedLenses, stagePassed, validateClaims, validateFindings,
 } from './review.mjs';
+import {
+  ARCHIVABLE_SECTIONS, IRON_LAW_MARK, SECTION_PINNED,
+  applyArchivePlan, entryOrder, extractIronLaws, headline, isTrackedWork, planArchive,
+  renderView, sectionEntries, stateLines, syncFindings,
+} from './memory.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -1728,6 +1733,175 @@ function selftestCases() {
       assert.deepEqual([stale.ok, !!stale.stale], [false, true]);
       const none = freshness(null, 'D0');
       assert.deepEqual([none.ok, !!none.missing, !!none.stale], [false, true, false]);
+    }],
+
+    // S21 invariants -- the non-negotiable set is read off the bold label, not off the line.
+    // Several paragraphs in the constitution cite an iron rule while stating something else;
+    // pulling those in would make the injected set longer and less true at the same time.
+    ['invariants: an iron rule is a bold label carrying the mark, not any line mentioning it', () => {
+      const doc = [
+        '# main',
+        '    - **flat orchestration(' + IRON_LAW_MARK + ')**: only the main agent orchestrates',
+        '    - **two dispatch shapes**: judged by the flat orchestration ' + IRON_LAW_MARK + ' above',
+        '    - a plain bullet naming the ' + IRON_LAW_MARK + ' with no label at all',
+        '    - **evidence' + IRON_LAW_MARK + '**: ran it or it did not happen',
+        '    - **flat orchestration(' + IRON_LAW_MARK + ')**: duplicated verbatim further down',
+      ].join('\n');
+      const laws = extractIronLaws(doc);
+      assert.deepEqual(laws, [
+        'flat orchestration(' + IRON_LAW_MARK + ')',
+        'evidence' + IRON_LAW_MARK,
+      ], 'body citations and unlabelled bullets are not rules, and a repeat is not a second rule');
+      assert.deepEqual(extractIronLaws(''), []);
+    }],
+
+    // S21 invariants budget -- this text is re-injected at a compaction boundary, so it has
+    // to fit inside one. The state block is rendered first on purpose: the budget eats from
+    // the tail, and "where this tree stands" is the part a compaction most reliably destroys.
+    ['invariants: the budget is honoured and what it dropped is stated, not swallowed', () => {
+      const state = {
+        task: { id: 'T-1', state: 'active', stale: true },
+        fastMode: { active: true, remainingHours: 3.5 },
+        gate: { verdict: 'PASS', boundToCurrentDiff: false },
+        ledger: 'broken',
+        pendingReview: 2,
+      };
+      const lines = stateLines(state);
+      assert.ok(lines.join('\n').includes('stale >72h'), 'a stale task is named as stale');
+      assert.ok(lines.join('\n').includes('NOT bound to the current diff'),
+        'a PASS that does not bind this diff must not read as a PASS for it');
+      assert.ok(lines.join('\n').includes('unproven until the gates are re-run'),
+        'a broken ledger says what it costs, not just that it is broken');
+
+      const laws = [];
+      for (let i = 0; i < 60; i++) laws.push('- law number ' + i + ' with enough text to matter');
+      const header = '# INVARIANTS\n\n';
+      const view = renderView(header, [
+        { title: '## State', items: lines },
+        { title: '## Non-negotiable', items: laws },
+      ], 600);
+      assert.ok(view.chars <= 600, 'rendered ' + view.chars + ' chars against a 600 budget');
+      assert.ok(view.omitted > 0 && view.text.includes('omitted by the 600-char budget'),
+        'a view that stopped at the budget without saying so reads as complete');
+      assert.ok(view.text.includes('- active task: T-1'), 'the state block outranks the rule list');
+      const whole = renderView(header, [{ title: '## State', items: lines }], 1200);
+      assert.deepEqual(whole.omitted, 0);
+      assert.ok(whole.chars <= 1200);
+    }],
+
+    // S21 recap -- an entry becomes one line, and a cut is marked as a cut. The point of the
+    // budget is that recovery costs the same on a two-year-old project as on a new one, and
+    // that only holds if long entries shrink instead of being dropped at random.
+    ['recap: entries reduce to a marked headline, and the budget cuts whole items', () => {
+      assert.deepEqual(headline('- **the label**: and then a long tail of prose', 60), '**the label**');
+      const long = '- ' + 'x'.repeat(200);
+      const cut = headline(long, 40);
+      assert.deepEqual([cut.length, cut.endsWith('...')], [40, true], 'a cut says it was cut');
+      const view = renderView('# RECAP\n\n', [
+        { title: '## A', items: ['- one', '- two'] },
+        { title: '## B', items: ['- ' + 'y'.repeat(400)] },
+      ], 200);
+      assert.ok(view.chars <= 200);
+      assert.deepEqual(view.omitted, 1, 'the oversized item is dropped whole, not truncated silently');
+      assert.ok(!view.text.includes('## B'), 'a block whose items all dropped prints no heading');
+    }],
+
+    // S21 archive -- which end is the old end is read off the dates rather than assumed.
+    // Guessing wrong archives the newest work and keeps the history nobody needs, and the
+    // writer would not notice until the recap went strange.
+    ['archive: the older end is decided by the dates, in either writing order', () => {
+      const newestFirst = ['- 2026-03-03: c', '- 2026-02-02: b', '- 2026-01-01: a']
+        .map(raw => ({ raw, date: /(\d{4}-\d{2}-\d{2})/.exec(raw)[1] }));
+      assert.deepEqual(entryOrder(newestFirst), 'newest-first');
+      assert.deepEqual(entryOrder(newestFirst.slice().reverse()), 'oldest-first');
+      assert.deepEqual(entryOrder([{ raw: '- x', date: null }]), 'unknown');
+
+      const text = ['# P', '', '## ' + SECTION_PINNED, '- **keep me**: standing', '',
+        '## ' + ARCHIVABLE_SECTIONS[0], '- 2026-03-03: newest', '- 2026-02-02: middle',
+        '- 2026-01-01: oldest', '', '## ' + ARCHIVABLE_SECTIONS[1], '- 2026-03-03: only note', ''].join('\n');
+      const plan = planArchive(text, { maxEntries: 1 });
+      const done = plan.plans.find(p => p.section === ARCHIVABLE_SECTIONS[0]);
+      const notes = plan.plans.find(p => p.section === ARCHIVABLE_SECTIONS[1]);
+      assert.deepEqual([done.entries, done.moving, done.order, done.at], [3, 2, 'newest-first', 'tail']);
+      assert.deepEqual(notes.moving, 0, 'a section inside the cap does not move');
+      assert.deepEqual(plan.total, 4);
+
+      const flipped = planArchive(text.replace('- 2026-03-03: newest\n- 2026-02-02: middle\n- 2026-01-01: oldest',
+        '- 2026-01-01: oldest\n- 2026-02-02: middle\n- 2026-03-03: newest'), { maxEntries: 1 });
+      const flippedDone = flipped.plans.find(p => p.section === ARCHIVABLE_SECTIONS[0]);
+      assert.deepEqual([flippedDone.order, flippedDone.at], ['oldest-first', 'head'],
+        'written oldest-first, the old end is the head');
+    }],
+
+    // S21 archive -- moving is not editing. A correction belongs in a new entry, so every
+    // byte that leaves has to arrive unchanged and every byte that stays has to be untouched.
+    ['archive: entries move verbatim and leave a pointer, never a rewrite', () => {
+      const text = ['# P', '', '## ' + ARCHIVABLE_SECTIONS[0],
+        '- 2026-03-03: **newest** stays', '- 2026-02-02: middle goes',
+        '  detail line belonging to the middle entry', '- 2026-01-01: oldest goes', ''].join('\n');
+      const plan = planArchive(text, { maxEntries: 1 });
+      const out = applyArchivePlan(text, plan, { now: '2026-04-04T00:00:00.000Z' });
+      assert.ok(out.progress.includes('- 2026-03-03: **newest** stays'), 'the kept entry is byte-identical');
+      assert.ok(!out.progress.includes('middle goes'), 'the moved entry left the memory file');
+      assert.ok(!out.progress.includes('detail line belonging'), 'its detail line went with it');
+      assert.ok(out.archiveAppend.includes('- 2026-02-02: middle goes\n  detail line belonging to the middle entry'),
+        'the moved entry arrives byte for byte, detail lines included');
+      assert.ok(out.archiveAppend.includes('- 2026-01-01: oldest goes'));
+      assert.ok(out.archiveAppend.includes('Archived from ' + ARCHIVABLE_SECTIONS[0] + ' on 2026-04-04'));
+      const pointers = out.progress.split('\n').filter(l => l.includes('progress.archive.md'));
+      assert.deepEqual(pointers.length, 1, 'exactly one pointer marks the move');
+      assert.ok(pointers[0].includes('2026-01-01') && pointers[0].includes('2026-02-02'),
+        'the pointer names the range that left, so the reader knows where to look');
+      // Every surviving line of the original is still present, unedited.
+      for (const l of text.split('\n')) {
+        if (!l.trim() || l.includes('goes') || l.includes('detail line')) continue;
+        assert.ok(out.progress.split('\n').includes(l), 'line was rewritten: ' + JSON.stringify(l));
+      }
+      // A second pointer is not counted as an entry, so re-running cannot cascade.
+      const again = planArchive(out.progress, { maxEntries: 1 });
+      assert.deepEqual(again.plans.find(p => p.section === ARCHIVABLE_SECTIONS[0]).entries, 1);
+    }],
+
+    // S21 sync-check -- the decidable half of the three-file rule. It can tell whether the
+    // files moved together; it cannot tell whether what was written is true, and it does not
+    // pretend to. Runtime state changing is not work anyone has to remember.
+    ['sync-check: memory behind code, spec without changelog, and the quiet case', () => {
+      const present = { progressPresent: true, specPresent: true, changelogPresent: true };
+      const codes = fs => fs.map(f => f.code);
+
+      assert.deepEqual(codes(syncFindings(['src/a.ts'], present)), ['MEMORY_BEHIND_CODE']);
+      assert.deepEqual(codes(syncFindings(['src/a.ts', 'progress.md'], present)), [],
+        'code and memory in the same change set is the whole point');
+      assert.deepEqual(codes(syncFindings(['Product-Spec.md', 'progress.md'], present)),
+        ['SPEC_WITHOUT_CHANGELOG']);
+      assert.deepEqual(codes(syncFindings(['Product-Spec.md', 'Product-Spec-CHANGELOG.md', 'progress.md'], present)), []);
+      assert.deepEqual(codes(syncFindings(['src/a.ts'], { ...present, progressPresent: false })), [],
+        'a project with no memory file is not a project behind on its memory');
+      assert.deepEqual(codes(syncFindings([], present)), [], 'nothing changed, nothing to record');
+      const both = syncFindings(['src/a.ts', 'Product-Spec.md'], present);
+      assert.deepEqual(codes(both), ['MEMORY_BEHIND_CODE', 'SPEC_WITHOUT_CHANGELOG']);
+      assert.ok(both[0].sample.includes('src/a.ts'), 'the finding names what it saw');
+
+      assert.deepEqual(['src/a.ts', '.claude/hooks/x.sh', 'lib/y.mjs', 'setup.ps1'].filter(isTrackedWork).length, 4);
+      assert.deepEqual(['README.md', 'progress.md', '.claude/evidence/log.txt',
+        '.claude/harness/state/task.json', 'node_modules/x/index.js', '.env'].filter(isTrackedWork), [],
+        'documents and runtime state are not the code the memory has to keep up with');
+      assert.deepEqual(codes(syncFindings(['.claude/harness/state/task.json'], present)), [],
+        'the harness writing its own state must not fire the gate');
+    }],
+
+    // S21 sections -- an entry is its bullet plus the lines under it, and a pointer left by
+    // an earlier archive run is bookkeeping rather than a memory entry.
+    ['progress sections: an entry carries its detail lines; a pointer is not an entry', () => {
+      const doc = splitSections(['# P', '', '## ' + SECTION_PINNED,
+        '- first', '  continued here', '- second', '',
+        '- _archived 3 earlier entries into progress.archive.md_', '',
+        '## Other', '- elsewhere'].join('\n'));
+      const entries = sectionEntries(doc, SECTION_PINNED);
+      assert.deepEqual(entries.length, 3);
+      assert.deepEqual(entries[0].text, '- first\n  continued here');
+      assert.deepEqual(entries.map(e => e.pointer), [false, false, true]);
+      assert.deepEqual(sectionEntries(doc, 'Nowhere'), []);
     }],
 
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x

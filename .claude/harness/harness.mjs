@@ -23,12 +23,13 @@
 //   lib/task.mjs      S18 task envelope + budget
 //   lib/spec.mjs      S19 spec-lint + trace + spec + dod
 //   lib/review.mjs    S20 review engine + review-pack + the authorship ledger
+//   lib/memory.mjs    S21 invariants + recap + archive + sync-check
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
 // quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
-// catalog, graph, quality, evidence; selftest -> all of the above; this file -> all of the
-// above. No cycles.
+// catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
+// selftest -> all of the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -49,12 +50,13 @@ import { cmdGate, cmdGateAudit, cmdLedger, cmdRetention, cmdRisk } from './lib/e
 import { cmdBudget, cmdTask } from './lib/task.mjs';
 import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
 import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
+import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -116,6 +118,10 @@ function main() {
     case 'review':       return cmdReview(flags, positional);
     case 'review-pack':  return cmdReviewPack(flags);
     case 'authorship':   return cmdAuthorship(flags, positional);
+    case 'invariants':   return cmdInvariants(flags);
+    case 'recap':        return cmdRecap(flags);
+    case 'archive':      return cmdArchive(flags);
+    case 'sync-check':   return cmdSyncCheck(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -146,6 +152,10 @@ function usage(cmd) {
     '  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted\n' +
     '  review-pack evidence for a reviewer, with what the change removed in a section of its own\n' +
     '  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author\n' +
+    '  invariants  re-derive what cannot be traded away plus the live state, inside a small budget\n' +
+    '  recap       the situation derived from the memory files, on a budget; never from a summary\n' +
+    '  archive     move the oldest entries out of the memory file verbatim; --apply to write\n' +
+    '  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

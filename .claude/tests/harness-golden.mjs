@@ -318,6 +318,23 @@ const COMMANDS = [
   { id: 'review-lens--by-author', argv: ['review', 'lens', 'correctness', '--agent', 'golden-implementer'], stdin: LENS_INPUT },
   { id: 'review-verdict--self-reviewed', volatile: { at: '<TS>' }, argv: ['review', 'verdict', '--reviewer', 'golden-judge'] },
 
+  // The memory layer. The sandbox tree carries no CLAUDE.md, progress.md or specification,
+  // so what these four record here is the contract rather than the rendering: which exit
+  // code a missing source produces, that a missing source is named instead of rendered
+  // around, and -- for `invariants` -- that the live state is still derived and returned
+  // when the constitution is absent, because the state is the half a compaction destroys.
+  // The rendering itself is asserted in selftest, over text, where a budget and a
+  // move-not-rewrite can be checked without a filesystem. `sync-check` runs both ways: the
+  // worktree has the mutations applied at sandbox build and the index has nothing, and both
+  // are quiet here for the same reason -- a tree with no memory file is not a tree behind on
+  // its memory, and reporting one would be the false positive that gets the gate switched off.
+  { id: 'invariants', argv: ['invariants'] },
+  { id: 'invariants--budget', argv: ['invariants', '--budget', '200'] },
+  { id: 'recap', argv: ['recap'] },
+  { id: 'archive', argv: ['archive'] },
+  { id: 'sync-check', argv: ['sync-check'] },
+  { id: 'sync-check--staged', argv: ['sync-check', '--staged'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -745,7 +762,7 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
-  + 'review,review-pack,authorship';
+  + 'review,review-pack,authorship,invariants,recap,archive,sync-check';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

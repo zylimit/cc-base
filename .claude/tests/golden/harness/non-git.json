@@ -42,7 +42,11 @@
           "dod",
           "review",
           "review-pack",
-          "authorship"
+          "authorship",
+          "invariants",
+          "recap",
+          "archive",
+          "sync-check"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -74,7 +78,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 218
+        "tests": 225
       },
       "stderr": []
     },
@@ -1645,6 +1649,167 @@
       ]
     },
     {
+      "id": "invariants",
+      "argv": [
+        "invariants"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "budget": 1200,
+        "chars": 286,
+        "omitted": 0,
+        "sources": {
+          "rules": null,
+          "progress": null
+        },
+        "missing": [
+          ".claude/CLAUDE.md (missing)",
+          "progress.md (missing)"
+        ],
+        "counts": {
+          "laws": 0,
+          "pinned": 0
+        },
+        "laws": [],
+        "pinned": [],
+        "state": {
+          "task": {
+            "id": "golden-task",
+            "state": "active",
+            "stale": false
+          },
+          "fastMode": {
+            "active": false,
+            "remainingHours": null
+          },
+          "gate": null,
+          "ledger": "empty",
+          "pendingReview": 0
+        },
+        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n## State of this tree now\n- active task: golden-task (active)\n- fast mode: off\n- last gate: never run\n- evidence ledger: empty\n- pending review: 0 file(s)\n\n",
+        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
+      },
+      "stderr": []
+    },
+    {
+      "id": "invariants--budget",
+      "argv": [
+        "invariants",
+        "--budget",
+        "200"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "budget": 200,
+        "chars": 206,
+        "omitted": 5,
+        "sources": {
+          "rules": null,
+          "progress": null
+        },
+        "missing": [
+          ".claude/CLAUDE.md (missing)",
+          "progress.md (missing)"
+        ],
+        "counts": {
+          "laws": 0,
+          "pinned": 0
+        },
+        "laws": [],
+        "pinned": [],
+        "state": {
+          "task": {
+            "id": "golden-task",
+            "state": "active",
+            "stale": false
+          },
+          "fastMode": {
+            "active": false,
+            "remainingHours": null
+          },
+          "gate": null,
+          "ledger": "empty",
+          "pendingReview": 0
+        },
+        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n(5 item(s) omitted by the 200-char budget; raise --budget or read the file)\n",
+        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
+      },
+      "stderr": []
+    },
+    {
+      "id": "recap",
+      "argv": [
+        "recap"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "no-memory-artifact",
+        "budget": 4000,
+        "note": "none of progress.md / Product-Spec.md / Product-Spec-CHANGELOG.md exists here; there is no artifact to derive a situation from, and a summary is not one"
+      },
+      "stderr": [
+        "none of progress.md / Product-Spec.md / Product-Spec-CHANGELOG.md exists here; there is no artifact to derive a situation from, and a summary is not one"
+      ]
+    },
+    {
+      "id": "archive",
+      "argv": [
+        "archive"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "progress-missing",
+        "file": "progress.md",
+        "note": "no memory file at progress.md (missing); nothing to archive"
+      },
+      "stderr": [
+        "no memory file at progress.md (missing); nothing to archive"
+      ]
+    },
+    {
+      "id": "sync-check",
+      "argv": [
+        "sync-check"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "mode": "worktree",
+        "note": "not a git repository, so there is no change set to compare the memory files against"
+      },
+      "stderr": [
+        "not a git repository, so there is no change set to compare the memory files against"
+      ]
+    },
+    {
+      "id": "sync-check--staged",
+      "argv": [
+        "sync-check",
+        "--staged"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "mode": "staged",
+        "note": "not a git repository, so there is no change set to compare the memory files against"
+      },
+      "stderr": [
+        "not a git repository, so there is no change set to compare the memory files against"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -1882,7 +2047,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1903,6 +2068,10 @@
         "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
         "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
         "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
+        "  invariants  re-derive what cannot be traded away plus the live state, inside a small budget",
+        "  recap       the situation derived from the memory files, on a budget; never from a summary",
+        "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
+        "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "planned (not-implemented):"
       ]
     },
@@ -1914,7 +2083,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1935,6 +2104,10 @@
         "  review      start|blue|lens <name>|verdict|backlog|status|team: staged structured disagreement, verdict computed not asserted",
         "  review-pack evidence for a reviewer, with what the change removed in a section of its own",
         "  authorship  record|show: who wrote which files, so a verdict can refuse a lens reported by the author",
+        "  invariants  re-derive what cannot be traded away plus the live state, inside a small budget",
+        "  recap       the situation derived from the memory files, on a budget; never from a summary",
+        "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
+        "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "planned (not-implemented):"
       ]
     },
