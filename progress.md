@@ -123,13 +123,37 @@ _Last updated: 2026-09-01_
 - 审查轴：对抗式 QA + 三阶段（Stage 0 静态闸/Stage 1 规格/Stage 2 质量）+ CoVe 证据锚定，比温和 QA 强，但**同模型**——「第二个脑子挑盲区」补不了，是 CCB 唯一硬优势。
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
-## 当前断点（2026-09-02 暂停，回来从这儿接）
-- **P3 评审层已完成并本地 commit，尚未 push**（push 属 HIGH 档，主 Agent 未趁用户不在执行）。回来第一步：`git push origin main` + `git ls-remote` 实查。
-- **已入库并推远端**：`ecb7c16`（本地=远端一致）。引擎 **26 个子命令**，`dod` 本仓 rc 0，全量 run-all RC=0（十套测试）。v1.11.0 已发。
-- **在跑**：P3 评审层 implementer（`lib/review.mjs`：`review start|blue|lens|verdict|backlog` + `review-pack` + `authorship record|show`，26→32）。它正在写 `harness.mjs` / `core.mjs` / `selftest.mjs` / golden 基线——**工作树里那批未提交改动是它的，不是残留，别清**。
-- **回来第一件事**：跑 `node .claude/harness/harness.mjs selftest`、`node .claude/tests/harness-golden.mjs --check --strict`、`bash .claude/tests/cases/run-all.sh` 三条看它落没落定；若 agent 已完成则验收收口 commit，若被中断则按「剩余范围」重派（模式参照本轮 audit 那次续跑）。
-- **Fast Mode 开着**，剩约 21.7 小时自动过期。期间不派 code-reviewer / tester、不走红锁闭环、不新增测试用例；静态闸与安全护栏照旧。要收回严格模式：`bash .claude/scripts/fast-mode.sh off`。
-- **剩余路线**：P3（在跑）→ P4 记忆层（`recap`/`invariants`/`archive`/`sync-check` + **`PostCompact` 不变量回注**，治 Governance Decay）→ P5 宪法层（CLAUDE.md 索引化 + `rules-audit` + `skills-lint`/`claude-md-lint` + `fast` 债务化 + 关 Agent Teams）→ P6 边界层（`cochange`/`fleet`/`init` 自动发现 + 架构债 per-edge 基线）。
+## 当前断点（2026-09-02 收盘，clear 后从这儿接）
+
+**状态：工作树干净，本地 = 远端 = `1fd76a5`，全部已推。引擎 34 个子命令，注册 hook 20 个，selftest 229，golden 17171 断言，run-all RC=0，dod rc=0。**
+
+### 本轮已完成并推上远端（8 个 commit）
+| commit | 内容 |
+|---|---|
+| `1fd76a5` | `rules-audit`——宪法首次可量化（347 条：M 38/11.0%、P 1、phantom 0、U 308/88.8%） |
+| `07ed8ff` | P4 记忆层 + **PostCompact 不变量回注**（29→33 子命令，hook 19→20） |
+| `8bb579b` | P3 评审层 + **作者≠评审机器强制**（26→29） |
+| `ecb7c16` | P2 规格层 spec-lint/trace/spec/dod（22→26） |
+| `44b3739` | 证据层七组缺陷全修 + CI 夹具机器依赖修复 |
+| `beec7c8` | git hooks 三件 + GitHub Actions 矩阵 |
+| `0042dd8` | v1.11.0 tag（远端已有） |
+| `f289f9f` | P1 证据层（15→22） |
+更早：`524179c` 引擎拆库+hook fail-open 修复、`8f61a07` 审计扫描层、`8af3e2c` golden 基线锁。
+
+### 立刻要接的（P5 剩余，范围明确）
+1. **`skills-lint`**（新子命令，加进 `lib/rules.mjs`）——校验 `skills/*/SKILL.md` frontmatter：name 为 kebab-case 且与目录名一致 / description 存在且不超长 / frontmatter 可解析 / 无重名 / 布尔字段是真布尔。**畸形 frontmatter 会让整个 skill 被静默丢弃，是最贵的静默失败**。与既有 `scripts/skill-description-lint.sh`（bash 版只查 description）**分工不重复，不删不改那个脚本**。rc 0/1/3。
+2. **`claude-md-lint`**（新子命令，同上文件）——catalog 存在且模块 riskTier 为 high/critical 时，该模块目录须有 `CLAUDE.md` 含四节 Purpose/Boundaries/Invariants/Verification（**中英双语标题都要认**）。无 catalog → rc 3。是 dsh `agents-lint` 的对应物，但载体是 **Claude Code 原生按需加载的子目录 CLAUDE.md**。
+3. **`rules-audit` 的 M 判据补一条（主 Agent 已裁定）**：**行首粗体的真实执法点也算 M**。现 308 条 U 里约 110 条是 `- **catalog-lint**：…` 这种能力清单条目——子命令名在粗体而非反引号里，严格判是 U 但指的是真闸，导致 headline 把宪法显得比实际空。**明确否决的另一条路**：把参考手册类文件整体排除出统计口径——那是指标被玩坏的标准路径。
+4. **`rules-audit` 接进 `dod` 的阻断步（已裁定）**：phantom → rc 1 → FAIL → 阻断；无规则文档 → rc 3 → dod 既有 DEGRADED 处理 → 不阻断。U 多少不影响 dod。
+5. **CLAUDE.md 索引化（单独一批，最危险的一次编辑）**：热规则留主控、冷规则下沉 `.claude/rules/` 留强制指针、每条后缀标 `[M: 命令→rc]` 或 `[P]`。**铁律：绝不许删任何现有规则的语义**——这次是重排+标注+下沉不是精简；认为冗余的列进回执让主 Agent 判，不许自己删。**宁可留 U 也不许造幽灵引用。** 完成后跑 `rules-audit` 给改造前后 M/P/U 对比作验收指标。
+
+### 之后（P6 边界层）
+`cochange`（用共同变更频率判边界画得对不对）/ `fleet`（多仓契约层）/ `init` 自动发现 catalog / **架构债 per-edge 基线**（修 `compareRatchet` 两处真漏洞：① count 棘轮下「还一条旧债+添一条新债」计数不变即过；② `TREND_METRICS` 把 `forbidden` 纳入棘轮，导致用户显式声明的安全/隐私禁边违规能当旧债带病过 `--gate`，与「禁令赢」自相矛盾）。
+
+### 运行状态与已知面
+- **Fast Mode 开着**，剩约 17.4 小时自动过期。期间不派 code-reviewer / tester、不走红锁闭环、不新增测试用例；**静态闸与安全护栏不豁免**。收回严格模式：`bash .claude/scripts/fast-mode.sh off`。
+- **本轮 6 次 agent watchdog 中断**（P4×2、P5×4）。处理模式已验证有效、零返工：① 查工作树 + 跑 selftest/golden/run-all 看落没落定 → ② 落定就自己验收收口，没落定就带「我已核实你做完了什么」的清单续派。6 次里 3 次实现其实是完整的、只丢了回执——**这正是「验收看客观证据不看回执」那条铁律的实战检验**。派单形状上有效的调整：先落盘再探索、不通读引擎只 grep 需要的、小步验证不攒到最后、单批只做一个子命令。
+- **未验证面（如实记，不许读成通过）**：`.ps1` 侧运行时行为在本机无 pwsh 全程未跑（CI 的 windows-latest 是唯一能真验的地方，已接线但未确认结果）；P2/P4/P5 各批未派 code-reviewer（Fast Mode）；突变交叉表里 8 条 NAKED 未补断言（`T12-latestGate-is-first` 经查现状正确已加断言钉住，其余 `T13`/`B3`/`Q3`/`B6`+`C1`+`C2`+`C3` 运行态三处排除可被静默移除未补）；`dod` 的 11 步组合未在装有 catalog 的真实大仓跑过；`trace` 全仓扫描性能未测。
 
 ## TODO
 - [P2][OPEN][#19d] **`parseArgs` 静默吞未知 flag（单独排队，不许混进拆库批）**：写错 flag 不报错、静默退化成「不带参数」形态照跑照出 JSON——是假绿生成器（录基线时会录出「看着正常实则什么都没测」的假基线）。修法：未知 flag → rc 2 用法错并点名。**必须与拆库分批**：修它会改变行为、会让 golden 报红，把结构重构和行为变更混在一批等于亲手废掉「零行为变化」这个唯一判据。
