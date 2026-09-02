@@ -1,12 +1,13 @@
 // lib/graph.mjs -- everything that reasons over the module graph: S5 impact (reverse
-// dependency closure), S12 arch-check (real import edges vs the declared graph) and
-// S16 arch-trend (the drift ratchet those edges feed). Depends on core.mjs + catalog.mjs.
+// dependency closure), S12 arch-check (real import edges vs the declared graph),
+// S16 arch-trend (the drift ratchet those edges feed) and S26 cochange (the coupling that
+// leaves no import edge at all). Depends on core.mjs + catalog.mjs.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   SOURCE_EXTS,
-  changedPaths, emit, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot, toPosixPath,
+  changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot, toPosixPath,
 } from './core.mjs';
 import { classifyPath, loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -529,8 +530,185 @@ function cmdArchTrend(flags) {
   }, ok ? 0 : 1);
 }
 
+// ===========================================================================
+// S26 cochange  (co-change frequency: the coupling arch-check cannot see)
+// ===========================================================================
+// arch-check reads import edges, and coupling does not need an import to exist: two modules
+// sharing an implicit contract, one configuration file or one wire format are a single unit
+// in practice while the declared graph says they are unrelated. Version control has already
+// recorded which modules are always edited together, so this reads that record back and
+// names the pairs whose habit no dependsOn declares -- either the boundary is in the wrong
+// place or the declaration is missing, and both are worth a look.
+//
+// Reporting is the default and --gate is opt-in, unlike the quality gates: high co-change
+// often has a good reason (an API and its only client, a schema and its migration), and a
+// heuristic wired as a blocking gate by default is switched off in its first week, after
+// which nobody reads it at all. Same reasoning as arch-trend, whose ratchet is --gate only.
+
+const COCHANGE_MAX_COMMITS = 500;
+// The same number as budget's maxChangedFiles default, for the same reason: this repository
+// already calls thirty changed files the point where a change has stopped being one piece of
+// work. Past it a commit is a reformat, a mass rename or an import, and one of those makes
+// every pair of modules look coupled at once -- the largest single source of noise here.
+const COCHANGE_MAX_FILES_PER_COMMIT = 30;
+// Five separate commits before a pair counts as a habit. Below that one refactor spread over
+// two or three commits is enough to name any pair, and a report full of coincidences is one
+// nobody finishes reading.
+const COCHANGE_MIN_SUPPORT = 5;
+
+/** Positive integer flag value, or the default when absent/unparseable/non-positive. */
+function flagInt(v, fallback) {
+  const n = parseInt(v, 10);
+  return (!Number.isNaN(n) && n > 0) ? n : fallback;
+}
+
+/**
+ * File lists per commit, newest first. `git log -z --name-only --format=%x01` writes one
+ * \x01 token per commit followed by that commit's paths, everything NUL-terminated: the
+ * separator is NUL and quotePath is off, so a CJK filename arrives as itself instead of as
+ * an octal escape no catalog glob can match. Merges are excluded because git prints no name
+ * list for them by default -- counting them would only dilute commitsScanned.
+ * One commit past the cap is requested so a full history can be told from a truncated one
+ * without a second call into git.
+ * @returns {{ok:true,commits:string[][]}|{ok:false,detail:string}}
+ */
+function commitFileLists(maxCommits) {
+  const r = git(['-c', 'core.quotePath=false', 'log', '-z', '--name-only', '--no-merges',
+    '--format=%x01', '--max-count=' + (maxCommits + 1), 'HEAD']);
+  if (r.status !== 0) {
+    const detail = String(r.stderr || '').trim().split('\n')[0];
+    return { ok: false, detail: detail || 'git log exited ' + r.status };
+  }
+  const commits = [];
+  let current = null;
+  for (const token of r.stdout.toString('utf8').split('\0')) {
+    if (token === '\x01') { current = []; commits.push(current); continue; }
+    if (current === null) continue;              // anything before the first marker
+    const p = token.replace(/^\n/, '');          // git writes one newline before the first name
+    if (p) current.push(p);
+  }
+  return { ok: true, commits };
+}
+
+/**
+ * How many commits touched each unordered module pair. A commit over maxFiles is dropped
+ * whole and counted separately rather than trimmed: a bulk change is not a weak signal, it
+ * is a different kind of event, and keeping part of one would still couple every pair in it.
+ * @returns {{counts:Map<string,number>,scanned:number,skippedLarge:number,modulesTouched:number}}
+ */
+function countCoChanges(commits, catalog, maxFiles) {
+  const counts = new Map();          // "a\0b" (ids sorted) -> commits touching both
+  const touched = new Set();
+  let scanned = 0;
+  let skippedLarge = 0;
+  for (const files of commits) {
+    if (files.length > maxFiles) { skippedLarge++; continue; }
+    scanned++;
+    const mods = new Set();
+    for (const f of files) {
+      const id = moduleForPath(toPosixPath(f), catalog);
+      if (id) { mods.add(id); touched.add(id); }
+    }
+    const ids = [...mods].sort();
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = ids[i] + '\0' + ids[j];
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+  }
+  return { counts, scanned, skippedLarge, modulesTouched: touched.size };
+}
+
+function cmdCoChange(flags) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  if (!loaded.ok) {
+    process.stderr.write('cochange: ' + loaded.error + '; module pairs are the only granularity '
+      + 'this reports, and file pairs would be thousands of rows nobody can judge\n');
+    return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
+  }
+  if (!isGitRepo()) {
+    process.stderr.write('cochange: not a git repository; co-change is read from commit history\n');
+    return emit({ ok: false, degraded: true, error: 'non-git', detail: 'cochange reads module co-change from git history' }, 3);
+  }
+  const catalog = loaded.catalog;
+  const maxCommits = flagInt(flags['max-commits'], COCHANGE_MAX_COMMITS);
+  const maxFiles = flagInt(flags['max-files-per-commit'], COCHANGE_MAX_FILES_PER_COMMIT);
+  const minSupport = flagInt(flags['min-support'], COCHANGE_MIN_SUPPORT);
+
+  const log = commitFileLists(maxCommits);
+  if (!log.ok) {
+    process.stderr.write('cochange: git log failed: ' + log.detail + '\n');
+    return emit({ ok: false, degraded: true, error: 'git-log-failed', detail: log.detail }, 3);
+  }
+  // Truncation is reported as a bad measurement, the same way maxTrackedPaths is: the pairs
+  // below are real, the ones that needed older commits to reach minSupport are missing, and
+  // a reader told only the first half would read the report as a clean bill of health.
+  const truncated = log.commits.length > maxCommits;
+  const commits = truncated ? log.commits.slice(0, maxCommits) : log.commits;
+  const { counts, scanned, skippedLarge, modulesTouched } = countCoChanges(commits, catalog, maxFiles);
+
+  // A declared edge in either direction explains the habit, so the pair is not reported: the
+  // finding is "these move together and nothing says why", not "these move together".
+  const declared = new Set();
+  for (const m of (catalog.modules || [])) {
+    for (const d of (m.dependsOn || [])) declared.add(m.id + '\0' + d);
+  }
+  const pairs = [];
+  for (const [key, n] of counts) {
+    if (n < minSupport) continue;
+    const [a, b] = key.split('\0');
+    pairs.push({ a, b, cochangeCount: n, declared: declared.has(a + '\0' + b) || declared.has(b + '\0' + a) });
+  }
+  pairs.sort((x, z) => (z.cochangeCount - x.cochangeCount) || (x.a + '\0' + x.b).localeCompare(z.a + '\0' + z.b));
+  // Both numbers travel with the pair. A single coupling score would read as a verdict while
+  // being uncheckable; the count and the denominator let a reader judge the significance.
+  const undeclaredCoupling = pairs.filter(p => !p.declared)
+    .map(p => ({ a: p.a, b: p.b, cochangeCount: p.cochangeCount, commitsScanned: scanned }));
+
+  const notes = [];
+  if (truncated) {
+    notes.push('history truncated at ' + maxCommits + ' commit(s) (--max-commits); a pair that needed '
+      + 'older commits to reach --min-support is missing from this report');
+  }
+  if (skippedLarge) {
+    notes.push(skippedLarge + ' commit(s) over ' + maxFiles + ' files were skipped as bulk changes '
+      + '(--max-files-per-commit); a reformat or a mass rename couples every pair at once');
+  }
+  if (scanned < minSupport) {
+    notes.push('only ' + scanned + ' commit(s) scanned, below --min-support ' + minSupport
+      + '; no pair can reach the threshold, so an empty result says nothing about the boundaries');
+  } else if (counts.size === 0) {
+    notes.push('no commit in range touched two modules at once; either the boundaries hold or '
+      + 'the catalog maps very little of what changes');
+  }
+
+  const gate = flags.gate === true;
+  const ok = !gate || undeclaredCoupling.length === 0;
+  process.stderr.write('cochange: ' + scanned + ' commit(s) scanned, ' + skippedLarge + ' skipped as bulk (> '
+    + maxFiles + ' files), ' + modulesTouched + ' module(s) touched, ' + pairs.length
+    + ' pair(s) at or above --min-support ' + minSupport + ', ' + undeclaredCoupling.length + ' undeclared\n');
+  for (const p of pairs) {
+    process.stderr.write('  ' + (p.declared ? 'declared  ' : 'UNDECLARED') + '  ' + p.a + ' <-> ' + p.b
+      + '  ' + p.cochangeCount + '/' + scanned + ' commit(s)\n');
+  }
+  for (const n of notes) process.stderr.write('cochange: ' + n + '\n');
+
+  return emit({
+    ok, gate, commitsScanned: scanned, commitsSkipped: skippedLarge, truncated,
+    maxCommits, maxFilesPerCommit: maxFiles, minSupport,
+    modulesTouched, pairs, undeclaredCoupling, notes,
+    note: undeclaredCoupling.length
+      ? undeclaredCoupling.length + ' module pair(s) change together with no dependsOn in either '
+        + 'direction: either the boundary is drawn in the wrong place or the declaration is missing'
+      : 'no undeclared coupling at or above the support threshold',
+  }, ok ? 0 : 1);
+}
+
 export {
   reverseClosure, analyzeImpact, cmdImpact,
   extractImports, resolveRelativeImport, moduleForSpecifier, layerViolation, findCycles, cmdArchCheck,
   appendTrendRecord, loadTrend, cycleKey, compareRatchet, cmdArchTrend,
+  COCHANGE_MAX_COMMITS, COCHANGE_MAX_FILES_PER_COMMIT, COCHANGE_MIN_SUPPORT,
+  commitFileLists, countCoChanges, cmdCoChange,
 };

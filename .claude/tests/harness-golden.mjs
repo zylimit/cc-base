@@ -249,6 +249,16 @@ const COMMANDS = [
   { id: 'arch-trend', argv: ['arch-trend'] },
   { id: 'arch-trend--gate', argv: ['arch-trend', '--gate'] },
 
+  // Co-change reads committed history, and the sandbox has exactly one commit, so the default
+  // run records the honest empty answer: nothing can reach --min-support 5, and the note has
+  // to say so rather than let an empty result read as a clean boundary. The second entry drops
+  // the threshold to 1, which is the only way one commit can produce a finding at all -- the
+  // base commit touched every module, so every pair without a dependsOn between them is
+  // undeclared and --gate exits 1. Recording only the empty half would pin a command that has
+  // never been seen finding anything.
+  { id: 'cochange', argv: ['cochange'] },
+  { id: 'cochange--gate', argv: ['cochange', '--gate', '--min-support', '1'] },
+
   // The evidence layer. Order is load-bearing here too: `gate` must run before anything
   // that reads the ledger, it runs twice so the chain has a real predecessor link to
   // verify rather than just a genesis line, and the task trio runs start -> status ->
@@ -797,7 +807,7 @@ const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
   + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint,'
-  + 'claude-md-lint,init';
+  + 'claude-md-lint,init,cochange';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

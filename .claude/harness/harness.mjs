@@ -15,7 +15,7 @@
 //                     sections (typedefs, attribute tiers, parseCsv, DENY/isDenied,
 //                     SOURCE_EXTS, whichCmd). Imports node builtins only.
 //   lib/catalog.mjs   S4 catalog        loadCatalog / validateSchema / classifyPath / lintCatalog
-//   lib/graph.mjs     S5 impact + S12 arch-check + S16 arch-trend
+//   lib/graph.mjs     S5 impact + S12 arch-check + S16 arch-trend + S26 cochange
 //   lib/quality.mjs   S7 receipt + S8 quality gate + S10 waiver + S11 attributes
 //   lib/scan.mjs      S13 fitness + S14 adapters + S15 adr-check
 //   lib/context.mjs   S6 context-pack
@@ -45,7 +45,7 @@ import {
   canonicalDiff, die, emit, headCommit, isGitRepo, loadHarnessConfig, sha256,
 } from './lib/core.mjs';
 import { cmdCatalogLint, loadCatalog } from './lib/catalog.mjs';
-import { cmdArchCheck, cmdArchTrend, cmdImpact } from './lib/graph.mjs';
+import { cmdArchCheck, cmdArchTrend, cmdCoChange, cmdImpact } from './lib/graph.mjs';
 import { cmdContextPack } from './lib/context.mjs';
 import { cmdAttributes, cmdReceipt, cmdVerify, cmdWaiver, loadWaivers, waiversDir } from './lib/quality.mjs';
 import { adaptersFilePath, cmdAdapters, cmdAdrCheck, cmdFitness } from './lib/scan.mjs';
@@ -61,7 +61,7 @@ import { selftestCases } from './lib/selftest.mjs';
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init', 'cochange'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 // Which flags each subcommand actually reads. parseArgs collects any `--x` it is handed, and
@@ -125,6 +125,7 @@ const SUBCOMMAND_FLAGS = {
   'skills-lint': ['limit'],
   'claude-md-lint': ['catalog', 'limit'],
   'init': ['apply', 'catalog', 'max-modules'],
+  'cochange': ['catalog', 'gate', 'max-commits', 'max-files-per-commit', 'min-support'],
 };
 
 /**
@@ -226,6 +227,7 @@ function main() {
     case 'skills-lint':  return cmdSkillsLint(flags);
     case 'claude-md-lint': return cmdClaudeMdLint(flags);
     case 'init':         return cmdInit(flags);
+    case 'cochange':     return cmdCoChange(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -264,6 +266,7 @@ function usage(cmd) {
     '  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence\n' +
     '  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification\n' +
     '  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one\n' +
+    '  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

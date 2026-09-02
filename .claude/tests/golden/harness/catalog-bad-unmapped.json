@@ -50,7 +50,8 @@
           "rules-audit",
           "skills-lint",
           "claude-md-lint",
-          "init"
+          "init",
+          "cochange"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -82,7 +83,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 259
+        "tests": 261
       },
       "stderr": []
     },
@@ -1075,6 +1076,77 @@
         "note": "no new drift beyond the best recorded state"
       },
       "stderr": []
+    },
+    {
+      "id": "cochange",
+      "argv": [
+        "cochange"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "gate": false,
+        "commitsScanned": 1,
+        "commitsSkipped": 0,
+        "truncated": false,
+        "maxCommits": 500,
+        "maxFilesPerCommit": 30,
+        "minSupport": 5,
+        "modulesTouched": 2,
+        "pairs": [],
+        "undeclaredCoupling": [],
+        "notes": [
+          "only 1 commit(s) scanned, below --min-support 5; no pair can reach the threshold, so an empty result says nothing about the boundaries"
+        ],
+        "note": "no undeclared coupling at or above the support threshold"
+      },
+      "stderr": [
+        "cochange: 1 commit(s) scanned, 0 skipped as bulk (> 30 files), 2 module(s) touched, 0 pair(s) at or above --min-support 5, 0 undeclared",
+        "cochange: only 1 commit(s) scanned, below --min-support 5; no pair can reach the threshold, so an empty result says nothing about the boundaries"
+      ]
+    },
+    {
+      "id": "cochange--gate",
+      "argv": [
+        "cochange",
+        "--gate",
+        "--min-support",
+        "1"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "gate": true,
+        "commitsScanned": 1,
+        "commitsSkipped": 0,
+        "truncated": false,
+        "maxCommits": 500,
+        "maxFilesPerCommit": 30,
+        "minSupport": 1,
+        "modulesTouched": 2,
+        "pairs": [
+          {
+            "a": "core",
+            "b": "db",
+            "cochangeCount": 1,
+            "declared": false
+          }
+        ],
+        "undeclaredCoupling": [
+          {
+            "a": "core",
+            "b": "db",
+            "cochangeCount": 1,
+            "commitsScanned": 1
+          }
+        ],
+        "notes": [],
+        "note": "1 module pair(s) change together with no dependsOn in either direction: either the boundary is drawn in the wrong place or the declaration is missing"
+      },
+      "stderr": [
+        "cochange: 1 commit(s) scanned, 0 skipped as bulk (> 30 files), 2 module(s) touched, 1 pair(s) at or above --min-support 1, 1 undeclared",
+        "  UNDECLARED  core <-> db  1/1 commit(s)"
+      ]
     },
     {
       "id": "gate",
@@ -2875,7 +2947,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2904,6 +2976,7 @@
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
+        "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
         "planned (not-implemented):"
       ]
     },
@@ -2915,7 +2988,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2944,6 +3017,7 @@
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
+        "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
         "planned (not-implemented):"
       ]
     },

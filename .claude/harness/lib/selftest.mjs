@@ -2813,6 +2813,120 @@ function selftestCases() {
       }
     }],
 
+    // S26. Co-change is a heuristic, and a heuristic has exactly two ways to be worthless:
+    // reporting pairs whose habit is already explained (the reader stops reading), and judging
+    // by default (the reader switches it off). Both are pinned here, in that order, against a
+    // history built for the purpose -- the measurement reads git, so nothing short of real
+    // commits exercises it.
+    ['cochange: an undeclared pair is named, a declared one is not, and only --gate judges', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'cochange');
+        for (let i = 1; i <= 6; i++) {
+          commitFiles(root, {
+            ['alpha/f' + i + '.ts']: 'export const a' + i + ' = ' + i + ';\n',
+            ['beta/f' + i + '.ts']: 'export const b' + i + ' = ' + i + ';\n',
+          }, 'pair ' + i);
+        }
+        for (let i = 1; i <= 2; i++) {
+          commitFiles(root, { 'gamma/g.ts': 'export const g = ' + i + ';\n' }, 'gamma alone ' + i);
+        }
+        const mods = extra => [
+          { id: 'alpha', paths: ['alpha/**'], ...(extra && extra.alpha ? { dependsOn: extra.alpha } : {}) },
+          { id: 'beta', paths: ['beta/**'], ...(extra && extra.beta ? { dependsOn: extra.beta } : {}) },
+          { id: 'gamma', paths: ['gamma/**'] },
+        ];
+
+        writeSideCatalog(root, mods());
+        const report = runCoChange(root, []);
+        assert.deepEqual([report.code, report.out.gate, report.out.ok], [0, false, true],
+          'the default reports: high co-change often has a good reason, and a heuristic that '
+          + 'blocks on day one is a heuristic nobody keeps: ' + report.err);
+        assert.deepEqual([report.out.commitsScanned, report.out.commitsSkipped, report.out.modulesTouched], [8, 0, 3]);
+        assert.deepEqual(report.out.undeclaredCoupling.map(p => p.a + '+' + p.b + '=' + p.cochangeCount),
+          ['alpha+beta=6'], 'six commits touched both and nothing declares why');
+        assert.deepEqual(report.out.undeclaredCoupling[0].commitsScanned, 8,
+          'the denominator travels with the pair, so the count can be judged rather than believed');
+
+        const gated = runCoChange(root, ['--gate']);
+        assert.deepEqual([gated.code, gated.out.gate, gated.out.ok], [1, true, false], gated.err);
+        assert.deepEqual(gated.out.undeclaredCoupling.map(p => p.a + '+' + p.b), ['alpha+beta']);
+
+        // gamma changed twice on its own, so it pairs with nobody -- an assertion that the
+        // count is per pair rather than per module that happened to appear in the window.
+        assert.deepEqual(report.out.pairs.filter(p => p.a === 'gamma' || p.b === 'gamma'), []);
+
+        // A declared edge explains the habit. Both directions, because the pair is unordered:
+        // reading only alpha.dependsOn would report every consumer that declares its provider.
+        for (const extra of [{ alpha: ['beta'] }, { beta: ['alpha'] }]) {
+          writeSideCatalog(root, mods(extra));
+          const declared = runCoChange(root, ['--gate']);
+          assert.deepEqual([declared.code, declared.out.ok, declared.out.undeclaredCoupling.length], [0, true, 0],
+            'a declared edge is why they move together: ' + JSON.stringify(extra) + ' ' + declared.err);
+          assert.deepEqual(declared.out.pairs.map(p => p.a + '+' + p.b + ':' + p.declared), ['alpha+beta:true'],
+            'and the pair stays in the report as supporting data, it is only no longer a finding');
+        }
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    // The bulk commit is the whole measurement's largest source of noise: one reformat, mass
+    // rename or initial import touches everything and makes every pair look coupled at once.
+    // Skipping it silently would be its own defect -- a reader owed the count is a reader who
+    // can tell "the boundaries hold" from "most of the history was dropped".
+    ['cochange: a bulk commit is skipped and counted, and an unreadable history degrades', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'cochange-bulk');
+        commitFiles(root, { 'alpha/a.ts': 'export const a = 1;\n', 'beta/b.ts': 'export const b = 1;\n' }, 'ordinary');
+        const bulk = {};
+        for (let i = 0; i < 14; i++) bulk['alpha/bulk' + i + '.ts'] = 'export const x' + i + ' = 1;\n';
+        for (let i = 0; i < 13; i++) bulk['beta/bulk' + i + '.ts'] = 'export const y' + i + ' = 1;\n';
+        for (let i = 0; i < 13; i++) bulk['gamma/bulk' + i + '.ts'] = 'export const z' + i + ' = 1;\n';
+        commitFiles(root, bulk, 'reformat everything');
+        writeSideCatalog(root, [
+          { id: 'alpha', paths: ['alpha/**'] }, { id: 'beta', paths: ['beta/**'] }, { id: 'gamma', paths: ['gamma/**'] },
+        ]);
+
+        const skipped = runCoChange(root, ['--min-support', '1']);
+        assert.deepEqual([skipped.code, skipped.out.commitsScanned, skipped.out.commitsSkipped], [0, 1, 1], skipped.err);
+        assert.deepEqual(skipped.out.pairs.map(p => p.a + '+' + p.b), ['alpha+beta'],
+          'the 40-file commit did not couple all three: only the ordinary commit was counted');
+        assert.ok(skipped.out.notes.some(n => /skipped as bulk/.test(n)),
+          'and the drop is stated rather than left to be inferred from a smaller number');
+
+        // The control. Raise the ceiling past that commit and the pairs it would have created
+        // appear, which is what proves the ceiling is the reason they were absent above.
+        const kept = runCoChange(root, ['--min-support', '1', '--max-files-per-commit', '100']);
+        assert.deepEqual([kept.out.commitsScanned, kept.out.commitsSkipped], [2, 0]);
+        assert.deepEqual(kept.out.pairs.map(p => p.a + '+' + p.b).sort(),
+          ['alpha+beta', 'alpha+gamma', 'beta+gamma']);
+
+        // Three ways the measurement cannot be made, and none of them is an answer. A repo
+        // with no commits is the one that would otherwise read as "no coupling found".
+        const bare = newGitRepo(roots, 'cochange-bare');
+        writeSideCatalog(bare, [{ id: 'alpha', paths: ['alpha/**'] }]);
+        const noHistory = runCoChange(bare, []);
+        assert.deepEqual([noHistory.code, noHistory.out.error], [3, 'git-log-failed'],
+          'an empty history is unmeasured, not clean');
+
+        const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-cochange-loose-')));
+        roots.push(loose);
+        writeSideCatalog(loose, [{ id: 'alpha', paths: ['alpha/**'] }]);
+        assert.deepEqual([runCoChange(loose, []).code, runCoChange(loose, []).out.error], [3, 'non-git']);
+
+        const noCatalog = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'cochange'], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.deepEqual([noCatalog.status, JSON.parse(String(noCatalog.stdout)).error], [3, 'catalog-missing'],
+          'file pairs would be thousands of rows nobody can judge, so without modules there is '
+          + 'nothing this can report');
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // The flag whitelist. Both halves are asserted in one pass per subcommand, because the
     // dangerous half is not the rejection: a row missing a flag the source really reads turns
     // a correct invocation into a usage error, and the first response to a checker that cries
@@ -2861,6 +2975,7 @@ function selftestCases() {
         'rules-audit': ['limit'], 'skills-lint': ['limit'],
         'claude-md-lint': ['catalog', 'limit'],
         'init': ['apply', 'catalog', 'max-modules'],
+        'cochange': ['catalog', 'gate', 'max-commits', 'max-files-per-commit', 'min-support'],
       };
       const INVENTED = 'cc-base-absent-flag';
       const run = (argv) => {
@@ -2993,6 +3108,69 @@ function rulePoints() {
     basenames: new Set(files.map(f => f.slice(f.lastIndexOf('/') + 1))),
     counts: { subcommands: 6, hooks: 2, scripts: 1, harness: 1 },
   };
+}
+
+/**
+ * Environment for the S26 git fixtures: a pinned identity so `git commit` works without any
+ * user config, and global/system config switched off so a developer's gpg signing, hooks or
+ * commit template cannot make these lanes fail on one machine and pass on the next.
+ * os.devNull rather than a literal /dev/null, because Windows spells it differently.
+ */
+function fixtureGitEnv() {
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'selftest', GIT_AUTHOR_EMAIL: 'selftest@example.invalid',
+    GIT_COMMITTER_NAME: 'selftest', GIT_COMMITTER_EMAIL: 'selftest@example.invalid',
+    GIT_AUTHOR_DATE: '2020-01-01T00:00:00+0000',
+    GIT_COMMITTER_DATE: '2020-01-01T00:00:00+0000',
+    GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_SYSTEM: os.devNull, GIT_CONFIG_NOSYSTEM: '1',
+  };
+}
+
+/** A throwaway repository, registered with the caller's cleanup list; returns its realpath. */
+function newGitRepo(roots, label) {
+  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-' + label + '-')));
+  roots.push(d);
+  const g = spawnSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], {
+    cwd: d, encoding: 'utf8', env: fixtureGitEnv(),
+  });
+  assert.ok(!g.error && g.status === 0,
+    'these lanes need git on PATH: co-change is read from commit history: ' + String(g.stderr || ''));
+  return d;
+}
+
+/** Write the files, stage everything, commit. One commit's worth of history per call. */
+function commitFiles(root, files, message) {
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(root, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, body, 'utf8');
+  }
+  const env = fixtureGitEnv();
+  const add = spawnSync('git', ['add', '-A'], { cwd: root, encoding: 'utf8', env });
+  assert.ok(!add.error && add.status === 0, 'git add failed: ' + String(add.stderr || ''));
+  const commit = spawnSync('git', ['commit', '-q', '-m', message], { cwd: root, encoding: 'utf8', env });
+  assert.ok(!commit.error && commit.status === 0, 'git commit failed: ' + String(commit.stderr || ''));
+}
+
+/**
+ * A catalog beside the tree rather than inside .claude/, and written after the commits: a
+ * catalog committed into the fixture would show up in its own history as a changed path.
+ */
+function writeSideCatalog(root, modules) {
+  fs.writeFileSync(path.join(root, 'side-catalog.json'), JSON.stringify({ version: 1, modules }, null, 2), 'utf8');
+}
+
+/** Run `cochange` against a fixture repository with the catalog writeSideCatalog left there. */
+function runCoChange(root, argv) {
+  const r = spawnSync(process.execPath,
+    [path.join(HARNESS_DIR, 'harness.mjs'), 'cochange', '--catalog', path.join(root, 'side-catalog.json'), ...argv],
+    { cwd: root, encoding: 'utf8', env: { ...fixtureGitEnv(), CLAUDE_PROJECT_DIR: root } });
+  assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+  let out = null;
+  try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+  assert.ok(out, 'no JSON on stdout: ' + String(r.stderr || '').slice(0, 300));
+  return { code: r.status, out, err: String(r.stderr || '') };
 }
 
 /**
