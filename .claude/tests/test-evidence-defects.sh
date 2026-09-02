@@ -378,47 +378,52 @@ echo ""
 echo "--- E4 evidenceSha256 必须被读，证据被改写/删除要有命令能看见 ---"
 # 实测（缺陷未修）：全仓 grep evidenceSha256 只有 evidence.mjs 的四个写入点，零读取点。
 #   跑完 gate 把 evidence/*.log 内容换掉、再删掉，ledger / risk / gate-audit / retention
-#   四个命令全 rc 0；ledger --verify-evidence 这个开关也被静默忽略（照样 ok:true）。
+#   四个命令全 rc 0。证据校验默认就开着，引擎只认 --no-verify-evidence 把它关掉——
+#   「开着校验」的写法就是不带 flag 的 ledger 本身，没有 --verify-evidence 这个开关。
 
 SB4=$(newsandbox e4 "echo real-check-output")
 run "$SB4" gate
 E4_EV=$(jval "$OUT" results.0.evidence)
 E4_SHA=$(jval "$OUT" results.0.evidenceSha256)
 
-# notices <沙箱> —— 跑五个读取者，回填 NOTICE_TRACE（各自退出码）与 NOTICED（1=至少一个报非 0）。
+# notices <沙箱> —— 跑四个读取者，回填 NOTICE_TRACE（各自退出码）、NOTICED（1=至少一个报非 0）
+#   与 NOTICE_LEDGER（ledger 自己的退出码——证据摘要归它校验，别的命令报不报是它们的事）。
 NOTICE_TRACE=""
 NOTICED=0
+NOTICE_LEDGER=0
 notices() {
     local d="$1" trace="" c rc
     NOTICED=0
-    for c in "ledger" "ledger --verify-evidence" "risk" "gate-audit" "retention"; do
+    NOTICE_LEDGER=0
+    for c in "ledger" "risk" "gate-audit" "retention"; do
         rc=0
         # shellcheck disable=SC2086
         ( cd "$d" && CLAUDE_PROJECT_DIR="$d" node "$d/.claude/harness/harness.mjs" $c ) >/dev/null 2>&1 || rc=$?
         trace="$trace $c=$rc"
         if [ "$rc" -ne 0 ]; then NOTICED=1; fi
+        if [ "$c" = "ledger" ]; then NOTICE_LEDGER=$rc; fi
     done
     NOTICE_TRACE="$trace"
 }
 
 notices "$SB4"
 chk "$([ "$NOTICED" -eq 0 ] && echo 0 || echo 1)" \
-    "E4a 证据未被动过时五个读取者全 rc 0〔防回归位，现在就该绿：挡住「改成永远报错」的假修〕" \
-    "ledger / ledger --verify-evidence / risk / gate-audit / retention 全 rc 0" \
+    "E4a 证据未被动过时四个读取者全 rc 0〔防回归位，现在就该绿：挡住「改成永远报错」的假修〕" \
+    "ledger / risk / gate-audit / retention 全 rc 0" \
     "$NOTICE_TRACE"
 
 echo "TAMPERED - the check never printed this" > "$SB4/$E4_EV"
 notices "$SB4"
-chk "$([ "$NOTICED" -eq 1 ] && echo 0 || echo 1)" \
-    "E4b 证据日志内容被改写后，至少一个命令必须报非 0（记了哈希却从不校验 = 没记）" \
-    "五个读取者里至少一个 rc != 0" \
+chk "$([ "$NOTICE_LEDGER" -ne 0 ] && echo 0 || echo 1)" \
+    "E4b 证据日志内容被改写后，ledger 必须报非 0（记了哈希却从不校验 = 没记）" \
+    "ledger rc != 0（证据摘要校验默认开，重读对不上就是 evidence-tampered）" \
     "$NOTICE_TRACE 记录的 evidenceSha256=$E4_SHA 证据现内容=[$(head -c 60 "$SB4/$E4_EV")]"
 
 rm -f "$SB4/$E4_EV"
 notices "$SB4"
-chk "$([ "$NOTICED" -eq 1 ] && echo 0 || echo 1)" \
-    "E4c 证据日志被删除后，至少一个命令必须报非 0" \
-    "五个读取者里至少一个 rc != 0" \
+chk "$([ "$NOTICE_LEDGER" -ne 0 ] && echo 0 || echo 1)" \
+    "E4c 证据日志被删除后，ledger 必须报非 0" \
+    "ledger rc != 0（账本引用的日志没了就是 evidence-missing）" \
     "$NOTICE_TRACE 证据文件=$E4_EV 存在=$([ -f "$SB4/$E4_EV" ] && echo YES || echo NO)"
 
 # ---------------------------------------------------------------------------

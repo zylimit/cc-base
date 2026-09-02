@@ -2524,6 +2524,148 @@ function selftestCases() {
       }
     }],
 
+    // The flag whitelist. Both halves are asserted in one pass per subcommand, because the
+    // dangerous half is not the rejection: a row missing a flag the source really reads turns
+    // a correct invocation into a usage error, and the first response to a checker that cries
+    // wolf is to switch it off. So every subcommand is handed all of its own flags plus one
+    // that exists nowhere, and exactly the invented one has to come back named.
+    //
+    // CLI_FLAGS is deliberately a second copy rather than an import: harness.mjs cannot be
+    // imported here (it calls main() at load, and it imports this file), but more to the point
+    // an expectation read off the table under test proves only that the table equals itself.
+    // This one was read off the `flags.<key>` accesses in lib/*.mjs, so the two disagreeing is
+    // information. The reads: line in the usage error is how the engine's own table is
+    // observed -- through the interface, which is the only place it is a contract.
+    ['flag whitelist: an unknown flag is a usage error, and every declared flag survives one', () => {
+      const CLI_FLAGS = {
+        'doctor': [], 'diff-hash': [], 'selftest': [],
+        'catalog-lint': ['catalog', 'tracked'],
+        'impact': ['catalog', 'changed'],
+        'context-pack': ['budget-chars', 'catalog', 'changed', 'task'],
+        'receipt': ['task'],
+        'verify': ['catalog', 'changed'],
+        'waiver': ['compensation', 'dry-run', 'dryRun', 'expiry', 'file', 'owner', 'reason', 'scope', 'sub'],
+        'attributes': ['catalog', 'module'],
+        'arch-check': ['catalog', 'max-files', 'record'],
+        'fitness': ['all', 'catalog', 'paths'],
+        'adapters': ['attribute', 'catalog', 'dry-run', 'dryRun', 'id'],
+        'adr-check': ['catalog', 'dir', 'file'],
+        'arch-trend': ['gate'],
+        'gate': ['catalog', 'changed'],
+        'ledger': ['no-verify-evidence'],
+        'gate-audit': ['catalog'],
+        'retention': ['apply', 'max-age-days', 'max-evidence', 'max-packs'],
+        'risk': ['catalog'],
+        'task': ['catalog', 'changed'],
+        'budget': ['catalog'],
+        'spec-lint': ['file'],
+        'trace': ['catalog', 'file', 'min-coverage', 'tests'],
+        'spec': ['all', 'budget', 'catalog', 'file', 'paths', 'tests'],
+        'dod': ['only'],
+        'review': ['agent', 'catalog', 'notes', 'pack', 'reviewer', 'scope'],
+        'review-pack': ['base', 'max-diff-lines'],
+        'authorship': [],
+        'invariants': ['budget', 'file', 'rules'],
+        'recap': ['budget', 'changelog', 'file', 'spec'],
+        'archive': ['apply', 'archive', 'file', 'max-entries'],
+        'sync-check': ['staged'],
+        'rules-audit': ['limit'], 'skills-lint': ['limit'],
+        'claude-md-lint': ['catalog', 'limit'],
+      };
+      const INVENTED = 'cc-base-absent-flag';
+      const run = (argv) => {
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), ...argv], {
+          cwd: HARNESS_DIR, input: '', encoding: 'utf8', env: { ...process.env },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        return { code: r.status, out: String(r.stdout || ''), err: String(r.stderr || '') };
+      };
+
+      // The subcommand list comes from the engine, so a subcommand added without a row here
+      // fails on this line rather than going unexercised.
+      const doctor = run(['doctor']);
+      assert.deepEqual(doctor.code, 0);
+      const implemented = JSON.parse(doctor.out).subcommands;
+      assert.deepEqual(implemented.slice().sort(), Object.keys(CLI_FLAGS).sort(),
+        'every implemented subcommand needs a flag row, and every row an implemented subcommand');
+
+      for (const cmd of implemented) {
+        const declared = CLI_FLAGS[cmd];
+        // Values are supplied so the value-consuming branch of parseArgs runs too; parseArgs
+        // would otherwise fold every one of these into a boolean and never take that path.
+        const argv = [cmd];
+        for (const f of declared) argv.push('--' + f, 'x');
+        argv.push('--' + INVENTED, 'x');
+        const r = run(argv);
+        assert.deepEqual(r.code, 2, cmd + ': an unknown flag is a usage error, not a degradation: ' + r.err);
+        assert.deepEqual(r.out, '', cmd + ': a usage error answers on stderr and emits no result');
+
+        const named = /^unknown flags? for (\S+): (.+)$/m.exec(r.err);
+        assert.ok(named, cmd + ': stderr does not name the flags: ' + r.err);
+        assert.deepEqual(named[1], cmd);
+        assert.deepEqual(named[2].split(', '), ['--' + INVENTED],
+          cmd + ': exactly the invented flag is unknown; anything else here is a row missing a '
+          + 'flag the source reads, which would reject a correct command line');
+
+        const reads = /^(\S+) reads(?: no flags|: (.+))$/m.exec(r.err);
+        assert.ok(reads, cmd + ': stderr does not list what the subcommand reads: ' + r.err);
+        assert.deepEqual(reads[1], cmd);
+        const advertised = reads[2] ? reads[2].split(', ').map(s => s.replace(/^--/, '')) : [];
+        assert.deepEqual(advertised, declared, cmd + ': the advertised flag set moved');
+      }
+    }],
+
+    // Positionals and flag values still reach the subcommand. The whitelist runs before
+    // dispatch, so the way it could break everything at once is by eating an argument on the
+    // way past -- three shapes that would each answer differently if it did.
+    ['flag whitelist: positionals and flag values still reach the subcommand', () => {
+      // An empty project root, so `review lens` reads no session and writes none: run against
+      // this checkout it could append to a live review, and a test that edits the tree it is
+      // testing is not one anybody keeps.
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-flags-'));
+      try {
+        const run = (argv, stdin) => {
+          const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), ...argv], {
+            cwd: root, input: stdin || '', encoding: 'utf8',
+            env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+          });
+          assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+          let out = null;
+          try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+          assert.ok(out, 'no JSON on stdout for ' + argv.join(' ') + ': ' + String(r.stderr || '').slice(0, 200));
+          return { code: r.status, out };
+        };
+
+        const imp = run(['impact', '--catalog', fx('catalog-good.json'), '--changed', 'core/a.ts']);
+        assert.deepEqual([imp.code, imp.out.direct, imp.out.degraded], [0, ['core'], false],
+          'both values were read: the catalog off --catalog, and the one changed path off '
+          + '--changed rather than off a git listing this empty tree does not have');
+
+        const wv = run(['waiver', 'check', '--file', path.join(root, 'no-such-waiver.json')]);
+        assert.deepEqual([wv.code, wv.out.valid], [1, false],
+          'the positional picked the check sub-form and the --file value was read');
+
+        const lens = run(['review', 'lens', 'correctness', '--agent', 'selftest'], '{"findings":[]}');
+        assert.deepEqual([lens.code, lens.out.lens], [3, 'correctness'],
+          'a positional sitting between the subcommand and a flag is still a positional');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
+
+    // --flag=value was never a spelling this parser knew: it produced the key "changed=x",
+    // which no subcommand reads, and the whole argument disappeared. It is not being added
+    // here -- it is being said out loud instead of swallowed.
+    ['flag whitelist: the equals spelling is named rather than dropped', () => {
+      const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'impact', '--changed=core/a.ts'], {
+        cwd: HARNESS_DIR, input: '', encoding: 'utf8', env: { ...process.env },
+      });
+      assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+      assert.deepEqual(r.status, 2);
+      assert.ok(/unknown flag for impact: --changed=core\/a\.ts/.test(String(r.stderr || '')),
+        'the whole token is quoted back, so the missing space is visible: ' + String(r.stderr || ''));
+    }],
+
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x
     // 3 globs against 30k paths stays far under the bound on any dev machine; without
     // the cache this same loop recompiled ~10.8M RegExps and blew straight past it.

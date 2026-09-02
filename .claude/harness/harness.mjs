@@ -61,6 +61,68 @@ import { selftestCases } from './lib/selftest.mjs';
 const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
+// Which flags each subcommand actually reads. parseArgs collects any `--x` it is handed, and
+// without this table it collected a misspelling just as happily: `impact --paths x` (--paths
+// belongs to fitness, impact's flag is --changed) exited 0 with a full JSON body having
+// measured the wrong thing, and a baseline recorded that way looks normal while asserting
+// nothing. An unread flag is a usage error, so it exits 2 -- not 3, which means degraded, and
+// not 1, which means something was found.
+//
+// Each row is the set of `flags.<key>` reads reachable from that subcommand's entry point,
+// taken from the source rather than from the documentation, and it is a union over the
+// sub-forms (`review` covers start/lens/verdict/team, `waiver` covers list/check/create).
+// Two spellings of one switch both appear where the source reads both. A row that is missing
+// a flag turns a correct invocation into a usage error, which is worse than the silence it
+// replaces, so the two directions are pinned in selftest: every implemented subcommand has a
+// row, every row names an implemented subcommand, and every flag in every row survives a real
+// invocation. A subcommand with no row accepts no flags, which fails loudly on the day one is
+// added without its row rather than quietly going back to collecting anything.
+//
+// There is no global group: no flag is read by every subcommand. `--catalog` comes closest and
+// is still absent from eighteen of them, and listing it globally would advertise a switch that
+// `doctor`, `ledger` or `recap` would then silently ignore -- the same defect one level up.
+const SUBCOMMAND_FLAGS = {
+  'doctor': [],
+  'diff-hash': [],
+  'selftest': [],
+  'catalog-lint': ['catalog', 'tracked'],
+  'impact': ['catalog', 'changed'],
+  'context-pack': ['budget-chars', 'catalog', 'changed', 'task'],
+  'receipt': ['task'],
+  'verify': ['catalog', 'changed'],
+  'waiver': ['compensation', 'dry-run', 'dryRun', 'expiry', 'file', 'owner', 'reason', 'scope', 'sub'],
+  'attributes': ['catalog', 'module'],
+  'arch-check': ['catalog', 'max-files', 'record'],
+  'fitness': ['all', 'catalog', 'paths'],
+  'adapters': ['attribute', 'catalog', 'dry-run', 'dryRun', 'id'],
+  'adr-check': ['catalog', 'dir', 'file'],
+  'arch-trend': ['gate'],
+  'gate': ['catalog', 'changed'],
+  'ledger': ['no-verify-evidence'],
+  'gate-audit': ['catalog'],
+  'retention': ['apply', 'max-age-days', 'max-evidence', 'max-packs'],
+  'risk': ['catalog'],
+  // `task complete` rejects --changed with its own message and exit 3 (the scope of a
+  // completion is not the caller's to state), which is a stricter answer than this table's.
+  // Dropping it here would replace that answer with a flat usage error and lose the reason.
+  'task': ['catalog', 'changed'],
+  'budget': ['catalog'],
+  'spec-lint': ['file'],
+  'trace': ['catalog', 'file', 'min-coverage', 'tests'],
+  'spec': ['all', 'budget', 'catalog', 'file', 'paths', 'tests'],
+  'dod': ['only'],
+  'review': ['agent', 'catalog', 'notes', 'pack', 'reviewer', 'scope'],
+  'review-pack': ['base', 'max-diff-lines'],
+  'authorship': [],
+  'invariants': ['budget', 'file', 'rules'],
+  'recap': ['budget', 'changelog', 'file', 'spec'],
+  'archive': ['apply', 'archive', 'file', 'max-entries'],
+  'sync-check': ['staged'],
+  'rules-audit': ['limit'],
+  'skills-lint': ['limit'],
+  'claude-md-lint': ['catalog', 'limit'],
+};
+
 /**
  * Parse `<subcommand> [--flag value ...] [positional ...]`.
  * A flag with no following value (or followed by another --flag) is boolean true.
@@ -88,8 +150,40 @@ function parseArgs(argv) {
   return { cmd, flags, positional, sub: positional[0] };
 }
 
+/**
+ * Flags the named subcommand does not read, in the order they were given.
+ * An unrecognised subcommand answers nothing here: usage() already names that, and reporting
+ * its flags too would bury the one thing wrong with the line.
+ * @param {string} cmd
+ * @param {Object} flags
+ * @returns {string[]}
+ */
+function unknownFlags(cmd, flags) {
+  if (!IMPLEMENTED_SUBCOMMANDS.includes(cmd)) return [];
+  const allowed = SUBCOMMAND_FLAGS[cmd] || [];
+  return Object.keys(flags).filter(k => !allowed.includes(k));
+}
+
+/**
+ * Name the flags that were not understood, then name the ones that would have been. The
+ * second half is the part that matters: a bare rejection sends the reader to the source,
+ * and the flag they wanted is usually one line away from the one they typed.
+ */
+function flagUsage(cmd, unknown) {
+  const allowed = SUBCOMMAND_FLAGS[cmd] || [];
+  return (unknown.length === 1 ? 'unknown flag for ' : 'unknown flags for ') + cmd + ': '
+    + unknown.map(f => '--' + f).join(', ') + '\n'
+    + (allowed.length
+      ? cmd + ' reads: ' + allowed.map(f => '--' + f).join(', ') + '\n'
+      : cmd + ' reads no flags\n')
+    + 'a flag no subcommand reads used to be collected and ignored, which left the command\n'
+    + 'running in its no-argument shape and reporting success over something it never measured\n';
+}
+
 function main() {
   const { cmd, flags, positional } = parseArgs(process.argv.slice(2));
+  const unknown = unknownFlags(cmd, flags);
+  if (unknown.length) return die(flagUsage(cmd, unknown), 2);
   switch (cmd) {
     case 'doctor':       return cmdDoctor();
     case 'diff-hash':    return cmdDiffHash();

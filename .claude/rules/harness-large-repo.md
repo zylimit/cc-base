@@ -137,8 +137,10 @@ paths:
     | skills-lint | 干净 / 无 skills 目录 / 无 SKILL.md | 有 finding | — | 目录或文件读不了 / 形态无法判定 | — |
     | claude-md-lint | 四节齐 / 无 high-critical 模块 | 缺文件 / 缺节 / 空节 | — | 无 catalog / 非 git / 模块根派生不出 | — |
     | unknown / missing | — | — | — | 总是 | — |
+    | 未知 flag（任一子命令） | — | — | 总是 | — | — |
 
     要点：
+    - **未知 flag = rc 2 用法错，不是降级**：每个子命令有一张白名单表（`harness.mjs` 的 `SUBCOMMAND_FLAGS`，与 dispatch 挨着），它不读的 `--flag` 一律 rc 2、stderr 点名是哪个 flag 并列出该子命令认识哪些。此前是无条件收进 flags 后静默忽略——`impact --paths ...`（`--paths` 是 fitness 的，impact 认 `--changed`）照跑照出 JSON 照 rc 0，录基线时会录出一份看着正常实则什么都没测的假基线。加子命令须同步加表项（表项缺失 = 该子命令不收任何 flag），两个方向都由 selftest 钉住。`--flag=value` 从来不是这个 parser 认的拼法（会解析成 `changed=x` 这个键），现在整个 token 被原样点名，不再吞掉。
     - `verify` FAIL/BLOCKED **或 critical/high 属性缺证据** = rc 2（commit 闸阻断）；无 catalog 或非 git = rc 3（降级，不阻断也不假绿）。输出里 `gate` 字段三态：PASS / FAIL|BLOCKED（check 层）/ BLOCKED_BY_ATTRIBUTES（属性层）。
     - `receipt verify` STALE = rc 4（stop-gate 拦停强制重审）；非 git = rc 3（降级）。
     - 缺命令 / 二进制找不到 = `verify` 内部 BLOCKED（reason: `command-missing:<exe>`），**绝不假绿**。
