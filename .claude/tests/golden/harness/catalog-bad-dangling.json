@@ -49,7 +49,8 @@
           "sync-check",
           "rules-audit",
           "skills-lint",
-          "claude-md-lint"
+          "claude-md-lint",
+          "init"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -81,7 +82,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 251
+        "tests": 255
       },
       "stderr": []
     },
@@ -2494,6 +2495,114 @@
       ]
     },
     {
+      "id": "init",
+      "argv": [
+        "init"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "applied": false,
+        "path": ".claude/harness/module-catalog.json",
+        "catalogPresent": true,
+        "trackedPaths": 21,
+        "granularity": "fine",
+        "maxModules": 50,
+        "overBudget": false,
+        "modules": 3,
+        "globalPaths": 2,
+        "ignoredPaths": 4,
+        "sourceIgnored": 1,
+        "rescued": 0,
+        "referenceEdges": [
+          {
+            "from": "api",
+            "to": "auth",
+            "evidence": [
+              "api/server.ts: ../auth/login"
+            ]
+          },
+          {
+            "from": "auth",
+            "to": "core",
+            "evidence": [
+              "auth/login.ts: ../core/util"
+            ]
+          }
+        ],
+        "referenceScan": {
+          "scanned": 15,
+          "unresolved": 6,
+          "truncated": false
+        },
+        "lint": {
+          "ok": true,
+          "errors": [],
+          "errorsOmitted": 0,
+          "warnings": [],
+          "stats": {
+            "modules": 3,
+            "trackedPaths": 21,
+            "unmapped": 0,
+            "overlaps": 0
+          }
+        },
+        "draft": {
+          "version": 1,
+          "_generated": {
+            "by": "harness.mjs init",
+            "reviewed": false,
+            "note": "drafted by harness.mjs init from the tracked file tree; riskTier is a placeholder, attributes / dependsOn / layer / forbiddenDependencies are decisions a human still owes this file"
+          },
+          "modules": [
+            {
+              "id": "api",
+              "paths": [
+                "api/**"
+              ],
+              "riskTier": "low"
+            },
+            {
+              "id": "auth",
+              "paths": [
+                "auth/**"
+              ],
+              "riskTier": "low"
+            },
+            {
+              "id": "core",
+              "paths": [
+                "core/**"
+              ],
+              "riskTier": "low"
+            }
+          ],
+          "global": [
+            "package.json",
+            "tsconfig.base.json"
+          ],
+          "ignored": [
+            "Architecture-Design.md",
+            "README.md",
+            "db/**",
+            "docs/**"
+          ]
+        },
+        "note": "dry run; rerun with --apply to write .claude/harness/module-catalog.json"
+      },
+      "stderr": [
+        "init: 3 module(s), 2 global path(s), 4 ignored path(s), from 21 tracked path(s) [fine]",
+        "  module api  api/**  2 file(s)",
+        "  module auth  auth/**  2 file(s)",
+        "  module core  core/**  11 file(s)",
+        "init: riskTier is low on every module and attributes are absent on purpose -- both are judgements, and a guessed high reads downstream as safety somebody established",
+        "init: dependsOn is left unwritten; 2 real import edge(s) are reported for reference only -- writing them in would make arch-check compare the code against its own reflection",
+        "  edge api -> auth  api/server.ts: ../auth/login",
+        "  edge auth -> core  auth/login.ts: ../core/util",
+        "init: 1 source file(s) landed in ignored (single-file or non-source directories); promote the ones that are really modules"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -2731,7 +2840,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2759,6 +2868,7 @@
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
+        "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "planned (not-implemented):"
       ]
     },
@@ -2770,7 +2880,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2798,6 +2908,7 @@
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
+        "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "planned (not-implemented):"
       ]
     },

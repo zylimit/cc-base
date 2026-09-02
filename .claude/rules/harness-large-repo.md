@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[三十六能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[三十七能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / init / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
@@ -84,6 +84,11 @@ paths:
     - **rules-audit**：宪法审计——扫 `.claude/CLAUDE.md` 与 `.claude/rules/*.md`，每条规则行（列表 / 编号 / 表格行）按能不能落到执法点分四类：**M** 机器强制（行内反引号 token，或规则行行首的粗体 token，解析出真实存在的 harness 子命令 / hook / script / test；粗体只加不减——解析不到就留在 U，绝不判 phantom，因为粗体在这些文档里绝大多数是普通强调而非引用语法） / **P** 承认靠自觉（行内写明 prompt-only、靠自觉、(P)、[P]——被「不」否定的不算，那是相反的陈述，把机制化过的规则记成没人管的那一类是最糟的读法） / **phantom** 幽灵引用（token 长得就是执法点却不存在：`harness.mjs` 后面跟一个没有的子命令名、引一个不存在的 hook 文件） / **U** 未分类（以上都不是——要最小化的正是这一类）。**只有 phantom 判失败**（rc 1 并点名到 `file:line`）；U 多少不改退出码——那是要人判断的指标不是自动闸，但 stdout 与 stderr 都显著给出（含逐条 file:line 与规则文本前若干字、per-file 分项）。判据**故意保守**：glob / 占位符 / JSON 字段名 / 配置键 / 数据文件一律解析成「什么都不是」，宁可落进 U 也不猜——**误判成 M 就是自动化的幽灵引用，误判成 phantom 会让人去修一条本来没坏的规则**。围栏里的代码块不算规则行（例子不是条款，不然贴一段命令就能刷高自己的比例）。为什么要这个数：2026 有研究报告规则不只是效果差、还会把行为**扭曲**到没人写下来的方向，且指令遵从有数量天花板（条数上升遵从率下降）——所以要压的从来不是字节数，是「指不到任何执法点、又不承认自己指不到」的条数：每条都指向命令的长宪法是健康的，满是劝诫的短宪法不是。
     - **skills-lint**：SKILL.md frontmatter 闸——frontmatter 一畸形，Claude Code 直接**静默丢弃**这个 skill，坏掉的和从没写过长得一模一样，而丢掉的往往正是那条去执法的 skill，所以这是本仓最贵的静默失败。扫 `.claude/skills/*/SKILL.md` 五件事：① frontmatter 可解析（`---` 围栏成对；键值形态在 CC 实际使用的子集内）② `name` 存在、kebab-case、与所在目录同名 ③ `description` 存在非空且 ≤180 字（与 `.claude/scripts/skill-description-lint.sh` 同一个数——那边管措辞、这边管形状，两半凑一条规则）④ 全体 skill 不重名 ⑤ `disable-model-invocation` / `user-invocable` 这类布尔字段必须是裸 true/false（引号包起来的 "false" 是非空字符串、恒真，读出来的意思和写的正好相反）。**不手搓 YAML 解析器**：子集照 `.claude/harness/audit/check-syntax.mjs` 划（判得最狠的一条是裸值里不许有 `": "`——loader 会连整份文档一起拒），超出子集的形态（缩进续行 / 块标量 / 流式集合 / 锚点）报「无法判定」走 rc 3，不静默接受也不误判为错。三档分得清：干净 rc 0；有 finding rc 1（点名到 `file:line` + 判据代号）；该扫没扫成 rc 3（目录在却读不了 / 文件读不了 / 形态判不了）。**没有 skills 目录 rc 0**——本框架装进不带 skill 的项目是常态不是故障；**目录在但一个 SKILL.md 都没有也是 rc 0**，归 note 不归降级，输出里 `listed` / `inScope` 两个数都在（「没东西可扫」和「扫了没扫成」不共用一个退出码）。
     - **claude-md-lint**：高风险模块的**目录级宪法**闸——Claude Code 对子目录里的 `CLAUDE.md` 是**按需加载**的（改到那个目录下的文件，它的规则才进上下文），所以嵌套 CLAUDE.md 是唯一能把模块边界写在「干活的地方」而不占主控预算的位置；高危模块没有它，边界就只存在于 agent 记不记得，正是本框架要机器化掉的那类自觉。catalog 里 `riskTier` 为 high（或 critical——该字段无取值校验，写了 critical 按不低于 high 读）的模块，其目录必须有 `CLAUDE.md` 且四节齐全：Purpose / Boundaries / Invariants / Verification，**中英双语标题都认**（目的 / 边界 / 不变量 / 验证）。判定：标题行（#..####）文本含关键词即算该节，**一个标题只认一节**（第一个命中的，「Boundaries and Verification」不许一段正文顶两节）；**有壳没肉不算有**——标题到同级或更高级的下一个标题之间没有一行正文即判空节（写成子小节仍有正文的照算有）；围栏里的标题是例子不是章节。模块目录 = 该模块 path globs 的**最长公共字面目录前缀**（`core/**`→`core`，`db/schema.ts`→`db`）；跨两个根或只到仓根的模块**派生不出目录**，报「无法判定」走 rc 3，不硬判也不静默跳过。**只查 high/critical**：medium 及以下不欠目录宪法，一刀切要求每模块一份的规则活不过一周。三档：齐 rc 0；缺文件 / 缺节 / 空节 rc 1（点名模块 id + 期望路径 + 缺哪节，finding 与降级同时出现 finding 赢）；无 catalog / 非 git / 模块根派生不出 rc 3。**catalog 存在但没有一个 high/critical 模块也是 rc 0**，归 note 不归降级，`listed` / `inScope` 两个数都在（同 skills-lint：「没东西可扫」和「扫了没扫成」不共用一个退出码）。
+
+    - **init**：从仓库现状推一份 catalog 草案，把启用门槛从「手写一份合规 catalog」降到「跑一条命令再人工审一遍」——手写第一份正是接入停在的那一步。扫 tracked 清单按顶层/次顶层目录推候选模块（`packages`/`apps`/`src` 这类容器名、或子目录 ≥3 且文件 >24 的大目录拆一层，只拆一层，所以候选永远是兄弟、没有一个 glob 能吞掉另一个），单文件目录 / docs / 构建产物 / 缓存目录进 `ignored`，manifest 与 lockfile 与顶层散落脚本进 `global`。**默认 dry-run 打到 stdout，`--apply` 才写**；`--apply` 遇已有 catalog **rc 1 不覆盖也没有 --force**（手写的档位、attributes、禁边没有任何推断能重建，要换请自己先删）。候选超 `--max-modules`（默认 50）退回顶层粒度并说明——三百个模块的草案没人会审。
+      · **不猜的比猜的重要**：`riskTier` 一律 `low` 占位，`attributes` / `dependsOn` / `layer` / `forbiddenDependencies` **一概不生成**。机器读目录名猜出的 high 会被下游当成有人定过档，比不写更糟。
+      · **`dependsOn` 尤其不写**：真实 import 边照跑（复用 arch-check 那套提取），但只报在 `referenceEdges` 和 stderr 里**供人过目**。写进 `dependsOn` 等于让 arch-check 对着自己的倒影做检查，`undeclaredDependencies` 从此恒空、防腐闸当场失效。
+      · **草案必须自洽**：产出前用真 `lintCatalog` 自检一遍，UNMAPPED / OVERLAP / CATCH_ALL 任一不过就 rc 1 拒绝给出（连 `--apply` 也一个字节都不写）——把人第一步就送进红灯的草案比没有草案更糟。推断没放下的路径按字面补进 `ignored` 并计数上报，落进 ignored 的手写文件数单独报 `sourceIgnored`，该提拔成模块的自己提。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -136,6 +141,7 @@ paths:
     | rules-audit | 无幽灵引用 | 有幽灵引用 | — | 无规则文档 | — |
     | skills-lint | 干净 / 无 skills 目录 / 无 SKILL.md | 有 finding | — | 目录或文件读不了 / 形态无法判定 | — |
     | claude-md-lint | 四节齐 / 无 high-critical 模块 | 缺文件 / 缺节 / 空节 | — | 无 catalog / 非 git / 模块根派生不出 | — |
+    | init | 草案产出（dry-run 或 --apply 写成功） | --apply 时 catalog 已存在 / 草案自检不过 catalog-lint / 写盘失败 | — | 非 git / tracked 清单空或截断 | — |
     | unknown / missing | — | — | — | 总是 | — |
     | 未知 flag（任一子命令） | — | — | 总是 | — | — |
 
@@ -199,7 +205,7 @@ paths:
     - `.claude/.needs-review` / `.fast-mode` / `.stop-gate-strikes`：原框架运行态（harness 复用，git 忽略）。
 
 [典型工作流]
-    1. 启用：在 `.claude/harness/` 写一份合规 `module-catalog.json`（参照 `.claude/tests/fixtures/harness/catalog-good.json`；五性声明参照 quality-attributes.md 示例）→ `node .claude/harness/harness.mjs catalog-lint` 验过。
+    1. 启用：`node .claude/harness/harness.mjs init` 出草案 → **人审**（模块划得对不对、哪些被塞进 ignored 该提拔回来、riskTier 与 attributes 该定成什么、referenceEdges 里哪些边是真要声明的 dependsOn）→ `init --apply` 落盘或照草案手改 → `catalog-lint` 验过。空手写也行（参照 `.claude/tests/fixtures/harness/catalog-good.json`；五性声明参照 quality-attributes.md 示例），但 init 那一步省下的是把每条 tracked path 都找到归处的功夫。
     2. 接线五性：给关键模块声明 `attributes`（如支付模块 security:critical）→ `attributes` 子命令看接线缺口 → `adapters list --attribute security` 挑工具 → `adapters add <id>` 接线 → 模块 verification 引用该 check。
     3. 开发：正常 per-Task 编码 → review → fix 闭环（hook 自动接线，无需手工调用）。
     4. 诊断：`doctor` 看启用态、`impact` 看变更影响面、`context-pack` 看 LLM 上下文预算分配、`arch-check` 看依赖漂移与越禁边、`fitness` 扫变更文件的五性反模式。

@@ -54,6 +54,9 @@ import {
   classifyToken, documentSections, lintModuleDoc, lintSkillFile, literalDirSegments, moduleRoot,
   leadingBoldToken, parseFrontmatter, ruleLineText, scanModuleDocs, scanSkills, tally,
 } from './rules.mjs';
+import {
+  closeCoverage, draftCatalog, extensionOf, looseFileKind, moduleIdFor, planModules,
+} from './init.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -2524,6 +2527,232 @@ function selftestCases() {
       }
     }],
 
+    // S25 the inference itself, with no repository in sight. Every tracked path has to come
+    // out claimed exactly once, and the three questions a file tree cannot answer have to come
+    // out unanswered -- the second half is the one worth pinning, because a draft that fills
+    // them in plausibly is the failure mode that costs the most and looks the best.
+    ['init: every path lands somewhere, and what a tree cannot say stays unsaid', () => {
+      assert.deepEqual(extensionOf('core/a.TS'), '.ts');
+      assert.deepEqual(extensionOf('Makefile'), '', 'a basename with no dot carries no extension');
+      assert.deepEqual(extensionOf('.gitignore'), '', 'a leading dot is not an extension either');
+
+      assert.deepEqual(moduleIdFor('core'), 'core');
+      assert.deepEqual(moduleIdFor('.claude/tests'), 'claude-tests',
+        'separators become dashes and a leading dot is dropped, so the id stays [A-Za-z0-9._-]');
+      assert.deepEqual(moduleIdFor('a b/c'), 'a-b-c');
+
+      assert.deepEqual(looseFileKind('package.json'), 'global');
+      assert.deepEqual(looseFileKind('tsconfig.base.json'), 'global', 'the whole tsconfig family');
+      assert.deepEqual(looseFileKind('setup.sh'), 'global', 'a hand-written script above every module');
+      assert.deepEqual(looseFileKind('README.md'), 'ignored');
+
+      const tracked = [
+        'api/routes.ts', 'api/server.ts',
+        'core/index.ts', 'core/util.ts',
+        'solo/only.ts',
+        'docs/design.md',
+        'package.json', 'README.md',
+      ];
+      const plan = planModules(tracked);
+      assert.deepEqual(plan.modules.map(m => m.id), ['api', 'core'], 'sorted, and two of them');
+      assert.deepEqual(plan.modules.map(m => m.glob), ['api/**', 'core/**']);
+      assert.deepEqual(plan.globals, ['package.json']);
+      assert.deepEqual(plan.ignored.map(i => i.glob + ':' + i.reason),
+        ['README.md:loose-document', 'docs/**:non-source-directory', 'solo/**:single-file-directory']);
+      assert.deepEqual(plan.sourceIgnored, 1,
+        'the one source file that went to ignored is counted, so promoting it is a visible task');
+
+      const draft = draftCatalog(plan);
+      assert.deepEqual(draft.modules.map(m => m.riskTier), ['low', 'low'],
+        'a machine that reads a directory name and answers high has invented a decision');
+      for (const m of draft.modules) {
+        assert.deepEqual(Object.keys(m), ['id', 'paths', 'riskTier'],
+          'no dependsOn, no attributes, no layer, no forbiddenDependencies: writing the import '
+          + 'graph into dependsOn would make arch-check compare the code with its own reflection');
+      }
+      assert.deepEqual(draft._generated.reviewed, false, 'the draft says of itself that nobody has read it');
+      // The whole point: whatever comes out passes the first check its reader runs.
+      const lint = lintCatalog(draft, tracked);
+      assert.deepEqual([lint.ok, lint.stats.unmapped, lint.stats.overlaps], [true, 0, 0]);
+    }],
+
+    // S25 the two granularities and the containers that trigger them. `packages/` naming the
+    // parts rather than being one is the case a single top-level pass gets wrong, and the
+    // budget retry is what keeps a monorepo from producing a draft nobody will read.
+    ['init: a container splits one level, and too many modules coarsen instead of shipping', () => {
+      const mono = [
+        'packages/alpha/index.ts', 'packages/alpha/util.ts',
+        'packages/beta/index.ts', 'packages/beta/util.ts',
+        'package.json',
+      ];
+      const fine = planModules(mono);
+      assert.deepEqual(fine.modules.map(m => m.id), ['packages-alpha', 'packages-beta']);
+      assert.deepEqual(fine.granularity, 'fine');
+
+      const coarse = planModules(mono, { expand: false });
+      assert.deepEqual(coarse.modules.map(m => m.glob), ['packages/**'],
+        'the coarse retry stops at the top level, which is what a caller past --max-modules gets');
+      assert.deepEqual(coarse.granularity, 'coarse');
+
+      // An unconventional name is only a container once it is big enough to be worth splitting;
+      // three files under three directories is a module, not a product.
+      const small = planModules(['lib/a/x.ts', 'lib/b/y.ts', 'lib/c/z.ts']);
+      assert.deepEqual(small.modules.map(m => m.glob), ['lib/**']);
+      const big = [];
+      for (const kid of ['a', 'b', 'c']) for (let i = 0; i < 10; i++) big.push('srv/' + kid + '/f' + i + '.ts');
+      assert.deepEqual(planModules(big).modules.map(m => m.glob), ['srv/a/**', 'srv/b/**', 'srv/c/**']);
+      // Loose files of a split container have no module left to belong to and are decided the
+      // same way a repository-root file is, rather than being dropped.
+      const withLoose = planModules([...big, 'srv/tsconfig.json', 'srv/NOTES.md']);
+      assert.deepEqual(withLoose.globals, ['srv/tsconfig.json']);
+      assert.ok(withLoose.ignored.some(i => i.glob === 'srv/NOTES.md'), 'and the rest is ignored, not lost');
+      assert.deepEqual(lintCatalog(draftCatalog(withLoose), [...big, 'srv/tsconfig.json', 'srv/NOTES.md']).ok, true);
+    }],
+
+    // S25 the self-check, from the only direction that proves it is real: a tree the inference
+    // gets wrong. A directory literally named a*b produces a module glob that also claims ab/,
+    // which is an OVERLAP -- and the contract is that such a draft is refused, never printed as
+    // if it were usable. closeCoverage covers the other half, a path the plan failed to place.
+    ['init: a draft that fails the linter is refused, not offered', () => {
+      const overlapping = ['a*b/x.ts', 'a*b/y.ts', 'ab/x.ts', 'ab/y.ts'];
+      const bad = lintCatalog(draftCatalog(planModules(overlapping)), overlapping);
+      assert.deepEqual(bad.ok, false, 'a wildcard in a directory name makes one module claim another');
+      assert.ok(bad.errors.some(e => e.code === 'OVERLAP'), bad.errors.map(e => e.code).join(','));
+
+      // The belt: anything the plan did not place is added to ignored literally and counted,
+      // so a gap in the inference cannot ship as an UNMAPPED error in the reader's first run.
+      const draft = { version: 1, modules: [{ id: 'core', paths: ['core/**'] }], global: [], ignored: [] };
+      const tracked = ['core/a.ts', 'stray/b.ts', 'loose.txt'];
+      assert.deepEqual(lintCatalog(draft, tracked).stats.unmapped, 2, 'two paths have no home yet');
+      assert.deepEqual(closeCoverage(draft, tracked), 2);
+      assert.deepEqual(draft.ignored, ['loose.txt', 'stray/b.ts'], 'sorted, so two runs agree byte for byte');
+      const fixed = lintCatalog(draft, tracked);
+      assert.deepEqual([fixed.ok, fixed.stats.unmapped], [true, 0]);
+      assert.deepEqual(closeCoverage(draft, tracked), 0, 'and rescuing is idempotent');
+    }],
+
+    // S25 the exit codes and the one irreversible thing this command could do. Overwriting a
+    // catalog somebody wrote destroys tiers, attributes and forbidden edges that no inference
+    // can reconstruct, so the refusal is asserted together with the original file's bytes --
+    // "it exited 1" would still be true of a command that wrote first and complained after.
+    ['init: draft, apply, and the catalog it refuses to overwrite', () => {
+      const roots = [];
+      const mk = (initGit = true) => {
+        const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-init-')));
+        roots.push(d);
+        if (initGit) {
+          const g = spawnSync('git', ['init', '-q'], { cwd: d, encoding: 'utf8' });
+          assert.ok(!g.error && g.status === 0,
+            'these lanes need git on PATH: init reads the tracked list through git ls-files');
+        }
+        return d;
+      };
+      const seed = (root, files) => {
+        for (const [rel, body] of Object.entries(files)) {
+          const abs = path.join(root, rel);
+          fs.mkdirSync(path.dirname(abs), { recursive: true });
+          fs.writeFileSync(abs, body, 'utf8');
+        }
+        const g = spawnSync('git', ['add', '-A'], { cwd: root, encoding: 'utf8' });
+        assert.ok(!g.error && g.status === 0, 'git add failed: ' + String(g.stderr || ''));
+      };
+      const run = (root, argv = []) => {
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'init', ...argv], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        let out = null;
+        try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+        assert.ok(out, 'no JSON on stdout: ' + String(r.stdout || '').slice(0, 200));
+        return { code: r.status, out, err: String(r.stderr || '') };
+      };
+      const TREE = {
+        'api/routes.ts': "import { hash } from '../core/util';\nexport const routes = [hash];\n",
+        'api/server.ts': "export const serve = () => null;\n",
+        'core/index.ts': "export * from './util';\n",
+        'core/util.ts': "export const hash = (s) => s;\n",
+        'docs/design.md': '# design\n',
+        'package.json': '{"name":"fixture"}\n',
+        'README.md': '# fixture\n',
+      };
+      const catalogAt = (root) => path.join(root, '.claude', 'harness', 'module-catalog.json');
+      try {
+        const loose = mk(false);
+        const a = run(loose);
+        assert.deepEqual([a.code, a.out.error], [3, 'non-git'],
+          'the tracked list comes from git; outside a repository there is nothing to infer from');
+
+        const empty = mk();
+        const b = run(empty);
+        assert.deepEqual([b.code, b.out.error], [3, 'no-tracked-paths'],
+          'an empty index is nothing to draft over, which is not the same as a draft of nothing');
+
+        const repo = mk();
+        seed(repo, TREE);
+        const c = run(repo);
+        assert.deepEqual([c.code, c.out.ok, c.out.applied], [0, true, false], c.err);
+        assert.deepEqual(c.out.modules, 2);
+        assert.deepEqual(c.out.draft.modules.map(m => m.id), ['api', 'core']);
+        assert.deepEqual([c.out.lint.ok, c.out.lint.stats.unmapped, c.out.lint.stats.overlaps], [true, 0, 0],
+          'the draft is checked with the real linter before it is offered, not by construction');
+        assert.deepEqual(fs.existsSync(catalogAt(repo)), false, 'a dry run writes nothing');
+        // The real import edge is reported for a human to accept, and is nowhere near dependsOn.
+        assert.deepEqual(c.out.referenceEdges.map(e => e.from + '->' + e.to), ['api->core']);
+        for (const m of c.out.draft.modules) assert.deepEqual(m.dependsOn, undefined);
+        assert.ok(/dependsOn is left unwritten/.test(c.err), c.err);
+        assert.ok(/riskTier is low on every module/.test(c.err), c.err);
+
+        // Two runs over one tree agree byte for byte, or the golden baseline would go red on
+        // its own schedule and stop being read.
+        assert.deepEqual(JSON.stringify(run(repo).out), JSON.stringify(c.out));
+
+        const applied = run(repo, ['--apply']);
+        assert.deepEqual([applied.code, applied.out.ok, applied.out.applied], [0, true, true], applied.err);
+        assert.deepEqual(fs.existsSync(catalogAt(repo)), true);
+        const written = fs.readFileSync(catalogAt(repo), 'utf8');
+        assert.deepEqual(JSON.parse(written).modules.map(m => m.id), ['api', 'core']);
+
+        const second = run(repo, ['--apply']);
+        assert.deepEqual([second.code, second.out.error], [1, 'catalog-exists']);
+        assert.deepEqual(fs.readFileSync(catalogAt(repo), 'utf8'), written,
+          'refusing has to mean the bytes on disk did not move, not merely that the exit code was 1');
+        assert.ok(/already exists and is not overwritten/.test(second.err), second.err);
+
+        // Past the budget the inference coarsens rather than shipping a draft nobody reads.
+        const mono = mk();
+        seed(mono, {
+          'packages/alpha/a.ts': 'export const a = 1;\n', 'packages/alpha/b.ts': 'export const b = 1;\n',
+          'packages/beta/a.ts': 'export const a = 2;\n', 'packages/beta/b.ts': 'export const b = 2;\n',
+        });
+        assert.deepEqual(run(mono).out.draft.modules.map(m => m.id), ['packages-alpha', 'packages-beta']);
+        const capped = run(mono, ['--max-modules', '1']);
+        assert.deepEqual([capped.code, capped.out.granularity, capped.out.overBudget], [0, 'coarse', false]);
+        assert.deepEqual(capped.out.draft.modules.map(m => m.paths[0]), ['packages/**']);
+
+        // A directory name holding a glob wildcard makes one module claim another's files. It
+        // cannot be created on Windows, and the judgement itself is pinned above without a
+        // filesystem -- what this lane adds is that the refusal reaches the exit code.
+        if (process.platform !== 'win32') {
+          const clash = mk();
+          seed(clash, {
+            'a*b/x.ts': 'export const x = 1;\n', 'a*b/y.ts': 'export const y = 1;\n',
+            'ab/x.ts': 'export const x = 2;\n', 'ab/y.ts': 'export const y = 2;\n',
+          });
+          const refused = run(clash);
+          assert.deepEqual([refused.code, refused.out.ok, refused.out.error], [1, false, 'draft-not-lint-clean']);
+          assert.ok(refused.out.lint.errors.some(e => e.code === 'OVERLAP'),
+            'and the reason is in the body, not just in the exit code');
+          assert.deepEqual(fs.existsSync(catalogAt(clash)), false);
+          const alsoRefused = run(clash, ['--apply']);
+          assert.deepEqual([alsoRefused.code, alsoRefused.out.applied], [1, false]);
+          assert.deepEqual(fs.existsSync(catalogAt(clash)), false,
+            '--apply over a draft that does not lint clean writes nothing at all');
+        }
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // The flag whitelist. Both halves are asserted in one pass per subcommand, because the
     // dangerous half is not the rejection: a row missing a flag the source really reads turns
     // a correct invocation into a usage error, and the first response to a checker that cries
@@ -2571,6 +2800,7 @@ function selftestCases() {
         'sync-check': ['staged'],
         'rules-audit': ['limit'], 'skills-lint': ['limit'],
         'claude-md-lint': ['catalog', 'limit'],
+        'init': ['apply', 'catalog', 'max-modules'],
       };
       const INVENTED = 'cc-base-absent-flag';
       const run = (argv) => {

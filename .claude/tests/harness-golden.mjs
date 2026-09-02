@@ -359,6 +359,16 @@ const COMMANDS = [
   // so the passing path is pinned in selftest's temporary trees instead.
   { id: 'claude-md-lint', argv: ['claude-md-lint'] },
 
+  // S25. Dry run only, and deliberately so: `--apply` would write a catalog into the sandbox,
+  // and in the no-catalog scenario that would switch the whole large-repo layer on for every
+  // command recorded after it -- the one scenario whose entire job is to record the layer off.
+  // The refusal to overwrite and the write itself are pinned in selftest's temporary trees.
+  // What this entry buys is that the inference over a fixed tree is reproducible to the byte:
+  // the draft, its module ids, the reference edges and the counts all have to land identically
+  // or the baseline goes red, which is the property a bootstrap command most needs and most
+  // easily loses (a Map iterated in insertion order, a clock, an absolute path).
+  { id: 'init', argv: ['init'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -787,7 +797,7 @@ const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
   + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint,'
-  + 'claude-md-lint';
+  + 'claude-md-lint,init';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */
