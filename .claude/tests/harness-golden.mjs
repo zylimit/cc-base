@@ -349,6 +349,16 @@ const COMMANDS = [
   // be claiming something about files nobody opened.
   { id: 'skills-lint', argv: ['skills-lint'] },
 
+  // S24. The fixture tree carries no CLAUDE.md in any module directory, so what the catalog
+  // scenarios pin here is the finding: a module the catalog itself calls high risk, with
+  // nothing stating its boundaries where the work happens. The two catalogs whose modules
+  // are all medium or low pin the other end -- nothing in scope is exit 0 with both counts
+  // in the answer, not a degradation, because a catalog that declares no high-risk module
+  // owes no directory constitution. Adding the file to the fixture tree would land as an
+  // unmapped path in every catalog and force the whole matrix into degraded full fan-out,
+  // so the passing path is pinned in selftest's temporary trees instead.
+  { id: 'claude-md-lint', argv: ['claude-md-lint'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -776,7 +786,8 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
-  + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint';
+  + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint,'
+  + 'claude-md-lint';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

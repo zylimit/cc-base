@@ -38,7 +38,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emit, projectRoot } from './core.mjs';
+import { emit, isGitRepo, projectRoot } from './core.mjs';
+import { loadCatalog } from './catalog.mjs';
 
 // ===========================================================================
 // S22.1 what counts as a rule line, and what the four classes are
@@ -715,10 +716,311 @@ function cmdSkillsLint(flags = {}) {
   }, code);
 }
 
+// ===========================================================================
+// S24 claude-md-lint: the directory constitution a high-risk module has to carry
+// ===========================================================================
+//
+// Claude Code loads a CLAUDE.md that sits in a subdirectory on demand: open a file under
+// that directory and its rules arrive with it. That makes the nested file the one place a
+// module's boundaries can be stated where the work happens, without being paid for out of
+// the root constitution's budget by every other module. The corollary is what this command
+// names: a high-risk module with no such file has its boundaries stated nowhere near the
+// edit, and "the agent will remember what this module may not do" is precisely the kind of
+// self-discipline this framework exists to turn into a check.
+//
+// Scope is narrow on purpose. Only the modules the catalog itself calls high (or critical)
+// are asked for one -- a rule that demanded a constitution per module would be paid for by
+// every low-risk directory in the tree and switched off inside a week. The four sections are
+// the four a boundary statement needs to be actionable: what this module is for, what it may
+// not reach, what may never be traded away, and how a change to it gets proved. Headings may
+// be written in English or in Chinese, because both are in use here and a lint that accepted
+// only one would be asking for the wrong repair.
+//
+// Two judgements are deliberately strict. A heading with nothing under it counts as absent:
+// a shell with no body reads as covered while stating nothing, which is the failure this
+// repository names everywhere else. And a heading credits one section, the first it matches:
+// "Boundaries and Verification" over a paragraph about boundaries would otherwise let one
+// body answer for two sections, and a false green here is worse than the split heading the
+// finding asks for.
+
+const CLAUDE_MD_FILE = 'CLAUDE.md';
+
+// The tiers this command is asked about. `riskTier` is documented low|medium|high and
+// catalog-lint validates no tier vocabulary at all, so a catalog reaching for `critical`
+// gets read as at least as risky as high rather than silently dropped out of scope.
+const SCOPED_RISK_TIERS = ['high', 'critical'];
+
+// The required sections, each with the English keyword and the Chinese one. The Chinese is
+// escaped to keep this file ASCII, with its reading beside it.
+const CLAUDE_MD_SECTIONS = [
+  { id: 'purpose', label: 'Purpose', en: 'purpose', zh: '\u76ee\u7684' },              // mu-di
+  { id: 'boundaries', label: 'Boundaries', en: 'boundaries', zh: '\u8fb9\u754c' },      // bian-jie
+  { id: 'invariants', label: 'Invariants', en: 'invariants', zh: '\u4e0d\u53d8\u91cf' }, // bu-bian-liang
+  { id: 'verification', label: 'Verification', en: 'verification', zh: '\u9a8c\u8bc1' }, // yan-zheng
+];
+
+const GLOB_CHARS = /[*?[\]{}]/;
+
+/**
+ * The literal directory segments a glob commits to, before its first wildcard. A pattern
+ * with no wildcard at all names a file, so its last segment is dropped -- `db/schema.ts`
+ * commits to `db`, not to a directory called schema.ts. Pure.
+ * @returns {string[]}
+ */
+function literalDirSegments(glob) {
+  let raw = String(glob === undefined || glob === null ? '' : glob).trim();
+  if (raw.startsWith('./')) raw = raw.slice(2);
+  const trailingSlash = raw.endsWith('/');
+  raw = raw.replace(/\/+$/, '');
+  if (raw === '') return [];
+  const out = [];
+  let sawWildcard = false;
+  for (const seg of raw.split('/')) {
+    if (GLOB_CHARS.test(seg)) { sawWildcard = true; break; }
+    out.push(seg);
+  }
+  if (!sawWildcard && !trailingSlash && out.length > 0) out.pop();
+  return out;
+}
+
+/**
+ * The directory a module's globs agree on: the longest run of literal segments common to
+ * all of them. A module spread over two roots, or one whose globs commit to nothing above
+ * the repository root, has no directory to ask for a CLAUDE.md -- and answering anyway
+ * would mean either asking for one at the root or quietly dropping the module. Pure.
+ * @returns {{kind:'ok',dir:string}|{kind:'undecidable',reason:string}}
+ */
+function moduleRoot(paths) {
+  const globs = Array.isArray(paths) ? paths : [];
+  if (globs.length === 0) {
+    return { kind: 'undecidable', reason: 'the module declares no paths, so it has no directory to carry a ' + CLAUDE_MD_FILE };
+  }
+  let common = null;
+  for (const g of globs) {
+    const segs = literalDirSegments(g);
+    if (common === null) { common = segs; continue; }
+    const next = [];
+    for (let i = 0; i < Math.min(common.length, segs.length); i++) {
+      if (common[i] !== segs[i]) break;
+      next.push(common[i]);
+    }
+    common = next;
+  }
+  if (!common || common.length === 0) {
+    return {
+      kind: 'undecidable',
+      reason: 'its path globs (' + globs.map(g => String(g)).join(', ')
+        + ') share no directory above the repository root, so the module has no one directory to carry a ' + CLAUDE_MD_FILE,
+    };
+  }
+  return { kind: 'ok', dir: common.join('/') };
+}
+
+/** Does this heading name that section, in either language? Pure. */
+function sectionMatch(headingText, section) {
+  const t = String(headingText);
+  return t.toLowerCase().indexOf(section.en) >= 0 || t.indexOf(section.zh) >= 0;
+}
+
+/**
+ * Which of the four sections a document states, and which are a heading with nothing under
+ * it. Fenced code is not scanned for headings -- a `# Purpose` inside a shell block is an
+ * example, the same reading auditDoc takes. A section runs to the next heading at its own
+ * level or above, so one written as subsections still has a body; what makes it empty is
+ * holding no line that is not itself a heading.
+ * Pure.
+ * @returns {Object<string,{found:boolean,nonEmpty:boolean,line:(number|null)}>}
+ */
+function documentSections(text) {
+  const lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/);
+  const kinds = [];
+  const heads = [];
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; kinds.push('content'); continue; }
+    if (fenced) { kinds.push(/^\s*$/.test(line) ? 'blank' : 'content'); continue; }
+    const m = /^(#{1,4})\s+(\S.*)$/.exec(line);
+    if (m) { kinds.push('heading'); heads.push({ level: m[1].length, text: m[2].trim(), index: i }); continue; }
+    kinds.push(/^\s*$/.test(line) ? 'blank' : 'content');
+  }
+  const state = {};
+  for (const s of CLAUDE_MD_SECTIONS) state[s.id] = { found: false, nonEmpty: false, line: null };
+  for (let h = 0; h < heads.length; h++) {
+    const head = heads[h];
+    const hit = CLAUDE_MD_SECTIONS.find(s => sectionMatch(head.text, s));
+    if (!hit) continue;
+    let end = lines.length;
+    for (let k = h + 1; k < heads.length; k++) {
+      if (heads[k].level <= head.level) { end = heads[k].index; break; }
+    }
+    let body = false;
+    for (let i = head.index + 1; i < end; i++) {
+      if (kinds[i] === 'content') { body = true; break; }
+    }
+    const cur = state[hit.id];
+    if (!cur.found) { cur.found = true; cur.line = head.index + 1; }
+    if (body) cur.nonEmpty = true;
+  }
+  return state;
+}
+
+/**
+ * Lint one module's CLAUDE.md. The module id travels with every finding: the file path
+ * alone answers "which document", and the question this command is asked is "which module
+ * has no boundaries stated".
+ * Pure.
+ */
+function lintModuleDoc(moduleId, relFile, text) {
+  const state = documentSections(text);
+  const findings = [];
+  const sections = {};
+  for (const s of CLAUDE_MD_SECTIONS) {
+    const cur = state[s.id];
+    if (!cur.found) {
+      sections[s.id] = 'absent';
+      findings.push({
+        at: relFile + ':1', code: 'MISSING_SECTION', module: moduleId, section: s.id,
+        detail: 'module "' + moduleId + '" states no ' + s.label + ' section in ' + relFile
+          + '; a heading (#..####) containing "' + s.label + '" or "' + s.zh + '" is what this looks for',
+      });
+    } else if (!cur.nonEmpty) {
+      sections[s.id] = 'empty';
+      findings.push({
+        at: relFile + ':' + cur.line, code: 'EMPTY_SECTION', module: moduleId, section: s.id,
+        detail: 'module "' + moduleId + '" opens a ' + s.label + ' heading in ' + relFile
+          + ' and puts nothing under it; a section with no body reads as covered while stating nothing',
+      });
+    } else {
+      sections[s.id] = 'stated';
+    }
+  }
+  return { findings, sections };
+}
+
+/**
+ * Walk the catalog's high-risk modules and lint the CLAUDE.md each one's directory should
+ * carry. Reads the filesystem; the root is a parameter so a fixture tree can be scanned
+ * without moving the process.
+ */
+function scanModuleDocs(root, catalog) {
+  const modules = Array.isArray(catalog && catalog.modules) ? catalog.modules : [];
+  const out = { listed: modules.length, inScope: 0, modules: [], findings: [], undecidable: [], unreadable: [] };
+  for (const m of modules) {
+    const id = String((m && m.id) || '');
+    const tier = String((m && m.riskTier) || '').toLowerCase();
+    if (!SCOPED_RISK_TIERS.includes(tier)) continue;
+    out.inScope++;
+    const rootRes = moduleRoot(m && m.paths);
+    if (rootRes.kind !== 'ok') {
+      out.undecidable.push({ at: 'module:' + id, reason: 'module "' + id + '": ' + rootRes.reason });
+      out.modules.push({ id, riskTier: tier, dir: null, file: null, present: false, sections: null });
+      continue;
+    }
+    const dir = rootRes.dir;
+    const relFile = dir + '/' + CLAUDE_MD_FILE;
+    let text;
+    try {
+      text = fs.readFileSync(path.join(root, dir, CLAUDE_MD_FILE), 'utf8');
+    } catch (e) {
+      if (e && e.code === 'ENOENT') {
+        // Which half is missing changes the repair, so it is said rather than left to be
+        // guessed: a directory that is not there yet is a catalog written ahead of the code.
+        const dirThere = fs.existsSync(path.join(root, dir));
+        out.findings.push({
+          at: relFile + ':1', code: 'MISSING_CLAUDE_MD', module: id, section: null,
+          detail: 'module "' + id + '" is riskTier ' + tier + ' and carries no ' + CLAUDE_MD_FILE + ' at ' + relFile
+            + (dirThere ? '' : ' (the directory itself is not on disk)')
+            + '; nothing states its boundaries where an edit inside it happens',
+        });
+        out.modules.push({ id, riskTier: tier, dir, file: relFile, present: false, sections: null });
+        continue;
+      }
+      out.unreadable.push({ at: relFile, reason: 'module "' + id + '": the file could not be read: ' + errText(e) });
+      out.modules.push({ id, riskTier: tier, dir, file: relFile, present: true, sections: null });
+      continue;
+    }
+    const r = lintModuleDoc(id, relFile, text);
+    for (const f of r.findings) out.findings.push(f);
+    out.modules.push({ id, riskTier: tier, dir, file: relFile, present: true, sections: r.sections });
+  }
+  return out;
+}
+
+/** The single sentence that says what this run established. Pure. */
+function claudeMdNote(r) {
+  if (r.unreadable.length > 0) return 'part of the scope could not be read; not checked is not the same as clean';
+  if (r.inScope === 0) {
+    return 'nothing-in-scope:listed=' + r.listed + ' in-scope=0 (no module declares riskTier '
+      + SCOPED_RISK_TIERS.join(' or ') + '), so no directory constitution is owed';
+  }
+  if (r.findings.length > 0) {
+    return 'a high-risk module whose directory states no boundaries is one every agent has to remember the rules of; that memory is what the nested ' + CLAUDE_MD_FILE + ' replaces';
+  }
+  if (r.undecidable.length > 0) return 'a module root could not be derived from its path globs; declining to rule is not the same as passing';
+  return 'every high-risk module carries a ' + CLAUDE_MD_FILE + ' stating its purpose, boundaries, invariants and verification';
+}
+
+function cmdClaudeMdLint(flags = {}) {
+  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  if (!loaded.ok) {
+    const note = 'no module catalog to read (' + loaded.error + '); nothing declares which modules are high risk, '
+      + 'and a scan that never ran is not a clean one';
+    process.stderr.write(note + '\n');
+    return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail, note }, 3);
+  }
+  if (!isGitRepo()) {
+    // The same boundary every catalog-scoped command takes: the catalog describes a tracked
+    // tree, and a directory found outside one is not evidence that it is the module's.
+    const note = 'non-git: the catalog describes a tracked tree and this is not one, so which directories it names cannot be established';
+    process.stderr.write(note + '\n');
+    return emit({ ok: false, degraded: true, error: 'non-git', detail: note, note }, 3);
+  }
+  const r = scanModuleDocs(projectRoot(), loaded.catalog);
+  const limit = positiveInt(flags.limit, DEFAULT_LIMIT);
+  for (const f of r.findings.slice(0, limit)) {
+    process.stderr.write('MODULE ' + f.at + '  ' + f.code + '  ' + f.detail + '\n');
+  }
+  for (const u of r.undecidable) {
+    process.stderr.write('UNDECIDABLE ' + u.at + '  ' + u.reason + '\n');
+  }
+  for (const u of r.unreadable) {
+    process.stderr.write('UNREADABLE ' + u.at + '  ' + u.reason + '\n');
+  }
+  const degraded = r.undecidable.length + r.unreadable.length > 0;
+  process.stderr.write('modules listed ' + r.listed + '  high-risk ' + r.inScope
+    + '  findings ' + r.findings.length
+    + '  undecidable ' + r.undecidable.length
+    + '  unreadable ' + r.unreadable.length + '\n');
+  // A finding outranks a degradation, the same order skills-lint takes: it is the more
+  // actionable answer and the one a caller can block on. Nothing in scope is neither -- a
+  // catalog with no high-risk module is not a catalog whose modules are undocumented.
+  const code = r.findings.length > 0 ? 1 : (degraded ? 3 : 0);
+  return emit({
+    ok: r.findings.length === 0 && !degraded,
+    file: CLAUDE_MD_FILE,
+    listed: r.listed,
+    inScope: r.inScope,
+    degraded,
+    modules: r.modules.slice(0, limit),
+    modulesOmitted: Math.max(0, r.modules.length - limit),
+    findings: r.findings.slice(0, limit),
+    findingsOmitted: Math.max(0, r.findings.length - limit),
+    undecidable: r.undecidable,
+    unreadable: r.unreadable,
+    riskTiers: SCOPED_RISK_TIERS,
+    requiredSections: CLAUDE_MD_SECTIONS.map(s => s.label),
+    note: claudeMdNote(r),
+  }, code);
+}
+
 export {
   RULES_DOC, RULES_DIR, POINT_DIRS, POINT_EXTS, PROMPT_MARKERS, RUNNERS, TEXT_BUDGET,
   ruleLineText, backtickTokens, admitsPromptOnly, collectPoints, normalizeWord, looksExecutable,
   classifyToken, classifyRuleLine, ruleDocs, clip, auditDoc, tally, positiveInt, cmdRulesAudit,
   SKILLS_DIR, SKILL_FILE, DESCRIPTION_BUDGET, BOOLEAN_KEYS,
   scalarValue, parseFrontmatter, lintSkillFile, scanSkills, skillsNote, cmdSkillsLint,
+  CLAUDE_MD_FILE, CLAUDE_MD_SECTIONS, SCOPED_RISK_TIERS,
+  literalDirSegments, moduleRoot, sectionMatch, documentSections, lintModuleDoc,
+  scanModuleDocs, claudeMdNote, cmdClaudeMdLint,
 };

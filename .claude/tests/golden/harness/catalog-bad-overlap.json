@@ -48,7 +48,8 @@
           "archive",
           "sync-check",
           "rules-audit",
-          "skills-lint"
+          "skills-lint",
+          "claude-md-lint"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -80,7 +81,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 233
+        "tests": 237
       },
       "stderr": []
     },
@@ -2396,6 +2397,40 @@
       ]
     },
     {
+      "id": "claude-md-lint",
+      "argv": [
+        "claude-md-lint"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "file": "CLAUDE.md",
+        "listed": 2,
+        "inScope": 0,
+        "degraded": false,
+        "modules": [],
+        "modulesOmitted": 0,
+        "findings": [],
+        "findingsOmitted": 0,
+        "undecidable": [],
+        "unreadable": [],
+        "riskTiers": [
+          "high",
+          "critical"
+        ],
+        "requiredSections": [
+          "Purpose",
+          "Boundaries",
+          "Invariants",
+          "Verification"
+        ],
+        "note": "nothing-in-scope:listed=2 in-scope=0 (no module declares riskTier high or critical), so no directory constitution is owed"
+      },
+      "stderr": [
+        "modules listed 2  high-risk 0  findings 0  undecidable 0  unreadable 0"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -2633,7 +2668,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2660,6 +2695,7 @@
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
+        "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "planned (not-implemented):"
       ]
     },
@@ -2671,7 +2707,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2698,6 +2734,7 @@
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
+        "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "planned (not-implemented):"
       ]
     },

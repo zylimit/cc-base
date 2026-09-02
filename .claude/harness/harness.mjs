@@ -24,12 +24,13 @@
 //   lib/spec.mjs      S19 spec-lint + trace + spec + dod
 //   lib/review.mjs    S20 review engine + review-pack + the authorship ledger
 //   lib/memory.mjs    S21 invariants + recap + archive + sync-check
+//   lib/rules.mjs     S22 rules-audit + S23 skills-lint + S24 claude-md-lint
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
 // quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
 // catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
-// selftest -> all of the above; this file -> all of the above. No cycles.
+// rules -> core, catalog; selftest -> all of the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -51,13 +52,13 @@ import { cmdBudget, cmdTask } from './lib/task.mjs';
 import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
 import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
 import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.mjs';
-import { cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
+import { cmdClaudeMdLint, cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -125,6 +126,7 @@ function main() {
     case 'sync-check':   return cmdSyncCheck(flags);
     case 'rules-audit':  return cmdRulesAudit(flags, IMPLEMENTED_SUBCOMMANDS);
     case 'skills-lint':  return cmdSkillsLint(flags);
+    case 'claude-md-lint': return cmdClaudeMdLint(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -161,6 +163,7 @@ function usage(cmd) {
     '  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)\n' +
     '  rules-audit which rule lines reach a real enforcement point, and which only read as if they do\n' +
     '  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence\n' +
+    '  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

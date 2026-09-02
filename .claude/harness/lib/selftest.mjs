@@ -50,8 +50,9 @@ import {
   renderView, sectionEntries, stateLines, syncFindings,
 } from './memory.mjs';
 import {
-  DESCRIPTION_BUDGET, admitsPromptOnly, auditDoc, backtickTokens, classifyRuleLine, classifyToken,
-  lintSkillFile, parseFrontmatter, ruleLineText, scanSkills, tally,
+  DESCRIPTION_BUDGET, admitsPromptOnly, auditDoc, backtickTokens, claudeMdNote, classifyRuleLine,
+  classifyToken, documentSections, lintModuleDoc, lintSkillFile, literalDirSegments, moduleRoot,
+  parseFrontmatter, ruleLineText, scanModuleDocs, scanSkills, tally,
 } from './rules.mjs';
 
 /**
@@ -2146,6 +2147,214 @@ function selftestCases() {
       }
     }],
 
+
+    // S24 the module root -- everything downstream hangs off which directory a module's
+    // globs agree on, and the two ways it can have none (spread over two roots, or
+    // committing to nothing above the repository root) are the ones that must not be
+    // answered anyway.
+    ['claude-md-lint: a module root is the directory its globs agree on', () => {
+      assert.deepEqual(literalDirSegments('core/**'), ['core']);
+      assert.deepEqual(literalDirSegments('src/pkg/**/*.ts'), ['src', 'pkg']);
+      assert.deepEqual(literalDirSegments('db/schema.ts'), ['db'],
+        'a pattern with no wildcard names a file, so its last segment is not a directory');
+      assert.deepEqual(literalDirSegments('vendor/'), ['vendor'], 'a trailing slash says directory');
+      assert.deepEqual(literalDirSegments('package.json'), []);
+      assert.deepEqual(literalDirSegments('**'), []);
+
+      const dirOf = (paths) => { const r = moduleRoot(paths); return r.kind === 'ok' ? r.dir : r.kind; };
+      assert.deepEqual(dirOf(['pay/**']), 'pay');
+      assert.deepEqual(dirOf(['pay/api/**', 'pay/db/*.ts']), 'pay', 'the longest common run, not the first glob');
+      assert.deepEqual(dirOf(['pay/api/**', 'pay/api/v2/**']), 'pay/api');
+      assert.deepEqual(dirOf(['pay/**', 'billing/**']), 'undecidable',
+        'two roots have no one directory to carry the file, and picking either would be a guess');
+      assert.deepEqual(dirOf(['**']), 'undecidable', 'the repository root is not a module directory');
+      assert.deepEqual(dirOf([]), 'undecidable');
+    }],
+
+    // S24 the four sections. Either language counts, a heading with nothing under it counts
+    // as absent, and a fenced example is not a heading -- otherwise pasting a template into
+    // a code block would be enough to pass.
+    ['claude-md-lint: four sections, in either language, each with something under it', () => {
+      const doc = (...lines) => lines.join('\n');
+      const state = (...lines) => {
+        const s = documentSections(doc(...lines));
+        const out = {};
+        for (const k of Object.keys(s)) out[k] = s[k].found ? (s[k].nonEmpty ? 'stated' : 'empty') : 'absent';
+        return out;
+      };
+      assert.deepEqual(
+        state('## Purpose', 'charges cards', '## Boundaries', 'never imports pii-store',
+          '## Invariants', 'amounts are integers', '## Verification', 'the contract suite'),
+        { purpose: 'stated', boundaries: 'stated', invariants: 'stated', verification: 'stated' });
+      // mu-di / bian-jie / bu-bian-liang / yan-zheng -- the same four headings in Chinese.
+      assert.deepEqual(
+        state('# \u76ee\u7684', 'x', '# \u8fb9\u754c', 'x', '# \u4e0d\u53d8\u91cf', 'x', '# \u9a8c\u8bc1', 'x'),
+        { purpose: 'stated', boundaries: 'stated', invariants: 'stated', verification: 'stated' });
+      assert.deepEqual(
+        state('## Purpose / \u76ee\u7684', 'x', '#### \u8fb9\u754c', 'x', '### Invariants', 'x', '## \u9a8c\u8bc1', 'x'),
+        { purpose: 'stated', boundaries: 'stated', invariants: 'stated', verification: 'stated' },
+        'the two languages mix inside one document, and any heading level from # to #### counts');
+      assert.deepEqual(state('## Purpose', 'x', '## Boundaries', '', '## Invariants', 'x', '## Verification', 'x').boundaries,
+        'empty', 'a heading with nothing under it states nothing, whatever it is called');
+      assert.deepEqual(state('## Boundaries', '### Allowed', 'core only', '## Purpose', 'x').boundaries,
+        'stated', 'a section written as subsections still has a body');
+      assert.deepEqual(state('## Boundaries', '### Allowed', '## Purpose', 'x').boundaries,
+        'empty', 'and a subsection heading with no text under it is not a body');
+      assert.deepEqual(state('```', '## Purpose', 'x', '```').purpose, 'absent',
+        'a heading inside a fence is a template being shown, not a section being stated');
+      assert.deepEqual(state('##### Purpose', 'x').purpose, 'absent', 'the lint reads # through ####');
+
+      const codes = (...lines) => lintModuleDoc('pay', 'pay/CLAUDE.md', doc(...lines))
+        .findings.map(f => f.code + ':' + f.section);
+      assert.deepEqual(codes('## Purpose', 'x', '## Boundaries', 'x', '## Invariants', 'x', '## Verification', 'x'), []);
+      assert.deepEqual(codes('## Purpose', 'x'),
+        ['MISSING_SECTION:boundaries', 'MISSING_SECTION:invariants', 'MISSING_SECTION:verification']);
+      assert.deepEqual(codes('## Purpose', 'x', '## Boundaries', '## Invariants', 'x', '## Verification', 'x'),
+        ['EMPTY_SECTION:boundaries']);
+      const named = lintModuleDoc('pay', 'pay/CLAUDE.md', doc('## Purpose', 'x')).findings[0];
+      assert.ok(named.detail.includes('module "pay"') && named.detail.includes('"\u8fb9\u754c"'),
+        'the finding names the module and both spellings of the heading it wants: ' + named.detail);
+    }],
+
+    // S24 the scan -- which modules are even asked. A catalog with no high-risk module owes
+    // no directory constitution, and a module whose root cannot be derived is reported as
+    // not ruled on rather than quietly dropped out of the count.
+    ['claude-md-lint: only high-risk modules are asked, and an underivable root is not a pass', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-claudemd-'));
+      try {
+        writeModuleDoc(root, 'pay', ['# Purpose', 'charges cards', '# \u8fb9\u754c', 'no pii-store',
+          '# Invariants', 'minor units', '# \u9a8c\u8bc1', 'the contract suite']);
+        fs.mkdirSync(path.join(root, 'auth'), { recursive: true });
+        const cat = {
+          version: 1,
+          modules: [
+            { id: 'pay', paths: ['pay/**'], riskTier: 'high' },
+            { id: 'auth', paths: ['auth/**'], riskTier: 'critical' },
+            { id: 'log', paths: ['log/**'], riskTier: 'low' },
+            { id: 'ui', paths: ['ui/**'] },
+            { id: 'wide', paths: ['a/**', 'b/**'], riskTier: 'high' },
+          ],
+        };
+        const r = scanModuleDocs(root, cat);
+        assert.deepEqual([r.listed, r.inScope], [5, 3],
+          'low and undeclared tiers are listed and never asked; critical is asked like high');
+        assert.deepEqual(r.findings.map(f => f.code + ':' + f.module), ['MISSING_CLAUDE_MD:auth']);
+        assert.ok(r.findings[0].detail.includes('auth/CLAUDE.md'), 'the finding names where the file belongs');
+        assert.deepEqual(r.undecidable.map(u => u.at), ['module:wide']);
+        assert.deepEqual(r.modules.map(m => m.id), ['pay', 'auth', 'wide']);
+        assert.deepEqual(r.modules[0].sections,
+          { purpose: 'stated', boundaries: 'stated', invariants: 'stated', verification: 'stated' });
+
+        // The directory a catalog names ahead of the code is a different repair from a
+        // directory that is there and holds no file, so the finding says which it is.
+        const absent = scanModuleDocs(root, { version: 1, modules: [{ id: 'ghost', paths: ['ghost/**'], riskTier: 'high' }] });
+        assert.ok(absent.findings[0].detail.includes('not on disk'), absent.findings[0].detail);
+        const present = scanModuleDocs(root, { version: 1, modules: [{ id: 'auth', paths: ['auth/**'], riskTier: 'high' }] });
+        assert.ok(!present.findings[0].detail.includes('not on disk'), present.findings[0].detail);
+
+        const empty = scanModuleDocs(root, { version: 1, modules: [{ id: 'log', paths: ['log/**'], riskTier: 'medium' }] });
+        assert.deepEqual([empty.listed, empty.inScope, empty.findings.length], [1, 0, 0]);
+        assert.ok(claudeMdNote(empty).startsWith('nothing-in-scope:'), claudeMdNote(empty));
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
+
+    // S24 the exit codes, end to end. The lanes that reach an answer have to run inside a
+    // git tree, because the command degrades outside one the way every catalog-scoped
+    // command does -- so the fixture is a real repository, and the one lane that is not
+    // pins that degradation. The engine is spawned by absolute interpreter path for the
+    // same reason as the S23 lanes: the golden sandbox pins PATH to git plus /usr/bin:/bin.
+    ['claude-md-lint: missing file, missing section, empty section and clean are four answers', () => {
+      const roots = [];
+      const mk = (initGit = true) => {
+        const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-claudemd-'));
+        roots.push(d);
+        if (initGit) {
+          const g = spawnSync('git', ['init', '-q'], { cwd: d, encoding: 'utf8' });
+          assert.ok(!g.error && g.status === 0,
+            'these lanes need git on PATH: claude-md-lint degrades outside a git tree');
+        }
+        return d;
+      };
+      const run = (root) => {
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'claude-md-lint'], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        let out = null;
+        try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+        assert.ok(out, 'no JSON on stdout: ' + String(r.stdout || '').slice(0, 120));
+        return { code: r.status, out, err: String(r.stderr || '') };
+      };
+      const CLEAN = ['# Purpose', 'charges cards', '# Boundaries', 'never imports pii-store',
+        '# Invariants', 'amounts are integers in minor units', '# Verification', 'the contract suite'];
+      try {
+        const none = mk();
+        const a = run(none);
+        assert.deepEqual([a.code, a.out.error], [3, 'catalog-missing'],
+          'without a catalog nothing declares which modules are high risk, and that is not clean');
+
+        const quiet = mk();
+        writeModuleCatalog(quiet, [{ id: 'log', paths: ['log/**'], riskTier: 'medium' }]);
+        const b = run(quiet);
+        assert.deepEqual([b.code, b.out.ok, b.out.listed, b.out.inScope], [0, true, 1, 0]);
+        assert.ok(b.out.note.startsWith('nothing-in-scope:'), 'both counts stay in the answer: ' + b.out.note);
+
+        const bare = mk();
+        writeModuleCatalog(bare, [{ id: 'pay', paths: ['pay/**'], riskTier: 'high' }]);
+        const c = run(bare);
+        assert.deepEqual([c.code, c.out.findings.map(f => f.code)], [1, ['MISSING_CLAUDE_MD']]);
+        assert.ok(/pay\/CLAUDE\.md/.test(c.err) && /MISSING_CLAUDE_MD/.test(c.err), c.err);
+
+        const partial = mk();
+        writeModuleCatalog(partial, [{ id: 'pay', paths: ['pay/**'], riskTier: 'critical' }]);
+        // Written entirely in Chinese and short of yan-zheng (Verification).
+        writeModuleDoc(partial, 'pay', ['# \u76ee\u7684', 'x', '# \u8fb9\u754c', 'x', '# \u4e0d\u53d8\u91cf', 'x']);
+        const d = run(partial);
+        assert.deepEqual([d.code, d.out.findings.map(f => f.section)], [1, ['verification']]);
+        assert.deepEqual(d.out.modules[0].sections.verification, 'absent');
+        assert.ok(/MISSING_SECTION/.test(d.err) && /pay/.test(d.err), d.err);
+
+        const hollow = mk();
+        writeModuleCatalog(hollow, [{ id: 'pay', paths: ['pay/**'], riskTier: 'high' }]);
+        writeModuleDoc(hollow, 'pay', ['# Purpose', 'charges cards', '# Boundaries', '',
+          '# Invariants', 'minor units', '# Verification', 'the contract suite']);
+        const e = run(hollow);
+        assert.deepEqual([e.code, e.out.findings.map(f => f.code + ':' + f.section)], [1, ['EMPTY_SECTION:boundaries']]);
+
+        const good = mk();
+        writeModuleCatalog(good, [{ id: 'pay', paths: ['pay/**'], riskTier: 'high' }]);
+        writeModuleDoc(good, 'pay', CLEAN);
+        const f = run(good);
+        assert.deepEqual([f.code, f.out.ok, f.out.inScope, f.out.findings.length], [0, true, 1, 0]);
+
+        const spread = mk();
+        writeModuleCatalog(spread, [{ id: 'wide', paths: ['a/**', 'b/**'], riskTier: 'high' }]);
+        const g = run(spread);
+        assert.deepEqual([g.code, g.out.degraded, g.out.undecidable.length], [3, true, 1],
+          'a root that cannot be derived is not ruled on, and not ruled on is not a pass');
+
+        const both = mk();
+        writeModuleCatalog(both, [
+          { id: 'wide', paths: ['a/**', 'b/**'], riskTier: 'high' },
+          { id: 'pay', paths: ['pay/**'], riskTier: 'high' },
+        ]);
+        const h = run(both);
+        assert.deepEqual([h.code, h.out.findings.length, h.out.undecidable.length], [1, 1, 1],
+          'a finding outranks a degradation: it is the answer a caller can act on');
+
+        const loose = mk(false);
+        writeModuleCatalog(loose, [{ id: 'pay', paths: ['pay/**'], riskTier: 'high' }]);
+        writeModuleDoc(loose, 'pay', CLEAN);
+        const i = run(loose);
+        assert.deepEqual([i.code, i.out.error], [3, 'non-git'],
+          'the catalog describes a tracked tree; outside one this reports that, clean file or not');
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x
     // 3 globs against 30k paths stays far under the bound on any dev machine; without
     // the cache this same loop recompiled ~10.8M RegExps and blew straight past it.
@@ -2194,6 +2403,24 @@ function writeSkill(root, dir, front) {
   fs.mkdirSync(target, { recursive: true });
   fs.writeFileSync(path.join(target, 'SKILL.md'),
     ['---', ...front, '---', '', '# ' + dir, '', 'Body text the loader never parses.', ''].join('\n'), 'utf8');
+}
+
+/**
+ * Write one module's CLAUDE.md into a fixture tree. Only the headings and their bodies are
+ * the subject, so the caller passes the document's lines and nothing else.
+ */
+function writeModuleDoc(root, dir, lines) {
+  const target = path.join(root, dir);
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'CLAUDE.md'), lines.join('\n') + '\n', 'utf8');
+}
+
+/** Write a minimal catalog into a fixture tree, where the engine's own loader will find it. */
+function writeModuleCatalog(root, modules) {
+  const dir = path.join(root, '.claude', 'harness');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'module-catalog.json'),
+    JSON.stringify({ version: 1, modules }, null, 2) + '\n', 'utf8');
 }
 
 /** Tiny attribute-enabled catalog for S11 selftests (payments module + sec-scan check). */
