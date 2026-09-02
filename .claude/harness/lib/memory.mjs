@@ -38,7 +38,7 @@ import process from 'node:process';
 import {
   SOURCE_EXTS,
   changedPaths, emit, git, gitFingerprint, isDenied, isGitRepo, isStateExcluded, projectRoot,
-  splitNul,
+  splitNul, toPosixPath,
 } from './core.mjs';
 import { readLedgerState, readTaskRecord, verifyLedgerChain, writeAtomic } from './evidence.mjs';
 import { fastModeActive } from './quality.mjs';
@@ -51,7 +51,10 @@ import { REQUIREMENT_SECTION, parseRequirements, sectionNamed, splitSections } f
 
 const DEFAULT_PROGRESS_FILE = 'progress.md';
 const DEFAULT_ARCHIVE_FILE = 'progress.archive.md';
-const DEFAULT_RULES_FILE = path.join('.claude', 'CLAUDE.md');
+// Forward-slashed literal rather than a join: invariants reports this string back in
+// `sources.rules` and renders it into the section headings the PostCompact hook feeds back
+// into the session, and a Windows separator there is a contract difference nobody asked for.
+const DEFAULT_RULES_FILE = '.claude/CLAUDE.md';
 const DEFAULT_SPEC_FILE = 'Product-Spec.md';
 const DEFAULT_CHANGELOG_FILE = 'Product-Spec-CHANGELOG.md';
 
@@ -590,7 +593,7 @@ const EXTRA_SOURCE_EXTS = new Set(['.sh', '.ps1', '.css', '.scss', '.sql', '.vue
 
 /** True when a path is code or a framework asset whose change should be remembered. Pure. */
 function isTrackedWork(p) {
-  const n = String(p).replace(/\\/g, '/');
+  const n = toPosixPath(p);
   if (isDenied(n) || isStateExcluded(n)) return false;
   if (n === DEFAULT_PROGRESS_FILE || n === DEFAULT_ARCHIVE_FILE) return false;
   const ext = path.extname(n).toLowerCase();
@@ -605,7 +608,7 @@ function isTrackedWork(p) {
  * @param {{progressPresent:boolean,specPresent:boolean,changelogPresent:boolean}} present
  */
 function syncFindings(paths, present) {
-  const set = new Set((paths || []).map(p => String(p).replace(/\\/g, '/')));
+  const set = new Set((paths || []).map(toPosixPath));
   const work = [...set].filter(isTrackedWork);
   const findings = [];
   if (work.length && present.progressPresent && !set.has(DEFAULT_PROGRESS_FILE)) {

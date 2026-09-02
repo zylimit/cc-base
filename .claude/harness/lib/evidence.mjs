@@ -34,7 +34,7 @@ import process from 'node:process';
 import {
   TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, normalizeTier, parseCsv, projectRoot, sha256,
-  withDirLock,
+  toPosixPath, withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -71,7 +71,7 @@ function contextPackDir() {
 
 /** Project-relative, forward-slashed path -- what goes into a record a human will read. */
 function relFromRoot(p) {
-  return path.relative(projectRoot(), p).split(path.sep).join('/');
+  return toPosixPath(path.relative(projectRoot(), p));
 }
 
 /** Write through a temp file + rename, so a killed process never leaves half a record. */

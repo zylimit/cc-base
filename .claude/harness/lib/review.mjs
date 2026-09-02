@@ -33,7 +33,7 @@ import process from 'node:process';
 import {
   TIER_RANK,
   changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
-  normalizeTier, readStdin, splitNul, withDirLock,
+  normalizeTier, readStdin, splitNul, toPosixPath, withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -396,7 +396,7 @@ function authorSetFor(records, changed) {
     const id = typeof r.agentId === 'string' ? r.agentId.trim() : '';
     if (!id) continue;
     const hit = (Array.isArray(r.files) ? r.files : [])
-      .map(f => String(f).replace(/\\/g, '/'))
+      .map(toPosixPath)
       .filter(f => changed.has(f));
     if (!hit.length) continue;
     if (!authors.has(id)) authors.set(id, { agentId: id, agentTypes: [], files: [] });
@@ -594,7 +594,7 @@ function nowIso() {
 function changedSet() {
   const cp = changedPaths();
   const list = Array.isArray(cp) ? cp : cp.paths;
-  return new Set(list.filter(p => !isStateExcluded(p)).map(p => p.replace(/\\/g, '/')));
+  return new Set(list.filter(p => !isStateExcluded(p)).map(toPosixPath));
 }
 
 function reviewStart(flags) {
@@ -1083,7 +1083,7 @@ function cmdAuthorship(flags = {}, positional = []) {
     const missing = [];
     const agentId = (input && typeof input.agentId === 'string') ? input.agentId.trim() : '';
     const files = (input && Array.isArray(input.files))
-      ? input.files.filter(f => typeof f === 'string' && f.trim()).map(f => f.trim().replace(/\\/g, '/'))
+      ? input.files.filter(f => typeof f === 'string' && f.trim()).map(f => toPosixPath(f.trim()))
       : [];
     if (!agentId) missing.push('agentId');
     if (!files.length) missing.push('files');

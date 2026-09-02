@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   DEFAULTS,
   canonicalDiff, changedPaths, emit, isDenied, isStateExcluded, loadHarnessConfig, parseCsv,
-  projectRoot, sha256, stableJson,
+  projectRoot, sha256, stableJson, toPosixPath,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -48,7 +48,7 @@ function buildPack({ budgets, diffHash = '', diffChars = 0, candidateFiles = [],
 
   // P3: changed files, each truncated to maxFileChars; DENY never enters.
   for (const f of candidateFiles) {
-    const norm = String(f.path).replace(/\\/g, '/');
+    const norm = toPosixPath(f.path);
     if (isDenied(norm)) { denied.push(norm); continue; }
     const rawBytes = typeof f.bytes === 'number' ? f.bytes : (typeof f.content === 'string' ? f.content.length : 0);
     const entry = { path: norm, bytes: Math.min(rawBytes, maxFileChars), reason: 'changed-file' };
@@ -58,7 +58,7 @@ function buildPack({ budgets, diffHash = '', diffChars = 0, candidateFiles = [],
 
   // P4-6: affected/dependency module summaries (test entries etc.).
   for (const s of moduleSummaries) {
-    const norm = String(s.path).replace(/\\/g, '/');
+    const norm = toPosixPath(s.path);
     if (isDenied(norm)) { denied.push(norm); continue; }
     candidates.push({ path: norm, bytes: typeof s.bytes === 'number' ? s.bytes : 0, reason: s.reason || 'module-summary' });
   }
@@ -152,7 +152,7 @@ function cmdContextPack(flags) {
   const candidateFiles = [];
   for (const p of changed) {
     if (isStateExcluded(p)) continue;
-    const norm = p.replace(/\\/g, '/');
+    const norm = toPosixPath(p);
     let bytes = 0;
     try { bytes = fs.statSync(path.join(projectRoot(), p)).size; } catch (_e) { bytes = 0; }
     candidateFiles.push({ path: norm, bytes });

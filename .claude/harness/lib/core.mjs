@@ -105,6 +105,21 @@ function readStdin() {
   }
 }
 
+/**
+ * The one exit every path leaves this engine through. stdout JSON is a machine contract --
+ * hooks, git hooks, CI and downstream tools all read it -- so a path that reads
+ * `.claude/CLAUDE.md` on one platform and `.claude\CLAUDE.md` on another makes every one of
+ * those consumers carry the difference, and the ones that do not carry it break on Windows
+ * only, where nobody is looking. Normalizing where the path is produced costs one call;
+ * leaving it to the consumers costs one bug per consumer.
+ * Unconditional, not keyed off path.sep: a Windows-shaped path can reach a POSIX run through
+ * a checked-in fixture or a recorded baseline, and a normalizer that only works on the
+ * platform that has the problem cannot be tested on the platform that does not.
+ */
+function toPosixPath(p) {
+  return String(p).replace(/\\/g, '/');
+}
+
 /** Deterministic JSON: recursive key sort. Null/non-object -> JSON.stringify; arrays recurse. */
 function stableJson(v) {
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
@@ -230,7 +245,7 @@ const STATE_EXCLUDE_PREFIXES = [
   '.claude/harness/evidence/',
 ];
 function isStateExcluded(p) {
-  const n = p.replace(/\\/g, '/');
+  const n = toPosixPath(p);
   if (STATE_EXCLUDE_PATHS.includes(n)) return true;
   return STATE_EXCLUDE_PREFIXES.some(pre => n.startsWith(pre));
 }
@@ -411,7 +426,7 @@ const DENY = [
 
 /** True if a path must never be packed. Path is forward-slashed before matching. */
 function isDenied(p) {
-  const n = String(p).replace(/\\/g, '/');
+  const n = toPosixPath(p);
   if (/(^|\/)\.env\.(example|sample|template)$/.test(n)) return false;   // whitelist first
   return DENY.some(r => r.test(n));
 }
@@ -445,7 +460,7 @@ function whichCmd(exe) {
 
 export {
   HARNESS_DIR,
-  readStdin, stableJson, sha256, emit, die, sleepSync, withDirLock,
+  readStdin, toPosixPath, stableJson, sha256, emit, die, sleepSync, withDirLock,
   git, isGitRepo, headCommit, isStateExcluded, splitNul, changedPaths, canonicalDiff, gitFingerprint,
   globToRegExp, matchAny, specificity,
   DEFAULTS, projectRoot, catalogFilePath, loadHarnessConfig,

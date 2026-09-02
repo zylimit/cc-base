@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   SOURCE_EXTS,
-  changedPaths, emit, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot,
+  changedPaths, emit, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot, toPosixPath,
 } from './core.mjs';
 import { classifyPath, loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -168,7 +168,7 @@ function resolveRelativeImport(root, fromFile, spec) {
     let st;
     try { st = fs.statSync(c); } catch (_e) { continue; }
     if (!st.isFile()) continue;
-    const rel = path.relative(root, c).replace(/\\/g, '/');
+    const rel = toPosixPath(path.relative(root, c));
     if (rel.startsWith('..')) continue;
     return rel;
   }
@@ -330,7 +330,7 @@ function cmdArchCheck(flags) {
         forbiddenEdges: [...forbidden.keys()].sort(),
         cycleKeys: [...new Set(cycles.map(cycleKey))].sort(),
       });
-      recordedTo = path.relative(projectRoot(), recordedTo).replace(/\\/g, '/');
+      recordedTo = toPosixPath(path.relative(projectRoot(), recordedTo));
     } catch (e) {
       process.stderr.write('arch-check: trend record failed: ' + String(e && e.message || e) + '\n');
     }

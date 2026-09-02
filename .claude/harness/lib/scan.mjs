@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
   HARNESS_DIR, SOURCE_EXTS, TIER_RANK,
   catalogFilePath, changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny,
-  normalizeTier, parseCsv, projectRoot, whichCmd,
+  normalizeTier, parseCsv, projectRoot, toPosixPath, whichCmd,
 } from './core.mjs';
 import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -166,7 +166,7 @@ function cmdFitness(flags) {
       if (buf.includes(0)) continue;   // binary
       content = buf.toString('utf8');
     } catch (_e) { continue; }
-    files.push({ path: p.replace(/\\/g, '/'), content });
+    files.push({ path: toPosixPath(p), content });
   }
   const findings = scanFitness(files, catalog, rules);
   const errors = findings.filter(f => f.severity === 'error');
@@ -379,7 +379,7 @@ function parseAdrDir(dir) {
     try { content = fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_e) { continue; }
     out.push({
       id: n.replace(/\.md$/, ''),
-      source: path.join(dir, n),
+      source: toPosixPath(path.join(dir, n)),
       status: adrField(content, ['\u72b6\u6001', 'Status']) || 'accepted',
       enforcedRaw: adrField(content, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
     });

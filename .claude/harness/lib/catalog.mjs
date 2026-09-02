@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import {
   ATTRIBUTES, DEFAULTS, TIERS,
   catalogFilePath, emit, git, globToRegExp, isGitRepo, matchAny, normalizeTier, parseCsv,
-  specificity, splitNul,
+  specificity, splitNul, toPosixPath,
 } from './core.mjs';
 
 // ===========================================================================
@@ -26,7 +26,7 @@ const CATCH_ALL_GLOBS = ['', '.', '*', '**', '**/*'];
 function loadCatalog(catalogPath) {
   const cp = catalogPath || catalogFilePath();
   if (!fs.existsSync(cp)) {
-    return { ok: false, error: 'catalog-missing', detail: cp };
+    return { ok: false, error: 'catalog-missing', detail: toPosixPath(cp) };
   }
   let raw;
   try {

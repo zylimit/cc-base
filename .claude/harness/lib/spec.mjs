@@ -38,6 +38,7 @@ import process from 'node:process';
 import {
   HARNESS_DIR,
   changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny, parseCsv, projectRoot,
+  toPosixPath,
 } from './core.mjs';
 import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -425,7 +426,7 @@ function referenceCorpus(catalog, specRel) {
   const t = trackedFiles(catalog && catalog.maxTrackedPaths);
   const files = [];
   for (const p of t.paths) {
-    const norm = p.replace(/\\/g, '/');
+    const norm = toPosixPath(p);
     if (norm === specRel) continue;
     if (isDenied(norm) || isStateExcluded(norm)) continue;
     if (BINARY_EXTS.has(path.extname(norm).toLowerCase())) continue;

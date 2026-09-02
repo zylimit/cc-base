@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {
-  HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, splitNul, withDirLock,
+  HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, splitNul, toPosixPath, withDirLock,
 } from './core.mjs';
 import { classifyPath, lintCatalog, loadCatalog } from './catalog.mjs';
 import {
@@ -45,12 +45,13 @@ import {
   reviewLenses, selfReviewedLenses, stagePassed, validateClaims, validateFindings,
 } from './review.mjs';
 import {
-  ARCHIVABLE_SECTIONS, IRON_LAW_MARK, SECTION_PINNED,
+  ARCHIVABLE_SECTIONS, DEFAULT_RULES_FILE, IRON_LAW_MARK, SECTION_PINNED,
   applyArchivePlan, entryOrder, extractIronLaws, headline, isTrackedWork, planArchive,
   renderView, sectionEntries, stateLines, syncFindings,
 } from './memory.mjs';
 import {
-  DESCRIPTION_BUDGET, admitsPromptOnly, auditDoc, backtickTokens, claudeMdNote, classifyRuleLine,
+  DESCRIPTION_BUDGET, POINT_DIRS, RULES_DIR, RULES_DOC, SKILLS_DIR,
+  admitsPromptOnly, auditDoc, backtickTokens, claudeMdNote, classifyRuleLine,
   classifyToken, documentSections, lintModuleDoc, lintSkillFile, literalDirSegments, moduleRoot,
   leadingBoldToken, parseFrontmatter, ruleLineText, scanModuleDocs, scanSkills, tally,
 } from './rules.mjs';
@@ -145,6 +146,60 @@ function selftestCases() {
   const codesOf = (r) => r.findings.map(f => f.code);
 
   return [
+    // S1 toPosixPath -- the separator the stdout contract is written in. CI on windows-latest
+    // caught rules-audit printing `.claude\CLAUDE.md` where every recorded assertion, hook and
+    // downstream reader expects `.claude/CLAUDE.md`; on POSIX the two are the same string, so
+    // the defect is invisible to every run on this machine. These four cases are the substitute
+    // for a Windows box: the first pins the function's contract, the second shows the field CI
+    // named, the third pins the constants that reach output, and the fourth is the only one that
+    // can fail here for a Windows-only reason.
+    ['toPosixPath: a windows separator comes out forward-slashed, and its own output is a fixed point', () => {
+      assert.equal(toPosixPath('a\\b\\c'), 'a/b/c');
+      assert.equal(toPosixPath('a/b/c'), 'a/b/c');
+      assert.equal(toPosixPath(toPosixPath('a\\b\\c')), 'a/b/c');
+      assert.equal(toPosixPath('a\\b/c'), 'a/b/c', 'a mixed path is normalized whole, not left half-converted');
+      assert.equal(toPosixPath(path.win32.join('.claude', 'CLAUDE.md')), '.claude/CLAUDE.md');
+      assert.equal(toPosixPath('C:\\repo\\.claude\\harness\\waivers\\w.json'),
+        'C:/repo/.claude/harness/waivers/w.json', 'an absolute windows path normalizes too');
+    }],
+    ['rules-audit: a windows-shaped document name cannot reach the reported location', () => {
+      const points = { subcommands: new Set(['selftest']), files: new Set(), basenames: new Set() };
+      const line = '- run `node .claude/harness/harness.mjs selftest` before merging\n';
+      const winRel = path.win32.join('.claude', 'CLAUDE.md');
+      assert.ok(winRel.includes('\\'), 'the fabricated name must carry the separator this guards');
+      // Fed the raw windows form, `at` carries it: the reported location is the document name
+      // plus a line number, and nothing downstream of here can put the slash back.
+      assert.equal(auditDoc(winRel, line, points)[0].at, '.claude\\CLAUDE.md:1');
+      assert.equal(auditDoc(toPosixPath(winRel), line, points)[0].at, '.claude/CLAUDE.md:1');
+    }],
+    ['the repository paths that reach output are forward-slashed on any platform', () => {
+      const named = [['RULES_DOC', RULES_DOC], ['RULES_DIR', RULES_DIR], ['SKILLS_DIR', SKILLS_DIR],
+        ['DEFAULT_RULES_FILE', DEFAULT_RULES_FILE]]
+        .concat(POINT_DIRS.map((d, i) => ['POINT_DIRS[' + i + ']', d]));
+      for (const [name, value] of named) {
+        assert.ok(!String(value).includes('\\'), name + ' carries a platform separator: ' + value);
+      }
+      assert.equal(RULES_DOC, '.claude/CLAUDE.md');
+      assert.equal(DEFAULT_RULES_FILE, RULES_DOC,
+        'invariants and rules-audit name the same constitution, so they must spell it the same way');
+    }],
+    ['no module builds a repository path out of literals with path.join', () => {
+      // A join whose arguments are all literals is a repository-relative path in disguise: it
+      // reads `.claude/CLAUDE.md` here and `.claude\CLAUDE.md` on Windows, and only the Windows
+      // run finds out. Absolute paths are built from projectRoot()/HARNESS_DIR and never match.
+      // selftest.mjs is exempt: it asserts, it does not print the contract.
+      const dir = path.join(HARNESS_DIR, 'lib');
+      const literalJoin = /path\.(?:join|resolve)\(\s*'[^']*'\s*(?:,\s*'[^']*'\s*)*\)/g;
+      const offenders = [];
+      for (const name of fs.readdirSync(dir).sort()) {
+        if (!name.endsWith('.mjs') || name === 'selftest.mjs') continue;
+        const src = fs.readFileSync(path.join(dir, name), 'utf8');
+        for (const m of src.matchAll(literalJoin)) offenders.push(name + ': ' + m[0]);
+      }
+      assert.deepEqual(offenders, [], 'write the path as a forward-slashed literal instead; '
+        + 'path.join(root, rel) still resolves it for the filesystem on either platform');
+    }],
+
     // S3 glob -- trailing ** must match files at any depth (T0.1 P1 target).
     ['glob src/auth/** matches src/auth/login.ts', () => assert.ok(matchAny('src/auth/login.ts', ['src/auth/**']))],
     ['glob src/auth/** matches src/auth/x/y.ts', () => assert.ok(matchAny('src/auth/x/y.ts', ['src/auth/**']))],
@@ -2144,6 +2199,11 @@ function selftestCases() {
           'one line each: the bold that resolved, the bold that did not, and the imaginary subcommand');
         assert.deepEqual(audit.out.phantom.map(p => p.tokens[0].target), ['cc-base-absent-subcommand']);
         assert.ok(/PHANTOM \.claude\/CLAUDE\.md:5/.test(audit.err), 'stderr names the line: ' + audit.err);
+        // The same run, read as the machine contract it is: no reported location may carry a
+        // platform separator. This fixture's rule text has no backslash of its own, so any hit
+        // is a path -- which is what the windows-latest CI leg failed on.
+        assert.ok(!JSON.stringify(audit.out).includes('\\'),
+          'a reported path carries a platform separator: ' + JSON.stringify(audit.out).slice(0, 200));
 
         const dod = run(['dod', '--only', 'rules-audit,skills-lint,claude-md-lint']);
         assert.deepEqual(dod.code, 2, 'a constitution naming a check that is not there is not a satisfied one');

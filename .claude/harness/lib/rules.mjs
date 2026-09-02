@@ -43,25 +43,29 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emit, isGitRepo, projectRoot } from './core.mjs';
+import { emit, isGitRepo, projectRoot, toPosixPath } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 
 // ===========================================================================
 // S22.1 what counts as a rule line, and what the four classes are
 // ===========================================================================
 
-const RULES_DOC = path.join('.claude', 'CLAUDE.md');
-const RULES_DIR = path.join('.claude', 'rules');
+// Repository-relative, forward-slashed, and written that way rather than joined: these two
+// strings are reported back as `file` and inside every `at`, so building them with path.join
+// would print `.claude\CLAUDE.md` on Windows and `.claude/CLAUDE.md` everywhere else.
+// path.join(root, rel) still resolves them for the filesystem on either platform.
+const RULES_DOC = '.claude/CLAUDE.md';
+const RULES_DIR = '.claude/rules';
 
 // Directories whose contents are enforcement points, walked in full: a test helper two
 // levels down enforces as much as one at the top. Only the executable extensions are
 // indexed -- a fixture sitting beside a script is data, however official the path looks,
 // and indexing it would let a rule claim enforcement by naming a JSON file.
 const POINT_DIRS = [
-  path.join('.claude', 'hooks'),
-  path.join('.claude', 'scripts'),
-  path.join('.claude', 'tests'),
-  path.join('.claude', 'harness'),
+  '.claude/hooks',
+  '.claude/scripts',
+  '.claude/tests',
+  '.claude/harness',
 ];
 const POINT_EXTS = ['.sh', '.ps1', '.mjs'];
 const WALK_DEPTH = 4;
@@ -170,7 +174,7 @@ function collectPoints(subcommands, root = projectRoot()) {
   const basenames = new Set();
   const counts = {};
   for (const dir of POINT_DIRS) {
-    const rel = dir.split(path.sep).join('/');
+    const rel = toPosixPath(dir);
     const before = files.size;
     walkPoints(path.join(root, dir), rel, files, basenames, WALK_DEPTH);
     counts[path.basename(dir)] = files.size - before;
@@ -452,7 +456,7 @@ function cmdRulesAudit(flags = {}, subcommands = []) {
 // deliberately does not reach into the engine, and the engine tying its exit codes to a
 // script it does not ship with would be the same mistake in reverse.
 
-const SKILLS_DIR = path.join('.claude', 'skills');
+const SKILLS_DIR = '.claude/skills';
 const SKILL_FILE = 'SKILL.md';
 
 // The same number .claude/scripts/skill-description-lint.sh enforces. That script owns the
@@ -643,7 +647,7 @@ function errText(e) {
  * parameter so a fixture tree can be scanned without moving the process.
  */
 function scanSkills(root = projectRoot()) {
-  const rel = SKILLS_DIR.split(path.sep).join('/');
+  const rel = toPosixPath(SKILLS_DIR);
   const abs = path.join(root, SKILLS_DIR);
   const out = { dir: rel, present: false, listed: 0, inScope: 0, skills: [], findings: [], undecidable: [], unreadable: [] };
   let entries;
