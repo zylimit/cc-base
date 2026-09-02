@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[二十二能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[二十六能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 规模冒烟）。失败 rc 1。
@@ -60,6 +60,10 @@ paths:
     - **risk**：状态衰变扫描——`LEDGER_BROKEN`（链断）/ `LEDGER_UNREADABLE`（账本在但读不出来）/ `EVIDENCE_TAMPERED` / `EVIDENCE_MISSING`（证据日志被改写 / 没了）/ `EXPIRED_WAIVER`（过期 waiver 仍在）/ `UNWIRED_ATTRIBUTE`（blocking 档属性无 check 认领）/ `FAIL_STREAK`（同一 check 连败 ≥3 → 停止重跑转根因；被 waiver 压成 SKIPPED 的失败照样计数，否则连败一豁免就没人听得见）/ `SUPPRESSED_FAILURE`（waiver 压下去的失败次数，warning——签了字带过期带补偿的决定不该改退出码，但压制是一种状态、不是没事）/ `FAST_MODE_DEBT`（最新一次 gate 在 Fast Mode 下 SKIP 掉的证据尚未由完整 gate 偿还）/ `FAST_MODE_OPEN` / `STALE_TASK`（活跃 task 超 72h）。error 级 finding rc 1，warning 不改退出码。catalog 可无（无则只少 UNWIRED_ATTRIBUTE 一项）。
     - **task start|status|complete**：六字段信封机器校验。`start` 从 stdin 读 JSON——`id` + `goal`/`scope`/`outOfScope`/`existingPattern`/`verification`/`escalation`，缺任一 rc 3 并**点名缺哪个**（不含糊成一句「信封不全」）；`id` 消毒为 `[A-Za-z0-9._-]` 并截到 120 字符；引擎补 `state:"active"`/`baseCommit`/`startedAt` 写 `.claude/harness/state/task.json`，一个工作树一个活跃 task。`status` 返回记录 + 当前 diffHash（始终 rc 0）。**`complete` 是硬闸**：全成立才 rc 0——① 有绑当前 diffHash 的 PASS gate 记录，且这条记录 ①a `scopeSource=computed`（调用方指定范围的 PASS 关不掉任务：`gate --changed <catalog 映射不到的路径>` 能拿到 PASS + `modules:[]`，而旁边的 diffHash 是真工作树指纹——签名是真的，被签的东西是假的）①b `planHash` 等于当前变更面重算出的计划 ①c 至少有一条 check 真跑过（全 SKIPPED 的 PASS 什么都没建立，证据是延后了不是拿到了）② 有绑同一 diffHash 的**新鲜且完整**的 accept 回执（verdict 认 `ACCEPT`/`pass`，被篡改的回执不算）③ 账本链完好 ④ 账本引用的证据日志仍与摘要相符 ⑤ 验证计划非空；否则 rc 2 + `blockers[]` 逐条列出缺哪项。**`complete` 自己也不收 `--changed`**（rc 3）——完成的范围永远不是调用方说了算，否则 ①a 从另一头又被绕开。非 git（rc 3 降级，同 `gate`/`verify`/`receipt verify`：`gitFingerprint()` 在任何非 git 树都是同一个常量，「绑定到这个 diff」对哪棵树都成立）、账本读不出来（rc 3）同样不给结论。
     - **budget**：爆炸半径信号——`maxChangedFiles`/`maxChangedLines`/`maxModulesTouched`/`maxNewFiles`，从 `catalog.budget` 读，缺省 30/1000/5/15（限额写 null 即只报数不判定）。超限 rc 1。**这是「拆分或升级」的信号，不是禁令**：广泛改动有时是对的，这个数只是让人停下想一秒；把它当禁令用，结果一定是整条关掉。
+    - **spec-lint**：规格文档可判定性检查，**扫的是本仓 product-spec-builder 实际产出的形状，不是 EARS**。默认读仓根 `Product-Spec.md`，`--file` 可改。error：`MISSING_SECTION`/`EMPTY_SECTION`（产品概述 / 应用场景 / 功能需求 / 技术方向 四段缺失或只有标题没内容）、`PLACEHOLDER`（模板 `<...>` 未填 / TBD / TODO / 待定 / 待补，代码围栏与行内 code 不扫，`<br>` 这类真标签按白名单放行）、`NO_FLOW`（功能需求条目没有箭头，即说不清「用户做什么 → 系统做什么 → 得到什么」；一个箭头就够，模板自己的示例大多只有一个）、`DUPLICATE_ID`。warning：`AMBIGUOUS`（适当 / 合理 / 快速 / 友好 / 尽量 / 等等 / 若干 / 优化体验——**只扫功能需求条目**，产品概述和应用场景是宣传散文，在那儿抓「快速」只会训练所有人忽略整条检查）、`PARTIAL_ID`。error rc 1，无规格文档 rc 3。**照搬姊妹仓那套 `REQ-XXX-001`+`SHALL`+`WHEN` 会做出一个在本生态零命中、永远全绿的检查器——那比没有更糟，因为它读起来像规格被检查过了。**
+    - **trace**：需求编号 ↔ 测试引用覆盖。**编号是可选的，没有编号就明说追溯不可用**（rc 3 + 一句「本规格未声明需求编号；要启用请在功能需求条目前加 `[REQ-<模块>-<三位数>]`」），**不硬造锚点**——行号 / 标题 / 散文哈希做出来的链接下次编辑就断，却读起来像覆盖率。有编号则扫全仓 tracked 文件：测试文件（`**/test(s)/**`、`*.test.*`、`*.spec.*` 等，`--tests` 可覆盖）引用 = `verified`，其余代码引用 = `implemented`。未被任何测试引用 → `unverified` rc 1；**代码/测试里引用了规格没声明的编号 = `dangling` rc 1**（指向一条已经不存在的需求），**.md 散文里的同类引用只报 `danglingInDocs` 不判失败**（CHANGELOG 引用历史编号是正当的）。`--min-coverage` 默认 1。非 git rc 3。
+    - **spec**：按变更取相关需求的**预算化视图**——需求只增不减，唯一让它读得起的办法是不再整份读。`--paths a,b` 指定变更面、`--all` 全量、`--budget N` 字符预算（默认 6000，超预算**整条丢弃不截半句**）。收窄走的是质量门同一条路：impact 选模块 → trace 把编号映到模块 → 只渲染交集，并给每条标 `_verified by:`。**收窄需要编号 + catalog 同时具备**；缺任一则渲染整个功能需求段并把 `narrowed:false` 与原因同时写进 JSON 和渲染出的标题——**降级可以，闭口不谈不行**。始终 rc 0（无规格文档 rc 3）。
+    - **dod**：Definition of Done——十一步静态治理一次跑完（catalog-lint / spec-lint / trace / attributes / arch-check / adr-check / fitness --all / ledger / arch-trend --gate 九步阻断，risk / budget 两步只报信号不阻断）。每步以**子进程**跑，判据就是各子命令自己的退出码（0=PASS / 3=DEGRADED / 其余=FAIL），所以 dod 断言的是 hook 消费的同一份契约，不是另一套私有返回值。**降级不阻断**（没有 catalog 的仓不等于架构检查失败）；任一阻断步 FAIL → rc 2；**阻断步全部降级 = 什么都没建立 → rc 3 而不是 0**（同「空验证计划=不算绿」）。**只管静态治理**：过了不代表代码能跑，那半边归 `gate`，输出里的 `note` 就写着这句。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -92,6 +96,10 @@ paths:
     | task status | 总是 | — | — | — | — |
     | task complete | 全部条件成立 | — | 有 blockers / 无活跃 task | 无 catalog / 非 git / 账本读不出来 / 传了 --changed | — |
     | budget | 未超限 | 有指标超限 | — | 无 catalog / 非 git | — |
+    | spec-lint | 无 error | 有 error | — | 无规格文档 / 读不出来 | — |
+    | trace | 覆盖达标且无悬空编号 | 有未追溯需求 / 悬空编号 | — | 无规格文档 / 未声明编号 / 非 git | — |
+    | spec | 渲染完成（`narrowed` 字段说明收窄与否） | — | — | 无规格文档 | — |
+    | dod | 阻断步无 FAIL 且至少一步有结论 | — | 有阻断步 FAIL | 阻断步全降级（什么都没建立） | — |
     | unknown / missing | — | — | — | 总是 | — |
 
     要点：

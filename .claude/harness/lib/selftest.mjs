@@ -33,6 +33,11 @@ import {
   acceptingReceipt, assessBudget, buildTaskRecord, completeBlockers, latestGateRecord,
   validateEnvelope,
 } from './task.mjs';
+import {
+  AMBIGUOUS_TERMS, PLACEHOLDER_TOKENS, REQUIRED_SECTIONS, REQUIREMENT_SECTION,
+  collectReferences, dodStatus, dodVerdict, lintSpecDoc, parseRequirements, placeholderBrackets,
+  renderSpecView, splitSections, traceReport,
+} from './spec.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -81,6 +86,30 @@ function selftestCases() {
     return r;
   };
   const budgetCat = { maxChangedFiles: 3, maxChangedLines: 100, maxModulesTouched: 2, maxNewFiles: 1 };
+
+  // S19 fixture. The section labels come from the module rather than being re-escaped here:
+  // the runtime source is ASCII-only, and a second hand-escaped copy of four Chinese headings
+  // is a transcription error waiting to happen. What the labels ARE is asserted where it can
+  // be read -- the checked-in sample document under tests/fixtures/golden, which the golden
+  // matrix runs spec-lint against for real.
+  const [S_OVERVIEW, S_SCENARIO, S_REQUIREMENT, S_TECH] = REQUIRED_SECTIONS;
+  const specDoc = (requirementLines, over = {}) => [
+    '# Product Spec',
+    '',
+    '## ' + S_OVERVIEW,
+    over.overview === undefined ? 'a tool for small teams; the user is the part-time bookkeeper' : over.overview,
+    '',
+    '## ' + S_SCENARIO,
+    over.scenario === undefined ? '- month end: import the statement, read the report' : over.scenario,
+    '',
+    '## ' + S_REQUIREMENT,
+    ...requirementLines,
+    '',
+    '## ' + S_TECH,
+    over.tech === undefined ? '| dimension | choice | reason |' : over.tech,
+    '',
+  ].join('\n');
+  const codesOf = (r) => r.findings.map(f => f.code);
 
   return [
     // S3 glob -- trailing ** must match files at any depth (T0.1 P1 target).
@@ -594,9 +623,12 @@ function selftestCases() {
       assert.ok(cycles[0].includes('a') && cycles[0].includes('b'));
     }],
 
-    // S13 -- fitness rules (pure over injected contents).
+    // S13 -- fitness rules (pure over injected contents). The fixtures below are the very
+    // patterns the rules hunt for, so each one carries an inline suppression marker: without
+    // it fitness reports this file on every run, and a gate that is red forever is a gate
+    // nobody reads. The marker is per line -- the rules themselves stay in force here.
     ['fitness: secret literal is an error finding', () => {
-      const f = scanFitness([{ path: 'src/cfg.ts', content: 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' }], null, DEFAULT_FITNESS_RULES);  // scan-secrets:ignore fixture
+      const f = scanFitness([{ path: 'src/cfg.ts', content: 'const apiKey = "AKIAABCDEFGHIJKLMNOP";\n' }], null, DEFAULT_FITNESS_RULES);  // scan-secrets:ignore harness-fitness:ignore fixture
       assert.ok(f.some(x => x.rule === 'no-secret-literal' && x.severity === 'error'));
     }],
     ['fitness: suppression marker kills exactly that finding', () => {
@@ -605,15 +637,15 @@ function selftestCases() {
       assert.ok(!f.some(x => x.rule === 'no-secret-literal'));
     }],
     ['fitness: pii in log call flagged', () => {
-      const f = scanFitness([{ path: 'src/a.ts', content: 'logger.info("user " + email + " ssn " + ssn)\n' }], null, DEFAULT_FITNESS_RULES);
+      const f = scanFitness([{ path: 'src/a.ts', content: 'logger.info("user " + email + " ssn " + ssn)\n' }], null, DEFAULT_FITNESS_RULES);  // harness-fitness:ignore fixture
       assert.ok(f.some(x => x.rule === 'no-pii-in-logs'));
     }],
     ['fitness: empty catch flagged as silent failure', () => {
-      const f = scanFitness([{ path: 'src/a.ts', content: 'try { x() } catch (e) {}\n' }], null, DEFAULT_FITNESS_RULES);
+      const f = scanFitness([{ path: 'src/a.ts', content: 'try { x() } catch (e) {}\n' }], null, DEFAULT_FITNESS_RULES);  // harness-fitness:ignore fixture
       assert.ok(f.some(x => x.rule === 'no-silent-failure'));
     }],
     ['fitness: unbounded retry loop flagged', () => {
-      const f = scanFitness([{ path: 'src/a.ts', content: 'while (true) {\n  await fetch(url);\n}\n' }], null, DEFAULT_FITNESS_RULES);
+      const f = scanFitness([{ path: 'src/a.ts', content: 'while (true) {\n  await fetch(url);\n}\n' }], null, DEFAULT_FITNESS_RULES);  // harness-fitness:ignore fixture
       assert.ok(f.some(x => x.rule === 'no-unbounded-retry'));
     }],
     ['fitness: minimumTier rule fires only where module asked for that strength', () => {
@@ -633,7 +665,7 @@ function selftestCases() {
       const cat = { modules: [
         { id: 'gen', paths: ['gen/**'], attributes: { reliability: { tier: 'none', reason: 'generated code' } } },
       ] };
-      const f = scanFitness([{ path: 'gen/a.ts', content: 'try { x() } catch (e) {}\n' }], cat, DEFAULT_FITNESS_RULES);
+      const f = scanFitness([{ path: 'gen/a.ts', content: 'try { x() } catch (e) {}\n' }], cat, DEFAULT_FITNESS_RULES);  // harness-fitness:ignore fixture
       assert.ok(!f.some(x => x.rule === 'no-silent-failure'));
     }],
     ['fitness: referenced deferral marker (issue link) does not fire', () => {
@@ -1321,6 +1353,187 @@ function selftestCases() {
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
+    }],
+
+    // S19 spec-lint -- the checks are written against the shape product-spec-builder
+    // actually emits, so every case below starts from a document in that shape. A lint that
+    // cannot fire on a real document is the failure mode this whole section exists to avoid,
+    // which is why the accept cases (one arrow is enough, prose may say "quickly", markup is
+    // not residue) carry as much weight here as the reject cases.
+    ['spec-lint: the requirement section is the third of the four required ones', () => {
+      assert.equal(REQUIRED_SECTIONS.length, 4);
+      assert.equal(REQUIREMENT_SECTION, REQUIRED_SECTIONS[2]);
+    }],
+    ['spec-lint: a well-formed document is clean, and one arrow is enough', () => {
+      const r = lintSpecDoc(specDoc([
+        '- import: the user uploads a CSV -> the system parses it -> the row count is shown',
+        '- export: the user clicks export -> a CSV is downloaded',
+      ]), 'Product-Spec.md');
+      assert.ok(r.ok, 'clean document produced ' + JSON.stringify(codesOf(r)));
+      assert.equal(r.requirements, 2);
+      assert.equal(r.counts.error, 0);
+      assert.equal(r.counts.warning, 0);
+    }],
+    ['spec-lint: a requirement with no arrow states no flow', () => {
+      const r = lintSpecDoc(specDoc([
+        '- import: the user uploads a CSV -> the row count is shown',
+        '- reporting, with several formats',
+      ]), 'Product-Spec.md');
+      const flow = r.findings.filter(f => f.code === 'NO_FLOW');
+      assert.equal(flow.length, 1, 'exactly the arrowless item must be named');
+      assert.ok(flow[0].excerpt.includes('reporting'));
+      assert.equal(r.ok, false);
+    }],
+    ['spec-lint: a nested detail bullet is not a requirement of its own', () => {
+      const doc = splitSections(specDoc([
+        '- import: the user uploads a CSV -> the row count is shown',
+        '    - the delimiter is configurable',
+      ]));
+      assert.equal(parseRequirements(doc).length, 1);
+    }],
+    ['spec-lint: a missing section and an empty one are both errors', () => {
+      const withoutScenario = specDoc(['- a: b -> c']).replace('## ' + REQUIRED_SECTIONS[1], '## other');
+      assert.ok(codesOf(lintSpecDoc(withoutScenario, 'f.md')).includes('MISSING_SECTION'));
+      const emptied = specDoc(['- a: b -> c'], { overview: '' });
+      assert.ok(codesOf(lintSpecDoc(emptied, 'f.md')).includes('EMPTY_SECTION'));
+    }],
+    ['spec-lint: template residue is residue, markup is markup', () => {
+      assert.deepEqual(placeholderBrackets('- <target user> uses <br> and <div class="x">'), ['<target user>']);
+      assert.deepEqual(placeholderBrackets('closing tags are markup too: </section>'), []);
+      const r = lintSpecDoc(specDoc(['- a: b -> c'], { tech: 'product type: <Web / Desktop / CLI>' }), 'f.md');
+      assert.ok(codesOf(r).includes('PLACEHOLDER'));
+    }],
+    ['spec-lint: a marker is an error, subject matter is not, a fenced block is not scanned', () => {
+      const marked = lintSpecDoc(specDoc(['- a: b -> c'], { tech: 'storage: ' + PLACEHOLDER_TOKENS[3] }), 'f.md');
+      assert.ok(codesOf(marked).includes('PLACEHOLDER'));
+      // A specification for a to-do application says TODO about its own product, in the
+      // overview and in the requirement items. None of that is a deferral.
+      const subject = lintSpecDoc(specDoc([
+        '- add: the user types a title -> the app stores it -> a new todo item appears',
+        '- TODO list: the user opens the app -> the list loads -> every todo item shows',
+      ], { overview: 'a TODO app for managing your todo items' }), 'f.md');
+      assert.ok(!codesOf(subject).includes('PLACEHOLDER'), 'subject matter produced ' + JSON.stringify(codesOf(subject)));
+      // The three shapes that are a deferral: bracketed, colon-suffixed, alone on the item.
+      for (const shape of ['storage: <TODO>', 'TODO: pick one', '- TBD']) {
+        const r = lintSpecDoc(specDoc(['- a: b -> c'], { tech: shape }), 'f.md');
+        assert.ok(codesOf(r).includes('PLACEHOLDER'), 'missed marker shape ' + JSON.stringify(shape));
+      }
+      const fenced = lintSpecDoc(specDoc([
+        '- a: b -> c',
+        '',
+        '```ts',
+        'const x: Array<Thing> = [];',
+        '```',
+      ]), 'f.md');
+      assert.ok(fenced.ok, 'code fence produced ' + JSON.stringify(codesOf(fenced)));
+    }],
+    ['spec-lint: undecidable wording is a warning, and only inside requirement items', () => {
+      const AMB = AMBIGUOUS_TERMS[2];
+      const r = lintSpecDoc(specDoc([
+        '- export: the user clicks export -> the file arrives ' + AMB,
+      ], { overview: 'the product is ' + AMB + ' to adopt' }), 'f.md');
+      const amb = r.findings.filter(f => f.code === 'AMBIGUOUS');
+      assert.equal(amb.length, 1, 'sales prose must not be linted for decidability');
+      assert.equal(amb[0].severity, 'warning');
+      assert.ok(r.ok, 'a warning must not fail the document');
+    }],
+    ['spec-lint: ids are optional, partial numbering is a warning, reuse is an error', () => {
+      const none = lintSpecDoc(specDoc(['- a: b -> c']), 'f.md');
+      assert.equal(none.ids.length, 0);
+      assert.ok(none.ok, 'an unnumbered specification is valid; trace is what degrades');
+      const partial = lintSpecDoc(specDoc([
+        '- [REQ-IMP-001] import: a -> b',
+        '- export: a -> b',
+      ]), 'f.md');
+      assert.deepEqual(partial.ids.map(x => x.id), ['REQ-IMP-001']);
+      assert.ok(codesOf(partial).includes('PARTIAL_ID'));
+      assert.ok(partial.ok, 'partial numbering is a warning, not a rejection');
+      const dup = lintSpecDoc(specDoc([
+        '- [REQ-IMP-001] import: a -> b',
+        '- [REQ-IMP-001] export: a -> b',
+      ]), 'f.md');
+      assert.ok(codesOf(dup).includes('DUPLICATE_ID'));
+      assert.equal(dup.ok, false);
+    }],
+
+    // S19 trace -- an anchor that nothing references is the finding; an anchor that does not
+    // exist is a degraded answer, never an invented one (that half is the cmdTrace rc 3 path
+    // the golden matrix records).
+    ['trace: a test reference verifies, a code reference only implements', () => {
+      const collected = collectReferences([
+        { path: 'tests/import.test.js', content: '// covers REQ-IMP-001' },
+        { path: 'src/report.js', content: '// implements REQ-REP-002' },
+      ], ['**/tests/**', '**/*.test.*'], null);
+      const r = traceReport([{ id: 'REQ-IMP-001', line: 1 }, { id: 'REQ-REP-002', line: 2 }], collected, 1);
+      assert.deepEqual(r.unverified, ['REQ-REP-002']);
+      assert.equal(r.verified, 1);
+      assert.equal(r.coverage, 0.5);
+      assert.equal(r.ok, false);
+    }],
+    ['trace: a dangling id in code fails, the same id in prose only reports', () => {
+      const collected = collectReferences([
+        { path: 'src/report.js', content: 'REQ-GONE-009' },
+        { path: 'docs/notes.md', content: 'see REQ-ALSO-010 for history' },
+      ], ['**/tests/**'], null);
+      const r = traceReport([], collected, 1);
+      assert.deepEqual(r.dangling.map(d => d.id), ['REQ-GONE-009']);
+      assert.deepEqual(r.danglingInDocs.map(d => d.id), ['REQ-ALSO-010']);
+      assert.equal(r.ok, false, 'zero declared requirements is not full coverage');
+    }],
+    ['trace: module attribution follows the catalog, so the spec view can narrow', () => {
+      const cat = { version: 1, modules: [{ id: 'reporting', paths: ['src/**'] }] };
+      const collected = collectReferences([{ path: 'src/report.js', content: 'REQ-REP-002' }], ['**/tests/**'], cat);
+      const r = traceReport([{ id: 'REQ-REP-002', line: 1 }], collected, 1);
+      assert.deepEqual(r.rows[0].modules, ['reporting']);
+    }],
+    ['spec view: budget drops whole items rather than half a sentence', () => {
+      const items = [
+        { line: 1, raw: '- one: a -> b', id: null },
+        { line: 2, raw: '- two: a -> b', id: null },
+        { line: 3, raw: '- three: a -> b', id: null },
+      ];
+      const full = renderSpecView(items, new Map(), { budget: 400, header: 'H\n' });
+      assert.equal(full.rendered, 3);
+      assert.equal(full.omitted, 0);
+      const tight = renderSpecView(items, new Map(), { budget: 20, header: 'H\n' });
+      assert.ok(tight.omitted > 0, 'a tight budget must omit, not truncate');
+      assert.ok(tight.view.split('\n').every(l => l === '' || l === 'H' || /-> b$/.test(l)));
+    }],
+
+    // S19 dod -- degraded is not failed, but a run where nothing was established is not a
+    // pass either. Same rule the empty verification plan already follows.
+    ['dod: exit codes map to the three states', () => {
+      assert.equal(dodStatus(0), 'PASS');
+      assert.equal(dodStatus(3), 'DEGRADED');
+      assert.equal(dodStatus(1), 'FAIL');
+      assert.equal(dodStatus(2), 'FAIL');
+    }],
+    ['dod: a degraded blocking step does not block, a failing one does', () => {
+      const mixed = dodVerdict([
+        { id: 'catalog-lint', blocking: true, status: 'DEGRADED' },
+        { id: 'adr-check', blocking: true, status: 'PASS' },
+      ]);
+      assert.deepEqual([mixed.ok, mixed.exit, mixed.blockingFailures], [true, 0, []]);
+      const failing = dodVerdict([
+        { id: 'catalog-lint', blocking: true, status: 'DEGRADED' },
+        { id: 'fitness', blocking: true, status: 'FAIL' },
+      ]);
+      assert.deepEqual([failing.ok, failing.exit, failing.blockingFailures], [false, 2, ['fitness']]);
+    }],
+    ['dod: a non-blocking failure is a signal, not a verdict', () => {
+      const r = dodVerdict([
+        { id: 'adr-check', blocking: true, status: 'PASS' },
+        { id: 'budget', blocking: false, status: 'FAIL' },
+      ]);
+      assert.deepEqual([r.ok, r.exit], [true, 0]);
+    }],
+    ['dod: every blocking step degraded is degraded, never satisfied', () => {
+      const r = dodVerdict([
+        { id: 'catalog-lint', blocking: true, status: 'DEGRADED' },
+        { id: 'trace', blocking: true, status: 'DEGRADED' },
+        { id: 'risk', blocking: false, status: 'PASS' },
+      ]);
+      assert.deepEqual([r.ok, r.exit, r.degraded, r.established], [false, 3, true, 0]);
     }],
 
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x

@@ -107,10 +107,15 @@
 // subcommand list, and one determinism check. Nothing there asserts a file count or a
 // working-tree digest, because both change on every ordinary commit.
 //
-// One file outside the sandbox is baked into the baseline: the sandbox ships no local
+// Two files outside the sandbox are baked into the baseline. The sandbox ships no local
 // adapters.json, so adaptersFilePath() falls back to .claude/harness/adapters.json in this
 // checkout and `adapters list` asserts on the shipped tool table. Editing that table is a
-// legitimate reason for --check to fail; re-record when it happens.
+// legitimate reason for --check to fail; re-record when it happens. The second is
+// fixtures/golden/product-spec-sample.md, reached through `--file <SPEC>`: the sandbox tree
+// deliberately carries no Product-Spec.md (adding one would land as an unmapped path in every
+// catalog fixture and force the whole matrix into degraded full fan-out), so without the
+// fixture the specification layer would only ever be recorded saying "no document found" --
+// a lint whose passing path is recorded nowhere is a lint nobody has proved can pass.
 //
 // stderr is captured and compared, minus node's own runtime warnings (ExperimentalWarning
 // and friends are emitted by the runtime, not by the harness).
@@ -133,6 +138,7 @@ const HARNESS_FIXTURES = path.join(THIS_DIR, 'fixtures', 'harness');
 const GOLDEN_FIXTURES = path.join(THIS_DIR, 'fixtures', 'golden');
 const TREE_DIR = path.join(GOLDEN_FIXTURES, 'tree');
 const WAIVER_FIXTURE = path.join(GOLDEN_FIXTURES, 'waiver-valid.json');
+const SPEC_FIXTURE = path.join(GOLDEN_FIXTURES, 'product-spec-sample.md');
 const GOLDEN_DIR = path.join(THIS_DIR, 'golden', 'harness');
 
 // ===========================================================================
@@ -157,7 +163,7 @@ const SCENARIOS = [
   { name: 'non-git', catalog: path.join(GOLDEN_FIXTURES, 'catalog-rich.json'), git: false },
 ];
 
-// All twenty-two subcommands plus the sub-forms that take a different code path.
+// All twenty-six subcommands plus the sub-forms that take a different code path.
 // Order matters three times: `receipt write` must precede every `receipt verify` (verify
 // checks the receipt the write just bound to the current diff), `arch-check --record`
 // must precede the arch-trend pair (the ratchet needs a ledger entry to compare against),
@@ -234,6 +240,21 @@ const COMMANDS = [
   { id: 'task-complete', volatile: { startedAt: '<TS>', completedAt: '<TS>' }, argv: ['task', 'complete'] },
   { id: 'task--bad-sub', argv: ['task', 'bogus'] },
   { id: 'risk', volatile: { at: '<TS>' }, argv: ['risk'] },
+
+  // The specification layer. Each of the three lints is recorded twice: once against the
+  // sandbox, which has no requirement document and must therefore degrade rather than answer,
+  // and once against the checked-in sample through `--file <SPEC>`. The second half is the
+  // one that matters -- it is where spec-lint reaching zero findings on a well-formed document
+  // and trace naming three unreferenced ids are pinned, and neither could be reached from a
+  // tree that has no specification in it at all. `dod` writes nothing and runs no project
+  // command, so it can sit anywhere before the mutation fence.
+  { id: 'spec-lint', argv: ['spec-lint'] },
+  { id: 'spec-lint--file', argv: ['spec-lint', '--file', '<SPEC>'] },
+  { id: 'trace', argv: ['trace'] },
+  { id: 'trace--file', argv: ['trace', '--file', '<SPEC>'] },
+  { id: 'spec', argv: ['spec'] },
+  { id: 'spec--file', argv: ['spec', '--file', '<SPEC>', '--all', '--budget', '600'] },
+  { id: 'dod', argv: ['dod'] },
 
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
@@ -435,8 +456,11 @@ function sandboxPath() {
 }
 
 function runHarness(root, cmd) {
-  const argv = cmd.argv.map(a =>
-    a === '<WAIVER>' ? path.join(root, '.claude', 'harness', 'waivers', 'golden.json') : a);
+  const argv = cmd.argv.map(a => {
+    if (a === '<WAIVER>') return path.join(root, '.claude', 'harness', 'waivers', 'golden.json');
+    if (a === '<SPEC>') return SPEC_FIXTURE;
+    return a;
+  });
   const r = spawnSync(process.execPath, [HARNESS, ...argv], {
     cwd: root,
     input: cmd.stdin || '',
@@ -655,7 +679,7 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
   + 'waiversDirExists,activeWaivers,attributesDeclared,modulesWithLayer,forbiddenEdges,adaptersPresent';
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
-  + 'gate,ledger,gate-audit,retention,risk,task,budget';
+  + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */
@@ -726,6 +750,14 @@ function checkInRepo() {
   const arch = runHarnessInRepo(['arch-check']);
   eq('arch-check exit', arch.code, 3);
   eq('arch-check keys', keysOf(arch.stdout), 'ok,degraded,error,detail');
+
+  // This checkout is the framework itself and ships no Product-Spec.md -- its specification
+  // is CLAUDE.md. Same argument as the three catalog assertions above: adding one is a real
+  // change of state, and this is what notices.
+  const specLint = runHarnessInRepo(['spec-lint']);
+  eq('spec-lint exit', specLint.code, 3);
+  eq('spec-lint keys', keysOf(specLint.stdout), 'ok,degraded,error,detail,note');
+  eq('spec-lint error', specLint.stdout && specLint.stdout.error, 'spec-missing');
 
   return { assertions, failures };
 }

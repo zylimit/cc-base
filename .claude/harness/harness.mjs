@@ -21,11 +21,12 @@
 //   lib/context.mjs   S6 context-pack
 //   lib/evidence.mjs  S17 gate + ledger + gate-audit + retention + risk
 //   lib/task.mjs      S18 task envelope + budget
+//   lib/spec.mjs      S19 spec-lint + trace + spec + dod
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
-// quality; task -> the same plus evidence; selftest -> all of the above; this file -> all
-// of the above. No cycles.
+// quality; task -> the same plus evidence; spec -> core, catalog, graph; selftest -> all of
+// the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -44,12 +45,13 @@ import { cmdAttributes, cmdReceipt, cmdVerify, cmdWaiver, loadWaivers, waiversDi
 import { adaptersFilePath, cmdAdapters, cmdAdrCheck, cmdFitness } from './lib/scan.mjs';
 import { cmdGate, cmdGateAudit, cmdLedger, cmdRetention, cmdRisk } from './lib/evidence.mjs';
 import { cmdBudget, cmdTask } from './lib/task.mjs';
+import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -104,6 +106,10 @@ function main() {
     case 'risk':         return cmdRisk(flags);
     case 'task':         return cmdTask(flags, positional);
     case 'budget':       return cmdBudget(flags);
+    case 'spec-lint':    return cmdSpecLint(flags);
+    case 'trace':        return cmdTrace(flags);
+    case 'spec':         return cmdSpec(flags);
+    case 'dod':          return cmdDod(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -127,6 +133,10 @@ function usage(cmd) {
     '  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task\n' +
     '  task        start|status|complete: six-field envelope in, four blocking conditions out\n' +
     '  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal\n' +
+    '  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording\n' +
+    '  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing\n' +
+    '  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)\n' +
+    '  dod         every static governance check once; blocking failure exits 2, nothing established exits 3\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

@@ -164,8 +164,11 @@ CI 那格是唯一能真验 26 个 `.ps1` 的地方（Windows runner 自带 pwsh
 - **fitness 内置规则**：零外部依赖的五性反模式扫描（密钥字面量 / 日志 PII / 静默吞错 / 无界重试 / 高危模块未挂单 TODO），第一天就能跑。
 - **adapters 工具表**：semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo 按属性一键接进质量门（`adapters add <id>`），工具缺失报 BLOCKED 不假绿。
 - **结构化 waiver**：per-check 豁免（owner / reason / scope / expiry），security / safety 永不可豁免；high 档属性缺口可留痕推迟，critical 不行。
+- **规格可判定性**：`spec-lint` 按本仓 Product-Spec 实际的形状扫——四段必填段缺失或空、模板 `<...>` 未填、功能需求条目缺「用户做什么 → 系统做什么 → 得到什么」的箭头、适当/快速这类不可判定措辞。**不照搬 EARS**：那套语法在本生态零命中，做出来的是一个永远全绿、却让人以为规格被检查过的闸。
+- **需求追溯**：`trace` 把 `[REQ-<模块>-<三位数>]` 编号和测试引用对上，报未追溯需求与悬空编号；**编号是可选的，没写就明说追溯不可用（rc 3）而不硬造锚点**——小项目零负担，要上追溯再加。`spec` 按变更取相关需求的预算化视图，只把该看的那几条塞进 delegate 的上下文。
+- **一键 DoD**：`dod` 把十一步静态治理跑完给一个结论（阻断步 FAIL → rc 2；全降级 = 什么都没建立 → rc 3，不是绿）。只管静态治理，代码能不能跑仍归 `gate`。
 
-完整启用条件、catalog schema、二十二能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
+完整启用条件、catalog schema、二十六能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
 
 ## 进程守护（开发态韧性）
 

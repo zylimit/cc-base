@@ -35,7 +35,11 @@
           "retention",
           "risk",
           "task",
-          "budget"
+          "budget",
+          "spec-lint",
+          "trace",
+          "spec",
+          "dod"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -67,7 +71,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 183
+        "tests": 200
       },
       "stderr": []
     },
@@ -1324,6 +1328,362 @@
       "stderr": []
     },
     {
+      "id": "spec-lint",
+      "argv": [
+        "spec-lint"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "spec-missing",
+        "detail": "Product-Spec.md",
+        "note": "no requirement document found at Product-Spec.md; nothing was checked (use --file to point elsewhere)"
+      },
+      "stderr": []
+    },
+    {
+      "id": "spec-lint--file",
+      "argv": [
+        "spec-lint",
+        "--file",
+        "<SPEC>"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
+        "sections": {
+          "present": [
+            "产品概述",
+            "应用场景",
+            "功能需求",
+            "技术方向"
+          ],
+          "missing": [],
+          "empty": []
+        },
+        "requirements": 3,
+        "ids": [
+          {
+            "id": "REQ-IMPORT-001",
+            "line": 22
+          },
+          {
+            "id": "REQ-REPORT-002",
+            "line": 23
+          },
+          {
+            "id": "REQ-EXPORT-003",
+            "line": 26
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0
+        },
+        "findings": []
+      },
+      "stderr": []
+    },
+    {
+      "id": "trace",
+      "argv": [
+        "trace"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "spec-missing",
+        "detail": "Product-Spec.md",
+        "note": "no requirement document found at Product-Spec.md; nothing to trace"
+      },
+      "stderr": [
+        "no requirement document found at Product-Spec.md; nothing to trace"
+      ]
+    },
+    {
+      "id": "trace--file",
+      "argv": [
+        "trace",
+        "--file",
+        "<SPEC>"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "coverage": 0,
+        "minCoverage": 1,
+        "total": 3,
+        "verified": 0,
+        "unverified": [
+          "REQ-IMPORT-001",
+          "REQ-REPORT-002",
+          "REQ-EXPORT-003"
+        ],
+        "unimplemented": [
+          "REQ-IMPORT-001",
+          "REQ-REPORT-002",
+          "REQ-EXPORT-003"
+        ],
+        "dangling": [],
+        "danglingCount": 0,
+        "danglingInDocs": [],
+        "danglingInDocsCount": 0,
+        "rows": [
+          {
+            "id": "REQ-IMPORT-001",
+            "line": 22,
+            "tests": [],
+            "testCount": 0,
+            "codeCount": 0,
+            "modules": [],
+            "verified": false,
+            "implemented": false
+          },
+          {
+            "id": "REQ-REPORT-002",
+            "line": 23,
+            "tests": [],
+            "testCount": 0,
+            "codeCount": 0,
+            "modules": [],
+            "verified": false,
+            "implemented": false
+          },
+          {
+            "id": "REQ-EXPORT-003",
+            "line": 26,
+            "tests": [],
+            "testCount": 0,
+            "codeCount": 0,
+            "modules": [],
+            "verified": false,
+            "implemented": false
+          }
+        ],
+        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
+        "scanned": 21,
+        "truncated": false
+      },
+      "stderr": [
+        " UNVERIFIED  REQ-IMPORT-001 :: no test file references this id",
+        " UNVERIFIED  REQ-REPORT-002 :: no test file references this id",
+        " UNVERIFIED  REQ-EXPORT-003 :: no test file references this id"
+      ]
+    },
+    {
+      "id": "spec",
+      "argv": [
+        "spec"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "spec-missing",
+        "detail": "Product-Spec.md",
+        "note": "no requirement document found at Product-Spec.md; there is no view to render"
+      },
+      "stderr": []
+    },
+    {
+      "id": "spec--file",
+      "argv": [
+        "spec",
+        "--file",
+        "<SPEC>",
+        "--all",
+        "--budget",
+        "600"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
+        "total": 3,
+        "narrowed": false,
+        "reason": "--all requested; the whole requirement section is in scope",
+        "affected": [],
+        "selected": [
+          "REQ-IMPORT-001",
+          "REQ-REPORT-002",
+          "REQ-EXPORT-003"
+        ],
+        "budget": 600,
+        "chars": 328,
+        "rendered": 3,
+        "omitted": 0,
+        "view": "# Requirements in scope (all)\n\n3 of 3 requirement(s) selected; --all requested; the whole requirement section is in scope.\n\n- [REQ-IMPORT-001] 账单导入：用户上传 CSV 文件 → 系统按列映射解析并写入账目表 → 页面展示导入条数与失败行清单\n- [REQ-REPORT-002] 月度报表：用户选择月份并点击「生成报表」→ 系统按部门与科目汇总当月账目 → 展示汇总表并提供 CSV 下载\n- [REQ-EXPORT-003] 明细导出：用户点击「导出全年」→ 系统打包全年账目为 CSV → 浏览器下载文件\n"
+      },
+      "stderr": []
+    },
+    {
+      "id": "dod",
+      "argv": [
+        "dod"
+      ],
+      "exitCode": 2,
+      "stdout": {
+        "ok": false,
+        "steps": [
+          {
+            "id": "catalog-lint",
+            "argv": [
+              "catalog-lint"
+            ],
+            "blocking": true,
+            "status": "FAIL",
+            "exit": 1,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "spec-lint",
+            "argv": [
+              "spec-lint"
+            ],
+            "blocking": true,
+            "status": "DEGRADED",
+            "exit": 3,
+            "error": "spec-missing",
+            "counts": null
+          },
+          {
+            "id": "trace",
+            "argv": [
+              "trace"
+            ],
+            "blocking": true,
+            "status": "DEGRADED",
+            "exit": 3,
+            "error": "spec-missing",
+            "counts": null
+          },
+          {
+            "id": "attributes",
+            "argv": [
+              "attributes"
+            ],
+            "blocking": true,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "arch-check",
+            "argv": [
+              "arch-check"
+            ],
+            "blocking": true,
+            "status": "FAIL",
+            "exit": 1,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "adr-check",
+            "argv": [
+              "adr-check"
+            ],
+            "blocking": true,
+            "status": "FAIL",
+            "exit": 1,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "fitness",
+            "argv": [
+              "fitness",
+              "--all"
+            ],
+            "blocking": true,
+            "status": "FAIL",
+            "exit": 1,
+            "error": null,
+            "counts": {
+              "error": 7,
+              "warning": 1,
+              "info": 0
+            }
+          },
+          {
+            "id": "ledger",
+            "argv": [
+              "ledger"
+            ],
+            "blocking": true,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "arch-trend",
+            "argv": [
+              "arch-trend",
+              "--gate"
+            ],
+            "blocking": true,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "risk",
+            "argv": [
+              "risk"
+            ],
+            "blocking": false,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": {
+              "error": 0,
+              "warning": 0
+            }
+          },
+          {
+            "id": "budget",
+            "argv": [
+              "budget"
+            ],
+            "blocking": false,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": null
+          }
+        ],
+        "blockingFailures": [
+          "catalog-lint",
+          "arch-check",
+          "adr-check",
+          "fitness"
+        ],
+        "established": 7,
+        "note": "static governance only; a satisfied result does not establish that the code works -- that is `gate`"
+      },
+      "stderr": [
+        " FAIL     catalog-lint",
+        " DEGRADED spec-lint :: spec-missing",
+        " DEGRADED trace :: spec-missing",
+        " PASS     attributes",
+        " FAIL     arch-check",
+        " FAIL     adr-check",
+        " FAIL     fitness",
+        " PASS     ledger",
+        " PASS     arch-trend",
+        " PASS     risk",
+        " PASS     budget",
+        "Definition of Done: NOT satisfied (catalog-lint, arch-check, adr-check, fitness)"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -1516,7 +1876,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1530,6 +1890,10 @@
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
+        "  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording",
+        "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
+        "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
+        "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
         "planned (not-implemented):"
       ]
     },
@@ -1541,7 +1905,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -1555,6 +1919,10 @@
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
+        "  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording",
+        "  trace       requirement id <-> test reference coverage; no ids declared means traceability is unavailable, not passing",
+        "  spec        budgeted view of the requirements a change touches (--paths / --all / --budget)",
+        "  dod         every static governance check once; blocking failure exits 2, nothing established exits 3",
         "planned (not-implemented):"
       ]
     },
