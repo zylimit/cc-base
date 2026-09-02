@@ -18,6 +18,7 @@ _Last updated: 2026-09-02_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-09-02: **v2 P6 第一件：架构债棘轮两个真漏洞修复，commit `4b14be8`**——① **per-edge 基线**：快照除 count 外记边身份（`undeclaredEdges` / `forbiddenEdges` / `cycleKeys`，cycleKey 做旋转归一，防重排 catalog 把老环读成新债）；棘轮改集合比较，历史最优取各先验快照的**交集**——某条边在任一历史快照里缺席过 = 还清过，再回来就和从没见过的新边一样算新债；回退时 `regressed[].newEdges` **点名是哪条边**，`basis` 记这条判决出自 count 还是 edges。**旧实现比的是计数**：删一条旧 undeclared 边同时添一条新的，数不变即放行——implementer 用**同一份台账重放旧判据**实测 `regressed=[]` 两次，两个漏洞都坐实是真的、不是纸面推演。老台账 count-only 记录**不参与交集、更不当成空集**（当空集会把当前所有边报成新债，一次误报就够让人把闸关掉），该指标降级为计数比较并在 `notes` / `edgeBasis` 写明降级，count 棘轮保留作兜底、两套取更严。② **forbidden 移出棘轮改零容忍**：任何快照 `forbidden>0` → `--gate` rc 1，不比历史、不看基线，`forbiddenViolation` 点名边与理由——forbiddenDependencies 是 catalog 里**显式声明**的安全/隐私边界，「第一天记基线时已有 2 条、此后 ≤2 就过闸」与「声明与禁令冲突时禁令赢」自相矛盾；undeclared / cycles 保持棘轮语义（那两个才是真能慢慢还的漂移债），报告态不变。selftest 240→248（五类变异逐条验红），golden 17950→18113（差异只落 selftest 计数 / arch-trend 两命令新字段 / catalog-rich 的 `--gate` exitCode 0→1 与 dod 该步 FAIL——**后两处即修复本身**），run-all RC=0，本仓 dod 仍 rc 0。**主 Agent 独立探针三条**（直接手写台账，不复用实现者的演示路径）：换边不换数 rc 1 且点名 `zz->core`、forbidden 与历史持平仍 rc 1 零容忍而报告态仍 rc 0、count-only 老台账 rc 0 无误报且 notes 明写降级。同批修 `quality-attributes.md` 那句只描述兜底一半的旧说法（「边数只许降」→「边集只许缩，计数只作老台账兜底」）、manifest 重生 229 文件（implementer 上报 stale 后由主 Agent 补）。**implementer 自检一条值得记**：golden `--check` 每场景只列前 25 条差异，一度误以为 dod 无变化，提高上限拿到全量 196 条逐条归因后才重录——**没拿「没看见」当「没变化」**。
 - 2026-09-02: **v2 P5 收官：CLAUDE.md 索引化落地，commit `0912ac8`**——主控 45558→43910 字节；冷长尾下沉两个新 rules 文件（`subagent-dispatch.md` 4975B 收 fork 派发/模型分档/并行长文/回传纪律细目/BLOCKED 升级阶梯，paths 挂 `.claude/agents/**`；`memory-systems.md` 1573B 收 feedback/用户 memory/agent memory 三轨划界，paths 挂 feedback/**+agent-memory/**），主控留残句+强制指针；26 行补执法点 token（`three-file-sync-gate.sh` / `no-direct-code-guard.sh` / `tdd-gate.sh` / `release-gate.sh` / `task` / `authorship` 等）、6 条真靠自觉的标 [P] 诚实申报。**rules-audit 前后对比（改造验收指标）**：351/M63(17.9%)/P0/phantom0/U288 → **360/M81(22.5%)/P6/phantom0/U273**。词级 diff 核对 11 行下沉**全部逐字命中冷文件、无一真删除**；[Skill 调用规则] 与 [可用技能] 一字未动。selftest 仍 240、golden 17950 **零重录**、dod rc 0、doctor 过（manifest 重生 229 文件并顺带纠 5 个此前未暴露的陈旧哈希——doctor 只抽 3 个所以一直没炸）、run-all RC=0 且 live 两路由用例真跑 PASS（**主 Agent 亲跑全量复核同结果**——路由没被改坏的行为学证据）。本批第 7 次 watchdog 卡死（首派 implementer 卡在通读引擎阶段零产出 + 一个 recorder 卡死但 Done 条目已写完），重派时按已验证模式调整（判定规则直接给全、明令不读引擎源码、八小步显式排序）一次成功。
 - 2026-09-02: **v2 P5 第四件：粗体 M 判据 + 三 lint 接进 dod，commit `cbfa004`**——rules-audit 补行首粗体通路：粗体 token **解析到真实执法点才计 M，解析不到留 U 绝不判 phantom**——粗体是普通强调不是显式引用语法，判齐会假 phantom 爆炸（假 phantom 让人去删正确引用，本仓踩过）。本仓 M 39→63、U 311→288、phantom 仍 0；**M 增量 +24 比预估「约 110 条」小得多**——那批 U 里绝大多数粗体是中文标签非子命令名。**P 1→0**：唯一 P 行的 `authorship` 是本仓真子命令，machine 压 prompt 是既有判序，主 Agent 裁定不加特例——为保住类别活样例而加特例是指标游戏的反向版。`dod` 11→14 步（12 阻断 + 2 信号）：rules-audit / skills-lint / claude-md-lint 各自 rc 1→FAIL 阻断、rc 3→DEGRADED 不阻断；本仓 dod 仍 rc 0（claude-md-lint 无 catalog 走 DEGRADED）。同批补 skills-lint 的 finding/degraded 优先级保护 lane（此前对调优先级 selftest 仍全绿的裸奔点）。selftest 237→240、golden 17675→17950（差异全归因：selftest 计数 + dod 三新步；**exitCode 九场景零翻转**——catalog 场景 dod 本就 rc 2，claude-md-lint 只是追加进 blockingFailures）、run-all RC=0。变异探针 6/6 被抓（含把 rules-audit 从 DOD_STEPS 摘掉、三新步降非阻断、优先级对调）。**主 Agent 独立探针**：phantom 树 rules-audit rc 1 且 dod rc 2、粗体真 token 计 M、粗体假 token 留 U 不诬告。README dod 步数十一→十四同 commit 修。
 - 2026-09-02: **v2 P5 第三件：`claude-md-lint` 落地（35 → 36 子命令），commit `9291705`**——`lib/rules.mjs` S24 节纯新增：catalog 里 riskTier high/critical 的模块目录必须有 `CLAUDE.md` 且四节齐（Purpose/Boundaries/Invariants/Verification，中文 目的/边界/不变量/验证 同认；空节=缺失，有壳没肉不算有；节边界按**同级或更高级**标题判——否则 `## Boundaries` → `### Allowed` → 正文 这种常见写法会假红；模块目录=path globs 最长公共目录前缀，派生不出归 undecidable）。rc 0/1/3 分档：rc 1 点名模块+期望路径+缺哪节，rc 3 含无 catalog/非 git/undecidable——该扫没扫成不是通过。dsh `agents-lint` 对应物，载体是 CC 原生按需加载的子目录 CLAUDE.md。selftest 233→237（缺文件/缺节/中文标题/空节 lane 子进程钉死，变异探针 7/7 被抓）、golden 17369→17675（四类差异全归因）、run-all RC=0 含 live 两 case PASS。**主 Agent 独立两态探针**：fixture catalog 缺 CLAUDE.md → rc 1 点名 auth + 期望路径；补中英混搭四节（含 `###` 嵌套子标题不误伤）→ rc 0。同 commit 顺手改 README/CLAUDE.md 能力计数三十四→三十六。**implementer 过程事故如实记**：中途用 `git checkout` 回滚变异探针时冲掉自己未提交的 S24 实现，已逐字重建且全部证据为重建后新鲜跑出——再次印证收口验收必须主 Agent 亲跑新鲜证据。
@@ -67,6 +68,7 @@ _Last updated: 2026-09-02_
 （早期 v1.0.x~v1.8.x Done 条目已归档到 progress.archive.md）
 
 ## Decisions
+- 2026-09-02: **P6 第一批三项裁定（主 Agent 拍板）**——① **端到端锁不另补 `test-harness.sh`**：golden 的 catalog-rich 场景已录 `arch-trend--gate` exitCode 0→1 与 dod 该步 FAIL，那是真跑出来的退出码、本身就是端到端锁；再加一套等于同一事实两处断言（双真相源，本仓明确反对的模式）。② **台账边身份不设条数上限**：截断会让边集残缺、反而制造误报与漏报，而那正是本批要消灭的歧义；60 万行级仓单行 JSONL 变大是已知代价，台账本身超 1000 行仍自动保留最近 500。③ **`forbiddenEdges` 超出原裁定点名的三字段，接受**——零容忍失败必须说得出是哪条边，否则 rc 1 无从下手；该字段不参与任何比较，只供 `forbiddenViolation.edges` 点名。
 - 2026-09-02: **P5 收官三裁定（主 Agent 拍板）**——① **体量 43.9KB 接受不追 12KB**：零语义删除铁律压倒方向性体量目标，热地板实测 ~36KB（Skill 触发条件+可用技能+总体规则铁律不可沉）。② **真正的下压杠杆记候选待用户批（HIGH 档，动既有家底加载行为）**：给 `dev-workflow-details.md` 与 `file-structure.md` 配 paths frontmatter + 去重主控 [工作流程] 索引——实际常驻宪法是主控 43.9KB + 这两个无 frontmatter 常驻文件 ≈57.7KB，**杠杆在那两个文件不在继续切主控**。③ **P 只标 6 条接受**：初版连标 8 行「靠自觉」一眼读出是后加的，风格无缝铁律赢，收敛到最易被误判成有闸的几条，U 计数仍诚实。
 - 2026-09-02: **claude-md-lint 三项契约裁定（主 Agent 拍板）**——① **riskTier `critical` 不在 schema 词表**（`lib/core.mjs` typedef 只有 low/medium/high，catalog-lint 对取值不做校验），按**不低于 high** 读（保守超集不漏判）；给 catalog-lint 补 riskTier 词表校验记为候选未做。② **非 git 树 rc 3** 保持与 catalog 类命令口径一致（本命令只读文件系统本不需要 git）——代价是 selftest 相关 lane 显式依赖 PATH 上有 git，缺 git 明确失败不静默。③ **一个标题只认一节、关键词按字面匹配**（`Boundary` 单数不认；`## Boundaries and Verification` 只算 Boundaries）——选「不出假绿」优先于「不出假红」。另：第二批实测发现 **skills-lint 的 finding/degraded 优先级无测试保护**（对调后 selftest 仍全绿），已排进第三批补 lane。
 - 2026-09-02: **skills-lint / claude-md-lint 均随第三批接进 `dod`（主 Agent 裁定）**——skills-lint rc 1→FAIL 阻断、rc 3→DEGRADED 不阻断；claude-md-lint 同构。golden 只钉「无 skills 目录」一条 lane 被接受——往共享 fixture 树加 skill 夹具会扰动枚举 tracked 文件的其它命令输出（golden 头部注释对 Product-Spec.md 有同类警告），其余四条 lane 由 selftest 子进程覆盖。implementer 建议的四条额外检查**均不加、记录在案**：① 目录有壳无 SKILL.md 只计 listed 不判 finding（可能是暂存目录）；② 块标量 description（`description: >`）判 undecidable→rc 3（bash 版支持，本仓 17 个 skill 均未用）；③ argument-hint / context / agent / allowed-tools 的取值形状未校验；④ CSO 措辞规则留给 bash 版不重复。
@@ -130,9 +132,9 @@ _Last updated: 2026-09-02_
 - 审查轴：对抗式 QA + 三阶段（Stage 0 静态闸/Stage 1 规格/Stage 2 质量）+ CoVe 证据锚定，比温和 QA 强，但**同模型**——「第二个脑子挑盲区」补不了，是 CCB 唯一硬优势。
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
-## 当前断点（2026-09-02 P5 收官，clear 后从这儿接）
+## 当前断点（2026-09-02 P6 进行中，clear 后从这儿接）
 
-**状态：工作树干净（progress.md 本记录除外），本地 `0912ac8` 领先远端（`5b2371a`）4 commit 未推——push 属 HIGH 档等用户批准；推时按既有网络教训拆小包逐个推 + `git ls-remote` 实查。引擎 36 个子命令，注册 hook 20 个，selftest 240，golden 17950 断言，dod 14 步 rc 0，rules-audit 360/M81/P6/phantom0/U273，run-all RC=0。**
+**状态：工作树干净（progress.md 本记录除外），本地 `4b14be8` 领先远端（`ade4066`）1 commit 未推——push 属 HIGH 档等用户批准；推时按既有网络教训拆小包逐个推 + `git ls-remote` 实查。引擎 36 个子命令，注册 hook 20 个，selftest 248，golden 18113 断言，dod 14 步 rc 0，rules-audit 363/M81/P6/phantom0/U276，run-all RC=0。**
 
 ### 本轮已完成并推上远端（8 个 commit）
 | commit | 内容 |
@@ -147,7 +149,7 @@ _Last updated: 2026-09-02_
 | `f289f9f` | P1 证据层（15→22） |
 更早：`524179c` 引擎拆库+hook fail-open 修复、`8f61a07` 审计扫描层、`8af3e2c` golden 基线锁。
 
-### P5 五项全部完成（本地 4 commit 待推）
+### P5 五项全部完成（连同落账 `ade4066` 已全部推上远端）
 | commit | 内容 |
 |---|---|
 | `7ee43a3` | `skills-lint`（34→35）——skill 静默丢弃变可见红，主 Agent 独立探针验红 |
@@ -155,17 +157,22 @@ _Last updated: 2026-09-02_
 | `cbfa004` | 粗体 M 判据（M 39→63、P 1→0）+ 三 lint 接进 `dod`（11→14 步、12 阻断+2 信号） |
 | `0912ac8` | CLAUDE.md 索引化——两个新冷文件下沉 + 26 行补 token + 6 条 [P]（M 63→81、phantom 恒 0） |
 
-### 下一步（P6 边界层 + 既有 TODO）
-`cochange`（用共同变更频率判边界画得对不对）/ `fleet`（多仓契约层）/ `init` 自动发现 catalog / **架构债 per-edge 基线**（修 `compareRatchet` 两处真漏洞：① count 棘轮下「还一条旧债+添一条新债」计数不变即过；② `TREND_METRICS` 把 `forbidden` 纳入棘轮，导致用户显式声明的安全/隐私禁边违规能当旧债带病过 `--gate`，与「禁令赢」自相矛盾）。
-既有 TODO 挂账：#19d `parseArgs` 静默吞未知 flag（单独排队不混批）、#19c 白名单单行哈希改三行窗口（契约变更先 tester 转红）、#26 用户报「一跑就报错」未复现（三项回问待答，补齐前不动手）。宪法体量下压杠杆（给 `dev-workflow-details.md` / `file-structure.md` 配 paths + 去重 [工作流程] 索引）属 HIGH 档候选，见 Decisions。
+### P6 边界层（进行中，本地 1 commit 待推）
+| commit | 内容 |
+|---|---|
+| `4b14be8` | **架构债 per-edge 基线**——修 `compareRatchet` 两处真漏洞（新债借旧债额度混进来 / 禁边被当债慢慢还），详见当日 Done |
+
+【进行中——implementer 已派出】**TODO #19d `parseArgs` 静默吞未知 flag**：写错 flag 不报错、静默退化成「不带参数」形态照跑照出 JSON，是假绿生成器。修法 = 未知 flag → rc 2 用法错并点名 + per-subcommand 合法 flag 白名单；**最高约束：漏登记一个合法 flag 会把正常用法变成假红，那比原缺陷更糟**。
+P6 余项：`cochange`（用共同变更频率判边界画得对不对）/ `init` 自动发现 catalog / `fleet`（多仓契约层——**对单机框架价值存疑，做到那步交用户判断**，不自作主张开工）。
+既有 TODO 挂账：#19c 白名单单行哈希改三行窗口（契约变更先 tester 转红）、#26 用户报「一跑就报错」未复现（三项回问待答，补齐前不动手）。宪法体量下压杠杆（给 `dev-workflow-details.md` / `file-structure.md` 配 paths + 去重 [工作流程] 索引）属 HIGH 档候选，见 Decisions。
 
 ### 运行状态与已知面
-- **Fast Mode 开着**，剩约 17.4 小时自动过期。期间不派 code-reviewer / tester、不走红锁闭环、不新增测试用例；**静态闸与安全护栏不豁免**。收回严格模式：`bash .claude/scripts/fast-mode.sh off`。
-- **本轮 6 次 agent watchdog 中断**（P4×2、P5×4）。处理模式已验证有效、零返工：① 查工作树 + 跑 selftest/golden/run-all 看落没落定 → ② 落定就自己验收收口，没落定就带「我已核实你做完了什么」的清单续派。6 次里 3 次实现其实是完整的、只丢了回执——**这正是「验收看客观证据不看回执」那条铁律的实战检验**。派单形状上有效的调整：先落盘再探索、不通读引擎只 grep 需要的、小步验证不攒到最后、单批只做一个子命令。
+- **Fast Mode 开着**，剩约 11.9 小时自动过期（2026-09-02 晚间实测 715 分钟）。期间不派 code-reviewer / tester、不走红锁闭环、不新增测试用例；**静态闸与安全护栏不豁免**。收回严格模式：`bash .claude/scripts/fast-mode.sh off`。
+- **本轮 8 次 agent watchdog 中断**（P4×2、P5×4、P5 收官批 implementer 与 recorder 各 1）。处理模式已验证有效、零返工：① 查工作树 + 跑 selftest/golden/run-all 看落没落定 → ② 落定就自己验收收口，没落定就带「我已核实你做完了什么」的清单续派。6 次里 3 次实现其实是完整的、只丢了回执——**这正是「验收看客观证据不看回执」那条铁律的实战检验**。派单形状上有效的调整：先落盘再探索、不通读引擎只 grep 需要的、小步验证不攒到最后、单批只做一个子命令。
 - **未验证面（如实记，不许读成通过）**：`.ps1` 侧运行时行为在本机无 pwsh 全程未跑（CI 的 windows-latest 是唯一能真验的地方，已接线但未确认结果）；P2/P4/P5 各批未派 code-reviewer（Fast Mode）；突变交叉表里 8 条 NAKED 未补断言（`T12-latestGate-is-first` 经查现状正确已加断言钉住，其余 `T13`/`B3`/`Q3`/`B6`+`C1`+`C2`+`C3` 运行态三处排除可被静默移除未补）；`dod` 的 11 步组合未在装有 catalog 的真实大仓跑过；`trace` 全仓扫描性能未测。
 
 ## TODO
-- [P2][OPEN][#19d] **`parseArgs` 静默吞未知 flag（单独排队，不许混进拆库批）**：写错 flag 不报错、静默退化成「不带参数」形态照跑照出 JSON——是假绿生成器（录基线时会录出「看着正常实则什么都没测」的假基线）。修法：未知 flag → rc 2 用法错并点名。**必须与拆库分批**：修它会改变行为、会让 golden 报红，把结构重构和行为变更混在一批等于亲手废掉「零行为变化」这个唯一判据。
+- [P2][进行中][#19d] **`parseArgs` 静默吞未知 flag（单独排队，不许混进拆库批；2026-09-02 拆库早已收口，本条已派 implementer 开工）**：写错 flag 不报错、静默退化成「不带参数」形态照跑照出 JSON——是假绿生成器（录基线时会录出「看着正常实则什么都没测」的假基线）。修法：未知 flag → rc 2 用法错并点名。**必须与拆库分批**：修它会改变行为、会让 golden 报红，把结构重构和行为变更混在一批等于亲手废掉「零行为变化」这个唯一判据。
 - [P3][OPEN][#19e] **两条测试卫生项**：① `test-audit-defects.sh` §6 的 P2-6e 断言描述已过时（写的是「check-syntax 不支持 --paths → 未知参数 rc 2」，而 check-syntax 现已支持 `--paths`，rc 2 是「全部路径不存在=参数错」分档的巧合结果）——断言通过但描述是假话，属测试套件里的潜伏谎言，须由 tester 改述。② `test-audit-scripts.sh` / `test-audit-defects.sh` 无 node 时是 `exit 1` 而非 SKIPPED（`test-harness.sh` 是 SKIPPED），当前靠 run-all 侧的守卫块兜住，更正的做法是脚本自带守卫。
 - [P3][OPEN][#19f] **`instructions-allowlist.json` 的分发语义**：它是项目私有配置（cc-base 自己那条绑 `.claude/settings.json:5` 的 sha256，装到别的项目里对不上会变成 `allowlistUnused` 噪声），应按空模板分发，与 `feedback/*.md` 走私有层同理。同类：`.claude/tests/golden/harness/*.json` 是 cc-base 自己的基线，多数场景做了隔离沙箱与宿主仓无关，但 `adapters list` 断言的是本仓 adapters.json。两条都进 P6 分发层。
 - [P2][OPEN][#19c] **白名单哈希改窗口绑定（C2，已知开口）**：`instructions-allowlist.json` 现按**单行** sha256 绑定，绑不住上下文——把豁免行外面的 ``` 围栏换成空行，行号/字节/sha256 全不变（实测两态哈希一致），豁免照旧生效，而该行含义从「**Never do this**：反例」翻成「**Follow this setup step**：本仓要求你执行」。**致命处在于 README 举的正当豁免场景恰恰就是「安全文档里的反例」——机制最主要的使用姿势正是它最脆弱的姿势**。修法=哈希扩到 N-1..N+1 三行窗口（或要求豁免行仍在 fenced block 内）。**这是契约变更**：`test-audit-defects.sh` §2B 把单行哈希钉死了，须先派 tester 改锁（转红）再派 implementer 修绿，不许实现者自己改锁。当前残余风险边界：需要仓库写权限，且豁免已在 diff 里可见并带 `reason`——是硬化项不是敞口。
