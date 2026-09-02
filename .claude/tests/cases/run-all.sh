@@ -78,6 +78,18 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——引擎异常退出红锁跳过，未执行 != 通过。"
     FAILOPEN_NOTE="；引擎异常退出红锁 SKIPPED（无 node）"
 fi
+# 证据层红锁：账本读不出来要降级、并发追加不许断链、证据被改写要有命令看得见、
+#   闸的范围不许由调用方伪造、被压制的失败不许冒充「从没跑过」。
+#   与 cases/test-harness.sh 分工——那份锁「引擎端到端链路该有的行为」，这份锁「证据层的核心主张」。
+#   只需 node + git + sleep；无 node 时它自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
+EVIDENCE_NOTE=""
+if command -v node >/dev/null 2>&1; then
+    echo "----- 运行 test-evidence-defects.sh -----"
+    bash "$TESTS_DIR/test-evidence-defects.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+else
+    echo "SKIPPED: 无 node（command -v node 未找到）——证据层红锁跳过，未执行 != 通过。"
+    EVIDENCE_NOTE="；证据层红锁 SKIPPED（无 node）"
+fi
 # git hooks 强制层（.claude/githooks/）：会话外的提交路径归它管，与 .claude/hooks/ 那层分工不同。
 #   打桩控退出码，所以只需 node + git；无 node 时它自身是 exit 1 而不是 SKIPPED，守卫放在这里。
 #   注意它**不跑** pre-push 的 FULL 模式——那会反过来拉起本文件，再拉起 claude -p。
@@ -101,7 +113,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -119,10 +131,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"

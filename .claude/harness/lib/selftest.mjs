@@ -3,8 +3,14 @@
 // in harness.mjs runs them. Imports from every other module, and nothing imports this one.
 
 import assert from 'node:assert';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, splitNul } from './core.mjs';
+import process from 'node:process';
+import {
+  HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, splitNul, withDirLock,
+} from './core.mjs';
 import { classifyPath, lintCatalog, loadCatalog } from './catalog.mjs';
 import {
   analyzeImpact, compareRatchet, extractImports, findCycles, layerViolation, moduleForSpecifier,
@@ -18,11 +24,14 @@ import {
   DEFAULT_FITNESS_RULES, assessAdrRecords, parseInlineAdrs, resolveEnforcement, scanFitness,
 } from './scan.mjs';
 import {
-  GENESIS, auditGates, buildPlan, chainHash, gateReason, ledgerLine, ledgerReferencedEvidence,
-  planRetention, riskFindings, sha256Lf, verifyLedgerChain, waiversApplied,
+  GENESIS, appendLedger, auditGates, buildPlan, chainHash, endsWithNewline, evidenceFindings,
+  gateReason, ledgerFilePath, ledgerLine, ledgerReferencedEvidence, ledgerReport,
+  parseLedgerLines, planRetention, retentionRefusal, riskFindings, sha256Lf, suppressionOf,
+  verifyLedgerChain, waiversApplied,
 } from './evidence.mjs';
 import {
-  acceptingReceipt, assessBudget, buildTaskRecord, completeBlockers, validateEnvelope,
+  acceptingReceipt, assessBudget, buildTaskRecord, completeBlockers, latestGateRecord,
+  validateEnvelope,
 } from './task.mjs';
 
 /**
@@ -35,6 +44,12 @@ function selftestCases() {
   const fx = (n) => path.join(HARNESS_DIR, '..', 'tests', 'fixtures', 'harness', n);
   const loadFx = (n) => { const r = loadCatalog(fx(n)); assert.ok(r.ok, 'fixture load failed: ' + n + ' ' + (r.detail || '')); return r.catalog; };
   const hasCode = (errors, code) => errors.some(e => e.code === code);
+  // The interpreter already running, by absolute path. whichCmd resolves a name containing a
+  // separator with existsSync and a bare name against PATH, so a bare "node" here would make
+  // these cases depend on where the machine keeps node -- and the golden runner pins PATH to
+  // git's directory plus /usr/bin:/bin, which on a hosted runner has no node in it. The PATH
+  // lookup branch stays covered by the "missing binary -> BLOCKED" case below.
+  const NODE = process.execPath;
 
   const good = loadFx('catalog-good.json');
   // A tracked set where every path is claimed by a module/global/ignored (no unmapped/overlap).
@@ -52,6 +67,7 @@ function selftestCases() {
   const gateRec = (over = {}) => ({
     command: 'gate', at: '2020-01-01T00:00:00.000Z', gate: 'PASS',
     reason: 'all-executed-checks-passed', diffHash: 'D0', planHash: 'P0',
+    scopeSource: 'computed', scopeRequested: null,
     modules: ['pay'], degraded: false, fastActive: false, skippedByFastMode: [], results: [],
     ...over,
   });
@@ -245,27 +261,27 @@ function selftestCases() {
       assert.ok(r.reason.startsWith('command-missing:'));
     }],
     ['runCheck present + exit 0 -> PASS', () => {
-      const r = runCheck({ id: 'ver', command: 'node --version' }, {});
+      const r = runCheck({ id: 'ver', command: NODE + ' --version' }, {});
       assert.equal(r.state, 'PASS');
       assert.equal(r.exit, 0);
     }],
     ['runCheck present + exit != 0 -> FAIL with exit code', () => {
-      const r = runCheck({ id: 'boom', command: 'node -e "process.exit(3)"' }, {});
+      const r = runCheck({ id: 'boom', command: NODE + ' -e "process.exit(3)"' }, {});
       assert.equal(r.state, 'FAIL');
       assert.equal(r.exit, 3);
     }],
     ['runCheck fast + non-security + allowFastSkip -> SKIPPED', () => {
-      const r = runCheck({ id: 'lint', command: 'node --version', allowFastSkip: true }, { fastActive: true });
+      const r = runCheck({ id: 'lint', command: NODE + ' --version', allowFastSkip: true }, { fastActive: true });
       assert.equal(r.state, 'SKIPPED');
       assert.equal(r.reason, 'fast-mode');
     }],
     ['runCheck fast + security -> still runs (never SKIPPED)', () => {
-      const r = runCheck({ id: 'audit', command: 'node --version', class: 'security', allowFastSkip: true }, { fastActive: true });
+      const r = runCheck({ id: 'audit', command: NODE + ' --version', class: 'security', allowFastSkip: true }, { fastActive: true });
       assert.notEqual(r.state, 'SKIPPED');
       assert.equal(r.state, 'PASS');
     }],
     ['runCheck fast + non-security without allowFastSkip -> still runs', () => {
-      const r = runCheck({ id: 'build', command: 'node --version' }, { fastActive: true });
+      const r = runCheck({ id: 'build', command: NODE + ' --version' }, { fastActive: true });
       assert.notEqual(r.state, 'SKIPPED');
       assert.equal(r.state, 'PASS');
     }],
@@ -273,7 +289,7 @@ function selftestCases() {
     ['aggregateStates: no FAIL, has BLOCKED -> BLOCKED', () => assert.equal(aggregateStates(['PASS', 'BLOCKED', 'SKIPPED']), 'BLOCKED')],
     ['aggregateStates: all PASS/SKIPPED -> PASS', () => assert.equal(aggregateStates(['PASS', 'SKIPPED', 'PASS']), 'PASS')],
     ['runCheck fast + privacy class -> never SKIPPED (runs for real)', () => {
-      const r = runCheck({ id: 'pii-scan', command: 'node --version', class: 'privacy', allowFastSkip: true }, { fastActive: true });
+      const r = runCheck({ id: 'pii-scan', command: NODE + ' --version', class: 'privacy', allowFastSkip: true }, { fastActive: true });
       assert.notEqual(r.state, 'SKIPPED');
       assert.equal(r.state, 'PASS');
     }],
@@ -424,7 +440,7 @@ function selftestCases() {
 
     // S8 -- safety class sits beside security: never fast-skipped, never waived.
     ['runCheck fast + safety class -> still runs (never SKIPPED)', () => {
-      const r = runCheck({ id: 'haz', command: 'node --version', class: 'safety', allowFastSkip: true }, { fastActive: true });
+      const r = runCheck({ id: 'haz', command: NODE + ' --version', class: 'safety', allowFastSkip: true }, { fastActive: true });
       assert.equal(r.state, 'PASS');
     }],
     ['applyWaiver: FAIL + class safety -> still FAIL', () => {
@@ -761,6 +777,91 @@ function selftestCases() {
       assert.ok(!r.ok);
       assert.ok(r.breaks.some(b => b.line === 2 && b.reason === 'chain-predecessor-mismatch'));
     }],
+    // The link is asserted against an independently computed digest rather than against
+    // chainHash itself. Checking a function with the same function is how the predecessor
+    // could be dropped from the formula and every case above still pass: `prev` would stay
+    // recorded as a field, so the reordering and deletion cases keep working off that field
+    // while the chain quietly stops binding anything.
+    ['ledger: the link folds in the predecessor, computed independently of chainHash', () => {
+      const expected = createHash('sha256').update('PREV\0CONTENT').digest('hex');
+      assert.equal(chainHash('PREV', 'CONTENT'), expected);
+    }],
+    ['ledger: an identical record at a different position gets a different link', () => {
+      const first = ledgerLine({ a: 1 }, GENESIS);
+      const later = ledgerLine({ a: 1 }, 'f'.repeat(64));
+      assert.equal(first.contentHash, later.contentHash, 'same record, same content hash');
+      assert.notEqual(first.chain, later.chain, 'different predecessor must give a different link');
+    }],
+    ['ledger: an unparseable line is kept as corrupt, never dropped', () => {
+      const raw = JSON.stringify(ledgerLine(gateRec(), GENESIS)) + '\n{"command":"gate","gate":"PA\n';
+      const entries = parseLedgerLines(raw);
+      assert.equal(entries.length, 2, 'a line that cannot be parsed must survive as a record');
+      assert.equal(entries[1].corrupt, true);
+      assert.ok(!verifyLedgerChain(entries).ok, 'and it must break the chain rather than vanish from it');
+    }],
+    ['ledger: blank lines are framing, not records', () => {
+      assert.equal(parseLedgerLines('\n\n').length, 0);
+      assert.equal(parseLedgerLines('').length, 0);
+    }],
+
+    // S17.2b ledger verdict -- the exit code is the whole answer for a caller that never
+    // reads stdout, so it is asserted here rather than only in the golden matrix.
+    ['ledger verdict: an intact chain is ok at exit 0', () => {
+      const r = ledgerReport({ entries: chainLines([gateRec(), gateRec()]) });
+      assert.equal(r.code, 0);
+      assert.ok(r.result.ok);
+      assert.equal(r.result.evidence, null, 'evidence:null means the digests were not checked this run');
+    }],
+    ['ledger verdict: a break is a failure at exit 1', () => {
+      const lines = chainLines([gateRec(), gateRec()]);
+      lines[1].gate = 'FAIL';
+      const r = ledgerReport({ entries: lines });
+      assert.equal(r.code, 1);
+      assert.equal(r.result.ok, false);
+    }],
+    ['ledger verdict: an unreadable ledger degrades at exit 3, never a clean empty chain', () => {
+      const r = ledgerReport({ entries: [], unreadable: 'EACCES' });
+      assert.equal(r.code, 3, 'unknown is not intact');
+      assert.equal(r.result.ok, false);
+      assert.equal(r.result.entries, null, 'and it must not report zero entries as if the file were empty');
+      assert.equal(r.result.unreadable, 'EACCES');
+    }],
+    ['ledger verdict: intact chain + tampered evidence is still a failure', () => {
+      const r = ledgerReport({
+        entries: chainLines([gateRec()]),
+        evidence: { ok: false, checked: 1, breaks: [{ line: 1, reason: 'evidence-tampered' }] },
+      });
+      assert.equal(r.code, 1);
+      assert.equal(r.result.ok, false);
+    }],
+
+    // S17.2c evidence digests -- a hash that is written and never read is decoration.
+    ['evidence: a log whose bytes moved is evidence-tampered', () => {
+      const rec = gateRec({ results: [{ id: 'unit', evidence: 'e/unit.log', evidenceSha256: sha256Lf('original') }] });
+      const r = evidenceFindings(chainLines([rec]), { readFile: () => 'rewritten' });
+      assert.equal(r.ok, false);
+      assert.equal(r.checked, 1);
+      assert.equal(r.breaks[0].reason, 'evidence-tampered');
+      assert.equal(r.breaks[0].check, 'unit');
+    }],
+    ['evidence: a log that cannot be read is evidence-missing, not skipped', () => {
+      const rec = gateRec({ results: [{ id: 'unit', evidence: 'e/unit.log', evidenceSha256: sha256Lf('original') }] });
+      const r = evidenceFindings(chainLines([rec]), {
+        readFile: () => { const e = new Error('nope'); e.code = 'ENOENT'; throw e; },
+      });
+      assert.equal(r.ok, false);
+      assert.equal(r.breaks[0].reason, 'evidence-missing');
+      assert.equal(r.breaks[0].detail, 'ENOENT');
+    }],
+    ['evidence: an untouched log verifies, and a check that wrote none is not counted', () => {
+      const rec = gateRec({ results: [
+        { id: 'unit', evidence: 'e/unit.log', evidenceSha256: sha256Lf('output') },
+        { id: 'blocked', evidence: null, evidenceSha256: null },
+      ] });
+      const r = evidenceFindings(chainLines([rec]), { readFile: () => 'output' });
+      assert.ok(r.ok);
+      assert.equal(r.checked, 1, 'a check that never ran has nothing to verify');
+    }],
 
     // S17.3 gate plan -- planHash must describe the plan, not the catalog's key order.
     ['buildPlan: entries sorted by check id, modules sorted, empty flag', () => {
@@ -823,6 +924,31 @@ function selftestCases() {
       const r = auditGates([{ corrupt: true, raw: 'x' }, { command: 'other' }], { checks: {} });
       assert.equal(r.gateRuns, 0);
     }],
+    // The record says SKIPPED because a waiver rewrote it. The check still ran and still
+    // failed, and counting it by the rewrite puts a suppressed failure in the same bucket as
+    // a check nobody ever wired up -- then advises that both are probably stable.
+    ['gate-audit: a waiver-suppressed failure counts as executed and as an intervention', () => {
+      const cat = { checks: { unit: {} } };
+      const rec = gateRec({ results: [{ id: 'unit', state: 'SKIPPED', reason: 'waiver:unit', suppressed: { by: 'waiver', scope: 'unit', from: 'FAIL' } }] });
+      const r = auditGates(chainLines([rec]), cat);
+      assert.deepEqual(r.neverExecuted, []);
+      assert.deepEqual(r.neverIntervened, []);
+      assert.deepEqual(r.suppressed, [{ check: 'unit', occurrences: 1, by: ['waiver'], suppressedStates: ['FAIL'] }]);
+      assert.ok(r.advice.includes('suppressed'), 'the advice must not stop at "genuinely stable"');
+    }],
+    ['gate-audit: a fast-mode skip is deferred, not a suppressed verdict', () => {
+      const cat = { checks: { unit: {} } };
+      const rec = gateRec({ results: [{ id: 'unit', state: 'SKIPPED', reason: 'fast-mode', suppressed: { by: 'fast-mode', scope: null, from: null } }] });
+      const r = auditGates(chainLines([rec]), cat);
+      assert.deepEqual(r.neverExecuted, ['unit'], 'it genuinely did not run');
+      assert.deepEqual(r.suppressed.map(s => s.by), [['fast-mode']], 'but it is still not silence');
+    }],
+    ['suppression: a waiver records the verdict it replaced, fast mode has none to replace', () => {
+      assert.deepEqual(suppressionOf({ reason: 'waiver:unit' }, { state: 'FAIL' }), { by: 'waiver', scope: 'unit', from: 'FAIL' });
+      assert.deepEqual(suppressionOf({ reason: 'fast-mode' }, { state: 'SKIPPED' }), { by: 'fast-mode', scope: null, from: null });
+      assert.equal(suppressionOf({ reason: 'command-missing:semgrep' }, { state: 'BLOCKED' }), null);
+      assert.equal(suppressionOf({}, undefined), null);
+    }],
 
     // S17.5 retention -- privacy includes disposal, but never of the proof behind a green.
     ['retention: a ledger-referenced evidence file is never a candidate', () => {
@@ -845,6 +971,24 @@ function selftestCases() {
         gateRec({ results: [{ id: 'a', evidence: 'e/a.log' }, { id: 'b', evidence: null }] }),
       ]));
       assert.deepEqual([...set], ['e/a.log']);
+    }],
+    // The protected set is derived from the ledger, so a ledger nobody can read or verify
+    // makes it unknown -- and an unknown protected set treated as an empty one is how a
+    // sweep deletes the only proof behind a recorded green.
+    ['retention: an unreadable ledger stops the sweep before it plans anything', () => {
+      const r = retentionRefusal('EACCES', null);
+      assert.equal(r.reason, 'ledger-unreadable');
+      assert.equal(r.detail, 'EACCES');
+    }],
+    ['retention: a broken chain stops the sweep and names the first break', () => {
+      const lines = chainLines([gateRec(), gateRec()]);
+      lines[1].gate = 'FAIL';
+      const r = retentionRefusal(null, verifyLedgerChain(lines));
+      assert.equal(r.reason, 'ledger-chain-broken');
+      assert.ok(r.detail.includes('line 2'));
+    }],
+    ['retention: an intact chain does not refuse', () => {
+      assert.equal(retentionRefusal(null, verifyLedgerChain(chainLines([gateRec()]))), null);
     }],
 
     // S17.6 risk -- each decay code must fire on its own trigger and stay quiet otherwise.
@@ -877,6 +1021,32 @@ function selftestCases() {
       assert.ok(riskFindings({ ledgerEntries: chainLines(three) }).findings.some(f => f.code === 'FAIL_STREAK'));
       const reset = chainLines(three.concat([gateRec({ results: [{ id: 'unit', state: 'PASS' }] })]));
       assert.ok(!riskFindings({ ledgerEntries: reset }).findings.some(f => f.code === 'FAIL_STREAK'));
+    }],
+    ['risk: an unreadable ledger is LEDGER_UNREADABLE, distinct from a broken chain', () => {
+      const r = riskFindings({ ledgerEntries: [], ledgerUnreadable: 'EACCES' });
+      assert.ok(!r.ok);
+      assert.ok(r.findings.some(f => f.code === 'LEDGER_UNREADABLE' && f.severity === 'error'));
+      assert.ok(!r.findings.some(f => f.code === 'LEDGER_BROKEN'), 'an empty entry list is not a break');
+    }],
+    ['risk: tampered and missing evidence are their own error findings', () => {
+      const r = riskFindings({
+        evidenceBreaks: [
+          { reason: 'evidence-tampered', check: 'unit', evidence: 'e/unit.log' },
+          { reason: 'evidence-missing', check: 'lint', evidence: 'e/lint.log' },
+        ],
+      });
+      assert.ok(!r.ok);
+      assert.deepEqual(r.findings.map(f => f.code), ['EVIDENCE_TAMPERED', 'EVIDENCE_MISSING']);
+    }],
+    ['risk: a waiver-suppressed failure still counts toward the streak and is reported', () => {
+      const suppressedFail = () => gateRec({
+        results: [{ id: 'unit', state: 'SKIPPED', reason: 'waiver:unit', suppressed: { by: 'waiver', scope: 'unit', from: 'FAIL' } }],
+      });
+      const r = riskFindings({ ledgerEntries: chainLines([suppressedFail(), suppressedFail(), suppressedFail()]) });
+      assert.ok(r.findings.some(f => f.code === 'FAIL_STREAK'), 'a streak that stops counting when waived runs forever unheard');
+      const supp = r.findings.find(f => f.code === 'SUPPRESSED_FAILURE');
+      assert.ok(supp && supp.check === 'unit' && supp.occurrences === 3);
+      assert.ok(r.ok, 'a filed waiver is a decision, not an error: warning severity, exit code untouched');
     }],
     ['risk: fast-mode skips in the newest gate are FAST_MODE_DEBT (deferred, not waived)', () => {
       const lines = chainLines([gateRec({ fastActive: true, skippedByFastMode: ['unit'] })]);
@@ -982,6 +1152,81 @@ function selftestCases() {
       const forged = { ...okReceipt(), scope: 'rewritten after signing' };
       assert.equal(acceptingReceipt([forged], 'D0'), null);
     }],
+    // A PASS is not one fact. `gate --changed <a path the catalog ignores>` yields PASS with
+    // an empty module list and a genuine diffHash beside it: a real signature over a subject
+    // the caller picked. These three conditions are what stop that record closing a task.
+    ['task complete: a caller-scoped PASS gate does not close anything', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec({ scopeSource: 'caller', scopeRequested: ['docs/x.md'] }),
+        currentDiffHash: 'D0', receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('--changed'));
+    }],
+    ['task complete: a gate record with no scope provenance is not trusted either', () => {
+      const { scopeSource, ...noProvenance } = gateRec();
+      const blockers = completeBlockers({
+        latestGate: noProvenance, currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('unrecorded provenance'));
+    }],
+    ['task complete: a gate that verified a different plan does not close the task', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec({ planHash: 'P0' }), currentDiffHash: 'D0', currentPlanHash: 'P-OTHER',
+        receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('resolves to plan'));
+      // Same plan, no complaint.
+      assert.deepEqual(completeBlockers({
+        latestGate: gateRec({ planHash: 'P0' }), currentDiffHash: 'D0', currentPlanHash: 'P0',
+        receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      }), []);
+    }],
+    ['task complete: a PASS in which every check was skipped established nothing', () => {
+      const allSkipped = gateRec({ reason: 'every-check-skipped', fastActive: true, skippedByFastMode: ['unit'],
+        results: [{ id: 'unit', state: 'SKIPPED', reason: 'fast-mode' }] });
+      const blockers = completeBlockers({
+        latestGate: allSkipped, currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: true, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('deferred, not obtained'));
+      // One executed check among the skips is enough to have established something.
+      assert.deepEqual(completeBlockers({
+        latestGate: gateRec({ results: [{ id: 'unit', state: 'SKIPPED' }, { id: 'lint', state: 'PASS' }] }),
+        currentDiffHash: 'D0', receipts: [okReceipt()], ledgerOk: true, planEmpty: false,
+      }), []);
+    }],
+    ['task complete: evidence that no longer matches its digest blocks', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: true, evidenceOk: false, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(blockers[0].includes('recorded digest'));
+    }],
+    ['task complete: the broken-chain blocker recommends no command (there is none that mends it)', () => {
+      const blockers = completeBlockers({
+        latestGate: gateRec(), currentDiffHash: 'D0', receipts: [okReceipt()],
+        ledgerOk: false, planEmpty: false,
+      });
+      assert.equal(blockers.length, 1);
+      assert.ok(!/harness\.mjs/.test(blockers[0]), 'records only append past a break, so no rerun clears it');
+    }],
+    ['task complete: the newest gate record decides, not the first one', () => {
+      const entries = chainLines([
+        gateRec({ diffHash: 'OLD' }),
+        { command: 'other', at: 'x' },
+        gateRec({ diffHash: 'NEW', gate: 'FAIL' }),
+      ]);
+      const latest = latestGateRecord(entries);
+      assert.equal(latest.diffHash, 'NEW');
+      assert.equal(latest.gate, 'FAIL');
+      assert.equal(latestGateRecord([{ corrupt: true, raw: 'x' }, { command: 'other' }]), null);
+    }],
 
     // S18.2 budget -- over the line is a signal, so the finding must carry the numbers.
     ['budget: within every limit -> ok', () => {
@@ -1001,6 +1246,81 @@ function selftestCases() {
     ['budget: a non-numeric limit is report-only, never a finding', () => {
       const r = assessBudget({ changedFiles: 999 }, { ...budgetCat, maxChangedFiles: null });
       assert.ok(r.ok);
+    }],
+
+    // S1b lock -- what keeps a burst of concurrent gates from breaking the chain. These two
+    // touch the filesystem (a lock that is not a real filesystem object proves nothing) and
+    // clean up after themselves; everything else in this file stays in memory.
+    ['lock: a held lock is not handed out twice, and a waiter gives up instead of hanging', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-lock-'));
+      const lock = path.join(dir, 'x.lock');
+      try {
+        let second = null;
+        const held = withDirLock(lock, () => {
+          assert.ok(fs.existsSync(lock), 'the lock exists while it is held');
+          try { withDirLock(lock, () => { second = 'acquired twice'; }, { timeoutMs: 40, pollMs: 5 }); }
+          catch (e) { second = String(e && e.message || e); }
+          return 'body ran';
+        });
+        assert.equal(held, 'body ran');
+        assert.ok(/could not acquire lock/.test(String(second)), 'second acquire must fail: ' + second);
+        assert.ok(!fs.existsSync(lock), 'and the lock is released when the body returns');
+        assert.throws(() => withDirLock(lock, () => { throw new Error('boom'); }), /boom/);
+        assert.ok(!fs.existsSync(lock), 'a throwing body must not leave the lock behind');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }],
+    ['ledger append: a killed write costs one line, not the record that follows it', () => {
+      // The only case in this file that drives appendLedger end to end, because the bug it
+      // locks is in the framing rather than in any of the pure parts: a fragment with no
+      // terminator used to have the next record appended straight onto it, so one
+      // interrupted write destroyed two records, the good one included.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-ledger-'));
+      const saved = process.env.CLAUDE_PROJECT_DIR;
+      try {
+        process.env.CLAUDE_PROJECT_DIR = dir;
+        appendLedger({ command: 'gate', at: 'T1' });
+        fs.appendFileSync(ledgerFilePath(), '{"command":"gate","at":"T2","gate":"PA', 'utf8');
+        appendLedger({ command: 'gate', at: 'T3' });
+        const entries = parseLedgerLines(fs.readFileSync(ledgerFilePath(), 'utf8'));
+        assert.equal(entries.length, 3);
+        assert.equal(entries.filter(e => e.corrupt).length, 1, 'exactly one line is unreadable');
+        assert.equal(entries[2].at, 'T3', 'the record after the fragment survives intact');
+      } finally {
+        if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = saved;
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }],
+    ['ledger append: the terminator check reads the last byte, and an absent file needs none', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-eol-'));
+      try {
+        const f = path.join(dir, 'l.jsonl');
+        fs.writeFileSync(f, '');
+        assert.equal(endsWithNewline(f), true, 'an empty file has nothing to repair');
+        fs.writeFileSync(f, '{"a":1}\n');
+        assert.equal(endsWithNewline(f), true);
+        fs.writeFileSync(f, '{"a":1}\n{"b":');
+        assert.equal(endsWithNewline(f), false);
+        assert.equal(endsWithNewline(path.join(dir, 'absent.jsonl')), true);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }],
+    ['lock: a lock left behind by a killed process is reclaimed once it is stale', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-lock-'));
+      const lock = path.join(dir, 'x.lock');
+      try {
+        fs.mkdirSync(lock);
+        const old = (Date.now() - 5000) / 1000;
+        fs.utimesSync(lock, old, old);
+        let ran = false;
+        withDirLock(lock, () => { ran = true; }, { timeoutMs: 200, staleMs: 1000, pollMs: 5 });
+        assert.ok(ran, 'a stale lock must be reclaimed rather than bricking the file forever');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     }],
 
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x

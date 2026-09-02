@@ -8,11 +8,15 @@
 // tells a fresh instance nothing it can act on. Fields that genuinely do not apply are
 // written "N/A" -- an explicit nothing, which is a decision, unlike an absent key.
 //
-// `task complete` is the hard end of it. Four conditions must hold before a task may be
+// `task complete` is the hard end of it. Every condition must hold before a task may be
 // called done, and each one that does not is returned by name in blockers[]. This is the
 // machine form of the acceptance rule: a subagent reporting DONE is a claim about itself,
-// while a PASS gate bound to this exact diff, an accepting receipt bound to the same diff,
-// an intact chain and a non-empty plan are claims that can be re-checked by someone else.
+// while a PASS gate bound to this exact diff -- one that chose its own scope, ran the plan
+// this change surface resolves to, and executed at least one check -- plus an accepting
+// receipt bound to the same diff, an intact chain, evidence that still matches its digests
+// and a non-empty plan are claims that can be re-checked by someone else.
+// The scope conditions are not decoration: a gate handed its own scope produces a real
+// signature over a made-up subject, which is the failure mode this file exists to stop.
 //
 // `budget` is deliberately the softest thing in the file. Going over is not a violation to
 // be punished; it is a signal to split the work or to escalate it on purpose. Wide changes
@@ -23,14 +27,15 @@
 
 import process from 'node:process';
 import {
-  changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded, parseCsv,
+  changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   readStdin, splitNul,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { loadReceipts, receiptIntact, safeTaskId } from './quality.mjs';
 import {
-  buildPlan, readLedger, readTaskRecord, relFromRoot, taskFilePath, verifyLedgerChain, writeAtomic,
+  buildPlan, evidenceFindings, readLedgerState, readTaskRecord, relFromRoot, taskFilePath,
+  verifyLedgerChain, writeAtomic,
 } from './evidence.mjs';
 
 // ---------------------------------------------------------------------------
@@ -92,28 +97,61 @@ function acceptingReceipt(receipts, diffHash) {
 }
 
 /**
- * The four blocking conditions of `task complete`, each returned by name when it fails.
+ * The blocking conditions of `task complete`, each returned by name when it fails.
  * Pure + injectable so selftest can trip them one at a time.
- * @param {{latestGate?:Object|null,currentDiffHash?:string,receipts?:Array,
- *          ledgerOk?:boolean,planEmpty?:boolean}} [input]
+ *
+ * Four of them are about the gate record itself, because a PASS is not one fact but four:
+ * it has to be bound to this diff, it has to have decided its own scope, the plan it ran
+ * has to be the plan this change surface resolves to, and at least one check in it has to
+ * have actually executed. Drop any one and a green becomes forgeable -- `gate --changed
+ * <path the catalog ignores>` produces PASS with an empty module list and a perfectly real
+ * diffHash beside it, which is a true signature over a scope the caller chose.
+ * @param {{latestGate?:Object|null,currentDiffHash?:string,currentPlanHash?:string|null,
+ *          receipts?:Array,ledgerOk?:boolean,evidenceOk?:boolean,planEmpty?:boolean}} [input]
  * @returns {string[]}
  */
-function completeBlockers({ latestGate = null, currentDiffHash = '', receipts = [],
-  ledgerOk = true, planEmpty = true } = {}) {
+function completeBlockers({ latestGate = null, currentDiffHash = '', currentPlanHash = null,
+  receipts = [], ledgerOk = true, evidenceOk = true, planEmpty = true } = {}) {
   const blockers = [];
   const gateFresh = !!latestGate && latestGate.gate === 'PASS' && latestGate.diffHash === currentDiffHash;
   if (!gateFresh) {
     blockers.push('no PASS gate record bound to the current diffHash'
       + (latestGate ? ' (newest gate: ' + latestGate.gate + ' on ' + String(latestGate.diffHash).slice(0, 12) + ')' : ' (no gate has ever run)')
       + '; run: harness.mjs gate');
+  } else {
+    if (latestGate.scopeSource !== 'computed') {
+      blockers.push('that PASS gate ran over '
+        + (latestGate.scopeSource === 'caller'
+          ? 'a scope the caller supplied with --changed'
+          : 'a scope of unrecorded provenance (the record predates scope tracking)')
+        + ', so it says nothing about the real change surface; run: harness.mjs gate with no --changed');
+    }
+    if (currentPlanHash !== null && latestGate.planHash !== currentPlanHash) {
+      blockers.push('that PASS gate verified plan ' + String(latestGate.planHash).slice(0, 12)
+        + ', but the current change surface resolves to plan ' + String(currentPlanHash).slice(0, 12)
+        + '; run: harness.mjs gate with no --changed');
+    }
+    const results = Array.isArray(latestGate.results) ? latestGate.results : [];
+    if (results.length > 0 && results.every(r => r && r.state === 'SKIPPED')) {
+      blockers.push('every check in that PASS gate was skipped (fast mode or a waiver), so it '
+        + 'established nothing: the evidence was deferred, not obtained');
+    }
   }
   if (!acceptingReceipt(receipts, currentDiffHash)) {
     blockers.push('no fresh accepting review receipt bound to the current diffHash; '
       + 'have the reviewer write one: harness.mjs receipt write');
   }
   if (!ledgerOk) {
-    blockers.push('the ledger chain is broken, so every recorded verification is unproven; '
-      + 're-run the gates rather than repairing the file');
+    // No command is named here on purpose. A break is permanent -- records only append past
+    // it -- so pointing at the gates would recommend a road that ends where it started.
+    blockers.push('the ledger chain is broken, so every recorded verification is unproven, and '
+      + 'running more gates cannot mend it: a person has to decide whether to retire '
+      + '.claude/harness/state/ledger.jsonl (which discards every proof it held) and rebuild '
+      + 'from there, or to find out who edited it');
+  }
+  if (!evidenceOk) {
+    blockers.push('an evidence log the ledger points at is missing or no longer matches its '
+      + 'recorded digest, so the verdict resting on it is unproven; see: harness.mjs ledger');
   }
   if (planEmpty) {
     blockers.push('the verification plan is empty: nothing would have run, so nothing was established');
@@ -176,24 +214,52 @@ function cmdTask(flags = {}, positional = []) {
         blockers: ['no active task: run "harness.mjs task start" with a six-field envelope first'],
       }, 2);
     }
-    let changed;
-    let nonGit = false;
+    // The scope of a completion is never the caller's to state. Accepting --changed here
+    // would hand back exactly what the gate-record scope check takes away: a way to close a
+    // task against a change surface chosen for the purpose.
     if (typeof flags.changed === 'string') {
-      changed = parseCsv(flags.changed);
-    } else {
-      const cp = changedPaths();
-      if (Array.isArray(cp)) { changed = cp; }
-      else { changed = cp.paths; nonGit = !!cp.nonGit; }
+      process.stderr.write('task complete does not take --changed: the whole point of this gate is that '
+        + 'the change surface is measured, not supplied\n');
+      return emit({
+        ok: false, task: task.id, error: 'task-scope-not-caller-specified',
+        detail: 'run it with no --changed; use gate --changed to verify a subset without closing anything',
+      }, 3);
     }
-    const entries = readLedger();
-    const imp = analyzeImpact(changed, loaded.catalog, { nonGit });
+    // Non-git degrades here for the same reason it degrades in gate, verify and receipt
+    // verify: gitFingerprint() answers a constant for every non-git tree, so "bound to this
+    // diff" would be true of any tree anywhere. Blocking with advice would be worse than
+    // saying so -- every command that advice could name degrades in this tree too.
+    if (!isGitRepo()) {
+      process.stderr.write('task complete: this tree is not a git repository, so there is no diff to bind '
+        + 'evidence to and the gate and receipt bindings this command checks cannot be trusted here\n');
+      return emit({
+        ok: false, degraded: true, reason: 'non-git', task: task.id, diffHash: null, blockers: [],
+      }, 3);
+    }
+    const ledger = readLedgerState();
+    // An unreadable ledger is not a blocker with a name, it is the absence of the file every
+    // one of these conditions is read out of. Degrade rather than report four conditions
+    // that were never actually evaluated.
+    if (ledger.unreadable) {
+      process.stderr.write('task complete: the ledger exists but cannot be read (' + ledger.unreadable
+        + '), so no recorded verification can be checked here\n');
+      return emit({
+        ok: false, degraded: true, reason: 'ledger-unreadable', task: task.id,
+        diffHash: gitFingerprint(), blockers: [],
+      }, 3);
+    }
+    const cp = changedPaths();
+    const changed = Array.isArray(cp) ? cp : cp.paths;
+    const imp = analyzeImpact(changed, loaded.catalog, {});
     const plan = buildPlan(imp.affected, loaded.catalog);
     const currentDiffHash = gitFingerprint();
     const blockers = completeBlockers({
-      latestGate: latestGateRecord(entries),
+      latestGate: latestGateRecord(ledger.entries),
       currentDiffHash,
+      currentPlanHash: plan.hash,
       receipts: loadReceipts(),
-      ledgerOk: verifyLedgerChain(entries).ok,
+      ledgerOk: verifyLedgerChain(ledger.entries).ok,
+      evidenceOk: evidenceFindings(ledger.entries).ok,
       planEmpty: plan.empty,
     });
     if (blockers.length) {

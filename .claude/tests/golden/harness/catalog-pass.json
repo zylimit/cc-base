@@ -67,7 +67,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 152
+        "tests": 183
       },
       "stderr": []
     },
@@ -1232,6 +1232,8 @@
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
         "planHash": "8b0e05ee69be22848b134b2a19054cf2f7936d8ccd3aa924bcc8498c09fc16db",
+        "scopeSource": "computed",
+        "scopeRequested": null,
         "modules": [
           "api",
           "auth",
@@ -1250,7 +1252,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1260,7 +1263,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1270,7 +1274,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1280,7 +1285,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           }
         ],
         "attributeCoverage": [
@@ -1359,7 +1365,8 @@
         "waivers": [],
         "ledger": {
           "path": ".claude/harness/state/ledger.jsonl",
-          "chain": "<HASH>"
+          "chain": "<HASH>",
+          "error": null
         }
       },
       "stderr": []
@@ -1378,6 +1385,8 @@
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
         "planHash": "8b0e05ee69be22848b134b2a19054cf2f7936d8ccd3aa924bcc8498c09fc16db",
+        "scopeSource": "computed",
+        "scopeRequested": null,
         "modules": [
           "api",
           "auth",
@@ -1396,7 +1405,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1406,7 +1416,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1416,7 +1427,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           },
           {
             "id": "always-pass",
@@ -1426,7 +1438,8 @@
             "exit": 0,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>"
+            "evidenceSha256": "<HASH>",
+            "suppressed": null
           }
         ],
         "attributeCoverage": [
@@ -1505,7 +1518,8 @@
         "waivers": [],
         "ledger": {
           "path": ".claude/harness/state/ledger.jsonl",
-          "chain": "<HASH>"
+          "chain": "<HASH>",
+          "error": null
         }
       },
       "stderr": []
@@ -1521,6 +1535,11 @@
         "entries": 2,
         "breaks": [],
         "head": "<HASH>",
+        "unreadable": null,
+        "evidence": {
+          "checked": 8,
+          "breaks": []
+        },
         "path": ".claude/harness/state/ledger.jsonl"
       },
       "stderr": []
@@ -1540,6 +1559,7 @@
           "always-pass"
         ],
         "neverExecuted": [],
+        "suppressed": [],
         "advice": "These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence."
       },
       "stderr": []
@@ -1553,6 +1573,7 @@
       "stdout": {
         "ok": true,
         "applied": false,
+        "refused": null,
         "candidates": 0,
         "removed": 0,
         "protectedByLedger": 8,
@@ -1919,10 +1940,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
@@ -1944,10 +1965,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",

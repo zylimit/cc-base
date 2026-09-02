@@ -129,6 +129,56 @@ function die(msg, code = 1) {
   process.exit(code);
 }
 
+/**
+ * Sleep without burning a core. Atomics.wait on a private buffer is the only synchronous
+ * sleep node has without a dependency, and a Date.now() spin would be measurably worse with
+ * a dozen processes queued behind the same lock.
+ */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, Number(ms) || 0));
+}
+
+/**
+ * Run fn while holding an exclusive lock. The lock is a directory, because mkdir is the one
+ * filesystem call that creates and tests in a single atomic step; O_APPEND is deliberately
+ * not used in its place, since the atomicity that offers stops at PIPE_BUF (4096 bytes on
+ * Linux) and the records this guards are routinely larger than that.
+ * A lock older than staleMs is reclaimed -- a process killed mid-write must not brick the
+ * file for everyone after it -- and waiting past timeoutMs throws instead of blocking
+ * forever, so the caller degrades loudly rather than hanging.
+ * @param {string} lockPath   directory to create; its parent must already exist
+ * @param {Function} fn       runs with the lock held
+ * @param {{timeoutMs?:number,staleMs?:number,pollMs?:number}} [opts]
+ */
+function withDirLock(lockPath, fn, { timeoutMs = 10000, staleMs = 60000, pollMs = 20 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      fs.mkdirSync(lockPath);
+      break;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      let ageMs = 0;
+      try { ageMs = Date.now() - fs.statSync(lockPath).mtimeMs; } catch (_e) { continue; }
+      if (ageMs > staleMs) {
+        // Another waiter may win the reclaim; losing it just means going round again.
+        try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch (_e) { /* retry */ }
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error('could not acquire lock ' + lockPath + ' within ' + timeoutMs
+          + 'ms (current holder is ' + ageMs + 'ms old)');
+      }
+      sleepSync(pollMs);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
+  }
+}
+
 // ===========================================================================
 // S2 git  (all git calls: spawnSync + maxBuffer 1<<28; diff stdout stays Buffer)
 // ===========================================================================
@@ -389,7 +439,7 @@ function whichCmd(exe) {
 
 export {
   HARNESS_DIR,
-  readStdin, stableJson, sha256, emit, die,
+  readStdin, stableJson, sha256, emit, die, sleepSync, withDirLock,
   git, isGitRepo, headCommit, isStateExcluded, splitNul, changedPaths, canonicalDiff, gitFingerprint,
   globToRegExp, matchAny, specificity,
   DEFAULTS, projectRoot, catalogFilePath, loadHarnessConfig,

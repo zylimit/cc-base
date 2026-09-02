@@ -67,7 +67,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 152
+        "tests": 183
       },
       "stderr": []
     },
@@ -783,6 +783,11 @@
         "entries": 0,
         "breaks": [],
         "head": "<HASH>",
+        "unreadable": null,
+        "evidence": {
+          "checked": 0,
+          "breaks": []
+        },
         "path": ".claude/harness/state/ledger.jsonl"
       },
       "stderr": []
@@ -808,6 +813,7 @@
           "always-fail",
           "always-pass"
         ],
+        "suppressed": [],
         "advice": "These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence."
       },
       "stderr": []
@@ -821,6 +827,7 @@
       "stdout": {
         "ok": true,
         "applied": false,
+        "refused": null,
         "candidates": 0,
         "removed": 0,
         "protectedByLedger": 0,
@@ -931,17 +938,17 @@
         "task",
         "complete"
       ],
-      "exitCode": 2,
+      "exitCode": 3,
       "stdout": {
         "ok": false,
+        "degraded": true,
+        "reason": "non-git",
         "task": "golden-task",
-        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
-        "blockers": [
-          "no PASS gate record bound to the current diffHash (no gate has ever run); run: harness.mjs gate"
-        ]
+        "diffHash": null,
+        "blockers": []
       },
       "stderr": [
-        "task complete blocked: no PASS gate record bound to the current diffHash (no gate has ever run); run: harness.mjs gate"
+        "task complete: this tree is not a git repository, so there is no diff to bind evidence to and the gate and receipt bindings this command checks cannot be trusted here"
       ]
     },
     {
@@ -1195,10 +1202,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
@@ -1220,10 +1227,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",

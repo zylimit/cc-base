@@ -67,7 +67,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 152
+        "tests": 183
       },
       "stderr": []
     },
@@ -1047,6 +1047,8 @@
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
         "planHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "scopeSource": "computed",
+        "scopeRequested": null,
         "modules": [
           "core",
           "db"
@@ -1060,7 +1062,8 @@
         "waivers": [],
         "ledger": {
           "path": ".claude/harness/state/ledger.jsonl",
-          "chain": "<HASH>"
+          "chain": "<HASH>",
+          "error": null
         }
       },
       "stderr": []
@@ -1079,6 +1082,8 @@
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
         "planHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "scopeSource": "computed",
+        "scopeRequested": null,
         "modules": [
           "core",
           "db"
@@ -1092,7 +1097,8 @@
         "waivers": [],
         "ledger": {
           "path": ".claude/harness/state/ledger.jsonl",
-          "chain": "<HASH>"
+          "chain": "<HASH>",
+          "error": null
         }
       },
       "stderr": []
@@ -1108,6 +1114,11 @@
         "entries": 2,
         "breaks": [],
         "head": "<HASH>",
+        "unreadable": null,
+        "evidence": {
+          "checked": 0,
+          "breaks": []
+        },
         "path": ".claude/harness/state/ledger.jsonl"
       },
       "stderr": []
@@ -1125,6 +1136,7 @@
         "declaredChecks": 0,
         "neverIntervened": [],
         "neverExecuted": [],
+        "suppressed": [],
         "advice": "Every declared check has intervened at least once."
       },
       "stderr": []
@@ -1138,6 +1150,7 @@
       "stdout": {
         "ok": true,
         "applied": false,
+        "refused": null,
         "candidates": 0,
         "removed": 0,
         "protectedByLedger": 0,
@@ -1510,10 +1523,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
@@ -1535,10 +1548,10 @@
         "  adapters    list external quality tools, or add one into catalog checks",
         "  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)",
         "  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state",
-        "  gate        verify plus evidence: each check output on disk, planHash, one ledger entry",
-        "  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)",
-        "  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)",
-        "  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted",
+        "  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry",
+        "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
+        "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
+        "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
         "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",

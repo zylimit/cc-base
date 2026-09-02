@@ -22,7 +22,22 @@ metadata:
    逐支置换成 NEVERMATCH 跑 `--check`，没红的就是裸奔支。本仓 12 语言 import 提取器里 7 个
    可静默删除，secret 规则 6 支里 3 支（AKIA/ghp_/PRIVATE KEY）可静默删除。
 
+5. **断言用被测函数算期望 = 同义反复**。`assert.equal(line.chain, chainHash(GENESIS, line.contentHash))`——
+   把 `chainHash` 改成不折 prev，两边一起变，断言照过。查检：每条哈希/编码断言的期望值是不是
+   硬编码常量或另一条独立算路；不是就等于没测。
+6. **cmd\* 包装层的退出码没人测**。selftest 只测纯函数（`verifyLedgerChain`），golden 的 COMMANDS
+   条目只跑 happy path，于是「断裂 → rc 1」「删不掉 → rc 1」「超限 → rc 1」三处 translation 全裸奔：
+   把 `cmdLedger`/`cmdRetention`/`cmdBudget` 改成恒 rc 0，两把尺子都不响。
+   **每个非零退出分支都要在 golden 矩阵里有一个真进入该分支的场景**，否则 rc 只测了 0。
+7. **sandbox 的兜底排除会遮住被测的精确排除**。golden 沙箱写 `.git/info/exclude` = `.claude/`，
+   整棵 `.claude/` 对 git 隐形——于是 `STATE_EXCLUDE` / `STATE_EXCLUDE_PREFIXES` / `DENY` 里任何
+   `.claude/harness/**` 条目被删掉，9 个场景全绿。凡是「路径排除表」类代码，矩阵里必须有一个
+   **不做兜底排除**的场景。
+
 **攻法的正确姿势（别改被审仓）**：`cp -a .claude $HOME/playground/.claude`，工具用 `import.meta.url`
 推 REPO_ROOT，整套在 playground 里跑，突变随便做，被审仓零写入。先跑一次确认 playground 断言数与
 原仓一致（本仓 5188）再开打。
+**量化两把尺子的独立性**：每次突变分别跑 selftest 和 golden 并分开记 CAUGHT。2026-09-02 对 P1 的
+65 次突变结果 both=37 / golden-only=14 / **selftest-only=0** / NAKED=14——selftest 对 golden 零增量，
+「152 条断言」不代表 152 份独立证据。报覆盖率必须报这个交叉表，不报单边计数。
 相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[project_cc-base-is-a-framework-repo]]

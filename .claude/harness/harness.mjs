@@ -120,10 +120,10 @@ function usage(cmd) {
     '  adapters    list external quality tools, or add one into catalog checks\n' +
     '  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)\n' +
     '  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state\n' +
-    '  gate        verify plus evidence: each check output on disk, planHash, one ledger entry\n' +
-    '  ledger      recompute the evidence hash chain; any break fails closed (no repair mode)\n' +
-    '  gate-audit  catalog checks that never failed (hook gates: .claude/scripts/gate-audit.sh)\n' +
-    '  retention   prune evidence/packs by age and count; ledger-referenced files are never deleted\n' +
+    '  gate        verify plus evidence: each check output on disk, planHash, scope provenance, one ledger entry\n' +
+    '  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed\n' +
+    '  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)\n' +
+    '  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies\n' +
     '  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task\n' +
     '  task        start|status|complete: six-field envelope in, four blocking conditions out\n' +
     '  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal\n' +

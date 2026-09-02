@@ -10,10 +10,20 @@
 // with its digest, a digest of the resolved plan, and one append-only ledger line binding
 // all of it to a diff. A green with no retrievable output is a claim; this is evidence.
 //
-// The ledger fails closed on purpose. A broken chain means every earlier verification is
-// treated as unproven (task complete blocks, risk reports LEDGER_BROKEN), and there is
-// deliberately no "repair the ledger" command: the chain IS the evidence, so a repair tool
-// would be a forgery tool. The only honest recovery is to re-run the gates that mattered.
+// The ledger fails closed on purpose, in both directions. A broken chain means every
+// earlier verification is treated as unproven (task complete blocks, risk reports
+// LEDGER_BROKEN); a ledger that cannot be read is not an empty one either, so it degrades
+// rather than reporting an intact chain over nothing. There is deliberately no "repair the
+// ledger" command: the chain IS the evidence, so a repair tool would be a forgery tool.
+// A break therefore does not clear by running the gates again -- new records only append
+// past it -- and saying otherwise sends people down a road that ends where it started. The
+// honest recovery is a decision a person makes: retire the file (which discards every proof
+// it held) and rebuild from there, or find out who edited it.
+//
+// Two things the first cut of this file got wrong, both fixed here and both regression-locked
+// in .claude/tests/test-evidence-defects.sh: the append was a read-then-append with no lock,
+// so a burst of concurrent gates broke the chain permanently; and the evidence digests were
+// written and never read, which makes a digest decoration rather than a control.
 //
 // Depends on core / catalog / graph / quality. Nothing here imports task.mjs (task.mjs
 // imports this one for the state paths and the chain check), so the graph stays acyclic.
@@ -24,6 +34,7 @@ import process from 'node:process';
 import {
   TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, normalizeTier, parseCsv, projectRoot, sha256,
+  withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -44,6 +55,9 @@ function stateDir() {
 }
 function ledgerFilePath() {
   return path.join(stateDir(), 'ledger.jsonl');
+}
+function ledgerLockPath() {
+  return path.join(stateDir(), 'ledger.lock');
 }
 function taskFilePath() {
   return path.join(stateDir(), 'task.json');
@@ -108,24 +122,83 @@ function ledgerLine(record, prev) {
   return { ...record, contentHash, prev, chain: chainHash(prev, contentHash) };
 }
 
-/** Read the ledger; an unparseable line is kept as {corrupt:true,raw} rather than dropped. */
-function readLedger() {
-  let raw;
-  try { raw = fs.readFileSync(ledgerFilePath(), 'utf8'); } catch (_e) { return []; }
-  return raw.split('\n').filter(Boolean).map(l => {
+/**
+ * Split the raw file into records. An unparseable line is kept as {corrupt:true,raw} rather
+ * than dropped: a ledger that silently discards what it cannot read looks intact, which is
+ * the one appearance it must never be able to produce. Pure.
+ */
+function parseLedgerLines(raw) {
+  return String(raw == null ? '' : raw).split('\n').filter(Boolean).map(l => {
     try { return JSON.parse(l); } catch (_e) { return { corrupt: true, raw: l }; }
   });
 }
 
-/** Append one record and return the written line. */
+/**
+ * Read the ledger, distinguishing the two failures that used to be one. A file that is not
+ * there is an empty ledger and says so; a file that is there and cannot be read is not an
+ * empty ledger, it is an unknown one, and every caller has to be able to tell those apart --
+ * "unknown" answered as "empty" is how a protected set becomes deletable and a broken chain
+ * reads as intact.
+ * @returns {{entries:Array<Object>,unreadable:string|null}}
+ */
+function readLedgerState() {
+  let raw;
+  try {
+    raw = fs.readFileSync(ledgerFilePath(), 'utf8');
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { entries: [], unreadable: null };
+    return { entries: [], unreadable: String((e && e.code) || (e && e.message) || e) };
+  }
+  return { entries: parseLedgerLines(raw), unreadable: null };
+}
+
+/**
+ * True when the file is absent, empty, or already ends in a newline. A previous write that
+ * was killed mid-line leaves a fragment with no terminator, and appending straight onto it
+ * glues the next record to the fragment -- one interrupted write would then cost two
+ * records, the good one included.
+ */
+function endsWithNewline(file) {
+  let fd;
+  try {
+    const size = fs.statSync(file).size;
+    if (size === 0) return true;
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(1);
+    fs.readSync(fd, buf, 0, 1, size - 1);
+    return buf[0] === 0x0a;
+  } catch (_e) {
+    return true;                                  // nothing readable to repair
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch (_e) { /* closing a read fd */ } }
+  }
+}
+
+/**
+ * Append one record and return the written line. Read-then-append is not atomic, so the
+ * whole sequence runs under a cross-process lock: without it a burst of concurrent gates
+ * all read the same tail, all write prev pointing at it, and the chain is broken from then
+ * on -- permanently, because later records only append past the break.
+ * Throws when the ledger is unreadable or the lock cannot be taken. Both are refusals to
+ * write, on purpose: appending onto a tail that cannot be read produces a broken chain, and
+ * a broken chain is unrecoverable by design.
+ */
 function appendLedger(record) {
-  const entries = readLedger();
-  const last = entries.length ? entries[entries.length - 1] : null;
-  const prev = (last && typeof last.chain === 'string') ? last.chain : GENESIS;
-  const line = ledgerLine(record, prev);
   fs.mkdirSync(stateDir(), { recursive: true });
-  fs.appendFileSync(ledgerFilePath(), JSON.stringify(line) + '\n', 'utf8');
-  return line;
+  return withDirLock(ledgerLockPath(), () => {
+    const state = readLedgerState();
+    if (state.unreadable) {
+      throw new Error('ledger is present but unreadable (' + state.unreadable
+        + '); appending onto a tail nobody can read would break the chain');
+    }
+    const file = ledgerFilePath();
+    const last = state.entries.length ? state.entries[state.entries.length - 1] : null;
+    const prev = (last && typeof last.chain === 'string') ? last.chain : GENESIS;
+    const line = ledgerLine(record, prev);
+    if (!endsWithNewline(file)) fs.appendFileSync(file, '\n', 'utf8');
+    fs.appendFileSync(file, JSON.stringify(line) + '\n', 'utf8');
+    return line;
+  });
 }
 
 /**
@@ -164,21 +237,105 @@ function verifyLedgerChain(entries) {
 }
 
 /**
- * `ledger` subcommand: recompute the chain, report every break, exit 1 on any.
- * There is no repair mode, and that is the design: a command that rewrites the chain into
- * agreement is a forgery tool. Re-run the gates instead.
+ * Re-read every evidence log the ledger points at and compare it with the digest recorded
+ * beside it. A hash that is written and never read is decoration: without this, the log a
+ * green rests on can be rewritten or deleted and every command still reports success.
+ * The reader is injectable so selftest can exercise the comparison without a repository.
+ * @param {Array<Object>} entries
+ * @param {{readFile?:(rel:string)=>string}} [opts]
+ * @returns {{ok:boolean,checked:number,breaks:Array}}
  */
-function cmdLedger(_flags) {
-  const res = verifyLedgerChain(readLedger());
-  if (!res.ok) {
-    process.stderr.write('ledger chain broken (' + res.breaks.length + ' break(s)) at ' + relFromRoot(ledgerFilePath()) + '\n');
-    for (const b of res.breaks.slice(0, 10)) {
+function evidenceFindings(entries, { readFile } = {}) {
+  const read = typeof readFile === 'function'
+    ? readFile
+    : (rel) => fs.readFileSync(path.join(projectRoot(), rel), 'utf8');
+  const breaks = [];
+  let checked = 0;
+  (entries || []).forEach((e, i) => {
+    if (!e || e.corrupt || e.command !== 'gate') return;
+    for (const r of (e.results || [])) {
+      if (!r || typeof r.evidence !== 'string' || !r.evidence) continue;
+      if (typeof r.evidenceSha256 !== 'string' || !r.evidenceSha256) continue;
+      checked++;
+      const at = { line: i + 1, check: r.id === undefined ? null : r.id, evidence: r.evidence };
+      let content;
+      try {
+        content = read(r.evidence);
+      } catch (err) {
+        // The code, never the message: an fs error message carries an absolute path, and
+        // that would put the machine's directory layout into a record other tools read.
+        breaks.push({ ...at, reason: 'evidence-missing', detail: String((err && err.code) || 'read-error') });
+        continue;
+      }
+      if (sha256Lf(content) !== r.evidenceSha256) {
+        breaks.push({ ...at, reason: 'evidence-tampered', detail: sha256Lf(content).slice(0, 12) });
+      }
+    }
+  });
+  return { ok: breaks.length === 0, checked, breaks };
+}
+
+/**
+ * The `ledger` verdict, separated from the process exit so the exit code itself is testable.
+ * Three outcomes: unreadable is degraded (3) because an unknown chain is not an intact one,
+ * any break is a failure (1), otherwise 0. `evidence: null` means the digests were not
+ * checked this run, which stays distinguishable from having checked and found nothing.
+ * Pure.
+ * @returns {{result:Object,code:number}}
+ */
+function ledgerReport({ entries = [], unreadable = null, evidence = null, path: file = '' } = {}) {
+  if (unreadable) {
+    return {
+      result: {
+        ok: false, entries: null, breaks: [], head: null,
+        unreadable, evidence: null, path: file,
+      },
+      code: 3,
+    };
+  }
+  const chain = verifyLedgerChain(entries);
+  const ok = chain.ok && (evidence === null || evidence.ok);
+  return {
+    result: {
+      ok, entries: chain.entries, breaks: chain.breaks, head: chain.head, unreadable: null,
+      evidence: evidence === null ? null : { checked: evidence.checked, breaks: evidence.breaks },
+      path: file,
+    },
+    code: ok ? 0 : 1,
+  };
+}
+
+/**
+ * `ledger` subcommand: recompute the chain, re-verify the evidence digests, report every
+ * break. Digest verification is on by default -- a check that has to be switched on is a
+ * check nobody runs -- and `--no-verify-evidence` turns it off for a ledger large enough
+ * that re-reading every log costs real time.
+ * There is no repair mode, and that is the design: a command that rewrites the chain into
+ * agreement is a forgery tool.
+ */
+function cmdLedger(flags = {}) {
+  const state = readLedgerState();
+  const skipEvidence = flags['no-verify-evidence'] === true || flags['no-verify-evidence'] === 'true';
+  const evidence = (state.unreadable || skipEvidence) ? null : evidenceFindings(state.entries);
+  const { result, code } = ledgerReport({ ...state, evidence, path: relFromRoot(ledgerFilePath()) });
+  const where = relFromRoot(ledgerFilePath());
+  if (state.unreadable) {
+    process.stderr.write('ledger at ' + where + ' exists but could not be read (' + state.unreadable + ')\n');
+    process.stderr.write('an unreadable ledger is not an intact one: nothing recorded in it can be checked, '
+      + 'so treat every earlier verification as unproven until the file is readable again\n');
+  } else if (!result.ok) {
+    const total = result.breaks.length + (evidence ? evidence.breaks.length : 0);
+    process.stderr.write('ledger integrity broken (' + total + ' break(s)) at ' + where + '\n');
+    for (const b of result.breaks.slice(0, 10)) {
       process.stderr.write('  line ' + b.line + ': ' + b.reason + (b.at ? ' (' + b.at + ')' : '') + '\n');
     }
-    if (res.breaks.length > 10) process.stderr.write('  ... ' + (res.breaks.length - 10) + ' more break(s)\n');
-    process.stderr.write('every verification recorded here is unproven until the gates are re-run; do not hand-repair the file\n');
+    if (result.breaks.length > 10) process.stderr.write('  ... ' + (result.breaks.length - 10) + ' more chain break(s)\n');
+    for (const b of (evidence ? evidence.breaks.slice(0, 10) : [])) {
+      process.stderr.write('  line ' + b.line + ': ' + b.reason + ' for check ' + b.check + ' (' + b.evidence + ')\n');
+    }
+    process.stderr.write('every verification recorded here is unproven; do not hand-repair the file\n');
   }
-  return emit({ ...res, path: relFromRoot(ledgerFilePath()) }, res.ok ? 0 : 1);
+  return emit(result, code);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,14 +374,25 @@ function buildPlan(affected, catalog) {
 }
 
 // A check id can legitimately run once per affected module, and four of those land in the
-// same millisecond, so the epoch alone is not a unique name. First collision falls back to
-// a suffix rather than silently overwriting one check's output with another's.
+// same millisecond, so the epoch alone is not a unique name. The next suffix is claimed by
+// creating the file exclusively rather than by testing whether it exists: two gates running
+// at once both pass an existsSync test on the same name, and the loser's log is then
+// overwritten by the winner -- which, now that the digests are actually re-read, would
+// surface as evidence-tampered on a file nobody tampered with. A false alarm in an integrity
+// check is how the check ends up switched off.
 function evidenceFilePath(id) {
   const safeId = String(id == null ? '' : id).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120) || 'check';
   const base = path.join(evidenceDir(), safeId + '-' + Date.now());
-  let file = base + '.log';
-  for (let n = 1; fs.existsSync(file); n++) file = base + '-' + n + '.log';
-  return file;
+  fs.mkdirSync(evidenceDir(), { recursive: true });
+  for (let n = 0; ; n++) {
+    const file = n === 0 ? base + '.log' : base + '-' + n + '.log';
+    try {
+      fs.closeSync(fs.openSync(file, 'wx'));
+      return file;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+    }
+  }
 }
 
 /**
@@ -272,6 +440,32 @@ function gateReason(gate, run) {
   return 'all-executed-checks-passed';
 }
 
+/**
+ * What happened to a check between the runner and the record. The four-state result the
+ * runner produced is the fact; the state the record carries may be a rewrite of it, and the
+ * two have to stay distinguishable or "a waiver suppressed this failure" and "this check
+ * never ran" collapse into the same number.
+ * A waiver rewrites an executed verdict, so `from` carries the verdict it replaced. Fast
+ * mode skips before the command runs, so there is no earlier verdict to name -- that is
+ * deferral, not suppression of a result, and reporting a state there would invent one.
+ * Pure.
+ * @param {Object} recorded   the check result as verifyPlan returned it (waivers applied)
+ * @param {Object} raw        the same check as the runner returned it, before waivers
+ * @returns {{by:string,scope:string|null,from:string|null}|null}
+ */
+function suppressionOf(recorded, raw) {
+  const reason = (recorded && typeof recorded.reason === 'string') ? recorded.reason : '';
+  if (reason.startsWith('waiver:')) {
+    return {
+      by: 'waiver',
+      scope: reason.slice('waiver:'.length),
+      from: (raw && typeof raw.state === 'string') ? raw.state : null,
+    };
+  }
+  if (reason === 'fast-mode') return { by: 'fast-mode', scope: null, from: null };
+  return null;
+}
+
 /** Which waivers actually fired, with the file that granted them. */
 function waiversApplied(checks, waivers) {
   const out = [];
@@ -307,10 +501,20 @@ function cmdGate(flags) {
   }
   const catalog = loaded.catalog;
 
+  // Where the scope came from is part of the record, because a gate over a scope the caller
+  // chose answers a different question than a gate over the real change surface -- and the
+  // diffHash beside it is a true fingerprint of the whole tree either way, so without this
+  // field the two are indistinguishable afterwards. --changed stays supported: verifying a
+  // subset on purpose is a legitimate thing to want. What it may no longer do is close a
+  // task (see completeBlockers).
   let changed;
   let nonGit = false;
+  let scopeSource = 'computed';
+  let scopeRequested = null;
   if (typeof flags.changed === 'string') {
     changed = parseCsv(flags.changed);
+    scopeSource = 'caller';
+    scopeRequested = changed.slice(0, 50);
   } else {
     const cp = changedPaths();
     if (Array.isArray(cp)) { changed = cp; }
@@ -323,7 +527,19 @@ function cmdGate(flags) {
   const fastActive = fastModeActive();
   const imp = analyzeImpact(changed, catalog, { nonGit });
   const plan = buildPlan(imp.affected, catalog);
-  const run = verifyPlan(changed, catalog, { fastActive, nonGit, runCheckFn: runCheckWithEvidence });
+  // verifyPlan hands back the results after the waiver layer has rewritten them; the raw
+  // verdicts are captured on the way through, in call order, because checks are pushed one
+  // per run() call and waivers are applied with a .map that preserves that order.
+  const rawRun = [];
+  const run = verifyPlan(changed, catalog, {
+    fastActive,
+    nonGit,
+    runCheckFn: (spec, opts) => {
+      const res = runCheckWithEvidence(spec, opts);
+      rawRun.push(res);
+      return res;
+    },
+  });
 
   const attrBlocked = Array.isArray(run.attributeGaps) && run.attributeGaps.length > 0;
   const gate = (run.state === 'FAIL' || run.state === 'BLOCKED') ? run.state
@@ -337,11 +553,13 @@ function cmdGate(flags) {
     baseCommit: headCommit(),
     diffHash: gitFingerprint(),
     planHash: plan.hash,
+    scopeSource,
+    scopeRequested,
     modules: run.affected.slice().sort(cmp),
     degraded: !!run.degraded,
     fastActive,
     skippedByFastMode: run.checks.filter(c => c.reason === 'fast-mode').map(c => c.id),
-    results: run.checks.map(c => ({
+    results: run.checks.map((c, i) => ({
       id: c.id,
       module: c.module === undefined ? null : c.module,
       state: c.state,
@@ -350,13 +568,29 @@ function cmdGate(flags) {
       durationMs: c.durationMs === undefined ? null : c.durationMs,
       evidence: c.evidence === undefined ? null : c.evidence,
       evidenceSha256: c.evidenceSha256 === undefined ? null : c.evidenceSha256,
+      suppressed: suppressionOf(c, rawRun[i]),
     })),
     attributeCoverage: run.attributes,
     attributeGaps: run.attributeGaps,
     waivers: waiversApplied(run.checks, loadWaivers()),
   };
-  const line = appendLedger(record);
-  return emit({ ...record, ledger: { path: relFromRoot(ledgerFilePath()), chain: line.chain } },
+  let line = null;
+  let ledgerError = null;
+  try {
+    line = appendLedger(record);
+  } catch (e) {
+    ledgerError = String((e && e.message) || e);
+  }
+  if (ledgerError) {
+    // The checks ran; what failed is recording them. A PASS that left no record is not
+    // evidence and must not read like one, so it degrades (3) instead of reporting 0 --
+    // while a FAIL still blocks (2), because rc 3 is the code callers skip on.
+    process.stderr.write('gate ran but could not append its record to the ledger: ' + ledgerError + '\n');
+    process.stderr.write('an unrecorded verification is not evidence; nothing downstream may treat this run as proof\n');
+    return emit({ ...record, ledger: { path: relFromRoot(ledgerFilePath()), chain: null, error: ledgerError } },
+      gate === 'PASS' ? 3 : 2);
+  }
+  return emit({ ...record, ledger: { path: relFromRoot(ledgerFilePath()), chain: line.chain, error: null } },
     gate === 'PASS' ? 0 : 2);
 }
 
@@ -369,43 +603,75 @@ function cmdGate(flags) {
 // replaces the other -- and neither should be merged into the other, or the answer to
 // "which gate never fired" would quietly cover only half the gates.
 
-/** Pure: fold a ledger into per-check execution/intervention history. */
+/**
+ * Pure: fold a ledger into per-check execution/intervention history.
+ * A check whose failure a waiver rewrote to SKIPPED is counted by what it actually did, not
+ * by what the record was rewritten to say -- it ran, and it caught something. Counting it as
+ * never-executed puts a suppressed failure in the same bucket as a check nobody ever wired
+ * up, and then tells the reader both are probably "genuinely stable".
+ */
 function auditGates(entries, catalog) {
   const declared = Object.keys((catalog && catalog.checks) || {});
   const executed = new Set();
   const intervened = new Set();
+  const suppressed = new Map();
   let gateRuns = 0;
   for (const e of (entries || [])) {
     if (!e || e.corrupt || e.command !== 'gate') continue;
     gateRuns++;
     for (const r of (e.results || [])) {
-      if (r.state === 'PASS' || r.state === 'FAIL') executed.add(r.id);
-      if (r.state === 'FAIL' || r.state === 'BLOCKED') intervened.add(r.id);
+      const supp = (r && r.suppressed) ? r.suppressed : null;
+      const state = (supp && supp.from) ? supp.from : r.state;
+      if (state === 'PASS' || state === 'FAIL') executed.add(r.id);
+      if (state === 'FAIL' || state === 'BLOCKED') intervened.add(r.id);
+      if (!supp) continue;
+      if (!suppressed.has(r.id)) suppressed.set(r.id, { check: r.id, occurrences: 0, by: new Set(), suppressedStates: new Set() });
+      const bucket = suppressed.get(r.id);
+      bucket.occurrences++;
+      bucket.by.add(supp.by);
+      if (supp.from) bucket.suppressedStates.add(supp.from);
     }
   }
   const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const neverIntervened = declared.filter(id => !intervened.has(id)).sort(cmp);
   const neverExecuted = declared.filter(id => !executed.has(id)).sort(cmp);
+  const suppressedList = [...suppressed.values()]
+    .map(b => ({ check: b.check, occurrences: b.occurrences, by: [...b.by].sort(cmp), suppressedStates: [...b.suppressedStates].sort(cmp) }))
+    .sort((a, b) => cmp(a.check, b.check));
+  const advice = neverIntervened.length
+    ? 'These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. '
+      + 'Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence.'
+    : 'Every declared check has intervened at least once.';
   return {
     scope: 'catalog checks in the harness ledger (hook gates are audited by .claude/scripts/gate-audit.sh)',
     gateRuns,
     declaredChecks: declared.length,
     neverIntervened,
     neverExecuted,
-    advice: neverIntervened.length
-      ? 'These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. '
-        + 'Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence.'
-      : 'Every declared check has intervened at least once.',
+    suppressed: suppressedList,
+    advice: suppressedList.length
+      ? advice + ' Separately, ' + suppressedList.length + ' check(s) were suppressed rather than silent: see suppressed[].'
+      : advice,
   };
 }
 
-/** `gate-audit` subcommand: report only, always exit 0 (no catalog -> 3). */
+/**
+ * `gate-audit` subcommand: report only, exit 0 (no catalog -> 3, unreadable ledger -> 3).
+ * An unreadable ledger cannot answer "which gate never caught anything", and answering it
+ * from an empty list would report every check as never-executed -- a confident wrong answer.
+ */
 function cmdGateAudit(flags) {
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }
-  return emit({ ok: true, ...auditGates(readLedger(), loaded.catalog) }, 0);
+  const state = readLedgerState();
+  if (state.unreadable) {
+    process.stderr.write('gate-audit cannot read the ledger (' + state.unreadable
+      + '); with no history there is nothing to audit, and an empty history would read as "no check ever ran"\n');
+    return emit({ ok: false, degraded: true, error: 'ledger-unreadable', detail: state.unreadable }, 3);
+  }
+  return emit({ ok: true, ...auditGates(state.entries, loaded.catalog) }, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -468,10 +734,33 @@ function intFlag(v, dflt) {
 }
 
 /**
+ * Whether a sweep is allowed to run at all. The protected set is derived from the ledger,
+ * so a ledger that cannot be read or does not verify makes that set unknown -- and an
+ * unknown protected set treated as an empty one is exactly how a pruning tool deletes the
+ * only proof behind a recorded green. Pure.
+ * @returns {{reason:string,detail:string}|null}
+ */
+function retentionRefusal(unreadable, chain) {
+  if (unreadable) return { reason: 'ledger-unreadable', detail: unreadable };
+  if (chain && !chain.ok) {
+    const first = chain.breaks[0];
+    return {
+      reason: 'ledger-chain-broken',
+      detail: chain.breaks.length + ' break(s), first at line ' + first.line + ': ' + first.reason,
+    };
+  }
+  return null;
+}
+
+/**
  * `retention` subcommand: prune evidence logs and context packs by age and count.
  * Dry-run by default -- it reports what it would remove and removes nothing until --apply,
  * because a pruning tool that deletes on the first accidental invocation is worse than the
- * pile it cleans. Exit 0, or 1 if --apply could not remove something it planned to.
+ * pile it cleans. The chain is verified first and a bad one stops the sweep in both modes:
+ * with the protected set unknown even the dry-run plan would be wrong, and a plan that
+ * names protected files is what the next --apply acts on.
+ * Exit 0, 1 if --apply could not remove something it planned to, 3 if the ledger could not
+ * establish what is protected.
  */
 function cmdRetention(flags) {
   const apply = flags.apply === true || flags.apply === 'true';
@@ -479,7 +768,27 @@ function cmdRetention(flags) {
   const maxEvidence = intFlag(flags['max-evidence'], 400);
   const maxPacks = intFlag(flags['max-packs'], 60);
   const cutoffMs = Date.now() - maxAgeDays * 86400000;
-  const protectedPaths = ledgerReferencedEvidence(readLedger());
+  const limits = { maxAgeDays, maxEvidence, maxPacks };
+  const dirs = {
+    evidence: relFromRoot(evidenceDir()),
+    // context-pack currently streams to stdout rather than writing packs to disk, so this
+    // sweep is a no-op until packs land here. Wired now so the disposal rule does not have
+    // to be remembered later.
+    contextPacks: relFromRoot(contextPackDir()),
+  };
+
+  const state = readLedgerState();
+  const refused = retentionRefusal(state.unreadable, state.unreadable ? null : verifyLedgerChain(state.entries));
+  if (refused) {
+    process.stderr.write('retention refused to sweep: ' + refused.reason + ' (' + refused.detail + ')\n');
+    process.stderr.write('the set of files the ledger protects cannot be established, and an unknown '
+      + 'protected set is not an empty one; nothing was removed\n');
+    return emit({
+      ok: false, applied: apply, refused, candidates: 0, removed: 0, protectedByLedger: null,
+      limits, dirs, plan: [], errors: [],
+    }, 3);
+  }
+  const protectedPaths = ledgerReferencedEvidence(state.entries);
 
   const plan = [
     ...planRetention(listDirFiles(evidenceDir()), { protectedPaths, keep: maxEvidence, cutoffMs }),
@@ -498,17 +807,12 @@ function cmdRetention(flags) {
   return emit({
     ok: errors.length === 0,
     applied: apply,
+    refused: null,
     candidates: plan.length,
     removed,
     protectedByLedger: protectedPaths.size,
-    limits: { maxAgeDays, maxEvidence, maxPacks },
-    dirs: {
-      evidence: relFromRoot(evidenceDir()),
-      // context-pack currently streams to stdout rather than writing packs to disk, so
-      // this sweep is a no-op until packs land here. Wired now so the disposal rule does
-      // not have to be remembered later.
-      contextPacks: relFromRoot(contextPackDir()),
-    },
+    limits,
+    dirs,
     plan: plan.slice(0, 100),
     errors,
   }, errors.length === 0 ? 0 : 1);
@@ -536,12 +840,33 @@ function readWaiverFiles() {
 /**
  * Decay scan over injected state (pure, so selftest can construct each finding without a
  * repository). Error severity closes the exit code; warnings are reported and do not.
- * @param {{ledgerEntries?:Array,catalog?:Object|null,waivers?:Array,task?:Object|null,
+ * @param {{ledgerEntries?:Array,ledgerUnreadable?:string|null,evidenceBreaks?:Array,
+ *          catalog?:Object|null,waivers?:Array,task?:Object|null,
  *          fastActive?:boolean,now?:number}} [input]
  */
-function riskFindings({ ledgerEntries = [], catalog = null, waivers = [], task = null,
-  fastActive = false, now = Date.now() } = {}) {
+function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBreaks = [],
+  catalog = null, waivers = [], task = null, fastActive = false, now = Date.now() } = {}) {
   const findings = [];
+
+  if (ledgerUnreadable) {
+    findings.push({
+      severity: 'error', code: 'LEDGER_UNREADABLE',
+      message: 'the verification ledger exists but could not be read (' + ledgerUnreadable
+        + '); nothing recorded in it can be checked, and an unreadable ledger is not an intact one',
+    });
+  }
+
+  for (const b of (evidenceBreaks || [])) {
+    findings.push({
+      severity: 'error',
+      code: b.reason === 'evidence-missing' ? 'EVIDENCE_MISSING' : 'EVIDENCE_TAMPERED',
+      check: b.check === undefined ? null : b.check,
+      message: 'the evidence log for check "' + b.check + '" (' + b.evidence + ') '
+        + (b.reason === 'evidence-missing'
+          ? 'is gone, so the recorded digest proves nothing about a file nobody can read'
+          : 'no longer matches the digest recorded beside it, so its verdict rests on output that has since changed'),
+    });
+  }
 
   const chain = verifyLedgerChain(ledgerEntries);
   if (!chain.ok) {
@@ -580,22 +905,43 @@ function riskFindings({ ledgerEntries = [], catalog = null, waivers = [], task =
   }
 
   // Consecutive failures per check over the recent ledger. A PASS resets the streak; a
-  // BLOCKED or SKIPPED result establishes nothing either way and leaves it alone.
+  // BLOCKED or SKIPPED result establishes nothing either way and leaves it alone. A failure
+  // a waiver rewrote to SKIPPED still counts: the check failed, the waiver decided to carry
+  // it, and a streak that stops being counted the moment it is waived is a streak that can
+  // run forever without anyone hearing about it.
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const streak = new Map();
+  const suppressedFails = new Map();
   for (const e of ledgerEntries.slice(-30)) {
     if (!e || e.corrupt || e.command !== 'gate') continue;
     for (const r of (e.results || [])) {
-      if (r.state === 'FAIL') streak.set(r.id, (streak.get(r.id) || 0) + 1);
-      else if (r.state === 'PASS') streak.set(r.id, 0);
+      const supp = (r && r.suppressed) ? r.suppressed : null;
+      const state = (supp && supp.from) ? supp.from : r.state;
+      if (state === 'FAIL') streak.set(r.id, (streak.get(r.id) || 0) + 1);
+      else if (state === 'PASS') streak.set(r.id, 0);
+      if (supp && (supp.from === 'FAIL' || supp.from === 'BLOCKED')) {
+        suppressedFails.set(r.id, (suppressedFails.get(r.id) || 0) + 1);
+      }
     }
   }
-  const streakIds = [...streak.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const streakIds = [...streak.keys()].sort(cmp);
   for (const id of streakIds) {
     const n = streak.get(id);
     if (n < 3) continue;
     findings.push({
       severity: 'warning', code: 'FAIL_STREAK', check: id,
       message: 'check "' + id + '" failed ' + n + ' times in a row; stop re-running it and go find the root cause',
+    });
+  }
+  // Warning, not error: a waiver is a signed, expiring, compensated decision, and making it
+  // fail the exit code would only teach people to stop filing them. It still has to be
+  // visible -- suppression is a state, not the absence of one.
+  for (const id of [...suppressedFails.keys()].sort(cmp)) {
+    const n = suppressedFails.get(id);
+    findings.push({
+      severity: 'warning', code: 'SUPPRESSED_FAILURE', check: id, occurrences: n,
+      message: 'check "' + id + '" failed or blocked ' + n + ' time(s) in the recent ledger and a waiver '
+        + 'rewrote each one to SKIPPED; that failure is deferred, not absent, and the waiver expires',
     });
   }
 
@@ -642,8 +988,11 @@ function riskFindings({ ledgerEntries = [], catalog = null, waivers = [], task =
 function cmdRisk(flags) {
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
   const catalog = loaded.ok ? loaded.catalog : null;
+  const state = readLedgerState();
   const res = riskFindings({
-    ledgerEntries: readLedger(),
+    ledgerEntries: state.entries,
+    ledgerUnreadable: state.unreadable,
+    evidenceBreaks: state.unreadable ? [] : evidenceFindings(state.entries).breaks,
     catalog,
     waivers: readWaiverFiles(),
     task: readTaskRecord(),
@@ -659,11 +1008,12 @@ function cmdRisk(flags) {
 
 export {
   GENESIS,
-  stateDir, ledgerFilePath, taskFilePath, evidenceDir, contextPackDir, relFromRoot,
+  stateDir, ledgerFilePath, ledgerLockPath, taskFilePath, evidenceDir, contextPackDir, relFromRoot,
   writeAtomic, sha256Lf, readJsonFile, readTaskRecord,
-  chainHash, ledgerLine, readLedger, appendLedger, verifyLedgerChain, cmdLedger,
-  buildPlan, evidenceFilePath, runCheckWithEvidence, gateReason, waiversApplied, cmdGate,
+  chainHash, ledgerLine, parseLedgerLines, readLedgerState, endsWithNewline, appendLedger,
+  verifyLedgerChain, evidenceFindings, ledgerReport, cmdLedger,
+  buildPlan, evidenceFilePath, runCheckWithEvidence, gateReason, suppressionOf, waiversApplied, cmdGate,
   auditGates, cmdGateAudit,
-  planRetention, ledgerReferencedEvidence, listDirFiles, cmdRetention,
+  planRetention, ledgerReferencedEvidence, listDirFiles, retentionRefusal, cmdRetention,
   readWaiverFiles, riskFindings, cmdRisk,
 };
