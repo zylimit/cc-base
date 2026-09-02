@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[三十四能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
+[三十五能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
@@ -79,6 +79,7 @@ paths:
     - **archive**：`progress.md` 超预算时把最老的 Done / Notes 条目移进 `progress.archive.md`，原地留一行指针。**默认 dry-run 只报计划，`--apply` 才动**（`--max-entries` 每段上限默认 100，`--file` / `--archive` 可指路径）。**只搬不改写**：条目连同它的续行整块搬走、字节不动，更正是在正文写新条目而不是回去改旧的。哪一端算「老」由日期读出来而不是拍脑袋（newest-first 搬尾巴、oldest-first 搬头，读不出来按尾巴并写明），猜反了会把最新的工作归掉档。写盘顺序是先 archive 后 progress——中间崩了条目在两边都在，读得见也修得回；反过来就丢了。Pinned 与 TODO 永不归档（还在生效的东西藏起来是反的）。以前归档留下的指针行不计入条目数、也不再被搬第二次。无 `progress.md` rc 3。
     - **sync-check**：三文件同步铁律的机器判定。`MEMORY_BEHIND_CODE`（有代码/家底改动但 `progress.md` 不在同一改动集里）/ `SPEC_WITHOUT_CHANGELOG`（`Product-Spec.md` 变了而 `Product-Spec-CHANGELOG.md` 没变）。`--staged` 判索引（供 git hook 用），无参判工作树。运行态（`.claude/evidence|harness/state|...`）、`node_modules`、纯文档不算「该被记住的改动」——那种误报会让人把闸关掉。仓里没有 `progress.md` 就不报 MEMORY_BEHIND_CODE（不存在的不强造）。**它只能判「文件动没动在一起」，判不了写下来的是不是真的**，findings 说到这儿为止。同步 rc 0 / 不同步 rc 1 / 非 git 或索引读不出来 rc 3。
     - **rules-audit**：宪法审计——扫 `.claude/CLAUDE.md` 与 `.claude/rules/*.md`，每条规则行（列表 / 编号 / 表格行）按能不能落到执法点分四类：**M** 机器强制（行内反引号 token 解析出真实存在的 harness 子命令 / hook / script / test） / **P** 承认靠自觉（行内写明 prompt-only、靠自觉、(P)、[P]——被「不」否定的不算，那是相反的陈述，把机制化过的规则记成没人管的那一类是最糟的读法） / **phantom** 幽灵引用（token 长得就是执法点却不存在：`harness.mjs` 后面跟一个没有的子命令名、引一个不存在的 hook 文件） / **U** 未分类（以上都不是——要最小化的正是这一类）。**只有 phantom 判失败**（rc 1 并点名到 `file:line`）；U 多少不改退出码——那是要人判断的指标不是自动闸，但 stdout 与 stderr 都显著给出（含逐条 file:line 与规则文本前若干字、per-file 分项）。判据**故意保守**：glob / 占位符 / JSON 字段名 / 配置键 / 数据文件一律解析成「什么都不是」，宁可落进 U 也不猜——**误判成 M 就是自动化的幽灵引用，误判成 phantom 会让人去修一条本来没坏的规则**。围栏里的代码块不算规则行（例子不是条款，不然贴一段命令就能刷高自己的比例）。为什么要这个数：2026 有研究报告规则不只是效果差、还会把行为**扭曲**到没人写下来的方向，且指令遵从有数量天花板（条数上升遵从率下降）——所以要压的从来不是字节数，是「指不到任何执法点、又不承认自己指不到」的条数：每条都指向命令的长宪法是健康的，满是劝诫的短宪法不是。
+    - **skills-lint**：SKILL.md frontmatter 闸——frontmatter 一畸形，Claude Code 直接**静默丢弃**这个 skill，坏掉的和从没写过长得一模一样，而丢掉的往往正是那条去执法的 skill，所以这是本仓最贵的静默失败。扫 `.claude/skills/*/SKILL.md` 五件事：① frontmatter 可解析（`---` 围栏成对；键值形态在 CC 实际使用的子集内）② `name` 存在、kebab-case、与所在目录同名 ③ `description` 存在非空且 ≤180 字（与 `.claude/scripts/skill-description-lint.sh` 同一个数——那边管措辞、这边管形状，两半凑一条规则）④ 全体 skill 不重名 ⑤ `disable-model-invocation` / `user-invocable` 这类布尔字段必须是裸 true/false（引号包起来的 "false" 是非空字符串、恒真，读出来的意思和写的正好相反）。**不手搓 YAML 解析器**：子集照 `.claude/harness/audit/check-syntax.mjs` 划（判得最狠的一条是裸值里不许有 `": "`——loader 会连整份文档一起拒），超出子集的形态（缩进续行 / 块标量 / 流式集合 / 锚点）报「无法判定」走 rc 3，不静默接受也不误判为错。三档分得清：干净 rc 0；有 finding rc 1（点名到 `file:line` + 判据代号）；该扫没扫成 rc 3（目录在却读不了 / 文件读不了 / 形态判不了）。**没有 skills 目录 rc 0**——本框架装进不带 skill 的项目是常态不是故障；**目录在但一个 SKILL.md 都没有也是 rc 0**，归 note 不归降级，输出里 `listed` / `inScope` 两个数都在（「没东西可扫」和「扫了没扫成」不共用一个退出码）。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -129,6 +130,7 @@ paths:
     | archive | 报告或归档完成 | --apply 写盘失败 | — | 无 progress.md | — |
     | sync-check | 同步 | 不同步（点名 findings） | — | 非 git / 索引读不出来 | — |
     | rules-audit | 无幽灵引用 | 有幽灵引用 | — | 无规则文档 | — |
+    | skills-lint | 干净 / 无 skills 目录 / 无 SKILL.md | 有 finding | — | 目录或文件读不了 / 形态无法判定 | — |
     | unknown / missing | — | — | — | 总是 | — |
 
     要点：

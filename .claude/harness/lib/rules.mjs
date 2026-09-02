@@ -397,8 +397,328 @@ function cmdRulesAudit(flags = {}, subcommands = []) {
   }, phantomRules.length === 0 ? 0 : 1);
 }
 
+// ===========================================================================
+// S23 skills-lint: the frontmatter that decides whether a skill is loaded at all
+// ===========================================================================
+//
+// A SKILL.md whose frontmatter is malformed is reported nowhere: Claude Code drops the
+// skill and says nothing, so a broken one is indistinguishable from one nobody wrote. That
+// is the most expensive silence in this repository, because what stops running is the thing
+// that was supposed to enforce something -- and the constitution keeps pointing at it. This
+// command's whole job is to turn that silence into a red.
+//
+// There is no YAML parser here, on purpose: hand-rolling one is how a checker ends up
+// disagreeing with the loader it is supposed to predict. The subset is drawn tight around
+// what Claude Code frontmatter actually uses -- top-level `key: value`, plain or quoted --
+// and any shape outside it is reported undecidable and costs exit 3. Declining to rule is
+// honest; guessing in either direction is not. The same line was drawn for the audit layer
+// in .claude/harness/audit/check-syntax.mjs and the judgements here match it, the sharpest
+// one being that a plain value may not contain ": " -- the loader rejects the whole
+// document, and a description with one ASCII colon in it is the likeliest way a skill in
+// this repository breaks itself. The two files do not import each other: the audit layer
+// deliberately does not reach into the engine, and the engine tying its exit codes to a
+// script it does not ship with would be the same mistake in reverse.
+
+const SKILLS_DIR = path.join('.claude', 'skills');
+const SKILL_FILE = 'SKILL.md';
+
+// The same number .claude/scripts/skill-description-lint.sh enforces. That script owns the
+// wording half of the rule (trigger-shaped opening, no process-summary prose); this one owns
+// the shape the loader parses. Two halves of one rule, so the budget has to agree -- a skill
+// passing one gate and failing the other is a rule nobody can act on.
+const DESCRIPTION_BUDGET = 180;
+
+const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+// Flags whose value the loader reads as a boolean. A quoted "false" is a non-empty string,
+// which is truthy, so the flag reads as SET while its text says the opposite.
+const BOOLEAN_KEYS = ['disable-model-invocation', 'user-invocable'];
+const FM_KEY_RE = /^([A-Za-z_][A-Za-z0-9_.-]*)\s*:(?:\s+(.*))?$/;
+const BLOCK_SCALAR_RE = /^[|>][+-]?[0-9]*$/;
+
+/** Index just past the closing quote on this line, or -1 when the scalar does not close here. */
+function closingQuote(s, ch) {
+  for (let i = 1; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (ch === '"') {
+      if (c === '\\') { i++; continue; }
+      if (c === '"') return i + 1;
+    } else if (c === "'") {
+      if (s.charAt(i + 1) === "'") { i++; continue; }
+      return i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Judge one value after `key:`. Pure.
+ * @returns {{kind:'ok'|'error'|'undecidable', value?:string, quoted?:boolean, raw?:string, reason?:string}}
+ */
+function scalarValue(raw, n) {
+  const v = String(raw);
+  if (v === '') return { kind: 'ok', value: '', quoted: false, raw: v };
+  const ch = v.charAt(0);
+  if (ch === '"' || ch === "'") {
+    const close = closingQuote(v, ch);
+    if (close < 0) {
+      return { kind: 'undecidable', reason: 'line ' + n + ' opens a quoted value that does not close on the same line; a multi-line scalar is outside the subset this lint rules on' };
+    }
+    const rest = v.slice(close).trim();
+    if (rest !== '' && !rest.startsWith('#')) {
+      return { kind: 'error', reason: 'line ' + n + ' has text after the closing quote, which the loader rejects: ' + clip(rest, 40) };
+    }
+    const inner = v.slice(1, close - 1);
+    return { kind: 'ok', quoted: true, raw: v, value: ch === '"' ? inner.replace(/\\"/g, '"') : inner.replace(/''/g, "'") };
+  }
+  if (BLOCK_SCALAR_RE.test(v)) {
+    return { kind: 'undecidable', reason: 'line ' + n + ' opens a block scalar; its body is outside the subset this lint rules on' };
+  }
+  if (ch === '{' || ch === '[') {
+    return { kind: 'undecidable', reason: 'line ' + n + ' uses a flow collection; outside the subset this lint rules on' };
+  }
+  if (ch === '&' || ch === '*' || ch === '!') {
+    return { kind: 'undecidable', reason: 'line ' + n + ' uses an anchor, alias or tag; outside the subset this lint rules on' };
+  }
+  if (/^[@`%]/.test(v)) {
+    return { kind: 'error', reason: 'line ' + n + ' starts a plain value with the reserved indicator ' + ch + '; the loader rejects it unless the value is quoted' };
+  }
+  if (/^-(\s|$)/.test(v)) {
+    return { kind: 'error', reason: 'line ' + n + ' starts a plain value with "- ", which YAML reads as a sequence entry' };
+  }
+  if (/^[|>]/.test(v)) {
+    return { kind: 'error', reason: 'line ' + n + ' has a malformed block scalar header; the indicator must stand alone on the line' };
+  }
+  if (/:(\s|$)/.test(v)) {
+    return { kind: 'error', reason: 'line ' + n + ' puts ": " inside a plain value; YAML reads that as a second mapping key and rejects the document -- quote the value: ' + clip(v, 40) };
+  }
+  return { kind: 'ok', value: v, quoted: false, raw: v };
+}
+
+/**
+ * Parse the frontmatter block of one SKILL.md into top-level fields. Pure.
+ * @returns {{kind:'ok', fields:Object}|{kind:'error', code:string, reason:string, line:number}
+ *           |{kind:'undecidable', reason:string, line:number}}
+ */
+function parseFrontmatter(text) {
+  const lines = String(text).replace(/^\uFEFF/, '').split('\n').map(l => l.replace(/\r$/, ''));
+  if (lines[0] !== '---') {
+    return { kind: 'error', code: 'NO_FRONTMATTER', line: 1, reason: 'the file does not open with "---", so the loader reads no frontmatter and never registers the skill' };
+  }
+  let end = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === '---') { end = i; break; }
+  }
+  if (end < 0) {
+    return { kind: 'error', code: 'UNTERMINATED_FRONTMATTER', line: 1, reason: 'the frontmatter block opened on line 1 is never closed by a second "---"' };
+  }
+  const fields = {};
+  let count = 0;
+  for (let i = 1; i < end; i++) {
+    const raw = lines[i];
+    const n = i + 1;
+    const trimmed = raw.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+    // Indentation means a nested map, a list item or a scalar continued across lines. None
+    // of the three appear in this repository's skills, and each needs a parser this file
+    // deliberately does not have, so the honest answer is that it was not ruled on.
+    if (/^[ \t]/.test(raw)) {
+      return { kind: 'undecidable', line: n, reason: 'line ' + n + ' is indented; nested maps, list items and multi-line scalars are outside the subset this lint rules on' };
+    }
+    const m = FM_KEY_RE.exec(raw);
+    if (!m) {
+      return { kind: 'error', code: 'MALFORMED_LINE', line: n, reason: 'line ' + n + ' is not a "key: value" pair, and at the top level of the block nothing else is legal: ' + clip(trimmed, 40) };
+    }
+    const res = scalarValue(String(m[2] === undefined ? '' : m[2]).trim(), n);
+    if (res.kind === 'error') return { kind: 'error', code: 'MALFORMED_VALUE', line: n, reason: res.reason };
+    if (res.kind === 'undecidable') return { kind: 'undecidable', line: n, reason: res.reason };
+    count++;
+    // A repeated key is last-one-wins in every YAML reader this has to predict, so the last
+    // value is the one the loader sees and therefore the one worth judging.
+    fields[m[1]] = { value: res.value, quoted: !!res.quoted, raw: res.raw, line: n };
+  }
+  if (count === 0) {
+    return { kind: 'error', code: 'EMPTY_FRONTMATTER', line: 1, reason: 'the frontmatter block holds no keys, so the skill has neither a name nor a description to be loaded by' };
+  }
+  return { kind: 'ok', fields };
+}
+
+/**
+ * Lint one SKILL.md. The directory name is passed in rather than derived, because the
+ * question this asks is whether the declared name and the directory agree.
+ * Pure.
+ */
+function lintSkillFile(dirName, relFile, text) {
+  const findings = [];
+  const undecidable = [];
+  const parsed = parseFrontmatter(text);
+  if (parsed.kind === 'undecidable') {
+    undecidable.push({ at: relFile + ':' + parsed.line, reason: parsed.reason });
+    return { findings, undecidable, name: null, descriptionChars: null };
+  }
+  if (parsed.kind === 'error') {
+    findings.push({ at: relFile + ':' + parsed.line, code: parsed.code, detail: parsed.reason });
+    return { findings, undecidable, name: null, descriptionChars: null };
+  }
+  const fields = parsed.fields;
+  const at = (f) => relFile + ':' + (f ? f.line : 1);
+
+  const nameField = fields.name;
+  const name = nameField ? String(nameField.value).trim() : '';
+  if (!name) {
+    findings.push({ at: at(nameField), code: 'MISSING_NAME', detail: 'no name in the frontmatter; the loader has nothing to register the skill under' });
+  } else if (!NAME_RE.test(name)) {
+    findings.push({ at: at(nameField), code: 'BAD_NAME', detail: 'name "' + clip(name, 40) + '" is not kebab-case (^[a-z0-9]+(-[a-z0-9]+)*$)' });
+  } else if (name !== dirName) {
+    findings.push({ at: at(nameField), code: 'NAME_MISMATCH', detail: 'name "' + name + '" is not the directory it lives in ("' + dirName + '"); the two are read as different skills' });
+  }
+
+  const descField = fields.description;
+  const description = descField ? String(descField.value).trim() : '';
+  let descriptionChars = null;
+  if (!description) {
+    findings.push({ at: at(descField), code: 'MISSING_DESCRIPTION', detail: 'no description in the frontmatter; nothing tells the model when this skill applies' });
+  } else {
+    // Code points, matching the character count skill-description-lint.sh measures.
+    descriptionChars = Array.from(description).length;
+    if (descriptionChars > DESCRIPTION_BUDGET) {
+      findings.push({ at: at(descField), code: 'LONG_DESCRIPTION', detail: 'description is ' + descriptionChars + ' characters, over the budget of ' + DESCRIPTION_BUDGET });
+    }
+  }
+
+  for (const key of BOOLEAN_KEYS) {
+    const f = fields[key];
+    if (!f) continue;
+    const v = String(f.value);
+    if (f.quoted || (v !== 'true' && v !== 'false')) {
+      findings.push({
+        at: at(f), code: 'STRING_BOOLEAN',
+        detail: key + ' is ' + (f.quoted ? 'a quoted string' : 'not a bare true/false') + ' (' + clip(String(f.raw), 30) + '); a non-empty string is truthy, so the flag reads as set whatever it says',
+      });
+    }
+  }
+
+  return { findings, undecidable, name: name || null, descriptionChars };
+}
+
+/** The error text worth reporting: the code when there is one, the message otherwise. */
+function errText(e) {
+  return String((e && e.code) || (e && e.message) || e);
+}
+
+/**
+ * Walk .claude/skills and lint every SKILL.md under it. Reads the filesystem; the root is a
+ * parameter so a fixture tree can be scanned without moving the process.
+ */
+function scanSkills(root = projectRoot()) {
+  const rel = SKILLS_DIR.split(path.sep).join('/');
+  const abs = path.join(root, SKILLS_DIR);
+  const out = { dir: rel, present: false, listed: 0, inScope: 0, skills: [], findings: [], undecidable: [], unreadable: [] };
+  let entries;
+  try {
+    entries = fs.readdirSync(abs, { withFileTypes: true });
+  } catch (e) {
+    // No directory is a normal state -- this framework installs into projects that carry no
+    // skills of their own. A directory that is there and cannot be listed is the other
+    // answer entirely: the scan did not happen, and saying nothing was wrong would be a
+    // claim about files nobody opened.
+    if (e && e.code === 'ENOENT') return out;
+    out.present = true;
+    out.unreadable.push({ at: rel, reason: 'the skills directory could not be listed: ' + errText(e) });
+    return out;
+  }
+  out.present = true;
+  const names = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name).sort();
+  for (const dirName of names) {
+    out.listed++;
+    const relFile = rel + '/' + dirName + '/' + SKILL_FILE;
+    let text;
+    try {
+      text = fs.readFileSync(path.join(abs, dirName, SKILL_FILE), 'utf8');
+    } catch (e) {
+      // A directory holding no SKILL.md holds no skill: it is listed and out of scope, not
+      // a defect this command was asked to name.
+      if (e && e.code === 'ENOENT') continue;
+      out.unreadable.push({ at: relFile, reason: 'the file could not be read: ' + errText(e) });
+      continue;
+    }
+    out.inScope++;
+    const r = lintSkillFile(dirName, relFile, text);
+    for (const f of r.findings) out.findings.push(f);
+    for (const u of r.undecidable) out.undecidable.push(u);
+    out.skills.push({ dir: dirName, file: relFile, name: r.name, descriptionChars: r.descriptionChars });
+  }
+
+  // A duplicate name is invisible in any single file: both are well-formed, and only one of
+  // them ends up being the skill that answers.
+  const byName = new Map();
+  for (const s of out.skills) {
+    if (!s.name) continue;
+    if (!byName.has(s.name)) byName.set(s.name, []);
+    byName.get(s.name).push(s);
+  }
+  for (const [name, group] of byName) {
+    if (group.length < 2) continue;
+    const dirs = group.map(s => s.dir).join(', ');
+    for (const s of group) {
+      out.findings.push({ at: s.file + ':1', code: 'DUPLICATE_NAME', detail: 'name "' + name + '" is claimed by ' + group.length + ' skills (' + dirs + '); only one of them can be the skill that answers' });
+    }
+  }
+  return out;
+}
+
+/** The single sentence that says what this run established. Pure. */
+function skillsNote(r) {
+  if (!r.present) return 'no skills directory (' + r.dir + '); a checkout without skills is a normal state, not a failure';
+  if (r.unreadable.length > 0) return 'part of the scope could not be read; not checked is not the same as clean';
+  if (r.inScope === 0) return 'nothing-in-scope:listed=' + r.listed + ' in-scope=0 (no ' + SKILL_FILE + ' under ' + r.dir + ')';
+  if (r.findings.length > 0) return 'a skill whose frontmatter reads like this is dropped in silence by the loader; as written it is not being loaded';
+  if (r.undecidable.length > 0) return 'a frontmatter shape outside the decidable subset was not ruled on; declining to rule is not the same as passing';
+  return 'every ' + SKILL_FILE + ' frontmatter parses, names itself after its directory and stays inside the description budget';
+}
+
+function cmdSkillsLint(flags = {}) {
+  const r = scanSkills(projectRoot());
+  const limit = positiveInt(flags.limit, DEFAULT_LIMIT);
+  for (const f of r.findings.slice(0, limit)) {
+    process.stderr.write('SKILL ' + f.at + '  ' + f.code + '  ' + f.detail + '\n');
+  }
+  for (const u of r.undecidable) {
+    process.stderr.write('UNDECIDABLE ' + u.at + '  ' + u.reason + '\n');
+  }
+  for (const u of r.unreadable) {
+    process.stderr.write('UNREADABLE ' + u.at + '  ' + u.reason + '\n');
+  }
+  const degraded = r.undecidable.length + r.unreadable.length > 0;
+  process.stderr.write('skills listed ' + r.listed + '  in-scope ' + r.inScope
+    + '  findings ' + r.findings.length
+    + '  undecidable ' + r.undecidable.length
+    + '  unreadable ' + r.unreadable.length + '\n');
+  // A finding outranks a degradation: it is the more actionable answer, and it is the one
+  // a caller can block on. Nothing in scope is neither -- a tree with no skills in it is
+  // not a tree whose skills are broken.
+  const code = r.findings.length > 0 ? 1 : (degraded ? 3 : 0);
+  return emit({
+    ok: r.findings.length === 0 && !degraded,
+    dir: r.dir,
+    skillsDirPresent: r.present,
+    listed: r.listed,
+    inScope: r.inScope,
+    degraded,
+    skills: r.skills.slice(0, limit),
+    skillsOmitted: Math.max(0, r.skills.length - limit),
+    findings: r.findings.slice(0, limit),
+    findingsOmitted: Math.max(0, r.findings.length - limit),
+    undecidable: r.undecidable,
+    unreadable: r.unreadable,
+    descriptionBudget: DESCRIPTION_BUDGET,
+    note: skillsNote(r),
+  }, code);
+}
+
 export {
   RULES_DOC, RULES_DIR, POINT_DIRS, POINT_EXTS, PROMPT_MARKERS, RUNNERS, TEXT_BUDGET,
   ruleLineText, backtickTokens, admitsPromptOnly, collectPoints, normalizeWord, looksExecutable,
   classifyToken, classifyRuleLine, ruleDocs, clip, auditDoc, tally, positiveInt, cmdRulesAudit,
+  SKILLS_DIR, SKILL_FILE, DESCRIPTION_BUDGET, BOOLEAN_KEYS,
+  scalarValue, parseFrontmatter, lintSkillFile, scanSkills, skillsNote, cmdSkillsLint,
 };

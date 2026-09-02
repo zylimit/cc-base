@@ -51,13 +51,13 @@ import { cmdBudget, cmdTask } from './lib/task.mjs';
 import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
 import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
 import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.mjs';
-import { cmdRulesAudit } from './lib/rules.mjs';
+import { cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 /**
@@ -124,6 +124,7 @@ function main() {
     case 'archive':      return cmdArchive(flags);
     case 'sync-check':   return cmdSyncCheck(flags);
     case 'rules-audit':  return cmdRulesAudit(flags, IMPLEMENTED_SUBCOMMANDS);
+    case 'skills-lint':  return cmdSkillsLint(flags);
     default:
       return die(usage(cmd), 3);
   }
@@ -159,6 +160,7 @@ function usage(cmd) {
     '  archive     move the oldest entries out of the memory file verbatim; --apply to write\n' +
     '  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)\n' +
     '  rules-audit which rule lines reach a real enforcement point, and which only read as if they do\n' +
+    '  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

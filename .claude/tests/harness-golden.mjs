@@ -341,6 +341,14 @@ const COMMANDS = [
   // never read would be the exact failure the command exists to name.
   { id: 'rules-audit', argv: ['rules-audit'] },
 
+  // S23. Same tree, opposite contract: the sandbox carries no .claude/skills either, and
+  // that is a state this framework installs into all the time, so the answer pinned here is
+  // exit 0 with the absence stated. "No skills directory" and "no skill parsed" have to stay
+  // two different answers -- a lint that degraded on every project without skills would be
+  // switched off by the first person who saw it, and one that called the absence clean would
+  // be claiming something about files nobody opened.
+  { id: 'skills-lint', argv: ['skills-lint'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -768,7 +776,7 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
-  + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit';
+  + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

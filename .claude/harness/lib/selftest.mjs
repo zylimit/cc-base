@@ -3,6 +3,7 @@
 // in harness.mjs runs them. Imports from every other module, and nothing imports this one.
 
 import assert from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -49,8 +50,8 @@ import {
   renderView, sectionEntries, stateLines, syncFindings,
 } from './memory.mjs';
 import {
-  admitsPromptOnly, auditDoc, backtickTokens, classifyRuleLine, classifyToken, ruleLineText,
-  tally,
+  DESCRIPTION_BUDGET, admitsPromptOnly, auditDoc, backtickTokens, classifyRuleLine, classifyToken,
+  lintSkillFile, parseFrontmatter, ruleLineText, scanSkills, tally,
 } from './rules.mjs';
 
 /**
@@ -2006,6 +2007,145 @@ function selftestCases() {
       assert.deepEqual(tally([]).ratio.machine, 0, 'no rules is not a division by zero');
     }],
 
+    // S23 frontmatter -- the parse is shy in one direction only. A shape outside the subset
+    // costs exit 3, which is loud; calling it fine would be the silent drop this command
+    // exists to stop, and calling it broken would send someone to repair valid YAML.
+    ['skills-lint: frontmatter parses, refuses, or declines to rule', () => {
+      const fm = (...body) => parseFrontmatter(['---', ...body, '---', '', '# Body', ''].join('\n'));
+      const ok = fm('name: demo-skill', '# a comment', '', 'description: when the user asks', 'user-invocable: false');
+      assert.equal(ok.kind, 'ok');
+      assert.deepEqual(Object.keys(ok.fields), ['name', 'description', 'user-invocable']);
+      assert.deepEqual(ok.fields.description.value, 'when the user asks');
+      assert.deepEqual(fm('name: "quoted-name"').fields.name.value, 'quoted-name');
+      assert.deepEqual(fm('name: "quoted-name"').fields.name.quoted, true);
+
+      const verdict = r => (r.kind === 'ok' ? 'ok' : (r.kind === 'undecidable' ? 'undecidable' : r.code));
+      assert.deepEqual(verdict(parseFrontmatter('name: demo-skill\n')), 'NO_FRONTMATTER',
+        'a file that does not open with --- is never registered as a skill');
+      assert.deepEqual(verdict(parseFrontmatter('---\nname: demo-skill\n')), 'UNTERMINATED_FRONTMATTER');
+      assert.deepEqual(verdict(fm('# only a comment')), 'EMPTY_FRONTMATTER');
+      assert.deepEqual(verdict(fm('description: trigger: when the user asks')), 'MALFORMED_VALUE',
+        'a plain value carrying ": " makes the loader reject the whole document');
+      assert.deepEqual(verdict(fm('description: "trigger: quoted is fine"')), 'ok');
+      assert.deepEqual(verdict(fm('description: - not a list')), 'MALFORMED_VALUE');
+      assert.deepEqual(verdict(fm('just some prose')), 'MALFORMED_LINE');
+      assert.deepEqual(verdict(fm('name: demo-skill', '  nested: value')), 'undecidable');
+      assert.deepEqual(verdict(fm('description: >')), 'undecidable', 'a block scalar body is not ruled on');
+      assert.deepEqual(verdict(fm('allowed-tools: [Read, Edit]')), 'undecidable');
+      assert.deepEqual(verdict(fm('description: "opened and never closed')), 'undecidable');
+    }],
+
+    // S23 the five judgements -- each one is a way the loader ends up with a skill that is
+    // not the skill somebody wrote, and none of them is reported anywhere else.
+    ['skills-lint: name, description and the boolean that is really a string', () => {
+      const doc = (...body) => ['---', ...body, '---', '', '# Body', ''].join('\n');
+      const codes = (dir, text) => lintSkillFile(dir, '.claude/skills/' + dir + '/SKILL.md', text).findings.map(f => f.code);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: when the user asks for a demo')), []);
+      assert.deepEqual(codes('demo-skill', doc('description: when the user asks')), ['MISSING_NAME']);
+      assert.deepEqual(codes('demo-skill', doc('name: Demo_Skill', 'description: when the user asks')), ['BAD_NAME']);
+      assert.deepEqual(codes('demo-skill', doc('name: other-skill', 'description: when the user asks')), ['NAME_MISMATCH'],
+        'the directory and the declared name are read as two different skills');
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill')), ['MISSING_DESCRIPTION']);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: ' + 'x'.repeat(DESCRIPTION_BUDGET))), [],
+        'the budget is inclusive');
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: ' + 'x'.repeat(DESCRIPTION_BUDGET + 1))), ['LONG_DESCRIPTION']);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: d', 'disable-model-invocation: true')), []);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: d', 'disable-model-invocation: "false"')), ['STRING_BOOLEAN'],
+        'a quoted false is a non-empty string, so the flag reads as set while its text says the opposite');
+      assert.deepEqual(codes('demo-skill', doc('name: Nope', 'user-invocable: yes')), ['BAD_NAME', 'MISSING_DESCRIPTION', 'STRING_BOOLEAN'],
+        'one file may be wrong in more than one way, and each way is named');
+      const counted = lintSkillFile('demo-skill', 'f', doc('name: demo-skill', 'description: \u4e00\u4e8c\u4e09'));
+      assert.deepEqual(counted.descriptionChars, 3, 'characters, not bytes -- the same count skill-description-lint.sh makes');
+    }],
+
+    // S23 the scan -- a duplicate name is the one defect no single file can show, and a
+    // directory with no SKILL.md is out of scope rather than broken.
+    ['skills-lint: a duplicate name is invisible in either file on its own', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-'));
+      try {
+        writeSkill(root, 'alpha', ['name: alpha', 'description: when the user asks for alpha']);
+        writeSkill(root, 'beta', ['name: alpha', 'description: when the user asks for beta']);
+        fs.mkdirSync(path.join(root, '.claude', 'skills', 'no-skill-file'), { recursive: true });
+        const r = scanSkills(root);
+        assert.deepEqual(r.listed, 3, 'a directory with no SKILL.md is still listed');
+        assert.deepEqual(r.inScope, 2, 'and out of scope, because it holds no skill to lint');
+        // The mismatch rides along by construction: two directories cannot share a name, so
+        // a duplicate always means at least one file disagrees with its own directory. What
+        // the duplicate adds is the pair -- the mismatch alone never names the other file.
+        assert.deepEqual(r.findings.map(f => f.code), ['NAME_MISMATCH', 'DUPLICATE_NAME', 'DUPLICATE_NAME']);
+        assert.deepEqual(r.findings.slice(1).map(f => f.at.split('/')[2]), ['alpha', 'beta']);
+        assert.ok(r.findings[1].detail.includes('alpha, beta'), 'the finding names both claimants');
+        assert.deepEqual(r.undecidable.length + r.unreadable.length, 0);
+
+        const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-'));
+        try {
+          fs.mkdirSync(path.join(empty, '.claude', 'skills'), { recursive: true });
+          const e = scanSkills(empty);
+          assert.deepEqual([e.present, e.listed, e.inScope, e.findings.length], [true, 0, 0, 0]);
+          const absent = scanSkills(path.join(empty, 'nowhere'));
+          assert.deepEqual([absent.present, absent.listed, absent.inScope], [false, 0, 0],
+            'no skills directory is a state this framework installs into, not a failure');
+        } finally {
+          fs.rmSync(empty, { recursive: true, force: true });
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
+
+    // S23 the exit codes, end to end. Four answers share this command and none of them may
+    // be read off another: clean, a finding, a scope that was not ruled on, and nothing to
+    // rule on at all. The engine is spawned by absolute interpreter path -- the golden
+    // sandbox pins PATH to git's directory plus /usr/bin:/bin, which need not hold a node.
+    ['skills-lint: clean, finding, degraded and nothing-in-scope are four different answers', () => {
+      const roots = [];
+      const mk = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-')); roots.push(d); return d; };
+      const run = (root) => {
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'skills-lint'], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        let out = null;
+        try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+        assert.ok(out, 'no JSON on stdout: ' + String(r.stdout || '').slice(0, 120));
+        return { code: r.status, out, err: String(r.stderr || '') };
+      };
+      try {
+        const clean = mk();
+        writeSkill(clean, 'alpha', ['name: alpha', 'description: when the user asks for alpha']);
+        const a = run(clean);
+        assert.deepEqual([a.code, a.out.ok, a.out.inScope], [0, true, 1]);
+
+        const broken = mk();
+        writeSkill(broken, 'alpha', ['name: beta', 'description: when the user asks for alpha']);
+        const b = run(broken);
+        assert.deepEqual(b.code, 1, 'a finding is exit 1');
+        assert.deepEqual(b.out.findings.map(f => f.code), ['NAME_MISMATCH']);
+        assert.ok(/\.claude\/skills\/alpha\/SKILL\.md/.test(b.err), 'stderr names the file: ' + b.err);
+        assert.ok(/NAME_MISMATCH/.test(b.err), 'and the judgement: ' + b.err);
+
+        const unsure = mk();
+        writeSkill(unsure, 'alpha', ['name: alpha', 'description: >', '  folded over two lines']);
+        const c = run(unsure);
+        assert.deepEqual([c.code, c.out.ok, c.out.degraded], [3, false, true],
+          'a shape this lint cannot rule on is degraded, never a pass');
+        assert.deepEqual(c.out.undecidable.length, 1);
+
+        const bare = mk();
+        fs.mkdirSync(path.join(bare, '.claude', 'skills'), { recursive: true });
+        const d = run(bare);
+        assert.deepEqual([d.code, d.out.listed, d.out.inScope], [0, 0, 0]);
+        assert.ok(d.out.note.startsWith('nothing-in-scope:'), 'both counts stay in the answer: ' + d.out.note);
+
+        const none = mk();
+        const e = run(none);
+        assert.deepEqual([e.code, e.out.skillsDirPresent, e.out.degraded], [0, false, false]);
+        assert.ok(/no skills directory/.test(e.out.note), e.out.note);
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x
     // 3 globs against 30k paths stays far under the bound on any dev machine; without
     // the cache this same loop recompiled ~10.8M RegExps and blew straight past it.
@@ -2043,6 +2183,17 @@ function rulePoints() {
     basenames: new Set(files.map(f => f.slice(f.lastIndexOf('/') + 1))),
     counts: { subcommands: 6, hooks: 2, scripts: 1, harness: 1 },
   };
+}
+
+/**
+ * Write one SKILL.md into a fixture tree. The body is irrelevant to this lint and the
+ * frontmatter is the whole subject, so the caller passes only the frontmatter lines.
+ */
+function writeSkill(root, dir, front) {
+  const target = path.join(root, '.claude', 'skills', dir);
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'SKILL.md'),
+    ['---', ...front, '---', '', '# ' + dir, '', 'Body text the loader never parses.', ''].join('\n'), 'utf8');
 }
 
 /** Tiny attribute-enabled catalog for S11 selftests (payments module + sec-scan check). */

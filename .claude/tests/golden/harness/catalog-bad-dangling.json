@@ -47,7 +47,8 @@
           "recap",
           "archive",
           "sync-check",
-          "rules-audit"
+          "rules-audit",
+          "skills-lint"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -79,7 +80,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 229
+        "tests": 233
       },
       "stderr": []
     },
@@ -2349,6 +2350,32 @@
       ]
     },
     {
+      "id": "skills-lint",
+      "argv": [
+        "skills-lint"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "ok": true,
+        "dir": ".claude/skills",
+        "skillsDirPresent": false,
+        "listed": 0,
+        "inScope": 0,
+        "degraded": false,
+        "skills": [],
+        "skillsOmitted": 0,
+        "findings": [],
+        "findingsOmitted": 0,
+        "undecidable": [],
+        "unreadable": [],
+        "descriptionBudget": 180,
+        "note": "no skills directory (.claude/skills); a checkout without skills is a normal state, not a failure"
+      },
+      "stderr": [
+        "skills listed 0  in-scope 0  findings 0  undecidable 0  unreadable 0"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -2586,7 +2613,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2612,6 +2639,7 @@
         "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
+        "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "planned (not-implemented):"
       ]
     },
@@ -2623,7 +2651,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2649,6 +2677,7 @@
         "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
         "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
+        "  skills-lint SKILL.md frontmatter the loader can read: a malformed one drops the skill in silence",
         "planned (not-implemented):"
       ]
     },
