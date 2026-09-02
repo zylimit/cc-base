@@ -323,6 +323,12 @@ function cmdArchCheck(flags) {
         scannedFiles: scanned, truncated: truncatedScan, resolvedEdges,
         undeclared: undeclared.size, forbidden: forbidden.size, cycles: cycles.length,
         unused: unusedDeclarations.length, unresolved,
+        // Counts alone cannot tell "one edge paid off" from "one paid off, one added": the
+        // total is the same and the ratchet turns on the total. The identity of each edge
+        // is what the ratchet actually needs, so record it beside the counts.
+        undeclaredEdges: [...undeclared.keys()].sort(),
+        forbiddenEdges: [...forbidden.keys()].sort(),
+        cycleKeys: [...new Set(cycles.map(cycleKey))].sort(),
       });
       recordedTo = path.relative(projectRoot(), recordedTo).replace(/\\/g, '/');
     } catch (e) {
@@ -351,8 +357,29 @@ function cmdArchCheck(flags) {
 // diff fingerprint.
 
 const TREND_METRICS = ['undeclared', 'forbidden', 'cycles', 'unused', 'unresolved'];
+// Only drift debt ratchets. `forbidden` used to sit here, which contradicted the rule it was
+// gating: a forbiddenDependencies edge is a boundary the catalog declares outright (analytics
+// may never import pii-store), so "two of them were already there on day one" is not debt to
+// pay down slowly -- a ratchet on it licenses those two forever. See cmdArchTrend.
+const RATCHET_METRICS = ['undeclared', 'cycles'];
+// Which snapshot field carries the identity of each ratcheted metric's edges.
+const TREND_EDGE_FIELDS = { undeclared: 'undeclaredEdges', cycles: 'cycleKeys' };
 const TREND_MAX_LINES = 1000;
 const TREND_KEEP_LINES = 500;
+
+/**
+ * Rotation-invariant identity for one cycle path. findCycles starts wherever the DFS entered
+ * the loop, so ['b','a','b'] and ['a','b','a'] are the same cycle and must key the same --
+ * otherwise reordering the catalog would read as brand-new debt.
+ */
+function cycleKey(cycle) {
+  const nodes = Array.isArray(cycle) ? cycle.slice(0, -1) : [];
+  if (!nodes.length) return String(cycle);
+  let at = 0;
+  for (let i = 1; i < nodes.length; i++) if (nodes[i] < nodes[at]) at = i;
+  const rot = nodes.slice(at).concat(nodes.slice(0, at));
+  return rot.concat(rot[0]).join('->');
+}
 
 function trendFilePath() {
   return path.join(projectRoot(), '.claude', 'harness', 'trend', 'arch-trend.jsonl');
@@ -381,18 +408,34 @@ function loadTrend() {
 }
 
 /**
- * Ratchet comparison (pure): latest vs the minimum over all prior records, per metric.
- * One record -> baseline established, nothing to compare. Regression = latest > min(prior).
+ * Ratchet comparison (pure): latest vs the best prior state, per metric. One record ->
+ * baseline established, nothing to compare. Two judgements run, and the stricter wins:
+ *   - count: latest > min(prior) -- the original ratchet, and the only one that works
+ *     against records written before snapshots carried edge identity;
+ *   - per-edge: any edge in the latest set that is absent from some prior set is new debt.
+ *     The best per-edge state is the intersection of the prior sets: an edge missing from a
+ *     prior snapshot was paid off once, so its return is new debt just like an edge nobody
+ *     has ever seen. This is what a count comparison cannot see -- retire one undeclared
+ *     edge, add another, and the total never moves.
+ * Prior records without the edge field are count-only: they take no part in the intersection
+ * (treating "unknown" as "empty" would mark every current edge as new the first time an old
+ * ledger is read) and the metric degrades to the count judgement, reported via edgeBasis.
+ * `forbidden` does not ratchet at all -- see RATCHET_METRICS -- it is reported as
+ * forbiddenViolation whenever the latest snapshot has any, with no reference to history.
  * @param {Array<Object>} records
- * @returns {{comparable:boolean,regressed:Array,improved:Array,summary:Object}}
+ * @returns {{comparable:boolean,regressed:Array,improved:Array,summary:Object,forbiddenViolation:Object|null,edgeBasis:Object}}
  */
 function compareRatchet(records) {
   const list = Array.isArray(records) ? records : [];
-  if (list.length === 0) return { comparable: false, regressed: [], improved: [], summary: {} };
+  if (list.length === 0) {
+    return { comparable: false, regressed: [], improved: [], summary: {}, forbiddenViolation: null, edgeBasis: {} };
+  }
   const latest = list[list.length - 1];
+  const priorRecords = list.slice(0, -1);
   const summary = {};
   const regressed = [];
   const improved = [];
+  const edgeBasis = {};
   for (const m of TREND_METRICS) {
     const series = list.map(r => Number(r[m] || 0));
     const latestV = series[series.length - 1];
@@ -404,14 +447,43 @@ function compareRatchet(records) {
       deltaVsPrev: prior.length ? latestV - series[series.length - 2] : 0,
     };
     if (minPrior === null) continue;
-    // Only the drift metrics ratchet; unresolved/unused are context, not debt.
-    if ((m === 'undeclared' || m === 'forbidden' || m === 'cycles') && latestV > minPrior) {
-      regressed.push({ metric: m, latest: latestV, bestBefore: minPrior });
+    // unresolved/unused are context, not debt; forbidden is handled below, not ratcheted.
+    if (!RATCHET_METRICS.includes(m)) {
+      if (latestV < minPrior) improved.push({ metric: m, latest: latestV, bestBefore: minPrior });
+      continue;
+    }
+    const field = TREND_EDGE_FIELDS[m];
+    const priorSets = priorRecords.map(r => (Array.isArray(r[field]) ? r[field] : null));
+    const usable = priorSets.filter(Boolean);
+    const latestEdges = Array.isArray(latest[field]) ? latest[field] : null;
+    const perEdge = !!(latestEdges && usable.length);
+    let newEdges = [];
+    if (perEdge) {
+      const allowed = usable.reduce((acc, s) => acc.filter(e => s.includes(e)), [...usable[0]]);
+      newEdges = latestEdges.filter(e => !allowed.includes(e));
+    }
+    edgeBasis[m] = {
+      comparable: perEdge,
+      countOnlyPriors: priorSets.length - usable.length,
+      latestHasEdges: !!latestEdges,
+    };
+    const countRegressed = latestV > minPrior;
+    if (countRegressed || newEdges.length) {
+      const entry = { metric: m, latest: latestV, bestBefore: minPrior, basis: [] };
+      if (countRegressed) entry.basis.push('count');
+      if (newEdges.length) { entry.basis.push('edges'); entry.newEdges = newEdges; }
+      regressed.push(entry);
     } else if (latestV < minPrior) {
       improved.push({ metric: m, latest: latestV, bestBefore: minPrior });
     }
   }
-  return { comparable: list.length >= 2, regressed, improved, summary };
+  const forbiddenCount = Number(latest.forbidden || 0);
+  const forbiddenViolation = forbiddenCount > 0 ? {
+    count: forbiddenCount,
+    edges: Array.isArray(latest.forbiddenEdges) ? latest.forbiddenEdges : [],
+    reason: 'forbiddenDependencies are declared boundaries, not debt: no baseline licenses them',
+  } : null;
+  return { comparable: list.length >= 2, regressed, improved, summary, forbiddenViolation, edgeBasis };
 }
 
 function cmdArchTrend(flags) {
@@ -422,7 +494,18 @@ function cmdArchTrend(flags) {
   const cmp = compareRatchet(records);
   const latest = records[records.length - 1];
   const gate = flags.gate === true;
-  const ok = !gate || cmp.regressed.length === 0;
+  const ok = !gate || (cmp.regressed.length === 0 && !cmp.forbiddenViolation);
+  // Say out loud which metrics could not be compared edge by edge. A silent fallback to
+  // counts reads exactly like a per-edge pass, and the two mean very different things.
+  const notes = [];
+  for (const m of RATCHET_METRICS) {
+    const basis = cmp.edgeBasis[m];
+    if (!basis || basis.comparable) continue;
+    notes.push(m + ': ' + (basis.latestHasEdges
+      ? basis.countOnlyPriors + ' prior record(s) are count-only (no edge identity)'
+      : 'the latest snapshot carries no edge identity')
+      + '; per-edge comparison unavailable, fell back to count comparison');
+  }
   return emit({
     ok,
     gate,
@@ -434,7 +517,13 @@ function cmdArchTrend(flags) {
     summary: cmp.summary,
     regressed: cmp.regressed,
     improved: cmp.improved,
-    note: !cmp.comparable ? 'baseline established; ratchet activates from the second record'
+    forbiddenViolation: cmp.forbiddenViolation,
+    edgeBasis: cmp.edgeBasis,
+    notes,
+    note: cmp.forbiddenViolation
+      ? 'forbidden dependency edges present (' + cmp.forbiddenViolation.count + '): declared boundaries are zero-tolerance and never ratchet'
+        + (cmp.regressed.length ? '; drift ratchet violated as well' : '')
+      : !cmp.comparable ? 'baseline established; ratchet activates from the second record'
       : cmp.regressed.length ? 'drift ratchet violated: new architectural debt exceeds the best recorded state'
       : 'no new drift beyond the best recorded state',
   }, ok ? 0 : 1);
@@ -443,5 +532,5 @@ function cmdArchTrend(flags) {
 export {
   reverseClosure, analyzeImpact, cmdImpact,
   extractImports, resolveRelativeImport, moduleForSpecifier, layerViolation, findCycles, cmdArchCheck,
-  appendTrendRecord, loadTrend, compareRatchet, cmdArchTrend,
+  appendTrendRecord, loadTrend, cycleKey, compareRatchet, cmdArchTrend,
 };

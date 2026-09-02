@@ -81,7 +81,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 240
+        "tests": 248
       },
       "stderr": []
     },
@@ -1242,7 +1242,27 @@
         },
         "regressed": [],
         "improved": [],
-        "note": "no new drift beyond the best recorded state"
+        "forbiddenViolation": {
+          "count": 1,
+          "edges": [
+            "api->db"
+          ],
+          "reason": "forbiddenDependencies are declared boundaries, not debt: no baseline licenses them"
+        },
+        "edgeBasis": {
+          "undeclared": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          },
+          "cycles": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          }
+        },
+        "notes": [],
+        "note": "forbidden dependency edges present (1): declared boundaries are zero-tolerance and never ratchet"
       },
       "stderr": []
     },
@@ -1252,9 +1272,9 @@
         "arch-trend",
         "--gate"
       ],
-      "exitCode": 0,
+      "exitCode": 1,
       "stdout": {
-        "ok": true,
+        "ok": false,
         "gate": true,
         "records": 2,
         "comparable": true,
@@ -1295,7 +1315,27 @@
         },
         "regressed": [],
         "improved": [],
-        "note": "no new drift beyond the best recorded state"
+        "forbiddenViolation": {
+          "count": 1,
+          "edges": [
+            "api->db"
+          ],
+          "reason": "forbiddenDependencies are declared boundaries, not debt: no baseline licenses them"
+        },
+        "edgeBasis": {
+          "undeclared": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          },
+          "cycles": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          }
+        },
+        "notes": [],
+        "note": "forbidden dependency edges present (1): declared boundaries are zero-tolerance and never ratchet"
       },
       "stderr": []
     },
@@ -2240,8 +2280,8 @@
               "--gate"
             ],
             "blocking": true,
-            "status": "PASS",
-            "exit": 0,
+            "status": "FAIL",
+            "exit": 1,
             "error": null,
             "counts": null
           },
@@ -2309,6 +2349,7 @@
           "arch-check",
           "adr-check",
           "fitness",
+          "arch-trend",
           "claude-md-lint"
         ],
         "established": 9,
@@ -2323,13 +2364,13 @@
         " FAIL     adr-check",
         " FAIL     fitness",
         " PASS     ledger",
-        " PASS     arch-trend",
+        " FAIL     arch-trend",
         " DEGRADED rules-audit :: no-rules",
         " PASS     skills-lint",
         " FAIL     claude-md-lint",
         " FAIL     risk",
         " PASS     budget",
-        "Definition of Done: NOT satisfied (attributes, arch-check, adr-check, fitness, claude-md-lint)"
+        "Definition of Done: NOT satisfied (attributes, arch-check, adr-check, fitness, arch-trend, claude-md-lint)"
       ]
     },
     {

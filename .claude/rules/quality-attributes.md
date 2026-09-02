@@ -93,7 +93,7 @@ paths:
 [五性从需求到验证的贯通]
     - 需求侧：product-spec-builder 收集需求时对关键业务模块问清五性要求（哪些数据是个人数据、故障可容忍度、并发冲击预期、失效的物理后果），落进 Product-Spec 的验收标准。
     - 规划侧：dev-planner 把五性要求折进 module catalog 草案（riskTier + attributes 档位 + forbiddenDependencies 边界，如 analytics 永不 import pii-store）。
-    - 开发侧：fitness 随变更跑；arch-check 看边界不被穿；`arch-check --record` + `arch-trend --gate` 做漂移棘轮——可修改性从形容词变成「undeclared 边数只许降不许升」的硬指标（老仓带债接入：先记基线，旧债慢慢还、新债零容忍）。
+    - 开发侧：fitness 随变更跑；arch-check 看边界不被穿；`arch-check --record` + `arch-trend --gate` 做漂移棘轮——可修改性从形容词变成「undeclared 的**边集**只许缩不许扩」的硬指标（比的是边身份不是条数——还一条旧债同时添一条新债，数不变但债换了人；计数只作老台账的兜底）。老仓带债接入：先记基线，旧债慢慢还、新债零容忍；`forbiddenDependencies` 不在此列，那是声明的边界不是债，任何一条违规都当场拦。
     - 决策侧：Architecture-Design.md 里的每条活跃 ADR 用 `adr-check` 盯执法引用——决策要么指向真实存在的 check / fitness 规则 / harness 能力，要么显式声明人工评审；幽灵引用（指向不存在的闸）直接 fail。
     - 审查侧：code-review 对 security/safety 敏感改动加五性 lens（红蓝审查的 security lens 已有，属性声明给它靶子）。
     - 验证侧：verify 的属性覆盖门 + adapters 真工具证据；发布前 release-builder 测试卡点含全量 verify。

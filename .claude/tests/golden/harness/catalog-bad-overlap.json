@@ -81,7 +81,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 240
+        "tests": 248
       },
       "stderr": []
     },
@@ -975,6 +975,20 @@
         },
         "regressed": [],
         "improved": [],
+        "forbiddenViolation": null,
+        "edgeBasis": {
+          "undeclared": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          },
+          "cycles": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          }
+        },
+        "notes": [],
         "note": "no new drift beyond the best recorded state"
       },
       "stderr": []
@@ -1028,6 +1042,20 @@
         },
         "regressed": [],
         "improved": [],
+        "forbiddenViolation": null,
+        "edgeBasis": {
+          "undeclared": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          },
+          "cycles": {
+            "comparable": true,
+            "countOnlyPriors": 0,
+            "latestHasEdges": true
+          }
+        },
+        "notes": [],
         "note": "no new drift beyond the best recorded state"
       },
       "stderr": []

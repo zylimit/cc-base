@@ -14,7 +14,7 @@ import {
 } from './core.mjs';
 import { classifyPath, lintCatalog, loadCatalog } from './catalog.mjs';
 import {
-  analyzeImpact, compareRatchet, extractImports, findCycles, layerViolation, moduleForSpecifier,
+  analyzeImpact, compareRatchet, cycleKey, extractImports, findCycles, layerViolation, moduleForSpecifier,
 } from './graph.mjs';
 import { buildPack } from './context.mjs';
 import {
@@ -782,6 +782,75 @@ function selftestCases() {
         { undeclared: 0, forbidden: 0, cycles: 0, unresolved: 50, unused: 5 },
       ]);
       assert.equal(r.regressed.length, 0);
+    }],
+    ['cycleKey: one loop keys the same whichever node the DFS entered from', () => {
+      assert.equal(cycleKey(['a', 'b', 'a']), 'a->b->a');
+      assert.equal(cycleKey(['b', 'a', 'b']), cycleKey(['a', 'b', 'a']));
+      assert.notEqual(cycleKey(['a', 'b', 'c', 'a']), cycleKey(['a', 'c', 'b', 'a']));
+    }],
+    ['compareRatchet: paying one undeclared edge off while adding another keeps the count and still regresses', () => {
+      const r = compareRatchet([
+        { undeclared: 2, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b', 'c->d'], cycleKeys: [] },
+        { undeclared: 2, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b', 'e->f'], cycleKeys: [] },
+      ]);
+      const u = r.regressed.find(x => x.metric === 'undeclared');
+      assert.ok(u, 'a constant total must not license a swapped-in edge');
+      assert.deepEqual(u.newEdges, ['e->f']);
+      assert.deepEqual(u.basis, ['edges']);
+    }],
+    ['compareRatchet: an edge paid off earlier and brought back is new debt again', () => {
+      const r = compareRatchet([
+        { undeclared: 1, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b'] },
+        { undeclared: 0, forbidden: 0, cycles: 0, undeclaredEdges: [] },
+        { undeclared: 1, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b'] },
+      ]);
+      const u = r.regressed.find(x => x.metric === 'undeclared');
+      assert.deepEqual(u.newEdges, ['a->b']);
+      assert.deepEqual(u.basis, ['count', 'edges']);
+    }],
+    ['compareRatchet: count-only history degrades to counts, it does not call every edge new', () => {
+      const r = compareRatchet([
+        { undeclared: 2, forbidden: 0, cycles: 0 },   // written before snapshots carried edges
+        { undeclared: 2, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b', 'c->d'], cycleKeys: [] },
+      ]);
+      assert.equal(r.regressed.length, 0);
+      assert.equal(r.edgeBasis.undeclared.comparable, false);
+      assert.equal(r.edgeBasis.undeclared.countOnlyPriors, 1);
+      assert.equal(r.edgeBasis.undeclared.latestHasEdges, true);
+    }],
+    ['compareRatchet: count-only history still ratchets on the count', () => {
+      const r = compareRatchet([
+        { undeclared: 1, forbidden: 0, cycles: 0 },
+        { undeclared: 3, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b', 'c->d', 'e->f'] },
+      ]);
+      const u = r.regressed.find(x => x.metric === 'undeclared');
+      assert.deepEqual(u.basis, ['count']);
+      assert.equal(u.newEdges, undefined);
+    }],
+    ['compareRatchet: a forbidden edge violates whatever the history says', () => {
+      const r = compareRatchet([
+        { undeclared: 0, forbidden: 2, cycles: 0, forbiddenEdges: ['analytics->pii-store', 'web->pii-store'] },
+        { undeclared: 0, forbidden: 1, cycles: 0, forbiddenEdges: ['analytics->pii-store'] },
+      ]);
+      assert.ok(r.forbiddenViolation, 'no baseline may license a declared boundary');
+      assert.equal(r.forbiddenViolation.count, 1);
+      assert.deepEqual(r.forbiddenViolation.edges, ['analytics->pii-store']);
+      assert.ok(!r.regressed.some(x => x.metric === 'forbidden'));
+    }],
+    ['compareRatchet: forbidden violates on the very first record too', () => {
+      const r = compareRatchet([{ undeclared: 0, forbidden: 1, cycles: 0, forbiddenEdges: ['a->b'] }]);
+      assert.equal(r.comparable, false);
+      assert.ok(r.forbiddenViolation);
+    }],
+    ['compareRatchet: with no forbidden edge, paying drift debt down still reads as improved', () => {
+      const r = compareRatchet([
+        { undeclared: 3, forbidden: 0, cycles: 1, undeclaredEdges: ['a->b', 'c->d', 'e->f'], cycleKeys: ['x->y->x'] },
+        { undeclared: 1, forbidden: 0, cycles: 0, undeclaredEdges: ['a->b'], cycleKeys: [] },
+      ]);
+      assert.equal(r.forbiddenViolation, null);
+      assert.equal(r.regressed.length, 0);
+      assert.ok(r.improved.some(x => x.metric === 'undeclared' && x.latest === 1));
+      assert.ok(r.improved.some(x => x.metric === 'cycles' && x.latest === 0));
     }],
 
     // S17.2 ledger -- the chain is the evidence, so every way of editing it must be named.
