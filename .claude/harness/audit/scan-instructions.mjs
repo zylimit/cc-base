@@ -41,8 +41,9 @@
 // the scan of that same file is self-defeating -- an attacker who can write the
 // payload can write the mute. Exemptions live in
 // .claude/harness/audit/instructions-allowlist.json (relative to the scanned
-// repository), each entry bound to {file, line, rule, sha256-of-that-line} plus an
-// optional {context} hash over the surrounding lines. In --staged mode the
+// repository), each entry bound to {file, line, rule, sha256-of-that-line} plus a
+// required {context} hash over the surrounding lines -- an entry that binds only
+// this line's bytes is reported, never honoured. In --staged mode the
 // allowlist itself is read from the index: an exemption that is not part of the
 // commit must not be able to unlock it. Every exemption that fires is printed and
 // carried in the JSON: a silent exemption is a blind spot.
@@ -434,7 +435,9 @@ function sha256(s) {
  * documented counter-example leaves the exempted line byte-identical while
  * turning "never do this" into "do this" -- and the README's own example of a
  * legitimate exemption is a counter-example inside a fence, so that is the
- * common case, not an exotic one.
+ * common case, not an exotic one. Which is why this binding is mandatory rather
+ * than an opt-in hardening: an optional defence that the most common use never
+ * opts into defends nobody.
  */
 function windowSha(lines, i) {
   const prev = i > 0 ? lines[i - 1] : '';
@@ -497,9 +500,15 @@ function loadAllowlist() {
       typeof e.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(e.sha256) ||
       (e.context !== undefined && (typeof e.context !== 'string' || !/^[0-9a-f]{64}$/i.test(e.context)));
     if (bad) {
-      degraded.push({ file: ALLOWLIST_PATH, kind: 'allowlist-entry-invalid', detail: 'entries[' + i + '] needs {file, line>=1, rule, 64-hex sha256, optional 64-hex context}' });
+      degraded.push({ file: ALLOWLIST_PATH, kind: 'allowlist-entry-invalid', detail: 'entries[' + i + '] needs {file, line>=1, rule, 64-hex sha256, 64-hex context}' });
       return;
     }
+    // A missing context is not a parse error, it is an entry that can never
+    // fire -- kept in the index on purpose so the line it points at is named by
+    // number when it matches, instead of vanishing into a generic complaint
+    // about the file. Degradation means "did not manage to scan"; this scan ran
+    // fine, one exemption in it is simply inert.
+
     // A rule id nobody implements can never fire. It reads like an exemption and
     // is one only in the ledger, so it accumulates silently forever.
     if (!RULE_IDS.has(e.rule)) {
@@ -518,6 +527,7 @@ function loadAllowlist() {
       context: typeof e.context === 'string' ? e.context.toLowerCase() : null,
       reason: typeof e.reason === 'string' ? e.reason : '',
       used: false,
+      matched: false,
     });
   });
   return index;
@@ -593,15 +603,20 @@ for (const f of targets) {
       };
       // The hash is of this line's exact bytes, so an exemption survives the
       // file moving around it but never survives the line itself changing; the
-      // optional context hash extends that to the lines on either side.
+      // context hash extends that to the lines on either side, and both have to
+      // hold. An entry that binds only the bytes gets its note and then the
+      // finding: it says "this line was reviewed", which stops being true the
+      // moment the fence around it is deleted, so it is not an exemption any
+      // more -- and a note beside a still-silent finding would be a warning
+      // nobody has to act on.
       const entry = allowIndex.get(f + NUL + (i + 1) + NUL + rule.id);
       if (entry && entry.sha256 === sha256(line)) {
-        if (entry.context !== null && entry.context !== windowSha(lines, i)) {
+        entry.matched = true;
+        if (entry.context === null) {
+          notes.push({ file: f, note: 'allowlist-entry-not-context-bound:' + (i + 1) + ':' + rule.id });
+        } else if (entry.context !== windowSha(lines, i)) {
           notes.push({ file: f, note: 'allowlist-context-changed:' + (i + 1) + ':' + rule.id });
         } else {
-          if (entry.context === null) {
-            notes.push({ file: f, note: 'allowlist-entry-not-context-bound:' + (i + 1) + ':' + rule.id });
-          }
           entry.used = true;
           hit.reason = entry.reason;
           allowlisted.push(hit);
@@ -644,10 +659,13 @@ if (source === 'tracked' && candidates.length === 0) {
 
 // Stale only counts for files this run actually read. In --staged mode most of
 // the ledger is simply out of scope, and calling that "no longer matches" would
-// train the reader to skip the one note that means something.
+// train the reader to skip the one note that means something. An entry whose
+// line still matches but whose binding did not hold is not stale either: it was
+// named by line number in the notes, and telling its owner to re-hash the line
+// would send them to fix the one thing that is still correct.
 const allowUnused = [];
 for (const [key, entry] of allowIndex) {
-  if (entry.used) continue;
+  if (entry.used || entry.matched) continue;
   const parts = key.split(NUL);
   if (!scannedFiles.has(parts[0])) {
     // An entry pointing at a file the repository does not have can never fire

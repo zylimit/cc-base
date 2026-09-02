@@ -55,8 +55,8 @@ fi
 # audit 三只哨兵：同样只需 node + git，归第二段跑。两套分工不同，都要跑——
 #   test-audit-scripts 锁「脚本该有的行为」（干净仓 rc 0 / 坏样例 rc 1 / 豁免可见 / 非 git rc 3），
 #   test-audit-defects 锁「已修的那批缺陷不再复发」（--staged 只判索引、压制外置、超限不假绿……）。
-#   无 node 时这两个脚本自身是 exit 1 而不是 SKIPPED，所以守卫放在这里：没装 node 打 SKIPPED，
-#   不让「跑不了」冒充「没通过」，也不让它冒充通过。
+#   无 node 时这两个脚本自身已经打 SKIPPED 退 0（不再是 exit 1），这里的守卫留着是为了汇总行里
+#   那句 AUDIT_NOTE —— 跳过了要在最后一行说出来，不让「跑不了」冒充通过。
 AUDIT_NOTE=""
 if command -v node >/dev/null 2>&1; then
     for s in test-audit-scripts.sh test-audit-defects.sh; do

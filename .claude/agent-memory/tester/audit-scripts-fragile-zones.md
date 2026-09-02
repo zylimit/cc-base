@@ -12,5 +12,7 @@ metadata:
 - **测试文件自己会被扫**：`test-audit-scripts.sh` 有一条自举断言「本仓 tracked 源码不许带密钥字面量」。所以 `.claude/tests/` 下的测试文件里**不许出现字面量形态的假 token**，要运行期拼接（`GH_TOKEN="ghp_$(printf 'AAAA...')"`），否则新测试一落地就把别人的自举断言干红。
 - **JSON 字段名会撞车**：`scan-secrets` 输出里 `skipped.allowlisted` 已存在（文件级白名单计数），别用裸 grep `allowlisted` 判断行级豁免机制是否实现，要解析后看具体字段。
 - **改完实现要还原时禁用 `git checkout --`**：audit 那几个 .mjs 长期是 `AM` 状态（已进索引 + 工作树又被并行 agent 改过），checkout 还原到的是**索引版**，会把别人未暂存的活儿悄悄抹掉。做变异验证一律 `cp` 到 /tmp 备份 → 变异 → `cp` 回来 → `sha256sum -c` 逐字节验，还原完再 `git status --short` 比对开工快照。
-- **豁免走外置白名单**：`scan-instructions` 的行内 `scan-instructions:ignore` 已作废（被扫文件不可信），豁免只认 `.claude/harness/audit/instructions-allowlist.json` 的 `{file,line,rule,sha256}`，路径按**被扫仓的 cwd** 解析；`scan-secrets` 的行内标记则仍生效（两个脚本不同规矩，别混）。造白名单 fixture 后记得删掉再跑后续断言。
+- **豁免走外置白名单**：`scan-instructions` 的行内 `scan-instructions:ignore` 已作废（被扫文件不可信），豁免只认 `.claude/harness/audit/instructions-allowlist.json` 的 `{file,line,rule,sha256}`，路径按**被扫仓的 cwd** 解析；`scan-secrets` 的行内标记则仍生效（两个脚本不同规矩，别混）。造白名单 fixture 后记得删掉再跑后续断言。条目的 `context` 字段（绑 N-1..N+1 三行窗口，`prev+"\n"+line+"\n"+next` 的 sha256，末行空串也算窗口的一部分）**已从可选改成强制**：不带 `context` 的条目一律不生效，命中时打 `allowlist-entry-not-context-bound:<行>:<规则>` 的 note 且 finding 照报。凡是造白名单 fixture 的断言都得带上窗口哈希，否则必红。
+- **`--paths` 三个脚本各不相同**：`scan-instructions` / `check-syntax` 支持，`scan-secrets` 不支持（未知参数 rc 2）。且 `--paths` 的 rc 分三档——全部路径不存在=用法错 rc 2、部分不存在=降级 rc 3（`path-not-found`）、悬空/空值=rc 2。断言写「不支持所以 rc 2」会变成描述与实际不符的潜伏谎言：rc 对了，理由是假的。
+- **写「机制该更严」的红锁前先查该能力是不是已存在但可选**：踩过一次——派单说「现按单行 sha256 绑定，绑不住上下文」，实查发现 `context` 窗口绑定早已实现、只是可选，README 还把这条明写成已知边界。红锁因此要瞄「绑定改为**强制**」（无 context 的条目不得生效），瞄「实现窗口绑定」会当场变绿、推翻整个 TODO 前提。
 - 相关：[[cc-base-testing-infra]]
