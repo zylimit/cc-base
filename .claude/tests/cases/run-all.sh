@@ -78,6 +78,17 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——引擎异常退出红锁跳过，未执行 != 通过。"
     FAILOPEN_NOTE="；引擎异常退出红锁 SKIPPED（无 node）"
 fi
+# git hooks 强制层（.claude/githooks/）：会话外的提交路径归它管，与 .claude/hooks/ 那层分工不同。
+#   打桩控退出码，所以只需 node + git；无 node 时它自身是 exit 1 而不是 SKIPPED，守卫放在这里。
+#   注意它**不跑** pre-push 的 FULL 模式——那会反过来拉起本文件，再拉起 claude -p。
+GITHOOKS_NOTE=""
+if command -v node >/dev/null 2>&1; then
+    echo "----- 运行 test-githooks.sh -----"
+    bash "$TESTS_DIR/test-githooks.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+else
+    echo "SKIPPED: 无 node（command -v node 未找到）——git hooks 强制层回归跳过，未执行 != 通过。"
+    GITHOOKS_NOTE="；git hooks 回归 SKIPPED（无 node）"
+fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
     echo "########## 结果：静态自测失败（安装器/路由一致性不过），停止。 ##########"
@@ -90,7 +101,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -108,10 +119,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${GITHOOKS_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"

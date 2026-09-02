@@ -119,6 +119,33 @@ pwsh -File .claude/scripts/fix-platform.ps1
 
 也可直接重跑对应平台的 `setup.sh` / `setup.ps1`：setup 的 settings 合并会先清异平台残留再追加本平台 command（需 jq；无 jq 时 setup 走降级不清，用 `fix-platform` 兜底）。
 
+## Claude Code 之外的强制层（git hooks + CI）
+
+`.claude/hooks/` 那 19 个闸**只在 Claude Code 会话内生效**。用户自己手敲 `git commit`、用别的编辑器提交、脚本或别的 Agent 提交——全都绕得过去。补这个缺口的是另外两层：
+
+| 层 | 位置 | 管到哪 |
+|---|---|---|
+| Claude Code hook | `.claude/hooks/` | 会话内的每一次工具调用 |
+| git hook | `.claude/githooks/` | 凡是走 git 的提交与推送路径，不管谁发起 |
+| CI | `.github/workflows/gate.yml` | 所有人、所有分支、所有机器 |
+
+**git hook 层默认不开**——setup 一律不碰 `core.hooksPath`，悄悄改它会把你自己的 `.git/hooks` 整个顶掉。要开显式开（只写本仓库的 `.git/config`）：
+
+```bash
+bash .claude/scripts/install-githooks.sh on|off|status
+```
+```powershell
+pwsh .claude/scripts/install-githooks.ps1 on|off|status
+```
+
+开了之后：`pre-commit` 跑快的静态检查（三只审计脚本 `--staged` + catalog 在场时的 `catalog-lint`/`fitness`），`commit-msg` 卡 subject 门槛（宽度按显示列算，不按字节也不按字符个数——`fix: 修好登录崩溃` 按字符数会被误拒），`pre-push` 跑全量回归（`CCBASE_PREPUSH_FULL=0` 可降到只跑静态段）。
+
+退出码分档处理，**降级和没跑成一律出声不假绿**：`1`/`2` 阻断，`3` 降级只告警（`check-syntax` 在没装 pwsh 的机器上恒 rc 3，拿它拦住每次 commit 只会让人第一天就 `--no-verify`），工具跑不起来打 SKIPPED 并写明「未执行 != 通过」。`--no-verify` 绕过是 HIGH 档行为，要向人交代。
+
+CI 那格是唯一能真验 26 个 `.ps1` 的地方（Windows runner 自带 pwsh），矩阵 ubuntu + windows × node 22/24，并断言 run-all 第三段的真触发 case 是**显式 SKIPPED** 而非静默跳过。
+
+分工、每个 hook 跑什么、退出码怎么读、为什么降级不阻断，全在 `.claude/githooks/README.md`。
+
 ## 大仓能力（可选——按需开启）
 
 面向 **60 万行级**代码规模项目的影响面分析、diff-bound 审查回执、四态质量门、架构防腐、五性证据门。**默认关闭**——小项目零负担，所有 hook 走原逻辑。

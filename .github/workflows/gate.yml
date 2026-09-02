@@ -1,0 +1,162 @@
+name: cc-base gate
+
+# CI 是三层强制层的最外圈：
+#   .claude/hooks/     只在 Claude Code 会话内生效
+#   .claude/githooks/  凡是走 git 的提交路径都跑得到（可选层，装了才有）
+#   本文件             兜住所有人、所有分支、所有机器——没人能靠不装 hook 绕过去
+#
+# windows-latest 那格是本仓最大的未验证面：26 个 .ps1 至今没在真机跑过，
+# 开发机（Linux/WSL）上没有 pwsh，check-syntax 恒 rc 3 把整类 SKIPPED 掉。
+# CI 的 Windows runner 自带 pwsh，是唯一能真验它们的地方。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: gate (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    # Windows 那格走 Git Bash 跑 .sh；引擎和审计脚本是纯 node，两边同一套命令。
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Windows runner 的 Git for Windows 默认 core.autocrlf=true，checkout 会把 .sh 全转成 CRLF，
+      # 用 bash 跑起来就是 `$'\r': command not found`。必须在 checkout **之前**关掉。
+      # 本仓没有 .gitattributes 兜底，这一步是 Windows 那格能不能跑的前提。
+      - name: 关掉 autocrlf（Windows）
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 引擎先自证，再让它去判别人。selftest 挂了，后面所有结论都不可信。
+      - name: 引擎自证 selftest
+        run: node .claude/harness/harness.mjs selftest
+
+      - name: 审计 secrets
+        run: node .claude/harness/audit/scan-secrets.mjs
+
+      - name: 审计 instructions
+        run: node .claude/harness/audit/scan-instructions.mjs
+
+      # check-syntax 的 rc 3 = 有整类没验成（缺 pwsh / 缺 bash），不是通过。
+      # Windows runner 自带 pwsh，26 个 .ps1 必须真验成 → 那格要求 rc 0，rc 3 直接判失败。
+      # Linux 侧 pwsh 不保证在，rc 3 打告警放行——但要打印出来，降级不是通过。
+      - name: 语法 check-syntax
+        run: |
+          set -u
+          RC=0
+          node .claude/harness/audit/check-syntax.mjs || RC=$?
+          echo "check-syntax rc=$RC"
+          if [ "$RC" -eq 0 ]; then
+            exit 0
+          elif [ "$RC" -eq 3 ] && [ "${RUNNER_OS:-}" != "Windows" ]; then
+            echo "::warning::check-syntax 降级 rc 3（有整类没验成，未执行 != 通过）。Windows 那格会真验 .ps1。"
+            exit 0
+          else
+            echo "::error::check-syntax rc=$RC（Windows 上 rc 3 也判失败：这里 pwsh 一定在，.ps1 必须真验成）"
+            exit 1
+          fi
+
+      # 现有子命令的 stdout JSON 与退出码是对外契约（hook 在消费），基线漂了先看 diff。
+      # --strict 让「没跑成」以 rc 3 现形，不加它 SKIPPED 也返回 0。
+      - name: golden 基线 --check --strict
+        run: node .claude/tests/harness-golden.mjs --check --strict
+
+      # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
+      # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
+      # **显式 SKIPPED** 而不是悄悄没跑或判失败：一个跳过的段如果不出声，就是假绿。
+      - name: 框架自测 run-all（第三段真触发 case 必为显式 SKIPPED）
+        run: |
+          set -u
+          LOG="${RUNNER_TEMP:-.}/runall.log"
+          # GitHub 的 shell: bash 默认带 -eo pipefail，管道一失败整步就断在这里，
+          # 拿不到 rc 也就没法区分「跑挂了」和「跑完但没跳过」。这里显式关掉再自己判。
+          set +e
+          bash .claude/tests/cases/run-all.sh 2>&1 | tee "$LOG"
+          RC=${PIPESTATUS[0]}
+          set -e
+          echo "run-all rc=$RC"
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::run-all 失败 rc=$RC（详见上面的完整输出）"
+            exit 1
+          fi
+          if grep -q 'SKIPPED: 无 claude CLI' "$LOG"; then
+            echo "第三段真触发 case：显式 SKIPPED（无 claude CLI），符合 CI 预期。"
+          else
+            echo "::error::run-all 通过了，但没看到「第三段因无 claude CLI 显式 SKIPPED」那行。"
+            echo "::error::要么 CI 上真跑了真触发 case（不该发生），要么那段被静默掉了——两种都得查。"
+            exit 1
+          fi
+
+      # 大仓治理：catalog 放置即启用。本仓默认没有 catalog，这两步会整体跳过——
+      # 跳过的原因打出来，别让「没跑」看起来像「跑过且干净」。
+      - name: 大仓 catalog-lint / arch-trend --gate（catalog 存在才跑）
+        run: |
+          set -u
+          if [ ! -f .claude/harness/module-catalog.json ]; then
+            echo "无 .claude/harness/module-catalog.json —— 大仓能力默认关闭，本步跳过（不是通过）。"
+            exit 0
+          fi
+          node .claude/harness/harness.mjs catalog-lint
+          node .claude/harness/harness.mjs arch-trend --gate
+
+      - name: doctor（诊断，永远跑）
+        if: always()
+        run: node .claude/harness/harness.mjs doctor
+
+  ps1-syntax:
+    # 单独一格，只做一件事：用 pwsh 自己的解析器过一遍全部 .ps1。
+    # 与 gate 那格的 check-syntax 是双保险——check-syntax 的 ps1 分支自己出错时，
+    # 这一格仍然会把坏文件照出来（同一个检查器不能既当运动员又当裁判）。
+    name: ps1 syntax (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every .ps1 with the PowerShell parser
+        run: |
+          $files = Get-ChildItem -Path . -Recurse -Filter *.ps1 -File |
+                   Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' }
+          Write-Output "found $($files.Count) .ps1 file(s)"
+          if ($files.Count -eq 0) {
+            Write-Output '::error::no .ps1 files found -- this job is checking nothing, which is not a pass'
+            exit 1
+          }
+          $bad = 0
+          foreach ($f in $files) {
+            $errors = $null
+            $tokens = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors -and $errors.Count -gt 0) {
+              $bad++
+              Write-Output "::error file=$($f.FullName)::$($errors[0].Message)"
+            }
+          }
+          Write-Output "parsed $($files.Count) file(s), $bad with errors"
+          if ($bad -gt 0) { exit 1 }
