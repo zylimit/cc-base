@@ -48,6 +48,10 @@ import {
   applyArchivePlan, entryOrder, extractIronLaws, headline, isTrackedWork, planArchive,
   renderView, sectionEntries, stateLines, syncFindings,
 } from './memory.mjs';
+import {
+  admitsPromptOnly, auditDoc, backtickTokens, classifyRuleLine, classifyToken, ruleLineText,
+  tally,
+} from './rules.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -1904,6 +1908,104 @@ function selftestCases() {
       assert.deepEqual(sectionEntries(doc, 'Nowhere'), []);
     }],
 
+    // S22 rule lines -- the clause markers this repository actually writes. The two
+    // non-ASCII bullets carry whole sub-lists, so a dash-only scanner would silently drop
+    // them and report a healthier ratio than the file deserves.
+    ['rules-audit: what counts as a rule line, and what is layout', () => {
+      assert.deepEqual(ruleLineText('- \u4e00\u6761\u89c4\u5219'), '\u4e00\u6761\u89c4\u5219');
+      assert.deepEqual(ruleLineText('  \u00b7 LOW: run it'), 'LOW: run it');
+      assert.deepEqual(ruleLineText('  \u2022 MEDIUM: announce it'), 'MEDIUM: announce it');
+      assert.deepEqual(ruleLineText('3. third step here'), 'third step here');
+      assert.deepEqual(ruleLineText('| cmd | what it does |'), 'cmd | what it does');
+      assert.deepEqual(ruleLineText('|---|---|'), null, 'table separator is not a clause');
+      assert.deepEqual(ruleLineText('## heading'), null);
+      assert.deepEqual(ruleLineText('plain prose line'), null);
+      assert.deepEqual(ruleLineText('- **'), null, 'a marker plus decoration is layout');
+      assert.deepEqual(backtickTokens('see `a b` and `` and `c`'), ['a b', 'c']);
+    }],
+
+    // S22 token resolution -- the whole audit turns on this function being shy. A false
+    // machine is an automated phantom; a false phantom sends someone to repair a rule that
+    // was never broken. Everything ambiguous resolves to none on purpose.
+    ['rules-audit: a token is machine, phantom, or nothing at all', () => {
+      const points = rulePoints();
+      const kind = t => classifyToken(t, points).kind;
+      assert.deepEqual(kind('arch-check'), 'machine', 'bare subcommand');
+      assert.deepEqual(kind('task complete'), 'machine', 'subcommand plus sub-form');
+      assert.deepEqual(kind('node .claude/harness/harness.mjs fitness'), 'machine');
+      assert.deepEqual(kind('\"cmd\": \"node harness.mjs arch-check\"'), 'machine',
+        'an invocation embedded in JSON still names its subcommand');
+      assert.deepEqual(kind('stop-gate.sh:32-50'), 'machine', 'a line range is decoration');
+      assert.deepEqual(kind('lib-harness.sh|.ps1'), 'machine', 'the alternate spelling is one file');
+      assert.deepEqual(kind('bash .claude/scripts/doctor.sh --all'), 'machine');
+
+      assert.deepEqual(kind('node .claude/harness/harness.mjs foo-bar'), 'phantom',
+        'named as a subcommand and is not one');
+      assert.deepEqual(kind('.claude/hooks/nope-guard.sh'), 'phantom');
+      assert.deepEqual(kind('missing-thing.ps1'), 'phantom');
+
+      assert.deepEqual(kind('node .claude/harness/harness.mjs <subcommand>'), 'machine',
+        'the engine path is real; the placeholder beside it names no subcommand to accuse');
+      assert.deepEqual(kind('.claude/hooks/<name>-guard.sh'), 'none',
+        'a placeholder stands for many files, so it accuses none of them');
+      assert.deepEqual(kind('.claude/harness/lib/*.mjs'), 'none', 'a glob is not one file');
+      assert.deepEqual(kind('.claude/tests/fixtures/harness/catalog-good.json'), 'none',
+        'a fixture under a point directory is data, not an enforcement point');
+      assert.deepEqual(kind('.claude/harness/module-catalog.json'), 'none');
+      assert.deepEqual(kind('progress.md'), 'none');
+      assert.deepEqual(kind('status'), 'none', 'a sub-form of another command is not a subcommand');
+      assert.deepEqual(kind('evidenceSha256'), 'none', 'a JSON field name resolves to nothing');
+      assert.deepEqual(kind('safety|security|privacy'), 'none');
+    }],
+
+    // S22 line classes -- phantom outranks machine because a line naming one imaginary check
+    // is a line somebody has to fix, and the negation guard keeps the mechanised rules out
+    // of the class reserved for the ones nobody enforces.
+    ['rules-audit: four classes, and the negated marker that is not an admission', () => {
+      const points = rulePoints();
+      const klass = t => classifyRuleLine(t, points).klass;
+      assert.deepEqual(klass('run `arch-check` before merging'), 'machine');
+      assert.deepEqual(klass('run `arch-check` and `harness.mjs foo-bar`'), 'phantom',
+        'one real check does not excuse an imaginary one');
+      assert.deepEqual(klass('reviewer is never the author (prompt-only)'), 'prompt');
+      assert.deepEqual(klass('always be careful with the database'), 'unclassified');
+      assert.deepEqual(klass('`arch-check` runs it, prompt-only is not needed'), 'machine',
+        'naming a runnable check outranks the admission marker');
+
+      const honour = '\u9760\u81ea\u89c9';
+      assert.ok(admitsPromptOnly('this one is ' + honour), 'plain marker is an admission');
+      assert.ok(!admitsPromptOnly('\u673a\u5236\u5316\u4e0d' + honour),
+        'the negated marker is the opposite claim');
+      assert.ok(admitsPromptOnly('\u4e0d\u5168\u662f' + honour + '\uff1b' + honour),
+        'a negated mention does not hide a later plain one');
+      assert.deepEqual(klass('\u673a\u5236\u5316\u4e0d' + honour), 'unclassified');
+    }],
+
+    // S22 the document walk -- fenced code is example, not clause. Counting it would let any
+    // file improve its own ratio by pasting a command block, which is the metric measuring
+    // itself rather than the constitution.
+    ['rules-audit: fenced code is skipped and the tally sums to the whole', () => {
+      const doc = [
+        '# Rules',
+        '- run `arch-check` first',
+        '```sh',
+        '- node .claude/harness/harness.mjs foo-bar',
+        '```',
+        '- be reasonable about it',
+        '- deferred to the reviewer (prompt-only)',
+        '',
+      ].join('\n');
+      const rules = auditDoc('r.md', doc, rulePoints());
+      assert.deepEqual(rules.map(r => r.at), ['r.md:2', 'r.md:6', 'r.md:7'],
+        'the phantom inside the fence is an example and must not be counted');
+      assert.deepEqual(rules.map(r => r.klass), ['machine', 'unclassified', 'prompt']);
+      const t = tally(rules);
+      assert.deepEqual(t.total, 3);
+      assert.deepEqual(t.counts, { machine: 1, prompt: 1, phantom: 0, unclassified: 1 });
+      assert.deepEqual(t.ratio.unclassified, 0.333);
+      assert.deepEqual(tally([]).ratio.machine, 0, 'no rules is not a division by zero');
+    }],
+
     // Scale smoke -- the glob cache must keep classification linear-ish. 120 modules x
     // 3 globs against 30k paths stays far under the bound on any dev machine; without
     // the cache this same loop recompiled ~10.8M RegExps and blew straight past it.
@@ -1922,6 +2024,25 @@ function selftestCases() {
       assert.ok(elapsed < 2500, 'lint took ' + elapsed + 'ms (>= 2500ms)');
     }],
   ];
+}
+
+/**
+ * Enforcement points for the S22 selftests, built by hand rather than read off this
+ * checkout: these assertions have to mean the same thing inside the golden sandbox, which
+ * ships none of these files. A fixture that reaches for the real tree is asserting the
+ * tree, not the classifier.
+ */
+function rulePoints() {
+  const files = [
+    '.claude/hooks/stop-gate.sh', '.claude/hooks/lib-harness.sh',
+    '.claude/scripts/doctor.sh', '.claude/harness/harness.mjs',
+  ];
+  return {
+    subcommands: new Set(['arch-check', 'fitness', 'task', 'doctor', 'verify', 'rules-audit']),
+    files: new Set(files),
+    basenames: new Set(files.map(f => f.slice(f.lastIndexOf('/') + 1))),
+    counts: { subcommands: 6, hooks: 2, scripts: 1, harness: 1 },
+  };
 }
 
 /** Tiny attribute-enabled catalog for S11 selftests (payments module + sec-scan check). */

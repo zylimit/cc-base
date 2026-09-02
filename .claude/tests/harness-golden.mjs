@@ -335,6 +335,12 @@ const COMMANDS = [
   { id: 'sync-check', argv: ['sync-check'] },
   { id: 'sync-check--staged', argv: ['sync-check', '--staged'] },
 
+  // S22. The sandbox carries no CLAUDE.md and no .claude/rules, so what is pinned here is
+  // the refusal: a tree with no constitution reports that it has none rather than reporting
+  // a clean one. An audit that answered 0 rules / 0 phantom / ok:true for a repository it
+  // never read would be the exact failure the command exists to name.
+  { id: 'rules-audit', argv: ['rules-audit'] },
+
   // Sub-forms and error paths that no earlier entry reaches. Three of them are the only
   // way anything in this file produces stderr at all: harness.mjs writes to stderr in
   // exactly three places (die(), the waiver-create rejection, the arch-check trend-record
@@ -762,7 +768,7 @@ const REPO_DOCTOR_KEYS = 'node,catalogPresent,gitRepo,headCommit,harnessDir,subc
 const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-pack,receipt,'
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
-  + 'review,review-pack,authorship,invariants,recap,archive,sync-check';
+  + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

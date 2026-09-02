@@ -171,7 +171,7 @@ CI 那格是唯一能真验 26 个 `.ps1` 的地方（Windows runner 自带 pwsh
 - **作者 ≠ 评审（机器强制）**：姊妹仓把这条明确标为 prompt-only，自陈「引擎只会数 lens，看不出谁写的代码」。cc-base 有它没有的东西——Claude Code 的 hook 事件带 `agent_id` / `agent_type`。`authorship record` 记谁改了哪些文件，`review verdict` 校验 lens 的 agentId ∈ 当前 diff 的作者集就**拒绝出 ACCEPT** 并点名。没有账本时不阻断，但输出 `authorshipEnforced:false` 并说明缺的是哪一半——没数据时假装验过了比散文规则更糟。
 - **评审证据包**：`review-pack` 把 commits / diffstat / untracked / diff（超阈值溢出到 `.patch`）凑齐，**删除与重命名单独成节**——评审者系统性地漏看「删掉了什么」，让它成为必须走过的一小节。
 
-完整启用条件、catalog schema、三十三能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
+完整启用条件、catalog schema、三十四能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
 
 ## 进程守护（开发态韧性）
 

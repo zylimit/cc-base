@@ -46,7 +46,8 @@
           "invariants",
           "recap",
           "archive",
-          "sync-check"
+          "sync-check",
+          "rules-audit"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -78,7 +79,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 225
+        "tests": 229
       },
       "stderr": []
     },
@@ -2768,6 +2769,23 @@
       "stderr": []
     },
     {
+      "id": "rules-audit",
+      "argv": [
+        "rules-audit"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "no-rules",
+        "files": [],
+        "note": "no rule documents found (.claude/CLAUDE.md / .claude/rules); there is no constitution to audit, which is not the same as a clean one"
+      },
+      "stderr": [
+        "no rule documents found (.claude/CLAUDE.md / .claude/rules); there is no constitution to audit, which is not the same as a clean one"
+      ]
+    },
+    {
       "id": "receipt-verify--missing",
       "argv": [
         "receipt",
@@ -3005,7 +3023,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -3030,6 +3048,7 @@
         "  recap       the situation derived from the memory files, on a budget; never from a summary",
         "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
+        "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "planned (not-implemented):"
       ]
     },
@@ -3041,7 +3060,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -3066,6 +3085,7 @@
         "  recap       the situation derived from the memory files, on a budget; never from a summary",
         "  archive     move the oldest entries out of the memory file verbatim; --apply to write",
         "  sync-check  memory behind code / spec changed without its changelog (--staged reads the index)",
+        "  rules-audit which rule lines reach a real enforcement point, and which only read as if they do",
         "planned (not-implemented):"
       ]
     },
