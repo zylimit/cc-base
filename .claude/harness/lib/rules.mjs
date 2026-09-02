@@ -11,8 +11,10 @@
 // So a constitution where every line names a command is healthy at any length, and a short
 // one full of exhortation is not. The four classes:
 //
-//   machine   the line quotes a token that resolves to something that exists -- a harness
-//             subcommand, a hook, a script, a test. Somebody can run it.
+//   machine   the line names a token that resolves to something that exists -- a harness
+//             subcommand, a hook, a script, a test. Somebody can run it. Quoting it in
+//             backticks is one way to name it; opening the clause with it in bold, the way
+//             a capability list does, is the other.
 //   prompt    the line says so itself: prompt-only, (P), [P], or the Chinese for "on the
 //             honour system". An admitted gap is a managed one.
 //   phantom   the line quotes a token shaped exactly like an enforcement point that is not
@@ -28,7 +30,10 @@
 // and phantom -- a false phantom would send someone to fix a rule that was never broken,
 // and a false machine is an automated phantom, which is the failure this file exists to
 // name. When in doubt the token contributes nothing and the line lands in unclassified,
-// where a human reads it.
+// where a human reads it. The bold form is shyer still and can only ever add machine: a
+// backtick says "this is a reference" and is judged both ways, while bold says "this word
+// matters" and is read for a reference only because the capability lists happen to open
+// with one.
 //
 // The subcommand table is passed in rather than imported: harness.mjs owns it and imports
 // this module, so reaching back for it would close a cycle.
@@ -101,6 +106,22 @@ function ruleLineText(line) {
   const bare = body.replace(/[*`_~#>\s]/g, '');
   if (bare.length < 4) return null;
   return body;
+}
+
+/**
+ * The bold token a rule line opens with, if it opens with one. `- **catalog-lint**: ...` is
+ * how this repository writes a capability list, and the name in that position is the subject
+ * of the clause rather than a word being stressed inside it -- so it is worth resolving,
+ * while `**must**` halfway down a sentence is not.
+ * Only the opening position is read, and only the run up to the closing markers.
+ * Pure.
+ * @returns {string|null}
+ */
+function leadingBoldToken(line) {
+  const m = /^\*\*([^*]+)\*\*/.exec(String(line).trim());
+  if (!m) return null;
+  const t = m[1].trim();
+  return t ? t : null;
 }
 
 /** The `backtick` tokens on a line, in order. Pure. */
@@ -246,6 +267,12 @@ function classifyToken(token, points) {
  * Classify a whole rule line. Phantom outranks machine: a line that names one real check
  * and one imaginary one is a line somebody has to fix. Machine outranks the prompt-only
  * marker, because naming a runnable check is a stronger claim than admitting there is none.
+ *
+ * The opening bold token counts as machine when it resolves, and never as phantom when it
+ * does not. Bold is not a reference syntax: this repository writes it on ordinary emphasis
+ * far more often than on a command, so a bold word that resolves to nothing is a word, not
+ * a broken reference, and accusing it would bury the real phantoms under a pile of prose.
+ * Backticks are the explicit form and keep both directions.
  * Pure given `points`.
  */
 function classifyRuleLine(text, points) {
@@ -256,6 +283,11 @@ function classifyRuleLine(text, points) {
     const r = classifyToken(tok, points);
     if (r.kind === 'machine') machine.push({ token: tok, target: r.target, reason: r.reason });
     else if (r.kind === 'phantom') phantom.push({ token: tok, target: r.target, reason: r.reason });
+  }
+  const bold = leadingBoldToken(text);
+  if (bold) {
+    const r = classifyToken(bold, points);
+    if (r.kind === 'machine') machine.push({ token: bold, target: r.target, reason: r.reason });
   }
   let klass;
   if (phantom.length > 0) klass = 'phantom';
@@ -1016,7 +1048,7 @@ function cmdClaudeMdLint(flags = {}) {
 
 export {
   RULES_DOC, RULES_DIR, POINT_DIRS, POINT_EXTS, PROMPT_MARKERS, RUNNERS, TEXT_BUDGET,
-  ruleLineText, backtickTokens, admitsPromptOnly, collectPoints, normalizeWord, looksExecutable,
+  ruleLineText, backtickTokens, leadingBoldToken, admitsPromptOnly, collectPoints, normalizeWord, looksExecutable,
   classifyToken, classifyRuleLine, ruleDocs, clip, auditDoc, tally, positiveInt, cmdRulesAudit,
   SKILLS_DIR, SKILL_FILE, DESCRIPTION_BUDGET, BOOLEAN_KEYS,
   scalarValue, parseFrontmatter, lintSkillFile, scanSkills, skillsNote, cmdSkillsLint,

@@ -166,7 +166,7 @@ CI 那格是唯一能真验 26 个 `.ps1` 的地方（Windows runner 自带 pwsh
 - **结构化 waiver**：per-check 豁免（owner / reason / scope / expiry），security / safety 永不可豁免；high 档属性缺口可留痕推迟，critical 不行。
 - **规格可判定性**：`spec-lint` 按本仓 Product-Spec 实际的形状扫——四段必填段缺失或空、模板 `<...>` 未填、功能需求条目缺「用户做什么 → 系统做什么 → 得到什么」的箭头、适当/快速这类不可判定措辞。**不照搬 EARS**：那套语法在本生态零命中，做出来的是一个永远全绿、却让人以为规格被检查过的闸。
 - **需求追溯**：`trace` 把 `[REQ-<模块>-<三位数>]` 编号和测试引用对上，报未追溯需求与悬空编号；**编号是可选的，没写就明说追溯不可用（rc 3）而不硬造锚点**——小项目零负担，要上追溯再加。`spec` 按变更取相关需求的预算化视图，只把该看的那几条塞进 delegate 的上下文。
-- **一键 DoD**：`dod` 把十一步静态治理跑完给一个结论（阻断步 FAIL → rc 2；全降级 = 什么都没建立 → rc 3，不是绿）。只管静态治理，代码能不能跑仍归 `gate`。
+- **一键 DoD**：`dod` 把十四步静态治理跑完给一个结论（阻断步 FAIL → rc 2；全降级 = 什么都没建立 → rc 3，不是绿）。只管静态治理，代码能不能跑仍归 `gate`。
 - **结构化分歧评审**：`review start|blue|lens|verdict|backlog` 把评审做成引擎的闸而不是习惯——九个 lens 分三阶段（code → functional → trust），早阶段没**过**晚阶段的 lens 直接拒收（贵评审不花在没过便宜评审的代码上）；每条 finding 必须带 `file:line` 或复现路径，否则整份拒收；裁决由引擎算不由人断言，**一个 lens 报 error 不会被四个干净 lens 投票稀释**；连续 FIX_REQUIRED 到 `maxRounds` 就 `escalate` 交人（再来一轮也分不出是改动错还是标准错）。ACCEPT 且到最终阶段自动写 diff-bound 回执。**这一层不用开 catalog**——它是本领域唯一有实测效果的杠杆，锁在大仓开关后面等于在最需要它的仓里废掉它。
 - **作者 ≠ 评审（机器强制）**：姊妹仓把这条明确标为 prompt-only，自陈「引擎只会数 lens，看不出谁写的代码」。cc-base 有它没有的东西——Claude Code 的 hook 事件带 `agent_id` / `agent_type`。`authorship record` 记谁改了哪些文件，`review verdict` 校验 lens 的 agentId ∈ 当前 diff 的作者集就**拒绝出 ACCEPT** 并点名。没有账本时不阻断，但输出 `authorshipEnforced:false` 并说明缺的是哪一半——没数据时假装验过了比散文规则更糟。
 - **评审证据包**：`review-pack` 把 commits / diffstat / untracked / diff（超阈值溢出到 `.patch`）凑齐，**删除与重命名单独成节**——评审者系统性地漏看「删掉了什么」，让它成为必须走过的一小节。

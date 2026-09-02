@@ -81,7 +81,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 237
+        "tests": 240
       },
       "stderr": []
     },
@@ -1268,6 +1268,39 @@
             "counts": null
           },
           {
+            "id": "rules-audit",
+            "argv": [
+              "rules-audit"
+            ],
+            "blocking": true,
+            "status": "DEGRADED",
+            "exit": 3,
+            "error": "no-rules",
+            "counts": null
+          },
+          {
+            "id": "skills-lint",
+            "argv": [
+              "skills-lint"
+            ],
+            "blocking": true,
+            "status": "PASS",
+            "exit": 0,
+            "error": null,
+            "counts": null
+          },
+          {
+            "id": "claude-md-lint",
+            "argv": [
+              "claude-md-lint"
+            ],
+            "blocking": true,
+            "status": "DEGRADED",
+            "exit": 3,
+            "error": "non-git",
+            "counts": null
+          },
+          {
             "id": "risk",
             "argv": [
               "risk"
@@ -1297,7 +1330,7 @@
           "attributes",
           "adr-check"
         ],
-        "established": 5,
+        "established": 6,
         "note": "static governance only; a satisfied result does not establish that the code works -- that is `gate`"
       },
       "stderr": [
@@ -1310,6 +1343,9 @@
         " DEGRADED fitness :: non-git",
         " PASS     ledger",
         " PASS     arch-trend",
+        " DEGRADED rules-audit :: no-rules",
+        " PASS     skills-lint",
+        " DEGRADED claude-md-lint :: non-git",
         " FAIL     risk",
         " DEGRADED budget",
         "Definition of Done: NOT satisfied (attributes, adr-check)"

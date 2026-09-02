@@ -52,7 +52,7 @@ import {
 import {
   DESCRIPTION_BUDGET, admitsPromptOnly, auditDoc, backtickTokens, claudeMdNote, classifyRuleLine,
   classifyToken, documentSections, lintModuleDoc, lintSkillFile, literalDirSegments, moduleRoot,
-  parseFrontmatter, ruleLineText, scanModuleDocs, scanSkills, tally,
+  leadingBoldToken, parseFrontmatter, ruleLineText, scanModuleDocs, scanSkills, tally,
 } from './rules.mjs';
 
 /**
@@ -1983,6 +1983,35 @@ function selftestCases() {
       assert.deepEqual(klass('\u673a\u5236\u5316\u4e0d' + honour), 'unclassified');
     }],
 
+    // S22 the bold opening -- a capability list writes its subject in bold rather than in
+    // backticks, and those lines name the most enforced things in the repository. Reading
+    // them costs one direction only: bold can add machine and can never accuse, because in
+    // these documents it is overwhelmingly ordinary emphasis, and a phantom count inflated
+    // by prose would send people to delete references that were never broken.
+    ['rules-audit: the bold a capability list opens with resolves, and never accuses', () => {
+      const points = rulePoints();
+      assert.deepEqual(leadingBoldToken('**arch-check**: the real one'), 'arch-check');
+      assert.deepEqual(leadingBoldToken('**task start|status|complete**: an envelope'), 'task start|status|complete');
+      assert.deepEqual(leadingBoldToken('run **arch-check** before merging'), null, 'only the opening position');
+      assert.deepEqual(leadingBoldToken('****'), null);
+      assert.deepEqual(leadingBoldToken('plain text'), null);
+
+      const klass = t => classifyRuleLine(t, points).klass;
+      assert.deepEqual(klass('**arch-check**: real import edges against the declared graph'), 'machine');
+      assert.deepEqual(klass('**bash .claude/scripts/doctor.sh**: the installer self-check'), 'machine');
+      // xu-qiu-shou-ji, "requirements gathering" -- the shape the constitution's own lists
+      // open with, and the reason bold cannot be allowed to accuse.
+      assert.deepEqual(klass('**\u9700\u6c42\u6536\u96c6** -> product-spec-builder'), 'unclassified',
+        'a bold label that resolves to nothing is a word being stressed, not a broken reference');
+      assert.deepEqual(klass('**nope-guard.sh**: a hook that is not on disk'), 'unclassified',
+        'bold may add machine and may never accuse; the phantom class belongs to backticks');
+      assert.deepEqual(klass('**node .claude/harness/harness.mjs foo-bar**: nor this one'), 'unclassified');
+      assert.deepEqual(klass('run `.claude/hooks/nope-guard.sh` when **arch-check** says so'), 'phantom',
+        'the backtick keeps both directions wherever the bold sits');
+      assert.deepEqual(classifyRuleLine('**fitness**: the built-in rules', points).machine.map(m => m.token),
+        ['fitness'], 'the resolved bold token is recorded like any other');
+    }],
+
     // S22 the document walk -- fenced code is example, not clause. Counting it would let any
     // file improve its own ratio by pasting a command block, which is the metric measuring
     // itself rather than the constitution.
@@ -2006,6 +2035,53 @@ function selftestCases() {
       assert.deepEqual(t.counts, { machine: 1, prompt: 1, phantom: 0, unclassified: 1 });
       assert.deepEqual(t.ratio.unclassified, 0.333);
       assert.deepEqual(tally([]).ratio.machine, 0, 'no rules is not a division by zero');
+    }],
+
+    // S22 end to end, and the wire into dod. The audit is only worth its exit code if
+    // something consumes it, so the two are pinned together: a constitution naming a check
+    // that does not exist fails the audit, and the Definition of Done fails with it rather
+    // than reporting a governance surface that was never clean. The other two constitution
+    // steps ride along to pin the shape of their answers in the same tree -- a checkout with
+    // no skills is clean, a checkout with no catalog is degraded, and neither is a failure.
+    ['rules-audit: a phantom fails the audit, and dod fails with it', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-rules-'));
+      try {
+        fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+        fs.writeFileSync(path.join(root, '.claude', 'CLAUDE.md'), [
+          '# Rules',
+          '',
+          '- **selftest**: the bold opening resolves, so this line is enforced',
+          '- **requirements gathering**: bold that resolves to nothing stays on the worklist',
+          '- run `node .claude/harness/harness.mjs cc-base-absent-subcommand` before merging',
+          '',
+        ].join('\n'), 'utf8');
+        const run = (argv) => {
+          const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), ...argv], {
+            cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+          });
+          assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+          let out = null;
+          try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+          assert.ok(out, 'no JSON on stdout: ' + String(r.stdout || '').slice(0, 120));
+          return { code: r.status, out, err: String(r.stderr || '') };
+        };
+
+        const audit = run(['rules-audit']);
+        assert.deepEqual([audit.code, audit.out.ok], [1, false]);
+        assert.deepEqual(audit.out.counts, { machine: 1, prompt: 0, phantom: 1, unclassified: 1 },
+          'one line each: the bold that resolved, the bold that did not, and the imaginary subcommand');
+        assert.deepEqual(audit.out.phantom.map(p => p.tokens[0].target), ['cc-base-absent-subcommand']);
+        assert.ok(/PHANTOM \.claude\/CLAUDE\.md:5/.test(audit.err), 'stderr names the line: ' + audit.err);
+
+        const dod = run(['dod', '--only', 'rules-audit,skills-lint,claude-md-lint']);
+        assert.deepEqual(dod.code, 2, 'a constitution naming a check that is not there is not a satisfied one');
+        assert.deepEqual(dod.out.steps.map(s => s.id + ':' + s.status),
+          ['rules-audit:FAIL', 'skills-lint:PASS', 'claude-md-lint:DEGRADED']);
+        assert.deepEqual(dod.out.blockingFailures, ['rules-audit']);
+        assert.ok(dod.out.steps.every(s => s.blocking), 'all three are blocking steps');
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     }],
 
     // S23 frontmatter -- the parse is shy in one direction only. A shape outside the subset
@@ -2147,6 +2223,30 @@ function selftestCases() {
       }
     }],
 
+
+    // S23 the order the two answers are asked in. One tree can hold both a defect and a
+    // shape this lint declines to rule on, and which one it reports decides whether a
+    // caller can block: exit 1 names something to repair, exit 3 only says the scan was
+    // incomplete. Swapping them leaves every other assertion green, so this lane is the
+    // only thing holding the order.
+    ['skills-lint: a finding outranks a shape that was not ruled on', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-'));
+      try {
+        writeSkill(root, 'alpha', ['name: beta', 'description: when the user asks for alpha']);
+        writeSkill(root, 'gamma', ['name: gamma', 'description: >', '  folded over two lines']);
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'skills-lint'], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        const out = JSON.parse(String(r.stdout || '').trim());
+        assert.deepEqual([r.status, out.ok, out.degraded], [1, false, true],
+          'the actionable answer wins the exit code, and the incomplete scan stays in the body');
+        assert.deepEqual(out.findings.map(f => f.code), ['NAME_MISMATCH']);
+        assert.deepEqual(out.undecidable.length, 1);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
 
     // S24 the module root -- everything downstream hangs off which directory a module's
     // globs agree on, and the two ways it can have none (spread over two roots, or

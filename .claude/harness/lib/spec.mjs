@@ -600,6 +600,14 @@ const DOD_STEPS = [
   { id: 'fitness', argv: ['fitness', '--all'], blocking: true },
   { id: 'ledger', argv: ['ledger'], blocking: true },
   { id: 'arch-trend', argv: ['arch-trend', '--gate'], blocking: true },
+  // The constitution layer. All three fail on the same shape of defect: a rule, a skill or a
+  // module boundary that reads as enforced and is not. `rules-audit` blocks on phantom
+  // references only -- its unclassified count is a worklist for a human and must not decide
+  // a build. The other two block on their findings, and all three degrade rather than fail
+  // where their source is absent, which is why a repository with no catalog still passes.
+  { id: 'rules-audit', argv: ['rules-audit'], blocking: true },
+  { id: 'skills-lint', argv: ['skills-lint'], blocking: true },
+  { id: 'claude-md-lint', argv: ['claude-md-lint'], blocking: true },
   // Signals, not verdicts. `budget` is documented as a split-or-escalate prompt and `risk`
   // reports decay that may be entirely expected; failing the build on either would get the
   // whole command switched off, which costs more than the two findings are worth.
