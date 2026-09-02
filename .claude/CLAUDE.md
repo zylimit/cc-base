@@ -283,7 +283,7 @@
 
 [大仓能力（可选——按需开启）]
     大仓治理（60 万行级项目的影响面分析 / diff-bound 审查回执 / 四态质量门 / 架构防腐 / 五性证据门）。默认关闭，启用 = 放一份合规 `.claude/harness/module-catalog.json`；不启用对项目完全透明、所有 hook 走原逻辑零行为变化。
-    做启用 catalog、解读 impact / context-pack / arch-check / fitness / attributes / adr-check / arch-trend / spec-lint / trace / spec / dod / review / review-pack / authorship / invariants / recap / archive / sync-check 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、三十八能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
+    做启用 catalog、解读 impact / context-pack / arch-check / fitness / attributes / adr-check / arch-trend / spec-lint / trace / spec / dod / release / review / review-pack / authorship / invariants / recap / archive / sync-check 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、三十九能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
     接线（不新增 hook 事件，catalog + node 双满足才生效）：stop-gate 在 `.needs-review` 清空后校验 diff-bound 回执，rc=4（STALE）拦停强制重审；pre-commit-check 在 commit 前跑定向质量门，rc=2（FAIL/BLOCKED 或 critical/high 属性缺证据）阻断 commit。
     架构防腐：`arch-check` 拿真实 import 边对照 catalog 声明图——越禁边（forbiddenDependencies / layer 违规）、未声明边（漂移会让 impact 漏测）、虚边、依赖环全部机器可见；声明与禁令冲突时禁令赢。`adr-check` 盯 ADR 执法引用（幽灵引用比没有更糟）；`arch-check --record` + `arch-trend --gate` 做漂移棘轮——老仓带债立基线，旧债不挡路、新债零容忍。
 

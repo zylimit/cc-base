@@ -51,7 +51,8 @@
           "skills-lint",
           "claude-md-lint",
           "init",
-          "cochange"
+          "cochange",
+          "release"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -83,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 261
+        "tests": 266
       },
       "stderr": []
     },
@@ -1389,6 +1390,25 @@
       ]
     },
     {
+      "id": "release",
+      "argv": [
+        "release"
+      ],
+      "exitCode": 3,
+      "stdout": {
+        "ok": false,
+        "degraded": true,
+        "error": "non-git",
+        "checks": [],
+        "blockers": [],
+        "established": 0,
+        "note": "assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision"
+      },
+      "stderr": [
+        "Release readiness: cannot be assessed (not a git repository)"
+      ]
+    },
+    {
       "id": "review-pack",
       "argv": [
         "review-pack"
@@ -2199,7 +2219,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2229,6 +2249,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },
@@ -2240,7 +2261,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2270,6 +2291,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },

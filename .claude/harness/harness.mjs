@@ -26,13 +26,14 @@
 //   lib/memory.mjs    S21 invariants + recap + archive + sync-check
 //   lib/rules.mjs     S22 rules-audit + S23 skills-lint + S24 claude-md-lint
 //   lib/init.mjs      S25 init
+//   lib/release.mjs   S27 release readiness (assembly only; publishes nothing)
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
 // quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
 // catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
-// rules -> core, catalog; init -> core, catalog, graph, evidence; selftest -> all of the
-// above; this file -> all of the above. No cycles.
+// rules -> core, catalog; init -> core, catalog, graph, evidence; release -> core, spec,
+// memory; selftest -> all of the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -56,12 +57,13 @@ import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
 import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.mjs';
 import { cmdClaudeMdLint, cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
 import { cmdInit } from './lib/init.mjs';
+import { cmdRelease } from './lib/release.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init', 'cochange'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init', 'cochange', 'release'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 // Which flags each subcommand actually reads. parseArgs collects any `--x` it is handed, and
@@ -126,6 +128,10 @@ const SUBCOMMAND_FLAGS = {
   'claude-md-lint': ['catalog', 'limit'],
   'init': ['apply', 'catalog', 'max-modules'],
   'cochange': ['catalog', 'gate', 'max-commits', 'max-files-per-commit', 'min-support'],
+  // Empty on purpose, and it is the one row that has to stay empty. Every switch this
+  // subcommand could plausibly grow -- --skip-ci, --allow-dirty, --force -- is a waiver with
+  // none of a waiver's owner, expiry or compensation, granted by whoever is in a hurry.
+  'release': [],
 };
 
 /**
@@ -228,6 +234,8 @@ function main() {
     case 'claude-md-lint': return cmdClaudeMdLint(flags);
     case 'init':         return cmdInit(flags);
     case 'cochange':     return cmdCoChange(flags);
+    // No flags argument: the row above is empty, so there is nothing to hand it.
+    case 'release':      return cmdRelease();
     default:
       return die(usage(cmd), 3);
   }
@@ -267,6 +275,7 @@ function usage(cmd) {
     '  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification\n' +
     '  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one\n' +
     '  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports\n' +
+    '  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

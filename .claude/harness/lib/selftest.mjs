@@ -58,6 +58,9 @@ import {
 import {
   closeCoverage, draftCatalog, extensionOf, looseFileKind, moduleIdFor, planModules,
 } from './init.mjs';
+import {
+  ciBuckets, manifestFindings, manifestIncludes, normalizedSha, parseManifest, releaseVerdict, result,
+} from './release.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -2927,6 +2930,174 @@ function selftestCases() {
       }
     }],
 
+    // S27 release readiness. The manifest half is pinned as pure functions because the thing
+    // it has to agree with is a shell script: gen-manifest.sh decides membership with a `case`
+    // whose `*` spans `/` and whose first matching arm wins, and an approximation of either
+    // property would make this check disagree with the generator it audits.
+    ['release: manifest membership reproduces the generator, slash-spanning globs and arm order included', () => {
+      const kept = [
+        'CLAUDE.md', 'hooks/stop-gate.sh', 'harness/lib/release.mjs',
+        'feedback/templates/feedback-index-template.md',   // arm 19 keeps it before arm 21 could drop it
+        'feedback/archive/old-lesson.md',                  // arm 20: a subdirectory entry stays
+        'feedback/notes.txt',                              // no arm matches a non-.md direct child
+      ];
+      const dropped = [
+        'FRAMEWORK-MANIFEST.txt', 'settings.json', 'settings-windows.json', 'settings.local.json',
+        '.needs-review', '.needs-review.lock', '.fast-mode', '.subagent-reminded',
+        '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
+        'signals.jsonl', 'skills/evolution-engine/signals.jsonl',
+        'evidence/gate-block.log', 'evidence/nested/deep.log',  // `*` spans `/` in a case pattern
+        'harness/receipts/task-1.json',
+        'hooks/stop-gate.sh.bak', 'hooks/stop-gate.sh.framework-new',
+        'feedback/private-lesson.md',
+      ];
+      for (const p of kept) assert.ok(manifestIncludes(p), p + ' should be in the manifest');
+      for (const p of dropped) assert.ok(!manifestIncludes(p), p + ' should be excluded from the manifest');
+    }],
+
+    ['release: manifest drift is three distinct findings, and the digest ignores CR', () => {
+      const declared = parseManifest([
+        '# comment header the readers skip',
+        'a.md\taaa',
+        'b.md\tbbb',
+        'gone.md\tccc',
+        'malformed-line-without-a-tab',
+        '',
+      ].join('\n'));
+      assert.deepEqual([...declared.keys()].sort(), ['a.md', 'b.md', 'gone.md'],
+        'comments, blanks and tab-less lines are not entries');
+
+      const actual = new Map([['a.md', 'aaa'], ['b.md', 'CHANGED'], ['new.md', 'ddd']]);
+      const f = manifestFindings(declared, actual);
+      assert.deepEqual(f.missing, ['new.md'],
+        'a framework file with no row is the defect that makes an upgrade skip it silently');
+      assert.deepEqual(f.stale, ['gone.md']);
+      assert.deepEqual(f.changed, ['b.md']);
+
+      // The generator hashes `tr -d '\r'` output, so a CRLF checkout must not read as modified.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-release-sha-'));
+      try {
+        const lf = path.join(dir, 'lf.txt');
+        const crlf = path.join(dir, 'crlf.txt');
+        fs.writeFileSync(lf, 'one\ntwo\n', 'utf8');
+        fs.writeFileSync(crlf, 'one\r\ntwo\r\n', 'utf8');
+        assert.deepEqual(normalizedSha(lf), normalizedSha(crlf),
+          'autocrlf must not be reportable as a user modification');
+        assert.deepEqual(normalizedSha(lf),
+          createHash('sha256').update(Buffer.from('one\ntwo\n', 'utf8')).digest('hex'));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }],
+
+    // The CI bucketing is the whole reason this subcommand exists: CI here was red for over a
+    // month while the local runner reported green. So the one answer it may never give is
+    // "passed" for a question it could not ask, and the one it must give is a refusal that
+    // says UNKNOWN out loud.
+    ['release: CI unknown is never green, and only a real conclusion decides', () => {
+      const runs = (...rows) => rows.map(([workflowName, status, conclusion]) => ({ workflowName, status, conclusion }));
+
+      const green = ciBuckets(runs(['gate', 'completed', 'success']));
+      assert.deepEqual([green.bad.length, green.good.length, green.inconclusive.length], [0, 1, 0]);
+
+      const red = ciBuckets(runs(['gate', 'completed', 'failure'], ['lint', 'completed', 'success']));
+      assert.deepEqual([red.bad, red.good.length], [['gate: failure'], 1],
+        'one failed workflow is a failure however many others passed');
+
+      const running = ciBuckets(runs(['gate', 'in_progress', null]));
+      assert.deepEqual(running.inconclusive, ['gate: in_progress'],
+        'still running is not yet passed');
+
+      const odd = ciBuckets(runs(['gate', 'completed', 'cancelled'], ['lint', 'completed', null]));
+      assert.deepEqual([odd.bad.length, odd.good.length, odd.inconclusive],
+        [0, 0, ['gate: cancelled', 'lint: no conclusion']],
+        'a cancelled run proved nothing, which is neither a pass nor a failure');
+
+      const timedOut = ciBuckets(runs(['gate', 'completed', 'timed_out']));
+      assert.deepEqual(timedOut.bad, ['gate: timed_out']);
+    }],
+
+    ['release: the verdict blocks on failures, refuses to call an all-unknown run green, and never ships empty-handed', () => {
+      const pass = id => result(id, 'PASS', 'fine', null, null);
+      const degraded = id => result(id, 'DEGRADED', 'could not be asked', null, null);
+      const fail = (id, step) => result(id, 'FAIL', 'blocked', null, step);
+
+      const clean = releaseVerdict([pass('worktree'), degraded('ci')]);
+      assert.deepEqual([clean.ok, clean.exit, clean.blockers.length], [true, 0, 0],
+        'a degraded check reports unknown and does not move the exit code');
+
+      const blocked = releaseVerdict([fail('fast-mode', 'bash .claude/scripts/fast-mode.sh off'), degraded('ci')]);
+      assert.deepEqual([blocked.ok, blocked.exit], [false, 1]);
+      assert.deepEqual(blocked.blockers.map(b => b.id), ['fast-mode']);
+      for (const b of blocked.blockers) {
+        assert.ok(typeof b.nextStep === 'string' && b.nextStep.length > 0,
+          b.id + ': a blocker without a command to run is a diagnosis with empty hands');
+      }
+
+      const nothing = releaseVerdict([degraded('worktree'), degraded('ci')]);
+      assert.deepEqual([nothing.ok, nothing.exit, nothing.degraded, nothing.blockers.length], [false, 3, true, 0],
+        'a run that established nothing is not a run that passed');
+    }],
+
+    // End to end, over one throwaway repository. Three spawns rather than one per condition:
+    // each `release` runs `dod` as a child, and this case list is itself replayed nine times
+    // by the golden matrix. The three blocking conditions are therefore raised together and
+    // asserted individually, which still proves each is detected and named on its own.
+    ['release: a clean tree passes, three defects each get named with a command, and a non-repo establishes nothing', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'release');
+        commitFiles(root, { 'src/app.ts': 'export const APP = 1;\n' }, 'release fixture base');
+
+        const clean = runRelease(root);
+        assert.deepEqual([clean.code, clean.out.ok, clean.out.blockers.length], [0, true, 0],
+          'a committed tree with nothing pending is shippable as far as this can tell');
+        assert.ok(clean.out.note.includes('never tags, pushes, publishes or writes'),
+          'the output has to say what the command will not do: ' + clean.out.note);
+
+        // No origin is answered before gh is ever looked for, so this lane reads the same on a
+        // machine with gh installed and on one without. That is what keeps the golden baseline
+        // reproducible, and it is asserted here rather than assumed.
+        assert.deepEqual(clean.out.degradedChecks, ['remote', 'manifest', 'ci']);
+        for (const id of ['remote', 'ci']) {
+          const c = clean.out.checks.find(x => x.id === id);
+          assert.deepEqual(c.status, 'DEGRADED');
+          assert.ok(/UNKNOWN, which is not a pass|UNKNOWN -- unknown is not a pass/.test(c.summary),
+            id + ': an unanswerable question must be reported as unknown, not passed: ' + c.summary);
+        }
+
+        fs.appendFileSync(path.join(root, 'src', 'app.ts'), 'export const B = 2;\n', 'utf8');
+        fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+        fs.writeFileSync(path.join(root, '.claude', '.fast-mode'),
+          'enabled_epoch=1\nexpires_epoch=4102444800\nhours=24\n', 'utf8');
+        fs.writeFileSync(path.join(root, '.claude', '.needs-review'), 'src/app.ts\nsrc/b.ts\n', 'utf8');
+
+        const dirty = runRelease(root);
+        assert.deepEqual([dirty.code, dirty.out.ok], [1, false]);
+        assert.deepEqual(dirty.out.blockers.map(b => b.id).sort(), ['fast-mode', 'review-queue', 'worktree']);
+        for (const b of dirty.out.blockers) {
+          assert.ok(typeof b.nextStep === 'string' && b.nextStep.length > 0,
+            b.id + ': every blocker names the command that resolves it');
+          assert.ok(dirty.err.includes(b.id + ' -> ' + b.nextStep),
+            b.id + ': the human channel carries the same command as the JSON one: ' + dirty.err);
+        }
+        // The two flag files just written are runtime state, and runtime state is not
+        // uncommitted work -- counting it would make every fast-mode session look dirty.
+        assert.deepEqual(dirty.out.checks.find(c => c.id === 'worktree').evidence.paths, ['src/app.ts']);
+        assert.deepEqual(dirty.out.checks.find(c => c.id === 'fast-mode').evidence.active, true);
+        assert.deepEqual(dirty.out.checks.find(c => c.id === 'review-queue').evidence.pending, 2);
+
+        const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-release-loose-')));
+        roots.push(loose);
+        const nonGit = runRelease(loose);
+        assert.deepEqual([nonGit.code, nonGit.out.error, nonGit.out.checks.length, nonGit.out.established],
+          [3, 'non-git', 0, 0],
+          'outside a repository there is no commit to judge, and an empty checklist is not a clean one');
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // The flag whitelist. Both halves are asserted in one pass per subcommand, because the
     // dangerous half is not the rejection: a row missing a flag the source really reads turns
     // a correct invocation into a usage error, and the first response to a checker that cries
@@ -2976,6 +3147,9 @@ function selftestCases() {
         'claude-md-lint': ['catalog', 'limit'],
         'init': ['apply', 'catalog', 'max-modules'],
         'cochange': ['catalog', 'gate', 'max-commits', 'max-files-per-commit', 'min-support'],
+        // Empty and meant to stay empty: --skip-ci / --allow-dirty would each be a waiver
+        // granted by whoever is in a hurry, with no owner, expiry or compensation.
+        'release': [],
       };
       const INVENTED = 'cc-base-absent-flag';
       const run = (argv) => {
@@ -3166,6 +3340,21 @@ function runCoChange(root, argv) {
   const r = spawnSync(process.execPath,
     [path.join(HARNESS_DIR, 'harness.mjs'), 'cochange', '--catalog', path.join(root, 'side-catalog.json'), ...argv],
     { cwd: root, encoding: 'utf8', env: { ...fixtureGitEnv(), CLAUDE_PROJECT_DIR: root } });
+  assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+  let out = null;
+  try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+  assert.ok(out, 'no JSON on stdout: ' + String(r.stderr || '').slice(0, 300));
+  return { code: r.status, out, err: String(r.stderr || '') };
+}
+
+/**
+ * Run `release` against a fixture tree. The pinned git env travels with it because the child
+ * `dod` inherits this process's environment: without it a machine with commit signing or a
+ * commit template configured globally would answer differently from one without.
+ */
+function runRelease(root) {
+  const r = spawnSync(process.execPath, [path.join(HARNESS_DIR, 'harness.mjs'), 'release'],
+    { cwd: root, input: '', encoding: 'utf8', env: { ...fixtureGitEnv(), CLAUDE_PROJECT_DIR: root } });
   assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
   let out = null;
   try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }

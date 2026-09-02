@@ -51,7 +51,8 @@
           "skills-lint",
           "claude-md-lint",
           "init",
-          "cochange"
+          "cochange",
+          "release"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -83,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 261
+        "tests": 266
       },
       "stderr": []
     },
@@ -1445,6 +1446,128 @@
       ]
     },
     {
+      "id": "release",
+      "argv": [
+        "release"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "ok": false,
+        "checks": [
+          {
+            "id": "worktree",
+            "status": "FAIL",
+            "blocking": true,
+            "summary": "4 uncommitted path(s); what would ship is not what was tested",
+            "evidence": {
+              "dirty": 4,
+              "paths": [
+                "api/new-route.ts",
+                "auth/login.ts",
+                "core/util.ts",
+                "db/server.pem"
+              ]
+            },
+            "nextStep": "git status --porcelain"
+          },
+          {
+            "id": "remote",
+            "status": "DEGRADED",
+            "blocking": true,
+            "summary": "no origin remote; local vs remote is UNKNOWN, which is not a pass",
+            "evidence": {
+              "branch": "main"
+            },
+            "nextStep": null
+          },
+          {
+            "id": "dod",
+            "status": "FAIL",
+            "blocking": true,
+            "summary": "blocking step(s) failed: adr-check, fitness",
+            "evidence": {
+              "exit": 2,
+              "steps": 14,
+              "blockingFailures": [
+                "adr-check",
+                "fitness"
+              ]
+            },
+            "nextStep": "node .claude/harness/harness.mjs dod --only adr-check,fitness"
+          },
+          {
+            "id": "manifest",
+            "status": "DEGRADED",
+            "blocking": true,
+            "summary": "no .claude/FRAMEWORK-MANIFEST.txt; this tree does not distribute a framework layer",
+            "evidence": null,
+            "nextStep": null
+          },
+          {
+            "id": "review-queue",
+            "status": "PASS",
+            "blocking": true,
+            "summary": "nothing waiting for review",
+            "evidence": {
+              "pending": 0
+            },
+            "nextStep": null
+          },
+          {
+            "id": "fast-mode",
+            "status": "PASS",
+            "blocking": true,
+            "summary": "closed; the review and test gates were in force",
+            "evidence": {
+              "active": false
+            },
+            "nextStep": null
+          },
+          {
+            "id": "ci",
+            "status": "DEGRADED",
+            "blocking": true,
+            "summary": "no origin remote, so CI status is UNKNOWN -- unknown is not a pass",
+            "evidence": {
+              "head": "4818a1bd49a03b4f609ae27d81b54ad56374997b"
+            },
+            "nextStep": null
+          }
+        ],
+        "blockers": [
+          {
+            "id": "worktree",
+            "why": "4 uncommitted path(s); what would ship is not what was tested",
+            "nextStep": "git status --porcelain"
+          },
+          {
+            "id": "dod",
+            "why": "blocking step(s) failed: adr-check, fitness",
+            "nextStep": "node .claude/harness/harness.mjs dod --only adr-check,fitness"
+          }
+        ],
+        "degradedChecks": [
+          "remote",
+          "manifest",
+          "ci"
+        ],
+        "established": 4,
+        "note": "assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision"
+      },
+      "stderr": [
+        " FAIL     worktree      4 uncommitted path(s); what would ship is not what was tested",
+        " DEGRADED remote        no origin remote; local vs remote is UNKNOWN, which is not a pass",
+        " FAIL     dod           blocking step(s) failed: adr-check, fitness",
+        " DEGRADED manifest      no .claude/FRAMEWORK-MANIFEST.txt; this tree does not distribute a framework layer",
+        " PASS     review-queue  nothing waiting for review",
+        " PASS     fast-mode     closed; the review and test gates were in force",
+        " DEGRADED ci            no origin remote, so CI status is UNKNOWN -- unknown is not a pass",
+        "Release readiness: NOT ready (worktree, dod)",
+        "   worktree -> git status --porcelain",
+        "   dod -> node .claude/harness/harness.mjs dod --only adr-check,fitness"
+      ]
+    },
+    {
       "id": "review-pack",
       "argv": [
         "review-pack"
@@ -2519,7 +2642,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2549,6 +2672,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },
@@ -2560,7 +2684,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -2590,6 +2714,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },

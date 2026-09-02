@@ -36,8 +36,8 @@ paths:
 
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
-[三十八能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / init / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。**输出里的仓库路径一律正斜杠**（Windows 上也一样，平台分隔符不外泄）——stdout 是给 hook / git hook / CI 读的机器契约，同一个仓在两个平台给出两种路径形态，等于让每个消费者各自兜一遍。
+[三十九能力清单]
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / init / release / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。子命令名、JSON 字段、退出码不受拆库影响。**输出里的仓库路径一律正斜杠**（Windows 上也一样，平台分隔符不外泄）——stdout 是给 hook / git hook / CI 读的机器契约，同一个仓在两个平台给出两种路径形态，等于让每个消费者各自兜一遍。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
@@ -90,6 +90,13 @@ paths:
       · **不猜的比猜的重要**：`riskTier` 一律 `low` 占位，`attributes` / `dependsOn` / `layer` / `forbiddenDependencies` **一概不生成**。机器读目录名猜出的 high 会被下游当成有人定过档，比不写更糟。
       · **`dependsOn` 尤其不写**：真实 import 边照跑（复用 arch-check 那套提取），但只报在 `referenceEdges` 和 stderr 里**供人过目**。写进 `dependsOn` 等于让 arch-check 对着自己的倒影做检查，`undeclaredDependencies` 从此恒空、防腐闸当场失效。
       · **草案必须自洽**：产出前用真 `lintCatalog` 自检一遍，UNMAPPED / OVERLAP / CATCH_ALL 任一不过就 rc 1 拒绝给出（连 `--apply` 也一个字节都不写）——把人第一步就送进红灯的草案比没有草案更糟。推断没放下的路径按字面补进 `ignored` 并计数上报，落进 ignored 的手写文件数单独报 `sourceIgnored`，该提拔成模块的自己提。
+    - **release**：发版判据的**证据装配**——把「这个 commit 能不能发」的七条判据一次跑齐、摆成可核查清单。**它自己什么都不做**：不打 tag、不 push、不建 GitHub release、不写任何文件，每个子进程都是读（`git ls-remote` / `gh run list` / `dod`）。发版是 HIGH 档人工决定，一个会自己发版的命令第一次误触之后就再没人敢跑它。**不替代**仓里已有三件——`release-gate.sh`（hook，skill 展开前查待审清单）/ 仓根 make-release.sh（打包 zip + 排私有 feedback + 泄漏扫描）/ release-builder skill（人的工作流）；缺的正是它们中间那步装配。七条**全部阻断、全部可降级**：`worktree`（有未提交改动 = 要发的不是测过的；运行态按 `isStateExcluded` 排除，Fast Mode 标记不算「未提交的活」）/ `remote`（本地 HEAD 对 `git ls-remote origin <当前分支>`）/ `dod`（子进程跑，判据是它自己的退出码）/ `manifest`（对 `FRAMEWORK-MANIFEST.txt`）/ `review-queue`（`.claude/.needs-review` 非 clean）/ `fast-mode`（开着 = 这批跳过了 review/test 闸）/ `ci`（当前 HEAD 的 CI 结论）。
+      · **降级不是通过、也不是失败**：问不出答案就报 UNKNOWN，两个通道都明写，且**不动退出码**。
+      · **`remote` 实查远端，不读 `git status` 的 ahead/behind**：那个数来自 `.git` 里的远端跟踪引用，是上次 fetch 的缓存、可以任意陈旧；本仓已经吃过一次这个亏。差异方向也当场判出来给命令（本地领先 → push / 分叉 → fetch 后看 `HEAD..origin/<branch>` / 远端提交本地没有 → 先 fetch）。
+      · **`ci` 是本轮最大教训的机器化**：本仓 CI 连红一个多月没人看，而每批都在本地跑 run-all 报「全绿」——两句都真，本地跑的和 CI 跑的不是同一件事。所以结论从 CI 自己读；**读不到时诚实降级并写明「CI 状态未知，不等于通过」，绝不因查不到就当绿**。查到 failure/timed_out/startup_failure/action_required → 阻断；HEAD 从没跑过 CI（刚 commit 没 push）/ 还在跑 / cancelled 这类没结论的 → 降级说明。守卫顺序是设计的一部分：**无 origin 先答，再去找 `gh`**——装了 gh 的机器和没装的机器给同一个答案，golden 才录得住。
+      · **`manifest` 问的是「这份清单是不是 gen-manifest.sh 现在会写出来的那份」**，不是「列进去的文件哈希还对不对」——因为装机器依赖的正是前者：仓根 setup.sh 用同一套排除逻辑拷同一批文件，**没有清单行的框架文件会被当成用户改过、升级时不覆盖**（静默跳过，不报错）。所以三类发现都算：漏列 / 列了但树上没有 / 哈希对不上。判据复刻 gen-manifest.sh 的 `case` 分支及其两条语义（`*` 跨 `/`、首个命中的分支赢），**行序不比**（生成侧的 `sort` 吃 locale，字节序不是内容的性质）。下一步命令 `bash .claude/scripts/gen-manifest.sh`。
+      · **没有豁免 flag，一个都不给**：`--skip-ci` / `--allow-dirty` / `--force` 每一个都是 waiver 的翻版——没有 owner、没有到期、没有补偿，由当下最赶时间的人签发。`release` 的 flag 白名单表空着，且要一直空着（`--任何东西` 一律 rc 2）。
+      · **每条阻断项都带「下一步该敲什么命令」**，JSON 的 `blockers[].nextStep` 与 stderr 末尾那几行是同一份——空手的诊断没人会用第二次。
 
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
@@ -144,6 +151,7 @@ paths:
     | skills-lint | 干净 / 无 skills 目录 / 无 SKILL.md | 有 finding | — | 目录或文件读不了 / 形态无法判定 | — |
     | claude-md-lint | 四节齐 / 无 high-critical 模块 | 缺文件 / 缺节 / 空节 | — | 无 catalog / 非 git / 模块根派生不出 | — |
     | init | 草案产出（dry-run 或 --apply 写成功） | --apply 时 catalog 已存在 / 草案自检不过 catalog-lint / 写盘失败 | — | 非 git / tracked 清单空或截断 | — |
+    | release | 阻断项全过（降级项照列，不改退出码） | 有阻断项（`blockers[]` 逐条带下一步命令） | — | 非 git / 七条全降级（什么都没建立） | — |
     | unknown / missing | — | — | — | 总是 | — |
     | 未知 flag（任一子命令） | — | — | 总是 | — | — |
 

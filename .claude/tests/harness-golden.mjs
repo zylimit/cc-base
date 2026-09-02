@@ -295,6 +295,22 @@ const COMMANDS = [
   { id: 'spec--file', argv: ['spec', '--file', '<SPEC>', '--all', '--budget', '600'] },
   { id: 'dod', argv: ['dod'] },
 
+  // Release readiness. Two of its seven checks reach outside the process, and both are pinned
+  // to a determinate degraded answer here by the sandbox rather than by a mask: the sandbox
+  // has no remote, and `release` answers no-origin before it ever looks for `gh` -- so a
+  // machine with gh on PATH and one without record the same bytes. (The runner pins PATH to
+  // git's directory plus /usr/bin:/bin, and /usr/bin is exactly where a system gh lives, so
+  // this ordering is doing real work.) The other five are local: the mutations applied at
+  // sandbox build make `worktree` fail, the sandbox ships no FRAMEWORK-MANIFEST.txt so
+  // `manifest` degrades, and the two flag files are absent so the review queue and fast mode
+  // both pass. `dod` runs as a child and its verdict per scenario is already pinned by the
+  // entry above. It writes nothing, so like `dod` it can sit anywhere before the fence.
+  //
+  // Not added to the in-repo assertions below, deliberately: against this checkout the same
+  // command asks the network and the live CI, and an assertion whose value depends on whether
+  // a push landed is a ruler that goes red for reasons that are not behaviour.
+  { id: 'release', argv: ['release'] },
+
   // The review layer. It writes only into .claude/harness/{state,receipts}, both excluded
   // from the diff fingerprint, so a session cannot stale itself and none of this perturbs a
   // later command. Order is the protocol: pack the evidence, record who wrote the code, open
@@ -807,7 +823,7 @@ const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
   + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint,'
-  + 'claude-md-lint,init,cochange';
+  + 'claude-md-lint,init,cochange,release';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */
