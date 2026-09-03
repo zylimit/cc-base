@@ -17,4 +17,6 @@ cc-base 没有 pytest/vitest；测试全是 `.claude/tests/*.sh` 的 bash 脚本
 - **沙箱里搬被测程序要按目录整拷、路径从入口推导**：harness.mjs 已拆库（import 同级 `lib/`），只 `cp` 单文件的夹具会 ERR_MODULE_NOT_FOUND，hook 拿不到契约退出码而假绿。写 `install_x()` 助手用 `dirname "$ENTRY"` 推 lib/ 路径整目录拷，别枚举模块名——后续 Phase 还会加模块。
 - **给 pre-commit-check 写测必须先守 python3**：它靠 `python3 -c` 解析 PreToolUse JSON 取命令，缺 python3 时 CMD 为空、对任何输入直接 exit 0 放行——不守卫就是一整段假绿。同理 stop-gate 无 jq 时走硬编码兜底文案，「诊断必须含 X」类断言要 `command -v jq` 守卫。
 - **run-all.sh 第二段一红就 exit，第三段（需 claude CLI）永远跑不到**：红锁在库期间整仓 run-all 必然停在静态段。挂新脚本进第二段要照 golden / audit 块加 `command -v node` 守卫——这些脚本无 node 时是 `exit 1` 而非 SKIPPED，裸塞 for 循环会在没装 node 的机器上报假红。
-- 相关：[[audit-scripts-fragile-zones]]、[[red-lock-test-writing]]
+- **本机跑整仓 run-all 要按 15 分钟以上算**：这台机器装了 `claude` CLI，第三段「真触发 cases」会真起 `claude -p`（每个 case 最长 300s，共三个），CI 上那句 SKIPPED 在本地不成立。别拿默认 timeout 直接跑，用后台任务 + 日志轮询，否则超时被杀还得回头清残留进程。
+- **动 `.claude/tests/` 下的文件会让 FRAMEWORK-MANIFEST.txt 的 sha256 变陈**：清单由 `.claude/scripts/gen-manifest.sh` 生成，没有机器闸校验新鲜度（test-setup.sh 只验文件在、条目在），近期 commit 也是半数带半数不带。它决定 setup.sh 升级时「框架层 vs 项目私有层」的判定，改完在回执里点出来让主 Agent 决定要不要重生成。
+- 相关：[[audit-scripts-fragile-zones]]、[[red-lock-test-writing]]、[[windows-gitbash-process-tests]]

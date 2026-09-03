@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-supervisor.sh — 开发态韧性 supervisor 回归（SKIP-非假绿）。
 # 契约：无 node → 打印 SKIPPED 并 exit 0（未执行 != 通过，对齐 run-all.sh SKIPPED 语义）；
-#   有 node → 验四条链：① start 长驻 -> status running ② kill -9 子进程 -> 自动拉起（restarts+1、新 childPid）
+#   有 node → 验四条链：① start 长驻 -> status running ② 强杀子进程 -> 自动拉起（restarts+1、新 childPid）
 #   ③ 崩溃循环 -> 熔断 crashed（fail visible，不无限空转）④ stop -> 收敛 stopped、进程全清。
 set -eu
 
@@ -34,6 +34,20 @@ trap cleanup EXIT
 
 json_field() { python3 -c "import sys,json;d=json.load(sys.stdin);print($2)" <<<"$1"; }
 
+# 强杀子进程必须分平台：Git Bash 的 kill 只认 MSYS 进程，对 cmd.exe / node.exe 这类 Windows
+# 原生进程发不出信号，子进程根本不死，「崩了要自动拉起」这条断言的前提就不成立。Windows 改走
+# taskkill（同 supervisor.mjs killTree 的 win32 分支），/T 连 shell:true 起的孙进程一起收。
+# 两个 MSYS_* 变量是防 /PID 被当路径转换成 C:/Program Files/Git/PID——Git Bash 认前者、
+# MSYS2 原生认后者；不用 //PID 写法，它靠运行时把 // 缩成 /，环境里设了 ARG_CONV_EXCL 就失效。
+kill_child() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' taskkill /PID "$1" /T /F >/dev/null 2>&1 || true ;;
+    *)
+      kill -9 "$1" 2>/dev/null || true ;;
+  esac
+}
+
 # ① start 长驻进程 -> rc 0 + status running + 双 pid 活
 RC=0
 OUT=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" start --id svc -- sleep 300) || RC=$?
@@ -43,17 +57,17 @@ else
   fail "start 应 rc 0 running（rc=$RC，输出：$OUT）"
 fi
 
-# ② kill -9 子进程 -> 自动拉起（新 childPid、restarts>=1、状态回 running）
+# ② 强杀子进程 -> 自动拉起（新 childPid、restarts>=1、状态回 running）
 ST=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" status --id svc)
 OLD_CHILD=$(json_field "$ST" 'd["services"][0]["childPid"]')
-kill -9 "$OLD_CHILD" 2>/dev/null || true
+kill_child "$OLD_CHILD"
 sleep 3
 ST=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" status --id svc)
 NEW_CHILD=$(json_field "$ST" 'd["services"][0]["childPid"]')
 RESTARTS=$(json_field "$ST" 'd["services"][0]["restarts"]')
 STATUS=$(json_field "$ST" 'd["services"][0]["status"]')
 if [ "$STATUS" = "running" ] && [ "$NEW_CHILD" != "$OLD_CHILD" ] && [ "$RESTARTS" -ge 1 ]; then
-  pass "kill -9 子进程 -> 自动拉起（childPid $OLD_CHILD -> $NEW_CHILD，restarts=$RESTARTS）"
+  pass "强杀子进程 -> 自动拉起（childPid $OLD_CHILD -> $NEW_CHILD，restarts=$RESTARTS）"
 else
   fail "自动拉起未发生（status=$STATUS，old=$OLD_CHILD，new=$NEW_CHILD，restarts=$RESTARTS）"
 fi

@@ -280,11 +280,28 @@ function cmdStop(flags) {
   const st = readState(id);
   if (!st) return die('no state for id "' + id + '"', 1);
   fs.writeFileSync(path.join(idDir(id), 'stop.flag'), new Date().toISOString() + '\n', 'utf8');
-  if (st.supervisorPid && pidAlive(st.supervisorPid)) {
+  const supAlive = !!(st.supervisorPid && pidAlive(st.supervisorPid));
+  // Windows has no signals: process.kill(pid, 'SIGTERM') is emulated as unconditional
+  // termination, so the supervisor's process.on('SIGTERM') never runs, shutdown() never
+  // writes status=stopped, and state.json is frozen at "running" while `status` infers
+  // "dead" from the pid -- a clean stop reported as an abnormal death. So on win32 send
+  // nothing and let the 1s stop-flag tick shut it down; one tick of latency beats a lie.
+  // POSIX keeps the signal -- there the handler really runs, and it is the fast path.
+  const flagOnly = process.platform === 'win32';
+  if (supAlive && !flagOnly) {
     try { process.kill(st.supervisorPid, 'SIGTERM'); } catch (_e) { /* flag will do it */ }
   }
-  if (st.childPid && pidAlive(st.childPid)) killTree(st.childPid);
-  const deadline = Date.now() + 6000;
+  // A live supervisor reaps its own child inside shutdown(). On the flag-only path it stays
+  // up for another tick, so killing the child here would look like a crash to its exit
+  // handler and burn a restart before the flag lands. Reap only when nobody else will.
+  let reaped = false;
+  const reapOrphan = (pid) => { if (!reaped && pid && pidAlive(pid)) { reaped = true; killTree(pid); } };
+  if (!(supAlive && flagOnly)) reapOrphan(st.childPid);
+  // The flag path spends up to 1s waiting for the next tick plus the 0.5s exit timer before
+  // the pid can clear -- that designed floor eats most of the 6s budget on a loaded Windows
+  // runner, where taskkill/node spawns are slow too. Signalled path keeps 6s.
+  const timeoutMs = flagOnly ? 15000 : 6000;
+  const deadline = Date.now() + timeoutMs;
   const wait = () => {
     const cur = readState(id);
     const supGone = !cur || !cur.supervisorPid || !pidAlive(cur.supervisorPid);
@@ -293,7 +310,10 @@ function cmdStop(flags) {
       emit({ ok: true, id, status: 'stopped' });
       return;
     }
-    if (Date.now() > deadline) return die('stop did not converge within 6s (supervisor=' + (supGone ? 'gone' : 'alive') + ', child=' + (childGone ? 'gone' : 'alive') + ')', 1);
+    // Supervisor gone with the child still up (kill -9, breaker, crash mid-shutdown): there
+    // is no supervisor left to reap it, so stop must, or it leaves an orphan behind.
+    if (supGone && !childGone) reapOrphan(cur.childPid);
+    if (Date.now() > deadline) return die('stop did not converge within ' + Math.round(timeoutMs / 1000) + 's (supervisor=' + (supGone ? 'gone' : 'alive') + ', child=' + (childGone ? 'gone' : 'alive') + ')', 1);
     setTimeout(wait, 200);
   };
   wait();
