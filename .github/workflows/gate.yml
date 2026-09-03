@@ -44,6 +44,12 @@ jobs:
     defaults:
       run:
         shell: bash
+    # Windows runner 上 python 的 stdout 默认 cp1252，内嵌 python3 打中文就 UnicodeEncodeError。
+    # run-all.sh 顶部也 export 了同样两个变量——那份覆盖所有走 run-all 的路径（本机也算），
+    # 这份覆盖本 job 的每一步，包括将来有人在这里单独跑某个测试脚本。两处覆盖面不同，不是重复。
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
     steps:
       # Windows runner 的 Git for Windows 默认 core.autocrlf=true，checkout 会把 .sh 全转成 CRLF，
       # 用 bash 跑起来就是 `$'\r': command not found`。必须在 checkout **之前**关掉。

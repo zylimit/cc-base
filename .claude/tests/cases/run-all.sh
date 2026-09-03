@@ -7,6 +7,17 @@
 # 退出码：selftest 失败 → 非 0；静态自测失败 → 非 0；真触发 cases 全过（或被 SKIP）→ 0；有 case 失败 → 非 0。
 set -eu
 
+# 内嵌 python3 的编码：Windows runner 上 python 的 stdout 默认是 cp1252，从 python 里打中文
+#   直接 UnicodeEncodeError（CI 抓到的是 test-routing 的全角括号 '（' 崩在 cp1252.py）。本仓 8 个
+#   测试脚本内嵌 python3 -c / python3 - <<PY，眼下只有 test-routing 和 cases/test-harness 会从
+#   python 里打中文，其余六个离同一个崩只差一句 print——所以设在这里而不是逐个脚本里，散点写法
+#   下次加测试必然漏一个。两个变量分工不同，都要设：PYTHONIOENCODING 管 std 流，PYTHONUTF8 管
+#   open() 的默认编码（漏写 encoding= 的读文件）；且前者优先级高于后者，只设 PYTHONUTF8 救不了
+#   stdout。覆盖的是所有走 run-all 的路径（含它拉起的静态自测与 dod）；CI 单独跑某个脚本的路径
+#   由 .github/workflows/gate.yml 的 job 级 env 兜，两处覆盖面不同，不算重复。
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTS_DIR="$(cd "$DIR/.." && pwd)"
 

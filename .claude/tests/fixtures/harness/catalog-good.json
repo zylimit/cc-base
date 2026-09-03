@@ -14,9 +14,9 @@
     "high": ["lint", "unit", "security"]
   },
   "checks": {
-    "lint": { "command": "npm run lint", "class": "static" },
-    "unit": { "command": "npm test", "class": "test" },
-    "security": { "command": "npm audit --audit-level=high", "class": "security", "allowFastSkip": false }
+    "lint": { "command": "false", "class": "static" },
+    "unit": { "command": "sh -c 'exit 1'", "class": "test" },
+    "security": { "command": "sh -c 'exit 9'", "class": "security", "allowFastSkip": false }
   },
   "contextPack": { "maxTotalChars": 120000, "maxFiles": 40, "maxFileChars": 6000, "maxDiffChars": 40000 }
 }

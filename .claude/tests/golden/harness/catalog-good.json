@@ -294,7 +294,7 @@
             "module": "auth",
             "id": "lint",
             "class": "static",
-            "cmd": "npm run lint",
+            "cmd": "false",
             "state": "FAIL",
             "exit": 1
           },
@@ -302,7 +302,7 @@
             "module": "auth",
             "id": "unit",
             "class": "test",
-            "cmd": "npm test",
+            "cmd": "sh -c 'exit 1'",
             "state": "FAIL",
             "exit": 1
           },
@@ -310,15 +310,15 @@
             "module": "auth",
             "id": "security",
             "class": "security",
-            "cmd": "npm audit --audit-level=high",
+            "cmd": "sh -c 'exit 9'",
             "state": "FAIL",
-            "exit": 1
+            "exit": 9
           },
           {
             "module": "core",
             "id": "lint",
             "class": "static",
-            "cmd": "npm run lint",
+            "cmd": "false",
             "state": "FAIL",
             "exit": 1
           },
@@ -326,7 +326,7 @@
             "module": "core",
             "id": "unit",
             "class": "test",
-            "cmd": "npm test",
+            "cmd": "sh -c 'exit 1'",
             "state": "FAIL",
             "exit": 1
           },
@@ -334,7 +334,7 @@
             "module": "api",
             "id": "lint",
             "class": "static",
-            "cmd": "npm run lint",
+            "cmd": "false",
             "state": "FAIL",
             "exit": 1
           },
@@ -342,7 +342,7 @@
             "module": "api",
             "id": "unit",
             "class": "test",
-            "cmd": "npm test",
+            "cmd": "sh -c 'exit 1'",
             "state": "FAIL",
             "exit": 1
           },
@@ -350,7 +350,7 @@
             "module": "db",
             "id": "lint",
             "class": "static",
-            "cmd": "npm run lint",
+            "cmd": "false",
             "state": "FAIL",
             "exit": 1
           },
@@ -358,7 +358,7 @@
             "module": "db",
             "id": "unit",
             "class": "test",
-            "cmd": "npm test",
+            "cmd": "sh -c 'exit 1'",
             "state": "FAIL",
             "exit": 1
           },
@@ -366,9 +366,9 @@
             "module": "db",
             "id": "security",
             "class": "security",
-            "cmd": "npm audit --audit-level=high",
+            "cmd": "sh -c 'exit 9'",
             "state": "FAIL",
-            "exit": 1
+            "exit": 9
           }
         ],
         "affected": [
@@ -1405,7 +1405,7 @@
             "module": "auth",
             "state": "FAIL",
             "reason": null,
-            "exit": 1,
+            "exit": 9,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
             "evidenceSha256": "<HASH>",
@@ -1482,7 +1482,7 @@
             "module": "db",
             "state": "FAIL",
             "reason": null,
-            "exit": 1,
+            "exit": 9,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
             "evidenceSha256": "<HASH>",
@@ -1553,7 +1553,7 @@
             "module": "auth",
             "state": "FAIL",
             "reason": null,
-            "exit": 1,
+            "exit": 9,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
             "evidenceSha256": "<HASH>",
@@ -1630,7 +1630,7 @@
             "module": "db",
             "state": "FAIL",
             "reason": null,
-            "exit": 1,
+            "exit": 9,
             "durationMs": "<MS>",
             "evidence": "<EVIDENCE>",
             "evidenceSha256": "<HASH>",

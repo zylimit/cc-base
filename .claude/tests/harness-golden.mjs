@@ -68,11 +68,11 @@
 //                 What the chain actually proves is asserted far harder in selftest, which
 //                 links a real chain and then tampers with it four different ways.
 //   evidence      the evidence log path carries the epoch it was written at.
-//   evidenceSha256  digests the check's real output, and catalog-good's checks are real
-//                 npm invocations whose error text names a per-run debug log
-//                 (.npm/_logs/<iso>-debug-0.log). The timestamp inside that path moves the
-//                 digest every run, and it is hashed before any path substitution can see
-//                 it. Same category as <TMP>: the environment, not the harness.
+//   evidenceSha256  digests the check's real output. Every fixture check is hermetic now
+//                 (see the note on the checks below), so the digest no longer moves run to
+//                 run -- but it is taken before any path substitution can see the text, so
+//                 the moment a fixture check says anything about its own sandbox the digest
+//                 goes back to being a fact about the environment. The mask stays for that.
 //   startedAt / completedAt   the task record's clock fields, and the review session's.
 //   at (again)    the authorship record, the backlog entry and the verdict all stamp one.
 //
@@ -587,6 +587,28 @@ function populateSandbox(scenario, root) {
 // deterministic at once: which binaries `verify` can find (catalog-rich leans on this to
 // produce a real BLOCKED for a missing binary), what `adapters list` reports as available,
 // and the fact that a stray npm/node on the developer's PATH cannot be spawned by a check.
+//
+// Pinning PATH is only half of it, and the half that misleads. A pinned PATH still asks the
+// machine a question -- "is this tool installed in /usr/bin?" -- and the two answers land in
+// different states. catalog-good's checks used to be `npm run lint` / `npm test` / `npm audit`:
+// a dev box with a distro npm in /usr/bin ran them and recorded FAIL, while a hosted runner
+// keeps npm under /opt/hostedtoolcache and got BLOCKED command-missing, so the baseline was
+// green only on the machine that recorded it. Every fixture check is therefore written to be
+// hermetic by construction: a state it always produces, from a command whose answer cannot
+// vary. PASS from `true`, FAIL from `false` and `sh -c 'exit N'`, and BLOCKED from
+// `cc-base-golden-absent-binary` -- a name reserved to never exist, which is the only honest
+// way to source BLOCKED. A real tool that merely happens to be missing sources it by accident,
+// and flips the moment someone installs it. This is the second time the fixtures leaked a
+// machine dependency (selftest's runCheck had the same bug with `node`, fixed by spawning
+// process.execPath); if a check here ever needs a real tool again, that is the bug.
+//
+// Only `sh`, `true` and `false` are used, and not because they felt safe: the CI run that
+// caught the npm leak had catalog-rich passing, which means its `true` and `false` checks
+// both resolved and ran on the runner, and running any check at all goes through
+// spawnSync('sh', ['-c', ...]). Those three are the binaries the runner is on record as
+// having. `sh -c 'exit N'` carries the multi-token, quoted command string that the npm
+// checks used to be the only source of, and security's exit 9 pins that the recorded `exit`
+// is the check's real status rather than a normalised 1.
 
 let cachedPath = null;
 function sandboxPath() {

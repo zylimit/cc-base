@@ -587,7 +587,7 @@ if python3 -c 'import yaml' >/dev/null 2>&1; then
     for f in g1 g2 g3 g4; do
         v=$(cd "$D" && python3 -c "
 import yaml
-t = open('.claude/agents/$f.md').read().split('---')[1]
+t = open('.claude/agents/$f.md', encoding='utf-8').read().split('---')[1]
 try:
     yaml.safe_load(t); print('valid')
 except Exception:
