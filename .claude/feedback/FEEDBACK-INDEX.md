@@ -17,3 +17,4 @@
 - [押后事项非点名批准不得重启，长耗时计算是红区](deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md) — 用户押后/否决过的事项只有点名批准才能重启，含糊指令先复述问清；超过几分钟的长耗时计算启动前报预计耗时拿批准；用户要"看数"用现成数据答，数据呈现≠数据重算
 - [地基未稳不助推看盘类锦上添花，重计算签字前须成本预估](foundation-first-no-premature-dashboards-cost-preflight-serial-dev.md) — 数据未准、基本功能未稳时看盘/报表/指标卡类需求默认泼冷水降级挂账；含重计算的规格签字前附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口
 - [长跑批处理必须有看门狗与输入预检，挂死立即止损不观望](long-batch-needs-watchdog-input-precheck-and-prompt-stop-loss.md) — 批处理流水设计期就带看门狗超时 + 病态输入廉价预检直接跳过隔离；确认挂死迹象立即报告止损，不许"进程还活着"式观望，观望是最贵的选项
+- [本地全量回归绿不等于 CI 绿，收官前须独读 CI 真实输出](local-green-is-not-ci-green-check-before-closeout.md) — 本地 run-all 与 CI 跑的集合不同，前者绿不能反推后者绿；收官/发版前 `gh run list` 是独立核查步骤；闸接了线没人读=没接；跨环境修复未经真实环境判决前只记「已修未验」；行号绑定的豁免机制每批改动宿主文件都要重查
