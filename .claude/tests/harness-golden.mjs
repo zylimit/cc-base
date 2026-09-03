@@ -35,9 +35,13 @@
 // Four more are masked on argument rather than on observed movement, each because the
 // field describes the environment rather than the harness's behaviour:
 //
-//   <TMP>   the sandbox path. mkdtemp picks a fresh directory per run, so paths the
-//           harness echoes back (waiver `path`, the catalog-missing `detail`) differ by
-//           construction rather than by behaviour.
+//   <TMP>   the sandbox path. mkdtemp picks a fresh directory per run, so a path the
+//           harness echoed back differed by construction rather than by behaviour. The two
+//           fields it was written for (waiver `path`, the catalog-missing `detail`) are now
+//           repo-relative at the source and recorded verbatim, so this one currently fires
+//           nowhere -- kept as a guard, and a guard that costs nothing here: it normalizes
+//           rather than drops, so a field going back to an absolute path still lands in the
+//           diff as `<TMP>/...` against a recorded relative string.
 //   <SHA>   git commit ids (headCommit / baseCommit / latestCommit). Pinned author and
 //           committer dates make these stable run to run, but the object id is a function
 //           of git's own encoding, so a git upgrade would move it and read as a harness
@@ -84,9 +88,10 @@
 // does: they are the digests a re-record would most easily hide a change behind.
 //
 // <MS> now fires on the gate record's per-check durationMs, which is wall clock by
-// definition. <ROOT> (this checkout's path) is still a guard that never fires -- no
-// subcommand emits it, and it cannot mask a newly added field, because the diff compares
-// each object's key set explicitly.
+// definition. <ROOT> (this checkout's path) fires on one field: the `file` the spec layer
+// echoes back, which is the absolute `--file <SPEC>` this runner handed it rather than
+// anything the engine composed. Neither mask can hide a newly added field, because the diff
+// compares each object's key set explicitly.
 //
 // What is deliberately left VERBATIM matters more than what is masked:
 //   - diffHash and packHash. The probe proves both are stable for a fixed tree across

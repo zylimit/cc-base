@@ -415,7 +415,8 @@ function validateWaiver(w) {
 
 /**
  * Load *.json waivers that pass validateWaiver (skips bad/expired files).
- * Each entry is annotated with _path (absolute) for list/CLI.
+ * Each entry is annotated with _path (absolute) so callers can reach the file; what goes
+ * on stdout is the repo-relative rendering, never this one.
  * @returns {Array<Waiver & {_path?:string}>}
  */
 function loadWaivers() {
@@ -482,7 +483,7 @@ function cmdWaiver(flags = {}, positional = []) {
   if (sub === 'list') {
     const list = loadWaivers().map(w => {
       const { _path, ...rest } = w;
-      return { path: _path ? toPosixPath(_path) : null, ...rest };
+      return { path: _path ? toPosixPath(path.relative(projectRoot(), _path)) : null, ...rest };
     });
     return emit({ ok: true, waivers: list }, 0);
   }
@@ -523,7 +524,7 @@ function cmdWaiver(flags = {}, positional = []) {
     const fname = ts + '-' + h10 + '.json';
     const fp = path.join(dir, fname);
     fs.writeFileSync(fp, JSON.stringify(waiver, null, 2) + '\n', 'utf8');
-    return emit({ ok: true, path: toPosixPath(fp), waiver }, 0);
+    return emit({ ok: true, path: toPosixPath(path.relative(projectRoot(), fp)), waiver }, 0);
   }
   return emit({ error: 'waiver-subcommand', detail: 'usage: waiver list|check|create', got: sub || null }, 3);
 }

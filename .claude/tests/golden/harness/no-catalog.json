@@ -84,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 266
+        "tests": 267
       },
       "stderr": []
     },
@@ -98,7 +98,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -235,7 +235,7 @@
         "state": "DEGRADED",
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json",
+        "detail": ".claude/harness/module-catalog.json",
         "checks": [],
         "affected": []
       },
@@ -252,7 +252,7 @@
         "ok": true,
         "waivers": [
           {
-            "path": "<TMP>/.claude/harness/waivers/golden.json",
+            "path": ".claude/harness/waivers/golden.json",
             "version": 1,
             "owner": "@team-db",
             "reason": "sandbox check is intentionally red; golden baseline needs the downgrade path exercised",
@@ -300,7 +300,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -314,7 +314,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -329,7 +329,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -344,7 +344,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -803,7 +803,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": [
         "cochange: catalog-missing; module pairs are the only granularity this reports, and file pairs would be thousands of rows nobody can judge"
@@ -822,7 +822,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": [
         "cochange: catalog-missing; module pairs are the only granularity this reports, and file pairs would be thousands of rows nobody can judge"
@@ -838,7 +838,7 @@
         "gate": "DEGRADED",
         "degraded": true,
         "reason": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json",
+        "detail": ".claude/harness/module-catalog.json",
         "modules": [],
         "results": []
       },
@@ -854,7 +854,7 @@
         "gate": "DEGRADED",
         "degraded": true,
         "reason": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json",
+        "detail": ".claude/harness/module-catalog.json",
         "modules": [],
         "results": []
       },
@@ -890,7 +890,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -931,7 +931,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -1020,7 +1020,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },
@@ -2292,7 +2292,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json",
+        "detail": ".claude/harness/module-catalog.json",
         "note": "no module catalog to read (catalog-missing); nothing declares which modules are high risk, and a scan that never ran is not a clean one"
       },
       "stderr": [
@@ -2554,7 +2554,7 @@
         "ok": false,
         "degraded": true,
         "error": "catalog-missing",
-        "detail": "<TMP>/.claude/harness/module-catalog.json"
+        "detail": ".claude/harness/module-catalog.json"
       },
       "stderr": []
     },

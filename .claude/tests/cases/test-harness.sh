@@ -293,8 +293,10 @@ WPATH=""
 if [ "$RC" -eq 0 ]; then
   WPATH=$(printf '%s' "$OUT" | grep -oE '"path":"[^"]*"' | head -1 | sed 's/"path":"//; s/"$//')
 fi
-if [ "$RC" -eq 0 ] && [ -n "$WPATH" ] && [ -f "$WPATH" ] && grep -q '"contentHash"' "$WPATH"; then
-  pass "waiver create 真写 -> rc 0 + 落盘 + contentHash"
+# 报出来的 path 是仓库相对（stdout 是机器契约，不带机器目录），所以要拼回仓根才能验落盘；
+# 顺带钉住形态——写成绝对路径这里会因为 $TMPW 前缀多一截而找不到文件。
+if [ "$RC" -eq 0 ] && [ -n "$WPATH" ] && [ -f "$TMPW/$WPATH" ] && grep -q '"contentHash"' "$TMPW/$WPATH"; then
+  pass "waiver create 真写 -> rc 0 + 落盘（path 为仓库相对）+ contentHash"
 else
   fail "waiver create 真写未落盘（rc=$RC，path=$WPATH，输出：$OUT）"
 fi

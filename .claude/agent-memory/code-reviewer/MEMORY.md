@@ -6,3 +6,4 @@
 - [审正则扫描器要出两个数字](pattern_regex-scanner-fp-fn-budget.md) — 真语料量误报 + 真凭据格式表量漏报，只给正向样例等于只测一半
 - [手搓 YAML/语法子集校验器必须对拍](pattern_handrolled-parser-needs-differential.md) — 4 条 fixture 不算对齐；30 条新样例才照出 5 条假阴
 - [审哈希链账本/证据落盘/硬闸的七条攻法](pattern_evidence-ledger-attacks.md) — 读不出=报绿 / 并发写死链 / 写而不读的 sha / 闸范围可伪造
+- [「同一张表抄成 N 份」的审法](pattern_duplicated-rule-tables.md) — 注释写几份不算数，逐份删除突变；夹具靠脏树 = CI 上恒绿

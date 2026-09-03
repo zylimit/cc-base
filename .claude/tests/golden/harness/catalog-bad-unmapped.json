@@ -84,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 266
+        "tests": 267
       },
       "stderr": []
     },
@@ -304,7 +304,7 @@
         "ok": true,
         "waivers": [
           {
-            "path": "<TMP>/.claude/harness/waivers/golden.json",
+            "path": ".claude/harness/waivers/golden.json",
             "version": 1,
             "owner": "@team-db",
             "reason": "sandbox check is intentionally red; golden baseline needs the downgrade path exercised",

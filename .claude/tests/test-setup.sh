@@ -183,3 +183,22 @@ grep -q "framework-new" "$TMP/setup-3.log" || fail "manifest 分层：未打印 
 grep -q "# mine" "$CL/skills/my-private-skill/SKILL.md" || fail "私有层：私有 skill 内容被改"
 
 echo "test-setup: manifest 分层校验通过（首装含 MANIFEST / 用户改动不覆盖落 .framework-new / 私有文件保留）"
+
+# ---- ⑤ 运行态目录不入装、不入清单 ----
+# 源仓跑过 review-pack / supervisor / gate 之后这些目录就有文件，它们是本机专属产物：
+# 装进别人项目里是脏数据，登记进 MANIFEST 则让 release 的 manifest 检查随手一跑就转 FAIL。
+# setup.sh copy_claude_tree 与 gen-manifest.sh 的排除表必须同时盖住它们，这里两侧一起验。
+for rt in harness/receipts harness/state harness/waivers harness/trend harness/evidence .runtime evidence; do
+  [ ! -e "$CL/$rt" ] || fail "运行态目录被装进产物：$rt"
+  if grep -q "^$rt/" "$CL/FRAMEWORK-MANIFEST.txt"; then fail "运行态目录被登记进 MANIFEST：$rt"; fi
+done
+for rt in .stop-gate-strikes .precompact-block-epoch .async-verify-last .fast-mode .subagent-reminded; do
+  [ ! -e "$CL/$rt" ] || fail "运行态标记被装进产物：$rt"
+done
+# 反向：排除表只许挡运行态目录，不许连带把 harness / scripts 本体挡掉（静默漏装比多装贵得多）
+[ -f "$CL/harness/harness.mjs" ]      || fail "排除表过宽：harness.mjs 未安装"
+[ -f "$CL/harness/lib/release.mjs" ]  || fail "排除表过宽：harness/lib/release.mjs 未安装"
+[ -f "$CL/scripts/supervisor.mjs" ]   || fail "排除表过宽：scripts/supervisor.mjs 未安装"
+grep -q '^harness/harness\.mjs	' "$CL/FRAMEWORK-MANIFEST.txt" || fail "排除表过宽：harness.mjs 不在 MANIFEST"
+
+echo "test-setup: 运行态目录隔离校验通过（不入装 / 不入清单 / harness 本体照常分发）"

@@ -34,6 +34,16 @@ metadata:
    `.claude/harness/**` 条目被删掉，9 个场景全绿。凡是「路径排除表」类代码，矩阵里必须有一个
    **不做兜底排除**的场景。
 
+8. **沙箱夹具里恒 DEGRADED 的 check = 那条 check 的全部规则零覆盖**。golden 沙箱由
+   `readFixtureTree()` 造，里面没有 `FRAMEWORK-MANIFEST.txt`，于是 9 个场景的 `release`
+   全部报 `manifest: DEGRADED`——`MANIFEST_RULES` 整张表在 golden 里一次都没被查询过。
+   查检：把每个 command 的录制输出扫一遍 `DEGRADED` / `SKIPPED` / `blocked`，凡是**全场景同一态**的，
+   就当它没覆盖，去问「那这段实现谁在盯」。
+
+9. **多批并行时判「基线脏没脏」不靠推理，靠 revert 后重跑**。基线在别的批改动在树上时录的，
+   形式上不干净。做法：复制一份仓 → 把其他批的文件 `git show HEAD:<path>` 覆盖回去 → 只留本批 →
+   跑 `--check --strict`。仍然 rc 0 就证明基线与其他批无关。本轮 A/B/C 三批这样验过，20127 全中。
+
 **攻法的正确姿势（别改被审仓）**：`cp -a .claude $HOME/playground/.claude`，工具用 `import.meta.url`
 推 REPO_ROOT，整套在 playground 里跑，突变随便做，被审仓零写入。先跑一次确认 playground 断言数与
 原仓一致（本仓 5188）再开打。

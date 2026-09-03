@@ -368,15 +368,22 @@ function assessAdrRecords(records, knownChecks, knownRules) {
   return { records: out, failing: out.filter(r => !r.ok) };
 }
 
-/** Standalone ADR files: docs/adr/*.md, one record per file (cursor-style layout). */
-function parseAdrDir(dir) {
+/**
+ * Standalone ADR files: docs/adr/*.md, one record per file (cursor-style layout).
+ * `dir` is repo-relative and `root` only locates it on disk, so `source` comes out
+ * repo-relative -- the same shape the inline records carry. The alternative reads back
+ * one machine's directory layout in a field the inline half already answers relatively,
+ * and stdout here is a machine contract.
+ */
+function parseAdrDir(root, dir) {
+  const abs = path.join(root, dir);
   let names;
-  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  try { names = fs.readdirSync(abs); } catch (_e) { return []; }
   const out = [];
   for (const n of names.sort()) {
     if (!n.endsWith('.md')) continue;
     let content;
-    try { content = fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_e) { continue; }
+    try { content = fs.readFileSync(path.join(abs, n), 'utf8'); } catch (_e) { continue; }
     out.push({
       id: n.replace(/\.md$/, ''),
       source: toPosixPath(path.join(dir, n)),
@@ -398,7 +405,7 @@ function cmdAdrCheck(flags) {
     try { content = fs.readFileSync(filePath, 'utf8'); } catch (_e) { /* unreadable -> no records */ }
     for (const r of parseInlineAdrs(content)) records.push({ ...r, source: file });
   }
-  for (const r of parseAdrDir(path.join(root, dir))) records.push(r);
+  for (const r of parseAdrDir(root, dir)) records.push(r);
   if (records.length === 0) {
     return emit({ ok: true, records: 0, note: 'no ADR records found (' + file + ' / ' + dir + '); nothing to enforce' }, 0);
   }

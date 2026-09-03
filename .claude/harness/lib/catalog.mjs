@@ -4,10 +4,11 @@
 // fitness need it, so the catalog layer is the only home that keeps the graph acyclic.
 
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   ATTRIBUTES, DEFAULTS, TIERS,
   catalogFilePath, emit, git, globToRegExp, isGitRepo, matchAny, normalizeTier, parseCsv,
-  specificity, splitNul, toPosixPath,
+  projectRoot, specificity, splitNul, toPosixPath,
 } from './core.mjs';
 
 // ===========================================================================
@@ -20,13 +21,16 @@ const CATCH_ALL_GLOBS = ['', '.', '*', '**', '**/*'];
 /**
  * Read + parse the catalog file. Never throws: on missing/unreadable/invalid JSON
  * it returns {ok:false,error,detail} so callers can degrade instead of crashing.
+ * catalog-missing names the file repo-relative: every degraded command echoes this detail
+ * onto stdout, and the one thing a reader needs from it is which file to create, not which
+ * machine the answer came from.
  * @param {string} [catalogPath]  defaults to catalogFilePath()
  * @returns {{ok:true,catalog:Catalog}|{ok:false,error:string,detail:string}}
  */
 function loadCatalog(catalogPath) {
   const cp = catalogPath || catalogFilePath();
   if (!fs.existsSync(cp)) {
-    return { ok: false, error: 'catalog-missing', detail: toPosixPath(cp) };
+    return { ok: false, error: 'catalog-missing', detail: toPosixPath(path.relative(projectRoot(), cp)) };
   }
   let raw;
   try {

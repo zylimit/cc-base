@@ -77,9 +77,12 @@ function Copy-WithBackup($src, $dest) {
 }
 
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
+# Same exclusion set as setup.sh copy_claude_tree and .claude/scripts/gen-manifest.sh -- change one, change all three.
+# $skip matches by leaf name; anything that is a directory rather than a file name goes in the regex list below.
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
   '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
-  '.fast-mode', '.subagent-reminded', 'signals.jsonl', 'FRAMEWORK-MANIFEST.txt')
+  '.fast-mode', '.subagent-reminded', '.stop-gate-strikes', '.precompact-block-epoch', '.async-verify-last',
+  'signals.jsonl', 'FRAMEWORK-MANIFEST.txt')
 $srcRootLen = (Resolve-Path $srcClaude).Path.Length
 Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
@@ -88,6 +91,10 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $relSlash = $rel -replace '\\', '/'
   if ($relSlash -match '^feedback/[^/]+\.md$') { return }
   if ($relSlash -match '^evidence/') { return }
+  # large-repo harness runtime state: receipts / evidence chain / waivers / drift ledger / raw check output
+  if ($relSlash -match '^harness/(receipts|state|waivers|trend|evidence)/') { return }
+  # supervisor process-guard runtime (supervisor.mjs itself is still distributed)
+  if ($relSlash -match '^\.runtime/') { return }
   if ($relSlash -match '\.(bak|framework-new)$') { return }
   $dest = Join-Path $targetClaude $rel
   # Manifest layering: only when the target exists with different content do we decide

@@ -6,6 +6,11 @@
 #   checkout 的工作树字节 CRLF/LF 不一，直接对字节算会误判"用户改过"，归一化后跨平台稳定。
 # 排除逻辑对齐 setup.sh copy_claude_tree：运行态/机器特定/私有 feedback 不入清单；
 #   settings.json 走 merge 不套 manifest；FEEDBACK-INDEX.md 装后重置为模板也不入清单。
+# 同一张排除表另有两份，改这里必须同改：setup.sh copy_claude_tree 的 case（安装侧同一套口径）、
+#   harness/lib/release.mjs MANIFEST_RULES（release 的 manifest 检查据此判「本表该不该收这个文件」，
+#   它是审计者故意另抄一份、不共用来源，否则审不出本脚本的漂移）。三处口径分叉比缺一条更糟。
+# 排除项一律显式列名，不用 harness/* 这种通配符一把梭——运行态目录会继续增加，
+#   但静默漏掉本该登记的框架文件（升级时会被当成"用户改过"永不覆盖）是更贵的错。
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -27,9 +32,15 @@ while IFS= read -r -d '' src; do
     .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
     .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
     .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
+    .stop-gate-strikes|.precompact-block-epoch|.async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列
     evidence/*) continue ;;                                      # 运行态证据目录
     harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常入清单）
+    harness/state/*) continue ;;                                 # 证据哈希链 + 活跃 task 信封 + 评审会话（本机专属）
+    harness/waivers/*) continue ;;                               # 结构化 per-check 豁免
+    harness/trend/*) continue ;;                                 # 架构漂移趋势台账（arch-check --record 快照）
+    harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
+    .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
     *.bak|*.framework-new) continue ;;                           # 安装器产物
     feedback/templates/*) ;;                                     # 保留模板（框架资产）
     feedback/*/*) ;;                                             # feedback 子目录其他文件

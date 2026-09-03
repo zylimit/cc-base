@@ -175,6 +175,13 @@ process.stdin.on("data", d => s += d).on("end", () => {
 });
 ' || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     fi
+
+    # release 的 manifest 项：上面那条只判清单结构，判不出七项里某一项的内容对不对。
+    #   这份在沙箱仓里造真的运行态文件（.stop-gate-strikes / harness/state/* / .runtime/* …），
+    #   断言 manifest 仍 PASS 且 unlisted=0——MANIFEST_RULES 的运行态排除规则此前无人守，
+    #   删掉整批 selftest 与 golden 都照样全绿。它自身有 node/git/sha256sum 守卫会打 SKIPPED。
+    echo "----- 运行 test-release-manifest.sh -----"
+    bash "$TESTS_DIR/test-release-manifest.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——dod / release 一键闸跳过，未执行 != 通过。"
     ONEKEY_NOTE="；dod / release 一键闸 SKIPPED（无 node）"

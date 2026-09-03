@@ -16,7 +16,13 @@ cc-base 没有 pytest/vitest；测试全是 `.claude/tests/*.sh` 的 bash 脚本
 - **派单里写的基线数字要当场重测**：本仓有并行 sub-agent 持有文件，工作树会在任务中途变。实测过一次 `test-audit-scripts.sh` 从 rc1/PASS=37 FAIL=1 变成 rc0/PASS=38 FAIL=0，就是并行任务改了 harness.mjs。
 - **沙箱里搬被测程序要按目录整拷、路径从入口推导**：harness.mjs 已拆库（import 同级 `lib/`），只 `cp` 单文件的夹具会 ERR_MODULE_NOT_FOUND，hook 拿不到契约退出码而假绿。写 `install_x()` 助手用 `dirname "$ENTRY"` 推 lib/ 路径整目录拷，别枚举模块名——后续 Phase 还会加模块。
 - **给 pre-commit-check 写测必须先守 python3**：它靠 `python3 -c` 解析 PreToolUse JSON 取命令，缺 python3 时 CMD 为空、对任何输入直接 exit 0 放行——不守卫就是一整段假绿。同理 stop-gate 无 jq 时走硬编码兜底文案，「诊断必须含 X」类断言要 `command -v jq` 守卫。
-- **run-all.sh 第二段一红就 exit，第三段（需 claude CLI）永远跑不到**：红锁在库期间整仓 run-all 必然停在静态段。挂新脚本进第二段要照 golden / audit 块加 `command -v node` 守卫——这些脚本无 node 时是 `exit 1` 而非 SKIPPED，裸塞 for 循环会在没装 node 的机器上报假红。
+- **run-all.sh 第二段有红就进不了第三段**：机制是 `STATIC_RC` 累加（整段跑完再停），不是撞见第一条红就跳出——所以日志里后面那些 PASS 是真跑过的，别误读成没执行。红锁在库期间整仓 run-all 必然停在这里。挂新脚本进第二段要照 golden / audit 块加 `command -v node` 守卫——这些脚本无 node 时是 `exit 1` 而非 SKIPPED，裸塞 for 循环会在没装 node 的机器上报假红。
+- **整仓 run-all 红了先归因再背锅**：并行 agent 的在制品会把不相干的段搞红（实测撞上 `harness/lib/**` + golden 基线改到一半，`test-harness` 与 `harness-golden` 双红，与我改的测试无关）。归因手法是 `git archive <HEAD> | tar -x -C /tmp/pristine`（对本仓纯只读，不用 stash / worktree，不惊动并行 agent）+ `git init` 后在干净树上重跑那两段；干净树绿 = 红出自工作树在制品。再把自己的改动单独覆盖进干净树跑一遍整仓，就能给出「我这份不背这个红」的硬证据。
 - **本机跑整仓 run-all 要按 15 分钟以上算**：这台机器装了 `claude` CLI，第三段「真触发 cases」会真起 `claude -p`（每个 case 最长 300s，共三个），CI 上那句 SKIPPED 在本地不成立。别拿默认 timeout 直接跑，用后台任务 + 日志轮询，否则超时被杀还得回头清残留进程。
+- **`spawn(cmd,{shell:true})` 起的是 `sh -c "cmd"`，本机 /bin/sh 是 dash，对单条简单命令也**不 exec**，真负载是它 fork 的孙进程**。所以「杀子进程」类夹具只 `kill -9 <child.pid>` 会把孙进程孤儿化残留（在这台机器上实测复现）。detached spawn 的 pgid == child.pid，所以 `kill -9 -<child.pid>` 整组杀就够；顺带这个等式也让「拿记录下的 childPid 当 pgid 查残留」成为精确的泄漏检测，不误伤并发跑的其它测试。
+- **`pgrep -af '<模式>'` 会匹配到发起它的那层 bash 自己的命令行**（cmdline 里含该字面量）。拿它当「无残留」证据会被自匹配骗；要么 `ps -eo pid,args= | awk '$2=="sleep" && $3=="300"'` 精确判，要么明说那条命中是自匹配。
+- **给 harness 子命令做端到端隔离：`projectRoot()` = `CLAUDE_PROJECT_DIR || cwd`**，所以 `cd` 进 mktemp 的 git 仓 + `env -u CLAUDE_PROJECT_DIR node <本仓>/harness.mjs <子命令>` 就能拿真引擎跑假仓，对本仓纯只读。沙箱里 `release`（含它 spawn 的 `dod`）一趟 ~1.4s，逐类造文件跑十几趟也才 25s——比拿单元函数凑合值得多。
+- **`release` 的 findings 名单被 `capped()` 截断（超限只留前 N + "... k more"）**：拿「点名里有 X」当判据的对照断言，必须先把别的干扰文件清场，否则规则真坏了时 X 被挤出名单，红因会错判成「对照没红」。计数则不被截断，`unlisted` 一律从 summary 的 `(\d+) unlisted` 取，别数 evidence 数组长度。
+- **「同一张表抄三处」的规则（gen-manifest.sh 的 case / setup.sh copy_claude_tree / release.mjs MANIFEST_RULES）这样测**：沙箱里跑**真的** gen-manifest.sh 生成清单 → 再造运行态文件 → 断言 `release` 的 manifest 项仍 PASS；外加一条「带运行态文件重跑生成器，产物须逐字节不变」锁两侧不分叉。手搓清单只能证明 release 自洽，证不出它跟生成器一致，而分叉正是这批规则要防的事。
 - **动 `.claude/tests/` 下的文件会让 FRAMEWORK-MANIFEST.txt 的 sha256 变陈**：清单由 `.claude/scripts/gen-manifest.sh` 生成，没有机器闸校验新鲜度（test-setup.sh 只验文件在、条目在），近期 commit 也是半数带半数不带。它决定 setup.sh 升级时「框架层 vs 项目私有层」的判定，改完在回执里点出来让主 Agent 决定要不要重生成。
 - 相关：[[audit-scripts-fragile-zones]]、[[red-lock-test-writing]]、[[windows-gitbash-process-tests]]

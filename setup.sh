@@ -48,6 +48,9 @@ manifest_sha_of() {
 }
 
 # 复制 .claude 框架树，跳过运行时产物 / 待删 / 机器特定文件；settings.json 不在此复制（走 merge）。
+# 下面的排除表另有两份，改这里必须同改：.claude/scripts/gen-manifest.sh 的 case（清单侧同一套口径，
+#   分叉了就会出现「装了但不在清单」或「在清单但没装」）、.claude/harness/lib/release.mjs MANIFEST_RULES。
+# 不共用一份来源是有意的：setup.sh 要能被单独取走对着源码树跑，多一个 source 依赖就多一条装不上的路。
 copy_claude_tree() {
   local src_dir=$1 dest_dir=$2 rel src dest mode old_sha
   [ -d "$src_dir" ] || die "源 .claude 不存在：$src_dir"
@@ -62,9 +65,16 @@ copy_claude_tree() {
       .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
       .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
       .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
+      .stop-gate-strikes|.precompact-block-epoch|.async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
       signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列（任意层级 basename）
       evidence/*) continue ;;                                      # 运行态证据目录
       harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常复制分发）
+      harness/state/*) continue ;;                                 # 证据哈希链 + 活跃 task 信封 + 评审会话（源机专属，装到别人项目里就是脏数据）
+      harness/waivers/*) continue ;;                               # 结构化 per-check 豁免
+      harness/trend/*) continue ;;                                 # 架构漂移趋势台账（arch-check --record 快照）
+      harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
+      .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常复制分发）
+      *.bak|*.framework-new) continue ;;                           # 安装器自己的产物：开发机上留下的残留不该被装进别人项目（另三份排除表同此臂）
       feedback/templates/*) ;;                                     # 保留模板（顶层 *.md 才是私人经验）
       feedback/*/*) ;;                                              # 保留 feedback 子目录其他文件
       feedback/*.md) continue ;;                                    # 私人进化经验（顶层 *.md）；INDEX 装后重置为模板

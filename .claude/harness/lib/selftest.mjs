@@ -806,6 +806,31 @@ function selftestCases() {
       assert.ok(r.records[0].ok);
       assert.deepEqual(r.records[0].unrecognized, ['ghost-thing']);
     }],
+    // The one ADR case that has to touch fs and spawn: the two source shapes only ever meet
+    // in cmdAdrCheck, and they met as one repo-relative path beside one absolute one -- same
+    // array, two forms, and the absolute half wrote the recording machine's layout onto stdout.
+    ['adr-check: inline and standalone sources are both repo-relative, in the same array', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-adr-'));
+      try {
+        // The fixture writes the English label alias, not a hand-escaped copy of the Chinese
+        // one: the runtime source is ASCII-only, and both labels reach the same adrField.
+        fs.writeFileSync(path.join(root, 'Architecture-Design.md'),
+          '### ADR-001 storage choice\n- **Enforced-by**: arch-check\n', 'utf8');
+        fs.mkdirSync(path.join(root, 'docs', 'adr'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'docs', 'adr', 'ADR-002.md'),
+          '# ADR-002\n- **Enforced-by**: fitness\n', 'utf8');
+        const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'adr-check'], {
+          cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        });
+        assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+        const out = JSON.parse(String(r.stdout || '').trim());
+        assert.deepEqual([r.status, out.records], [0, 2]);
+        assert.deepEqual(out.details.map(d => d.source),
+          ['Architecture-Design.md', 'docs/adr/ADR-002.md']);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
 
     // S16 -- drift ratchet (pure).
     ['compareRatchet: single record -> baseline, not comparable', () => {
