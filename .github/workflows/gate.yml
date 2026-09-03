@@ -220,12 +220,14 @@ jobs:
           retention-days: 14
 
   ps1:
-    # 单独一格，两层：解析 + 真跑。
+    # 单独一格，三层：解析 + 真跑 hook + 真跑安装器。
     #   ① 用 pwsh 自己的解析器过一遍全部 .ps1。与 gate 那格的 check-syntax 是双保险——
     #      check-syntax 的 ps1 分支自己出错时，这一格仍然会把坏文件照出来
     #      （同一个检查器不能既当运动员又当裁判）。
     #   ② 喂真实输入跑 hook，断言退出码 / stdout / 副作用。语法过 != 闸会拦，
     #      fail-open 那批修完在 .sh 侧有 test-hook-failopen.sh 锁着，.ps1 侧此前全空。
+    #   ③ 真跑 setup.ps1 与 setup.sh 装到临时目录，逐文件比对清单。安装器是 .ps1 里唯一
+    #      「装错了用户也看不见」的一支：漏装不报错、清单还说装了，只有对着装出来的产物比才现形。
     name: ps1 (windows)
     runs-on: windows-latest
     defaults:
@@ -278,4 +280,24 @@ jobs:
             exit 1
           }
           Write-Output "::error::test-ps1-behavior rc=$rc（有 .ps1 hook 的行为不符合契约，见上面的 [FAIL] 与 EXPECT/GOT）"
+          exit 1
+
+      # setup.ps1 的复制逻辑此前一行行为测试都没有：上面那格只解析语法，test-ps1-behavior 测的是 hook。
+      # 「哪些文件算框架文件」那张表有四份手工同步的拷贝，test-setup.sh ⑥ 比的是字面——字面还在、
+      # 口径分叉了（$skip 按 leaf 名匹配 vs 另三份根锚定）它看不出来，装出来就是「清单里有、Windows 上没有」。
+      # 这一步真跑两个安装器装到临时目录，逐文件点名比对装出来的清单。
+      # 退出码契约见脚本头：0=断言全过 / 1=有断言红 / 3=没跑成（缺 bash）。runner 自带 Git Bash，
+      # 所以 rc 3 是这一格自己的问题，照样判失败——「没跑成」不是通过。
+      - name: Installer parity -- setup.ps1 与 setup.sh 装出来的清单必须逐文件一致
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & pwsh -NoProfile -File .claude/tests/test-installer-parity.ps1
+          $rc = $LASTEXITCODE
+          Write-Output "test-installer-parity rc=$rc"
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -eq 3) {
+            Write-Output '::error::test-installer-parity rc=3（比对没跑成，见上面的 [SKIP]）。这台 runner 装了 Git Bash，跑不成就是这一格坏了。'
+            exit 1
+          }
+          Write-Output "::error::test-installer-parity rc=$rc（两个安装器装出来的清单不一致，见上面逐文件点名的 MISSING/EXTRA）"
           exit 1

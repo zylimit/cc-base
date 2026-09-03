@@ -375,18 +375,19 @@ function catalogFilePath() {
  * in this repo, and it leaks how deep the checkout sits on top. The test is path.relative()'s
  * own answer: a route that has to climb out of the root, or (on Windows, across drives) no
  * route at all, means the path has no repo-relative name and must be echoed as given.
- * Relative input is returned untouched rather than re-rooted: a relative --catalog is opened
- * against the cwd by fs, so re-rooting it here would name a different file than the one the
- * command actually probed. Engine-built paths are all absolute and inside the root, so they
- * take the first branch and read exactly as before.
+ * Relative input is resolved against the cwd first and then judged like anything else, because
+ * the cwd is where fs opened it: `--catalog nope.json` run from .claude/ reads .claude/nope.json,
+ * and echoing the bare `nope.json` hands every reader of this output a repo-relative name for
+ * <root>/nope.json -- a different file than the one the command probed. Absolute input is never
+ * rewritten, so a path outside the root still comes back exactly as the caller spelled it.
  */
 function repoRelative(p) {
   const raw = String(p);
-  if (!path.isAbsolute(raw)) return toPosixPath(raw);
-  const rel = path.relative(projectRoot(), raw);
+  const abs = path.isAbsolute(raw) ? raw : path.resolve(raw);
+  const rel = path.relative(projectRoot(), abs);
   if (rel === '') return '.';
-  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../')) return toPosixPath(raw);
-  if (path.isAbsolute(rel)) return toPosixPath(raw);
+  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../')) return toPosixPath(abs);
+  if (path.isAbsolute(rel)) return toPosixPath(abs);
   return toPosixPath(rel);
 }
 

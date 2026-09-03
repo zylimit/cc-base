@@ -81,19 +81,31 @@ function Copy-WithBackup($src, $dest) {
 # .claude/harness/lib/release.mjs MANIFEST_RULES -- change one, change all four. The four are kept
 # as hand-synced copies on purpose (installers must run standalone; the release one is the auditor
 # and would stop auditing if it shared a source), so the shared wording is verified by tests instead:
-# .claude/tests/test-setup.sh section (6) compares the arms of all four literally.
-# $skip matches by leaf name; anything that is a directory rather than a file name goes in the regex list below.
-# .DS_Store / Thumbs.db are leaf-name matches here (they appear at every depth); *.swp joins the suffix regex.
+# .claude/tests/test-setup.sh section (6) compares the arms of all four literally, and
+# .claude/tests/test-installer-parity.ps1 runs both installers side by side and diffs what landed.
+# $skip is compared against the whole path relative to .claude/, i.e. root-anchored, which is what the
+# bare-name arms of the other three tables mean: only the copy at the top of .claude/ is a runtime artifact.
+# $skipAnyDepth is the subset the other three also carry a "*/<name>" arm for - those three grow at every
+# depth, so they are matched by leaf name instead. Matching all of $skip by leaf name drops a nested
+# skills/foo/settings.json that setup.sh copies and gen-manifest.sh records: installed on Linux, missing on
+# Windows, with the manifest claiming it is there.
+# Anything that is a directory rather than a file name goes in the regex list below.
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
   '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
   '.fast-mode', '.subagent-reminded', '.stop-gate-strikes', '.precompact-block-epoch', '.async-verify-last',
   'signals.jsonl', 'FRAMEWORK-MANIFEST.txt', '.DS_Store', 'Thumbs.db')
+$skipAnyDepth = @('signals.jsonl', '.DS_Store', 'Thumbs.db')
 $srcRootLen = (Resolve-Path $srcClaude).Path.Length
-Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
+# -Force: PowerShell treats dot-prefixed names as hidden on Unix, so without it a pwsh run there silently
+# skips .claude/.gitignore - a manifest-listed framework file. The find(1) in the other two shell tables has
+# no such notion, and on Windows a Hidden attribute would hide a file the same way; -Force puts this walk on
+# the same footing everywhere.
+Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
-  if ($skip -contains (Split-Path $rel -Leaf)) { return }
-  # private evolution feedback: skip top-level feedback/*.md, keep feedback/templates/ (INDEX is reset below)
   $relSlash = $rel -replace '\\', '/'
+  if ($skipAnyDepth -contains (Split-Path $rel -Leaf)) { return }
+  if ($skip -contains $relSlash) { return }
+  # private evolution feedback: skip top-level feedback/*.md, keep feedback/templates/ (INDEX is reset below)
   if ($relSlash -match '^feedback/[^/]+\.md$') { return }
   if ($relSlash -match '^evidence/') { return }
   # large-repo harness runtime state: receipts / evidence chain / waivers / drift ledger / raw check output

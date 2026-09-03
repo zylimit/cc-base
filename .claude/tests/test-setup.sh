@@ -3,7 +3,8 @@
 # 验三件事：① 关键文件装齐（CLAUDE.md / 7 个 agents / 各 skill 的 SKILL.md / hooks 有可执行位 /
 #   settings.json 合法 JSON）；② 私有 feedback 已排除（target 只剩 templates/ + 重置的
 #   FEEDBACK-INDEX.md，无顶层私有 *.md，守 setup.sh #5）；③ 幂等性（装两次产物 SHA256 一致）。
-# 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（字面）+ ⑥b 系统垃圾不入装不入清单（行为）。
+# 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（各自表内比，含臂序与 drop/keep 处置）
+#   + ⑥b 系统垃圾不入装不入清单（行为）。
 # 无依赖 claude CLI，纳入 cases/run-all.sh 在 selftest 之后跑。装完清理临时目录。
 set -eu
 
@@ -211,7 +212,12 @@ echo "test-setup: 运行态目录隔离校验通过（不入装 / 不入清单 /
 # 单独取走对着源码树跑（setup.sh 连 jq 都不敢依赖），审计者读被审者的表就审不出漂移。
 # 代价是手工同步会漂——上一批 .runtime/* 补了四份、系统垃圾四份全漏，就是这么漂出来的——
 # 所以口径改由这一节兜：基准表从 gen-manifest.sh 的 case 块**自动抽**（硬编码一份清单只是把
-# 漂移挪个地方藏），另三份逐臂对照。
+# 漂移挪个地方藏），另三份也各自只从**自己那张表里**抽出来逐臂对照。
+# 比对一律在表内做，不拿整文件 grep：`settings.json` 在 setup.sh 别处还有 13 行、
+# `'FRAMEWORK-MANIFEST.txt'` 在 release.mjs 另有一处 MANIFEST_FILE 常量——整文件子串匹配下
+# 这些臂从表里删掉照样绿，等于臂名只要在文件别处露过脸就永久免检。
+# 序和处置也是真语义：case 与 manifestIncludes 都首中即返回，垃圾臂挪到 keep 臂之后就漏出去了，
+# 所以三份 glob 表比的是「臂序 + 每臂 drop/keep」的完整序列，不是集合。
 GEN_SH="$ROOT/.claude/scripts/gen-manifest.sh"
 SETUP_SH="$ROOT/setup.sh"
 SETUP_PS1="$ROOT/setup.ps1"
@@ -220,20 +226,74 @@ for f in "$GEN_SH" "$SETUP_SH" "$SETUP_PS1" "$RELEASE_MJS"; do
   [ -f "$f" ] || fail "排除表口径：找不到 $f"
 done
 
-# setup.ps1 按 leaf 名 + 目录正则编码，和另三份的 glob 词汇结构性不同，硬对齐没有价值；
+# 从 shell case 块抽臂：只取第一个 `case "$rel" in`（setup.sh 后面还有个判 mode 的），
+# 每行一条 "<臂>TAB<drop|keep>"——body 里有 continue 是 drop，空 body（`;;`）是 keep。
+extract_case_arms() {
+  awk '
+    !f && index($0, "case \"$rel\" in") { f = 1; next }
+    f && $0 ~ /^[[:space:]]*esac[[:space:]]*$/ { exit }
+    f {
+      line = $0; sub(/#.*/, "", line)
+      if (line !~ /\)/) next
+      body = line; sub(/^[^)]*\)/, "", body)
+      disp = (body ~ /continue/) ? "drop" : "keep"
+      pats = line; sub(/\).*/, "", pats)
+      n = split(pats, a, "|")
+      for (i = 1; i <= n; i++) {
+        gsub(/^[[:space:]]+/, "", a[i]); gsub(/[[:space:]]+$/, "", a[i])
+        if (a[i] != "") printf "%s\t%s\n", a[i], disp
+      }
+    }
+  ' "$1"
+}
+
+extract_case_arms "$GEN_SH"   >"$TMP/tbl.gen"
+extract_case_arms "$SETUP_SH" >"$TMP/tbl.setup"
+cut -f1 "$TMP/tbl.gen" >"$TMP/arms.gen"
+# release.mjs 只从 MANIFEST_RULES 数组里抽，keep: true/false 直接就是处置
+sed -n '/^const MANIFEST_RULES = \[/,/^\];/p' "$RELEASE_MJS" \
+  | sed -n "s/.*pattern: '\([^']*\)',[[:space:]]*keep:[[:space:]]*\([a-z]*\).*/\1 \2/p" \
+  | awk '{ printf "%s\t%s\n", $1, ($2 == "true" ? "keep" : "drop") }' >"$TMP/tbl.release"
+
+# 抽取自检：条数写死。抽取正则半坏（只抽到一部分）时当场红，别让后面的逐臂比对空转——
+# 下限式的 -ge 挡不住半坏。四份表增删臂时同步改这个数。
+EXPECTED_ARMS=34
+arm_count=$(grep -c . "$TMP/tbl.gen" || true)
+[ "$arm_count" = "$EXPECTED_ARMS" ] \
+  || fail "排除表口径：从 gen-manifest.sh 抽出 $arm_count 条臂，应为 $EXPECTED_ARMS（改过排除表就同步改这个数；数字对不上而表没动 = 抽取正则坏了，断言会空转）。release.mjs 相对它多出的臂：$(grep -vxF -f "$TMP/tbl.gen" "$TMP/tbl.release" | tr '\n' ' ' || true)"
+
+# 逐臂对照：缺臂 / 多臂 / 臂序，三种漂移各自点名
+cmp_table() {
+  local name=$1 f=$2 arm
+  while IFS= read -r arm; do
+    [ -n "$arm" ] || continue
+    grep -qxF -- "$arm" "$f" || fail "排除表口径：$name 少了臂 [$arm]（gen-manifest.sh 有）"
+  done <"$TMP/tbl.gen"
+  while IFS= read -r arm; do
+    [ -n "$arm" ] || continue
+    grep -qxF -- "$arm" "$TMP/tbl.gen" \
+      || fail "排除表口径：$name 多出臂 [$arm]（gen-manifest.sh 没有——审计者比生成器严会把框架文件判成 unlisted，安装器比生成器严则静默漏装）"
+  done <"$f"
+  cmp -s "$TMP/tbl.gen" "$f" || fail "排除表口径：$name 臂序与 gen-manifest.sh 不一致（首中即返回，垃圾臂排到 keep 臂之后就漏出去）：$(
+    awk -v n="$name" -F '\t' 'NR==FNR{g[FNR]=$0;next} $0!=g[FNR]{printf "第 %d 位 gen=[%s] %s=[%s]", FNR, g[FNR], n, $0; exit}' "$TMP/tbl.gen" "$f")"
+}
+cmp_table "setup.sh copy_claude_tree" "$TMP/tbl.setup"
+cmp_table "release.mjs MANIFEST_RULES" "$TMP/tbl.release"
+
+# setup.ps1 按名字数组 + 目录正则编码，和另三份的 glob 词汇结构性不同，硬对齐没有价值；
 # 逐臂给出它在 ps1 里的对应 token，映射表必须覆盖全部臂——新增臂没进映射就红（return 1）。
 ps1_token_for() {
   case "$1" in
     FRAMEWORK-MANIFEST.txt|settings.json|settings-windows.json|settings.local.json|\
     .needs-review|.needs-review.lock|.tdd-exempt|.red-verified|.static-gate|.degraded-review|\
     .fast-mode|.subagent-reminded|.stop-gate-strikes|.precompact-block-epoch|.async-verify-last|\
-    signals.jsonl|.DS_Store|Thumbs.db) printf "'%s'" "$1" ;;             # $skip 数组按 leaf 名匹配
-    '*/signals.jsonl') printf '%s' "'signals.jsonl'" ;;                  # leaf 名匹配天然覆盖任意层级
+    signals.jsonl|.DS_Store|Thumbs.db) printf "'%s'" "$1" ;;             # $skip 系列数组按名字匹配
+    '*/signals.jsonl') printf '%s' "'signals.jsonl'" ;;                  # 任意层级那份同名，走同一个 token
     '*/.DS_Store')     printf '%s' "'.DS_Store'" ;;
     '*/Thumbs.db')     printf '%s' "'Thumbs.db'" ;;
     'evidence/*')      printf '%s' '^evidence/' ;;
     'harness/receipts/*'|'harness/state/*'|'harness/waivers/*'|'harness/trend/*'|'harness/evidence/*')
-                       printf '%s' 'harness/(receipts|state|waivers|trend|evidence)/' ;;
+                       printf '%s' '^harness/(receipts|state|waivers|trend|evidence)/' ;;
     '.runtime/*')      printf '%s' '^\.runtime/' ;;
     '*.bak'|'*.framework-new'|'*.swp')
                        printf '%s' '\.(bak|framework-new|swp)$' ;;
@@ -244,35 +304,49 @@ ps1_token_for() {
   esac
 }
 
-ARMS=$(awk '/^  case "\$rel" in$/{f=1;next} /^  esac$/{f=0} f' "$GEN_SH" \
-  | sed 's/#.*//' | grep -o '^[^)]*)' | tr -d ')' | tr '|' '\n' \
-  | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')
-arm_count=$(printf '%s\n' "$ARMS" | grep -c .)
-# 抽不出臂 = 上面那条 awk 和脚本形态对不上了，后面全绿会是空转
-[ "$arm_count" -ge 20 ] || fail "排除表口径：从 gen-manifest.sh 只抽出 $arm_count 条臂（形态变了？断言会空转）"
+# ps1 的表体：$skip 系列数组 + 紧随的目录/后缀正则，止于复制逻辑起点（$dest = Join-Path）。
+# 只在这段里找 token——整文件找的话 'settings.json' 在 ps1 别处还有 3 行，从表里删了照样绿。
+awk '
+  !f && index($0, "$skip") == 1 { f = 1 }
+  f && index($0, "$dest = Join-Path") { exit }
+  f
+' "$SETUP_PS1" >"$TMP/ps1-table.txt"
+grep -q '= @(' "$TMP/ps1-table.txt" || fail "排除表口径：setup.ps1 抽不出 \$skip 表体（形态变了？断言会空转）"
+grep -qE -- '-match' "$TMP/ps1-table.txt" || fail "排除表口径：setup.ps1 表体里一条目录/后缀正则都没有（抽早了？）"
 
-OLDIFS=$IFS
-IFS='
-'
-for arm in $ARMS; do
-  grep -qF -- "$arm" "$SETUP_SH" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，setup.sh copy_claude_tree 没有"
-  grep -qF -- "'$arm'" "$RELEASE_MJS" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，release.mjs MANIFEST_RULES 没有"
+# 表体实际持有的 token：各 $skip* 数组里的引号名 + 各条 -match 正则字面量。
+# 数组按变量名一把抓（ps1 侧拆过 $skip / $skipAnyDepth），别钉死单个变量名，拆表就漏。
+{
+  awk 'index($0, "= @(") { a = 1 } a { print; if (/\)[[:space:]]*$/) a = 0 }' "$TMP/ps1-table.txt" \
+    | grep -o "'[^']*'"
+  sed -n "s/.*-match '\(.*\)')[[:space:]]*{[[:space:]]*return[[:space:]]*}.*/\1/p" "$TMP/ps1-table.txt"
+} | sort -u >"$TMP/ps1-actual.txt"
+
+: >"$TMP/ps1-expected.txt"
+while IFS= read -r arm; do
+  [ -n "$arm" ] || continue
   tok=$(ps1_token_for "$arm") || fail "排除表口径：新臂 [$arm] 没有 setup.ps1 对应 token（补 ps1_token_for 映射，并确认 ps1 真挡住了）"
-  grep -qF -- "$tok" "$SETUP_PS1" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，setup.ps1 缺对应 token [$tok]"
-done
-IFS=$OLDIFS
+  printf '%s\n' "$tok" >>"$TMP/ps1-expected.txt"
+done <"$TMP/arms.gen"
+sort -u "$TMP/ps1-expected.txt" -o "$TMP/ps1-expected.txt"
 
-# 反向：release.mjs 多出来的 pattern 也算分叉（审计者比生成器严，会把框架文件判成 unlisted）
-rel_extra=""
-while IFS= read -r p; do
-  [ -n "$p" ] || continue
-  printf '%s\n' "$ARMS" | grep -qxF -- "$p" || rel_extra="$rel_extra $p"
-done <<EOF
-$(sed -n "/^const MANIFEST_RULES = \[/,/^\];/p" "$RELEASE_MJS" | sed -n "s/.*pattern: '\([^']*\)'.*/\1/p")
-EOF
-[ -z "$rel_extra" ] || fail "排除表口径：release.mjs MANIFEST_RULES 有 gen-manifest.sh 没有的 pattern：$rel_extra"
+while IFS= read -r tok; do
+  grep -qxF -- "$tok" "$TMP/ps1-actual.txt" \
+    || fail "排除表口径：setup.ps1 的 \$skip+正则表缺 token [$tok]（gen-manifest.sh 有臂映射到它）"
+done <"$TMP/ps1-expected.txt"
+while IFS= read -r tok; do
+  grep -qxF -- "$tok" "$TMP/ps1-expected.txt" \
+    || fail "排除表口径：setup.ps1 多出 token [$tok]（另三份表没有对应臂，Windows 侧会静默漏装）"
+done <"$TMP/ps1-actual.txt"
 
-echo "test-setup: ⑥ 四份排除表逐臂对照通过（基准 gen-manifest.sh $arm_count 条臂 → setup.sh / setup.ps1 / release.mjs）"
+# ps1 那份不比臂序：表体里每条规则都是无条件 return（drop），没有 keep 分支，谁先谁后同解。
+# 这个前提本身要有断言守着——一旦加进 keep 分支，序就变成真语义，得回来补 ps1 的序检查。
+ps1_rules=$(grep -cE -- '(-match|-contains)' "$TMP/ps1-table.txt" || true)
+ps1_drops=$(grep -cE -- '(-match|-contains).*\{[[:space:]]*return[[:space:]]*\}' "$TMP/ps1-table.txt" || true)
+[ "$ps1_rules" = "$ps1_drops" ] \
+  || fail "排除表口径：setup.ps1 表体 $ps1_rules 条规则里只有 $ps1_drops 条是无条件 return——出现 keep 分支后臂序变成真语义，⑥ 需要补 ps1 序检查"
+
+echo "test-setup: ⑥ 四份排除表逐臂对照通过（基准 gen-manifest.sh $arm_count 条臂：setup.sh / release.mjs 臂序+处置全等，setup.ps1 token 集合全等）"
 
 # ---- ⑥b 行为面：系统垃圾既不入装、也不入清单 ----
 # 上面比的是字面，这里造真文件跑真安装器——规则还在但 case 臂序被挪到 keep 臂之后（

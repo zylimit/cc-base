@@ -166,7 +166,7 @@ function selftestCases() {
       assert.equal(toPosixPath('C:\\repo\\.claude\\harness\\waivers\\w.json'),
         'C:/repo/.claude/harness/waivers/w.json', 'an absolute windows path normalizes too');
     }],
-    ['repoRelative: inside the root goes relative, outside stays absolute, relative stays put', () => {
+    ['repoRelative: inside the root goes relative, outside stays absolute, relative is named from the cwd', () => {
       // The three states of the one rule stdout is written in. The middle one is the case a
       // bare path.relative() got wrong: `catalog-lint --catalog /etc/nope/x.json` answered
       // `../../etc/nope/x.json` -- not the file the caller named, not a file in this repo,
@@ -174,6 +174,7 @@ function selftestCases() {
       // against, because it is the shape that reads like an answer while being neither.
       const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-relpath-')));
       const saved = process.env.CLAUDE_PROJECT_DIR;
+      const savedCwd = process.cwd();
       try {
         process.env.CLAUDE_PROJECT_DIR = root;
         assert.equal(repoRelative(path.join(root, '.claude', 'harness', 'module-catalog.json')),
@@ -185,11 +186,26 @@ function selftestCases() {
         assert.ok(!answer.startsWith('..'), 'no climb-out chain: ' + answer);
         assert.equal(toPosixPath(path.resolve(answer)), toPosixPath(outside),
           'the echoed path still resolves to the file the caller named');
-        assert.equal(repoRelative('docs/adr/ADR-001.md'), 'docs/adr/ADR-001.md',
-          'relative input is not re-rooted -- fs opened it against the cwd, so naming it otherwise names another file');
+        // Relative input, asserted from a cwd that is not the root -- the only condition under
+        // which "resolve it the way fs did" and "echo it back" differ, and the condition every
+        // hook runs in. Asserting from the root instead makes the two indistinguishable, which
+        // is how `--catalog nope.json` came to report a file it had not opened.
+        const sub = path.join(root, 'sub');
+        fs.mkdirSync(sub);
+        process.chdir(sub);
+        assert.equal(repoRelative('nope.json'), 'sub/nope.json',
+          'a relative path is named where fs opened it -- against the cwd, not against the root');
+        assert.equal(repoRelative(path.join('..', 'nope', 'x.json')), 'nope/x.json',
+          'a relative path that climbs back inside the root still gets its repo-relative name');
+        const escaped = repoRelative(path.join('..', '..', 'nope', 'x.json'));
+        assert.equal(escaped, toPosixPath(path.resolve(root, '..', 'nope', 'x.json')),
+          'a relative path that resolves outside the root comes back absolute');
+        assert.ok(!escaped.startsWith('..'), 'no climb-out chain: ' + escaped);
+        process.chdir(root);
         assert.equal(repoRelative(repoRelative(path.join(root, 'a', 'b.json'))), 'a/b.json',
-          'the function is a fixed point on its own output');
+          'the function is a fixed point on its own output when the cwd is the root');
       } finally {
+        process.chdir(savedCwd);
         if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
         else process.env.CLAUDE_PROJECT_DIR = saved;
         fs.rmSync(root, { recursive: true, force: true });
