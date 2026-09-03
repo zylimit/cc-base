@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   SOURCE_EXTS,
-  changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot, toPosixPath,
+  changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot,
+  repoRelative, toPosixPath,
 } from './core.mjs';
 import { classifyPath, loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -331,7 +332,7 @@ function cmdArchCheck(flags) {
         forbiddenEdges: [...forbidden.keys()].sort(),
         cycleKeys: [...new Set(cycles.map(cycleKey))].sort(),
       });
-      recordedTo = toPosixPath(path.relative(projectRoot(), recordedTo));
+      recordedTo = repoRelative(recordedTo);
     } catch (e) {
       process.stderr.write('arch-check: trend record failed: ' + String(e && e.message || e) + '\n');
     }

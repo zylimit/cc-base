@@ -77,12 +77,17 @@ function Copy-WithBackup($src, $dest) {
 }
 
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
-# Same exclusion set as setup.sh copy_claude_tree and .claude/scripts/gen-manifest.sh -- change one, change all three.
+# Same exclusion set as setup.sh copy_claude_tree, .claude/scripts/gen-manifest.sh and
+# .claude/harness/lib/release.mjs MANIFEST_RULES -- change one, change all four. The four are kept
+# as hand-synced copies on purpose (installers must run standalone; the release one is the auditor
+# and would stop auditing if it shared a source), so the shared wording is verified by tests instead:
+# .claude/tests/test-setup.sh section (6) compares the arms of all four literally.
 # $skip matches by leaf name; anything that is a directory rather than a file name goes in the regex list below.
+# .DS_Store / Thumbs.db are leaf-name matches here (they appear at every depth); *.swp joins the suffix regex.
 $skip = @('settings.json', 'settings-windows.json', 'settings.local.json',
   '.needs-review', '.needs-review.lock', '.tdd-exempt', '.red-verified', '.static-gate', '.degraded-review',
   '.fast-mode', '.subagent-reminded', '.stop-gate-strikes', '.precompact-block-epoch', '.async-verify-last',
-  'signals.jsonl', 'FRAMEWORK-MANIFEST.txt')
+  'signals.jsonl', 'FRAMEWORK-MANIFEST.txt', '.DS_Store', 'Thumbs.db')
 $srcRootLen = (Resolve-Path $srcClaude).Path.Length
 Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
@@ -95,7 +100,8 @@ Get-ChildItem -Path $srcClaude -Recurse -File | ForEach-Object {
   if ($relSlash -match '^harness/(receipts|state|waivers|trend|evidence)/') { return }
   # supervisor process-guard runtime (supervisor.mjs itself is still distributed)
   if ($relSlash -match '^\.runtime/') { return }
-  if ($relSlash -match '\.(bak|framework-new)$') { return }
+  # installer leftovers + editor swap files (same arms as the other three tables / .claude/.gitignore)
+  if ($relSlash -match '\.(bak|framework-new|swp)$') { return }
   $dest = Join-Path $targetClaude $rel
   # Manifest layering: only when the target exists with different content do we decide
   # "safe upgrade" vs "user-modified, do not overwrite".

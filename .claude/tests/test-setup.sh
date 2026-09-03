@@ -3,6 +3,7 @@
 # 验三件事：① 关键文件装齐（CLAUDE.md / 7 个 agents / 各 skill 的 SKILL.md / hooks 有可执行位 /
 #   settings.json 合法 JSON）；② 私有 feedback 已排除（target 只剩 templates/ + 重置的
 #   FEEDBACK-INDEX.md，无顶层私有 *.md，守 setup.sh #5）；③ 幂等性（装两次产物 SHA256 一致）。
+# 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（字面）+ ⑥b 系统垃圾不入装不入清单（行为）。
 # 无依赖 claude CLI，纳入 cases/run-all.sh 在 selftest 之后跑。装完清理临时目录。
 set -eu
 
@@ -202,3 +203,115 @@ done
 grep -q '^harness/harness\.mjs	' "$CL/FRAMEWORK-MANIFEST.txt" || fail "排除表过宽：harness.mjs 不在 MANIFEST"
 
 echo "test-setup: 运行态目录隔离校验通过（不入装 / 不入清单 / harness 本体照常分发）"
+
+# ---- ⑥ 四份排除表口径一致 + 系统垃圾不入装 ----
+# 「哪些文件算框架文件」这张表在仓里有四份手工同步的拷贝：gen-manifest.sh 的 case（生成器）、
+# setup.sh copy_claude_tree 的 case 与 setup.ps1 的 $skip+正则（两个安装器）、
+# harness/lib/release.mjs MANIFEST_RULES（审计者）。不抽单一来源是权衡后的结论：安装器要能被
+# 单独取走对着源码树跑（setup.sh 连 jq 都不敢依赖），审计者读被审者的表就审不出漂移。
+# 代价是手工同步会漂——上一批 .runtime/* 补了四份、系统垃圾四份全漏，就是这么漂出来的——
+# 所以口径改由这一节兜：基准表从 gen-manifest.sh 的 case 块**自动抽**（硬编码一份清单只是把
+# 漂移挪个地方藏），另三份逐臂对照。
+GEN_SH="$ROOT/.claude/scripts/gen-manifest.sh"
+SETUP_SH="$ROOT/setup.sh"
+SETUP_PS1="$ROOT/setup.ps1"
+RELEASE_MJS="$ROOT/.claude/harness/lib/release.mjs"
+for f in "$GEN_SH" "$SETUP_SH" "$SETUP_PS1" "$RELEASE_MJS"; do
+  [ -f "$f" ] || fail "排除表口径：找不到 $f"
+done
+
+# setup.ps1 按 leaf 名 + 目录正则编码，和另三份的 glob 词汇结构性不同，硬对齐没有价值；
+# 逐臂给出它在 ps1 里的对应 token，映射表必须覆盖全部臂——新增臂没进映射就红（return 1）。
+ps1_token_for() {
+  case "$1" in
+    FRAMEWORK-MANIFEST.txt|settings.json|settings-windows.json|settings.local.json|\
+    .needs-review|.needs-review.lock|.tdd-exempt|.red-verified|.static-gate|.degraded-review|\
+    .fast-mode|.subagent-reminded|.stop-gate-strikes|.precompact-block-epoch|.async-verify-last|\
+    signals.jsonl|.DS_Store|Thumbs.db) printf "'%s'" "$1" ;;             # $skip 数组按 leaf 名匹配
+    '*/signals.jsonl') printf '%s' "'signals.jsonl'" ;;                  # leaf 名匹配天然覆盖任意层级
+    '*/.DS_Store')     printf '%s' "'.DS_Store'" ;;
+    '*/Thumbs.db')     printf '%s' "'Thumbs.db'" ;;
+    'evidence/*')      printf '%s' '^evidence/' ;;
+    'harness/receipts/*'|'harness/state/*'|'harness/waivers/*'|'harness/trend/*'|'harness/evidence/*')
+                       printf '%s' 'harness/(receipts|state|waivers|trend|evidence)/' ;;
+    '.runtime/*')      printf '%s' '^\.runtime/' ;;
+    '*.bak'|'*.framework-new'|'*.swp')
+                       printf '%s' '\.(bak|framework-new|swp)$' ;;
+    # keep 臂：ps1 只排顶层 feedback/*.md，模板与子目录天然保留，语义等价
+    'feedback/templates/*'|'feedback/*/*'|'feedback/*.md')
+                       printf '%s' '^feedback/[^/]+\.md$' ;;
+    *) return 1 ;;
+  esac
+}
+
+ARMS=$(awk '/^  case "\$rel" in$/{f=1;next} /^  esac$/{f=0} f' "$GEN_SH" \
+  | sed 's/#.*//' | grep -o '^[^)]*)' | tr -d ')' | tr '|' '\n' \
+  | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')
+arm_count=$(printf '%s\n' "$ARMS" | grep -c .)
+# 抽不出臂 = 上面那条 awk 和脚本形态对不上了，后面全绿会是空转
+[ "$arm_count" -ge 20 ] || fail "排除表口径：从 gen-manifest.sh 只抽出 $arm_count 条臂（形态变了？断言会空转）"
+
+OLDIFS=$IFS
+IFS='
+'
+for arm in $ARMS; do
+  grep -qF -- "$arm" "$SETUP_SH" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，setup.sh copy_claude_tree 没有"
+  grep -qF -- "'$arm'" "$RELEASE_MJS" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，release.mjs MANIFEST_RULES 没有"
+  tok=$(ps1_token_for "$arm") || fail "排除表口径：新臂 [$arm] 没有 setup.ps1 对应 token（补 ps1_token_for 映射，并确认 ps1 真挡住了）"
+  grep -qF -- "$tok" "$SETUP_PS1" || fail "排除表口径：gen-manifest.sh 有臂 [$arm]，setup.ps1 缺对应 token [$tok]"
+done
+IFS=$OLDIFS
+
+# 反向：release.mjs 多出来的 pattern 也算分叉（审计者比生成器严，会把框架文件判成 unlisted）
+rel_extra=""
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  printf '%s\n' "$ARMS" | grep -qxF -- "$p" || rel_extra="$rel_extra $p"
+done <<EOF
+$(sed -n "/^const MANIFEST_RULES = \[/,/^\];/p" "$RELEASE_MJS" | sed -n "s/.*pattern: '\([^']*\)'.*/\1/p")
+EOF
+[ -z "$rel_extra" ] || fail "排除表口径：release.mjs MANIFEST_RULES 有 gen-manifest.sh 没有的 pattern：$rel_extra"
+
+echo "test-setup: ⑥ 四份排除表逐臂对照通过（基准 gen-manifest.sh $arm_count 条臂 → setup.sh / setup.ps1 / release.mjs）"
+
+# ---- ⑥b 行为面：系统垃圾既不入装、也不入清单 ----
+# 上面比的是字面，这里造真文件跑真安装器——规则还在但 case 臂序被挪到 keep 臂之后（
+# feedback/templates/.DS_Store 就会漏出去），字面比对看不出来。
+# 在 mktemp 里搭一棵迷你源码树跑，不污染本仓：setup.sh / gen-manifest.sh 的 source 都取自脚本自身位置。
+MINI="$TMP/mini-src"
+mkdir -p "$MINI/.claude/hooks" "$MINI/.claude/scripts" "$MINI/.claude/skills/demo" "$MINI/.claude/feedback/templates"
+cp -p "$ROOT/setup.sh" "$MINI/setup.sh"
+cp -p "$GEN_SH" "$MINI/.claude/scripts/gen-manifest.sh"
+printf '# mini 主控\n'  >"$MINI/.claude/CLAUDE.md"
+printf '{}\n'           >"$MINI/.claude/settings.json"
+printf 'echo hi\n'      >"$MINI/.claude/hooks/demo.sh"
+printf '# demo\n'       >"$MINI/.claude/skills/demo/SKILL.md"
+printf '# 模板\n'       >"$MINI/.claude/feedback/templates/feedback-index-template.md"
+# 每一类各造一份，含嵌套层与 keep 臂目录下的那份
+JUNK=".DS_Store hooks/.DS_Store feedback/templates/.DS_Store Thumbs.db skills/demo/Thumbs.db hooks/demo.sh.swp"
+for j in $JUNK; do printf 'junk\n' >"$MINI/.claude/$j"; done
+
+MINI_TARGET="$TMP/mini-target"
+bash "$MINI/setup.sh" -mac "$MINI_TARGET" >"$TMP/setup-mini.log" 2>&1 \
+  || { cat "$TMP/setup-mini.log" >&2; fail "⑥b：迷你源码树安装失败"; }
+for j in $JUNK; do
+  [ ! -e "$MINI_TARGET/.claude/$j" ] || fail "⑥b：系统垃圾被 setup.sh 装进产物：$j"
+done
+# 反向：排除表不许过宽，正常框架文件照装
+[ -f "$MINI_TARGET/.claude/CLAUDE.md" ] || fail "⑥b：排除表过宽，CLAUDE.md 未安装"
+[ -f "$MINI_TARGET/.claude/hooks/demo.sh" ] || fail "⑥b：排除表过宽，hooks/demo.sh 未安装"
+[ -f "$MINI_TARGET/.claude/feedback/templates/feedback-index-template.md" ] || fail "⑥b：排除表过宽，feedback 模板未安装"
+
+bash "$MINI/.claude/scripts/gen-manifest.sh" >/dev/null 2>&1 || fail "⑥b：迷你源码树上 gen-manifest.sh 跑失败"
+MINI_MANIFEST="$MINI/.claude/FRAMEWORK-MANIFEST.txt"
+# 比路径列全等，不用 grep -F 子串——`.DS_Store` 是 `feedback/templates/.DS_Store` 的子串，
+# 子串匹配红是红了，点名的却是另一份文件，照着去查会查错地方。
+for j in $JUNK; do
+  awk -F '\t' -v p="$j" '$1 == p { hit = 1 } END { exit !hit }' "$MINI_MANIFEST" \
+    && fail "⑥b：系统垃圾被登记进 MANIFEST：$j"
+done
+grep -q '^CLAUDE.md	' "$MINI_MANIFEST" || fail "⑥b：排除表过宽，CLAUDE.md 不在 MANIFEST"
+grep -q '^feedback/templates/feedback-index-template.md	' "$MINI_MANIFEST" \
+  || fail "⑥b：排除表过宽，feedback/templates/ 下的模板不在 MANIFEST（垃圾臂排到了 keep 臂之后？）"
+
+echo "test-setup: ⑥b 系统垃圾隔离校验通过（$(printf '%s' "$JUNK" | wc -w | tr -d ' ') 份垃圾不入装 / 不入清单，框架文件照常）"

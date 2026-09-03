@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
   HARNESS_DIR, SOURCE_EXTS, TIER_RANK,
   catalogFilePath, changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny,
-  normalizeTier, parseCsv, projectRoot, toPosixPath, whichCmd,
+  normalizeTier, parseCsv, projectRoot, repoRelative, toPosixPath, whichCmd,
 } from './core.mjs';
 import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -370,13 +370,17 @@ function assessAdrRecords(records, knownChecks, knownRules) {
 
 /**
  * Standalone ADR files: docs/adr/*.md, one record per file (cursor-style layout).
- * `dir` is repo-relative and `root` only locates it on disk, so `source` comes out
+ * `dir` is normally repo-relative and `root` only locates it on disk, so `source` comes out
  * repo-relative -- the same shape the inline records carry. The alternative reads back
  * one machine's directory layout in a field the inline half already answers relatively,
  * and stdout here is a machine contract.
+ * path.resolve, not path.join: `--dir /somewhere/else` is an absolute path the caller means
+ * literally, and joining it onto the root reads a directory nobody named (root + /somewhere)
+ * while still echoing the one they did -- the report then describes a place it never looked.
+ * repoRelative gives such a directory back verbatim, since it has no repo-relative name.
  */
 function parseAdrDir(root, dir) {
-  const abs = path.join(root, dir);
+  const abs = path.resolve(root, dir);
   let names;
   try { names = fs.readdirSync(abs); } catch (_e) { return []; }
   const out = [];
@@ -386,7 +390,7 @@ function parseAdrDir(root, dir) {
     try { content = fs.readFileSync(path.join(abs, n), 'utf8'); } catch (_e) { continue; }
     out.push({
       id: n.replace(/\.md$/, ''),
-      source: toPosixPath(path.join(dir, n)),
+      source: repoRelative(path.join(abs, n)),
       status: adrField(content, ['\u72b6\u6001', 'Status']) || 'accepted',
       enforcedRaw: adrField(content, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
     });
@@ -399,15 +403,19 @@ function cmdAdrCheck(flags) {
   const file = typeof flags.file === 'string' ? flags.file : 'Architecture-Design.md';
   const dir = typeof flags.dir === 'string' ? flags.dir : 'docs/adr';
   const records = [];
-  const filePath = path.join(root, file);
+  // Same resolve-then-name pair as parseAdrDir, for the same reason: an absolute --file is
+  // where the caller says it is, and the name reported back is the one that was read.
+  const filePath = path.resolve(root, file);
+  const fileName = repoRelative(filePath);
+  const dirName = repoRelative(path.resolve(root, dir));
   if (fs.existsSync(filePath)) {
     let content = '';
     try { content = fs.readFileSync(filePath, 'utf8'); } catch (_e) { /* unreadable -> no records */ }
-    for (const r of parseInlineAdrs(content)) records.push({ ...r, source: file });
+    for (const r of parseInlineAdrs(content)) records.push({ ...r, source: fileName });
   }
   for (const r of parseAdrDir(root, dir)) records.push(r);
   if (records.length === 0) {
-    return emit({ ok: true, records: 0, note: 'no ADR records found (' + file + ' / ' + dir + '); nothing to enforce' }, 0);
+    return emit({ ok: true, records: 0, note: 'no ADR records found (' + fileName + ' / ' + dirName + '); nothing to enforce' }, 0);
   }
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
   const knownChecks = loaded.ok ? Object.keys(loaded.catalog.checks || {}) : [];

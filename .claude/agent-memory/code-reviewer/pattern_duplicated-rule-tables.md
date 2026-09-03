@@ -19,8 +19,24 @@ metadata:
 4. **表的补集也要查**：把 `.gitignore` 逐条对着排除表比。本轮 `.DS_Store` / `Thumbs.db` / `*.swp`
    在 gitignore 里、不在排除表里 → Mac 上跑一次生成器就把机器垃圾写进 tracked 清单。
 
+2026-09-03 复审「四份表对齐」的补测（作者补了 `test-setup.sh ⑥` 逐臂对照 + `⑥b` 行为面）时又中三条：
+
+5. **「逐臂对照」若是整文件 `grep -F` 子串匹配，就等于给部分臂发免检**。臂名在同一文件别处出现过
+   （注释、别的逻辑、或它自己是另一条臂的子串）就永远查得到。本轮 `settings.json` 在 setup.sh 出现
+   13 行、`FRAMEWORK-MANIFEST.txt` 5 行，删掉这两条 case 臂 ⑥ 照绿；`.DS_Store` 是 `*/.DS_Store`
+   的子串，删前者也绿。查检：对每条臂做删除突变（不是读代码），并先数 `grep -cF <臂> <文件>`，>1 的都是裸奔位。
+6. **集合相等 ≠ 表相等，臂序才是语义**（`case` 与 `manifestIncludes` 都首中即返回）。⑥ 只查成员
+   不查序。必须有一条「keep 臂目录下的垃圾文件」用例（本仓 `feedback/templates/.DS_Store`）才锁得住序——
+   有它的两侧（release.mjs / gen-manifest+setup.sh）reorder 会红，没它的那侧（setup.ps1）不会。
+7. **不同实现的表不能只比 token，要比语义**。`setup.ps1` 用 `$skip -contains (Split-Path $rel -Leaf)`
+   = 任意层级 leaf 匹配，另三份是根锚定；34 臂里 16 条（settings*.json / 各运行态标记 /
+   FRAMEWORK-MANIFEST.txt）不等价，⑥ 的映射表却把它们注成「语义等价」。后果是嵌套同名文件
+   进清单、setup.sh 装、setup.ps1 静默跳过 = Windows「在清单但没装」。**`setup.ps1` 的拷贝逻辑
+   全仓零行为测试**（`test-ps1-behavior.ps1` 不含 setup），字面 grep 是它唯一的守卫。
+
 **测试夹具依赖开发机脏状态 = CI 上恒绿**（同轮抓到的第二类）：`test-setup.sh` 新增的「运行态目录
 不入装」断言不自己造夹具，靠源树**碰巧**有 `harness/state/` 才有力。dev 机脏树上删排除项会红，
 CI 干净 checkout 上删同样的排除项全绿——闸只在不需要它的地方响。
 固定实验：把源树复制一份、删光运行态文件（模拟 CI checkout），再做突变，看还红不红。
-相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_golden-baseline-rulers]]
+（⑥b 是正解范式：自己在 mktemp 里搭迷你源码树跑真安装器，与源树脏净无关。）
+相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_golden-baseline-rulers]]、[[pattern_path-naming-contract]]

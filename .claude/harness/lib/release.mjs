@@ -263,6 +263,17 @@ function checkDod() {
 //
 // Line order is deliberately not compared: gen-manifest pipes through `sort` under whatever
 // locale the machine has, so byte order is not a property of the content. Sets are compared.
+//
+// Four hand-synced copies of this one exclusion set exist: gen-manifest.sh (the generator),
+// setup.sh copy_claude_tree and setup.ps1 (the two installers), and this one (the auditor).
+// None of them share a source, for two different reasons -- an installer has to run standalone
+// against a source tree (setup.sh does not even dare depend on jq), and an auditor that reads
+// the generator's own table cannot detect the generator drifting. The cost is manual sync, so
+// the wording is held by tests: .claude/tests/test-release-manifest.sh makes real files and
+// locks this table against gen-manifest.sh behaviourally, and .claude/tests/test-setup.sh
+// section (6) compares the arms of all four literally. Junk files that .claude/.gitignore
+// excludes (.DS_Store / Thumbs.db / *.swp) belong here too: unexcluded they get registered as
+// framework files and installed into other people's projects.
 
 const MANIFEST_FILE = 'FRAMEWORK-MANIFEST.txt';
 
@@ -293,6 +304,11 @@ const MANIFEST_RULES = [
   { pattern: '.runtime/*', keep: false },
   { pattern: '*.bak', keep: false },
   { pattern: '*.framework-new', keep: false },
+  { pattern: '.DS_Store', keep: false },
+  { pattern: '*/.DS_Store', keep: false },
+  { pattern: 'Thumbs.db', keep: false },
+  { pattern: '*/Thumbs.db', keep: false },
+  { pattern: '*.swp', keep: false },
   { pattern: 'feedback/templates/*', keep: true },
   { pattern: 'feedback/*/*', keep: true },
   { pattern: 'feedback/*.md', keep: false },

@@ -220,10 +220,18 @@ function headCommit() {
 // session and the authorship ledger under harness/state/, for instance -- is covered by all
 // four the moment it is put there. A per-file rule would have to be added in four places, and
 // missing one of them is a fresh source of false green.
+// Every directory .claude/.gitignore lists as runtime belongs here, .runtime/ (supervisor pid,
+// state and service logs) included; being gitignored is not on its own enough, because a path
+// that was once tracked, or force-added, still reaches changedPaths(). The single-file markers
+// .gitignore also carries (signals.jsonl, .subagent-reminded, .stop-gate-strikes,
+// .precompact-block-epoch, .async-verify-last, settings.local.json) are deliberately NOT here:
+// this list is what the fingerprint ignores, and quietly ignoring more files than necessary is
+// how a real change stops being noticed.
 const STATE_EXCLUDE = [
   ':(exclude).claude/.needs-review',
   ':(exclude).claude/.needs-review.lock',
   ':(exclude).claude/.fast-mode',
+  ':(exclude).claude/.runtime/**',
   ':(exclude).claude/evidence/**',
   ':(exclude).claude/harness/receipts/**',
   ':(exclude).claude/harness/waivers/**',
@@ -237,6 +245,7 @@ const STATE_EXCLUDE_PATHS = [
   '.claude/.fast-mode',
 ];
 const STATE_EXCLUDE_PREFIXES = [
+  '.claude/.runtime/',
   '.claude/evidence/',
   '.claude/harness/receipts/',
   '.claude/harness/waivers/',
@@ -359,6 +368,29 @@ function catalogFilePath() {
 }
 
 /**
+ * Name a path the way stdout names paths: repo-relative when it is inside the project root,
+ * verbatim when it is not. A bare path.relative() produces a third thing for the outside
+ * case and that third thing is useless -- `catalog-lint --catalog /etc/nope/x.json` answered
+ * `../../etc/nope/x.json`, which is neither the file the caller named nor a path that exists
+ * in this repo, and it leaks how deep the checkout sits on top. The test is path.relative()'s
+ * own answer: a route that has to climb out of the root, or (on Windows, across drives) no
+ * route at all, means the path has no repo-relative name and must be echoed as given.
+ * Relative input is returned untouched rather than re-rooted: a relative --catalog is opened
+ * against the cwd by fs, so re-rooting it here would name a different file than the one the
+ * command actually probed. Engine-built paths are all absolute and inside the root, so they
+ * take the first branch and read exactly as before.
+ */
+function repoRelative(p) {
+  const raw = String(p);
+  if (!path.isAbsolute(raw)) return toPosixPath(raw);
+  const rel = path.relative(projectRoot(), raw);
+  if (rel === '') return '.';
+  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../')) return toPosixPath(raw);
+  if (path.isAbsolute(rel)) return toPosixPath(raw);
+  return toPosixPath(rel);
+}
+
+/**
  * Load harness config. Catalog present -> shallow-merge its contextPack over DEFAULTS.
  * Not present -> DEFAULTS + {catalogPresent:false}. This Task only checks existence,
  * not schema validity (T1.2 catalog-lint owns schema validation).
@@ -419,7 +451,7 @@ function normalizeTier(req) {
 // stay includable.
 const DENY = [
   /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
-  /(^|\/)\.claude\/(evidence|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,
+  /(^|\/)\.claude\/(\.runtime|evidence|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,
   /(^|\/)\.env(\.|$)/,
   /\.(pem|key|p12|pfx)$/, /(^|\/)id_rsa/, /(^|\/)\.(ssh|aws|azure|gnupg|kube)\//,
 ];
@@ -463,7 +495,7 @@ export {
   readStdin, toPosixPath, stableJson, sha256, emit, die, sleepSync, withDirLock,
   git, isGitRepo, headCommit, isStateExcluded, splitNul, changedPaths, canonicalDiff, gitFingerprint,
   globToRegExp, matchAny, specificity,
-  DEFAULTS, projectRoot, catalogFilePath, loadHarnessConfig,
+  DEFAULTS, projectRoot, catalogFilePath, repoRelative, loadHarnessConfig,
   parseCsv,
   ATTRIBUTES, TIERS, TIER_ENFORCEMENT, TIER_RANK, normalizeTier,
   isDenied, SOURCE_EXTS, whichCmd,

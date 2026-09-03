@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
   TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, isGitRepo, isStateExcluded, normalizeTier,
-  parseCsv, projectRoot, readStdin, sha256, stableJson, toPosixPath, whichCmd,
+  parseCsv, projectRoot, readStdin, repoRelative, sha256, stableJson, whichCmd,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -483,7 +483,7 @@ function cmdWaiver(flags = {}, positional = []) {
   if (sub === 'list') {
     const list = loadWaivers().map(w => {
       const { _path, ...rest } = w;
-      return { path: _path ? toPosixPath(path.relative(projectRoot(), _path)) : null, ...rest };
+      return { path: _path ? repoRelative(_path) : null, ...rest };
     });
     return emit({ ok: true, waivers: list }, 0);
   }
@@ -524,7 +524,7 @@ function cmdWaiver(flags = {}, positional = []) {
     const fname = ts + '-' + h10 + '.json';
     const fp = path.join(dir, fname);
     fs.writeFileSync(fp, JSON.stringify(waiver, null, 2) + '\n', 'utf8');
-    return emit({ ok: true, path: toPosixPath(path.relative(projectRoot(), fp)), waiver }, 0);
+    return emit({ ok: true, path: repoRelative(fp), waiver }, 0);
   }
   return emit({ error: 'waiver-subcommand', detail: 'usage: waiver list|check|create', got: sub || null }, 3);
 }

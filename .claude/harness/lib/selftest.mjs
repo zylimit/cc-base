@@ -10,7 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {
-  HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, splitNul, toPosixPath, withDirLock,
+  HARNESS_DIR, isDenied, matchAny, normalizeTier, repoRelative, specificity, splitNul, toPosixPath,
+  withDirLock,
 } from './core.mjs';
 import { classifyPath, lintCatalog, loadCatalog } from './catalog.mjs';
 import {
@@ -165,6 +166,35 @@ function selftestCases() {
       assert.equal(toPosixPath('C:\\repo\\.claude\\harness\\waivers\\w.json'),
         'C:/repo/.claude/harness/waivers/w.json', 'an absolute windows path normalizes too');
     }],
+    ['repoRelative: inside the root goes relative, outside stays absolute, relative stays put', () => {
+      // The three states of the one rule stdout is written in. The middle one is the case a
+      // bare path.relative() got wrong: `catalog-lint --catalog /etc/nope/x.json` answered
+      // `../../etc/nope/x.json` -- not the file the caller named, not a file in this repo,
+      // and a readout of how deep the checkout sits. A climb-out chain is the shape to assert
+      // against, because it is the shape that reads like an answer while being neither.
+      const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-relpath-')));
+      const saved = process.env.CLAUDE_PROJECT_DIR;
+      try {
+        process.env.CLAUDE_PROJECT_DIR = root;
+        assert.equal(repoRelative(path.join(root, '.claude', 'harness', 'module-catalog.json')),
+          '.claude/harness/module-catalog.json', 'an absolute path under the root loses the machine half');
+        assert.equal(repoRelative(root), '.', 'the root itself is nameable, and it is not the empty string');
+        const outside = path.join(path.dirname(root), 'nope', 'x.json');
+        const answer = repoRelative(outside);
+        assert.equal(answer, toPosixPath(outside), 'a path outside the root comes back as given');
+        assert.ok(!answer.startsWith('..'), 'no climb-out chain: ' + answer);
+        assert.equal(toPosixPath(path.resolve(answer)), toPosixPath(outside),
+          'the echoed path still resolves to the file the caller named');
+        assert.equal(repoRelative('docs/adr/ADR-001.md'), 'docs/adr/ADR-001.md',
+          'relative input is not re-rooted -- fs opened it against the cwd, so naming it otherwise names another file');
+        assert.equal(repoRelative(repoRelative(path.join(root, 'a', 'b.json'))), 'a/b.json',
+          'the function is a fixed point on its own output');
+      } finally {
+        if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = saved;
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
     ['rules-audit: a windows-shaped document name cannot reach the reported location', () => {
       const points = { subcommands: new Set(['selftest']), files: new Set(), basenames: new Set() };
       const line = '- run `node .claude/harness/harness.mjs selftest` before merging\n';
@@ -262,13 +292,14 @@ function selftestCases() {
     }],
 
     // S6 context-pack -- DENY, budget truncation, stable packHash.
-    ['isDenied .env / node_modules / id_rsa / receipts -> true', () => {
+    ['isDenied .env / node_modules / id_rsa / receipts / .runtime -> true', () => {
       assert.ok(isDenied('.env'));
       assert.ok(isDenied('config/.env.local'));
       assert.ok(isDenied('node_modules/x.js'));
       assert.ok(isDenied('id_rsa'));
       assert.ok(isDenied('.claude/harness/receipts/foo.json'));
       assert.ok(isDenied('secrets/server.pem'));
+      assert.ok(isDenied('.claude/.runtime/supervisor/web/state.json'));   // supervisor pid/state/logs: machine-specific
     }],
     ['isDenied .env.example / real source -> false', () => {
       assert.ok(!isDenied('.env.example'));
@@ -282,13 +313,16 @@ function selftestCases() {
         candidateFiles: [
           { path: '.env', bytes: 10 }, { path: 'node_modules/a.js', bytes: 10 },
           { path: 'id_rsa', bytes: 10 }, { path: '.claude/harness/receipts/x.json', bytes: 10 },
+          { path: '.claude/.runtime/supervisor/web/supervisor.json', bytes: 10 },
           { path: 'src/real.ts', bytes: 10 },
         ],
       });
       const inc = r.included.map(f => f.path);
       assert.ok(!inc.includes('.env') && !inc.includes('node_modules/a.js') && !inc.includes('id_rsa'));
+      assert.ok(!inc.includes('.claude/.runtime/supervisor/web/supervisor.json'));
       assert.ok(inc.includes('src/real.ts'));
       assert.ok(r.denied.includes('.env') && r.denied.includes('node_modules/a.js'));
+      assert.ok(r.denied.includes('.claude/.runtime/supervisor/web/supervisor.json'));
     }],
     ['buildPack respects maxFiles cap (included.length <= maxFiles)', () => {
       const files = [];

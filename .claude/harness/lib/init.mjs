@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {
-  SOURCE_EXTS, catalogFilePath, emit, isGitRepo, projectRoot, toPosixPath,
+  SOURCE_EXTS, catalogFilePath, emit, isGitRepo, projectRoot, repoRelative,
 } from './core.mjs';
 import { classifyPath, lintCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 import { extractImports, resolveRelativeImport } from './graph.mjs';
@@ -364,7 +364,7 @@ function cmdInit(flags = {}) {
   const refs = referenceEdges(projectRoot(), draft, t.paths);
 
   const target = typeof flags.catalog === 'string' ? flags.catalog : catalogFilePath();
-  const rel = toPosixPath(path.relative(projectRoot(), path.resolve(projectRoot(), target)));
+  const rel = repoRelative(target);
   const exists = fs.existsSync(target);
   const wantApply = Boolean(flags.apply);
 

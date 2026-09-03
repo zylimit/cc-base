@@ -1121,6 +1121,89 @@ else
 fi
 rm -rf "$TMPADR"
 
+# ㉔d 路径归一化三态：--dir / --file 的 resolve-then-name 契约
+#   三态 = 仓内绝对 -> 仓库相对名 / 仓外绝对 -> 原样绝对名 / 相对 -> 原样不变。
+#   之前没人守：把 parseAdrDir 与 cmdAdrCheck 里的 path.resolve 换回 path.join，selftest 268 条、
+#   golden 20127 条、本脚本 72 条全绿——join(root, "/a/b") 去读的是 root/a/b（没人指过的目录），
+#   报出来的名字却是掐掉前导斜杠的 "a/b"，「一条都没读到」和「报了个不存在的仓内路径」同时发生，
+#   三把尺子一把都看不见。所以这里判的是 records 有没有真读到 + source/note 报的是不是同一个地方，
+#   不判 rc——rc 由 ADR 的执法内容决定、不由路径决定，钉死 rc 会锁错东西。
+ADRROOT="$(cd "$(mktemp -d)" && pwd -P)"
+ADROUT="$(cd "$(mktemp -d)" && pwd -P)"
+mkdir -p "$ADRROOT/adr-in" "$ADRROOT/arch" "$ADROUT/empty"
+cat > "$ADRROOT/adr-in/ADR-100.md" <<'EOF'
+# ADR-100：仓内独立 ADR
+- **状态**：accepted
+- **执法方式**：fitness 规则 no-silent-failure
+EOF
+cat > "$ADROUT/ADR-200.md" <<'EOF'
+# ADR-200：仓外独立 ADR
+- **状态**：accepted
+- **执法方式**：fitness 规则 no-silent-failure
+EOF
+cat > "$ADRROOT/arch/AD.md" <<'EOF'
+### ADR-300：内联 ADR
+- **状态**：accepted
+- **执法方式**：fitness 规则 no-silent-failure
+EOF
+# 回填 ADR_RC / ADR_RECORDS / ADR_SOURCES / ADR_NOTE / ADR_RAW（node 本段已确保存在）
+adr_probe() {
+  ADR_RC=0
+  ADR_RAW=$(cd "$ADRROOT" && CLAUDE_PROJECT_DIR="$ADRROOT" node "$HARNESS" adr-check "$@") || ADR_RC=$?
+  ADR_RECORDS=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write(String(d.records))')
+  ADR_SOURCES=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write((d.details||[]).map(r=>r.source).sort().join(","))')
+  ADR_NOTE=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write(d.note||"")')
+}
+
+# 态一：仓内绝对 --dir -> 真读到那一条，且名字掉成仓库相对
+adr_probe --file no-such-arch.md --dir "$ADRROOT/adr-in"
+if [ "$ADR_RECORDS" = "1" ] && [ "$ADR_SOURCES" = "adr-in/ADR-100.md" ]; then
+  pass "adr-check --dir 仓内绝对路径 -> 读到 1 条且 source 是仓库相对名"
+else
+  fail "adr-check --dir 仓内绝对路径（期望 records=1 source=adr-in/ADR-100.md，实得 records=$ADR_RECORDS source=$ADR_SOURCES，输出：$ADR_RAW）"
+fi
+
+# 态二：仓外绝对 --dir -> 真读到那一条，且名字原样绝对（不爬 ../，不掐前导斜杠）
+adr_probe --file no-such-arch.md --dir "$ADROUT"
+case "$ADR_SOURCES" in
+  ..*) ADR_SHAPE="climb-out" ;;
+  /*) ADR_SHAPE="absolute" ;;
+  *) ADR_SHAPE="relative" ;;
+esac
+if [ "$ADR_RECORDS" = "1" ] && [ "$ADR_SOURCES" = "$ADROUT/ADR-200.md" ] && [ "$ADR_SHAPE" = "absolute" ]; then
+  pass "adr-check --dir 仓外绝对路径 -> 读到 1 条且 source 原样绝对（非 ../ 链、非掐斜杠形态）"
+else
+  fail "adr-check --dir 仓外绝对路径（期望 records=1 source=$ADROUT/ADR-200.md 形态 absolute，实得 records=$ADR_RECORDS source=$ADR_SOURCES 形态 $ADR_SHAPE，输出：$ADR_RAW）"
+fi
+
+# 态三：相对 --dir 原样不变——对照组，期望值与态一写死同一个字面量（两种写法同名由此锁住），
+#   但不从态一的结果里取：path.resolve/path.join 对相对路径同解，本条在变异下必须仍绿，
+#   接了态一的变量它会跟着一起红，就再也说不出「红的是绝对路径那两态」。
+adr_probe --file no-such-arch.md --dir adr-in
+if [ "$ADR_RECORDS" = "1" ] && [ "$ADR_SOURCES" = "adr-in/ADR-100.md" ]; then
+  pass "adr-check --dir 相对路径 -> 与仓内绝对写法逐字同名（对照组）"
+else
+  fail "adr-check --dir 相对路径应与绝对写法同名（期望 records=1 source=adr-in/ADR-100.md，实得 records=$ADR_RECORDS source=$ADR_SOURCES，输出：$ADR_RAW）"
+fi
+
+# --file 与 --dir 是同一对 resolve-then-name，单独钉一条：仓内绝对 --file 必须真被读到
+adr_probe --file "$ADRROOT/arch/AD.md" --dir no-such-dir
+if [ "$ADR_RECORDS" = "1" ] && [ "$ADR_SOURCES" = "arch/AD.md" ]; then
+  pass "adr-check --file 仓内绝对路径 -> 内联 ADR 被读到且 source 是仓库相对名"
+else
+  fail "adr-check --file 仓内绝对路径（期望 records=1 source=arch/AD.md，实得 records=$ADR_RECORDS source=$ADR_SOURCES，输出：$ADR_RAW）"
+fi
+
+# 空手而归那条 note 也在报路径，同样不许报一个没去过的地方
+adr_probe --file "$ADROUT/nothing.md" --dir "$ADROUT/empty"
+ADR_NOTE_WANT="($ADROUT/nothing.md / $ADROUT/empty)"
+if [ "$ADR_RECORDS" = "0" ] && printf '%s' "$ADR_NOTE" | grep -qF "$ADR_NOTE_WANT"; then
+  pass "adr-check 无记录时 note 里的 --file/--dir 名原样绝对，不报没去过的仓内路径"
+else
+  fail "adr-check 无记录 note 路径名错（期望含 $ADR_NOTE_WANT，实得 note=$ADR_NOTE，输出：$ADR_RAW）"
+fi
+rm -rf "$ADRROOT" "$ADROUT"
+
 # ㉕ arch-trend 漂移棘轮端到端：record 基线（带债）-> 改善 record -> gate rc 0；回退 -> gate rc 1
 TMPT="$(mktemp -d)"; mkdir -p "$TMPT/.claude/harness"
 node -e '

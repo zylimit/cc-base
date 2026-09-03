@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# test-release-manifest.sh — release 的 manifest 项对「运行态文件」的排除规则回归（只需 node + git + sha256sum）。
-# 锁的是 release.mjs MANIFEST_RULES：运行态文件在场时 manifest 项仍须 PASS、unlisted 恒为 0。
+# test-release-manifest.sh — release 的 manifest 项对「被排除文件」的排除规则回归（只需 node + git + sha256sum）。
+# 锁的是 release.mjs MANIFEST_RULES：运行态产物与系统垃圾（.DS_Store / Thumbs.db / *.swp）在场时
+#   manifest 项仍须 PASS、unlisted 恒为 0。
 #   这批规则此前没有任何测试守着——删掉它们，selftest 与 golden 都照样全绿，本机和 CI 都不会红。
 # 造真文件不做字符串匹配：规则还在但 caseGlobToRegExp / manifestIncludes 被改坏，字符串匹配看不出来。
 # 逐类单独跑一遍 release（每类 ~1.4s），所以删掉哪一条规则就红哪一条，报错直接点名到 pattern。
 # 另有两条非退化对照，防「PASS 是因为什么都没检查」：
-#   ① 未登记的**非**运行态文件必须让 manifest 判 FAIL 并点名（检查确实还在工作）
-#   ② 带全部运行态文件跑 gen-manifest.sh，产物须与不带时逐字节一致（生成器与审计者两张表口径一致）
+#   ① 未登记的**非**排除类文件必须让 manifest 判 FAIL 并点名（检查确实还在工作）
+#   ② 带全部被排除文件跑 gen-manifest.sh，产物须与不带时逐字节一致（生成器与审计者两张表口径一致）
+# 四份排除表的字面口径由 test-setup.sh ⑥ 比对；这里只管其中两份的行为。
 # 沙箱隔离：release 读的是 projectRoot()（CLAUDE_PROJECT_DIR 或 cwd），所以在 mktemp 的 git 仓里
 #   cd 进去跑、并 env -u CLAUDE_PROJECT_DIR，对本仓纯只读，不会把运行态垃圾造进 .claude/。
 # 用法：bash test-release-manifest.sh [harness.mjs 路径]
@@ -34,12 +36,16 @@ fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $1"; }
 
 # ---- 沙箱：一个最小 git 仓 + 最小 .claude 框架层 ----
 ROOT="$TMP/proj"
-mkdir -p "$ROOT/.claude/scripts" "$ROOT/.claude/rules" "$ROOT/.claude/hooks" "$ROOT/.claude/skills/demo"
+mkdir -p "$ROOT/.claude/scripts" "$ROOT/.claude/rules" "$ROOT/.claude/hooks" "$ROOT/.claude/skills/demo" \
+         "$ROOT/.claude/feedback/templates"
 cp "$GEN" "$ROOT/.claude/scripts/gen-manifest.sh"
 printf '# 沙箱主控\n' > "$ROOT/.claude/CLAUDE.md"
 printf '# 沙箱规则\n'   > "$ROOT/.claude/rules/demo.md"
 printf 'echo hi\n'      > "$ROOT/.claude/hooks/demo.sh"
 printf '# demo skill\n' > "$ROOT/.claude/skills/demo/SKILL.md"
+# 模板目录是 keep 臂，垃圾臂必须排在它前面才挡得住 feedback/templates/.DS_Store——
+# 有这份文件在，臂序被挪动时下面那条用例就会红。
+printf '# 模板\n'       > "$ROOT/.claude/feedback/templates/demo-template.md"
 ( cd "$ROOT" && git init -q . && git add -A \
   && git -c user.email=t@example.com -c user.name=t commit -qm init ) >/dev/null
 
@@ -89,7 +95,9 @@ else
   fail "脚手架：清单为空或缺 CLAUDE.md，后续 PASS 会是空转（内容：$(cat "$BASE_MANIFEST")）"
 fi
 
-# ---- 逐类运行态文件：造真文件 → release 的 manifest 项必须仍 PASS 且 unlisted=0 ----
+# ---- 逐类被排除的文件：造真文件 → release 的 manifest 项必须仍 PASS 且 unlisted=0 ----
+# 两类都在这张表里：运行态产物，和 .claude/.gitignore 排除的系统垃圾（.DS_Store / Thumbs.db /
+#   *.swp）——后者不挡就会被当成框架文件登记进清单、跟着安装器装进别人项目。
 # 左边是相对 .claude/ 的路径，右边是对应的 MANIFEST_RULES pattern（红了直接报出是哪条规则没了）。
 RUNTIME_CASES="
 .stop-gate-strikes|.stop-gate-strikes
@@ -106,6 +114,12 @@ harness/receipts/task-1.json|harness/receipts/*
 evidence/run-1.log|evidence/*
 signals.jsonl|signals.jsonl
 skills/demo/signals.jsonl|*/signals.jsonl
+.DS_Store|.DS_Store
+skills/demo/.DS_Store|*/.DS_Store
+feedback/templates/.DS_Store|*/.DS_Store
+Thumbs.db|Thumbs.db
+hooks/Thumbs.db|*/Thumbs.db
+hooks/demo.sh.swp|*.swp
 "
 
 # 用 for + IFS 换行遍历而不是 while read：管道里的 while 是子 shell，PASS/FAIL 计数加不回来。
@@ -122,9 +136,9 @@ for line in $RUNTIME_CASES; do
   printf 'runtime-state-%s\n' "$rel" > "$f"
   release_manifest
   if [ "$M_STATUS" = "PASS" ] && [ "$M_UNLISTED" = "0" ]; then
-    pass "运行态 .claude/$rel 在场（规则 $pattern）：manifest=PASS unlisted=0"
+    pass "排除项 .claude/$rel 在场（规则 $pattern）：manifest=PASS unlisted=0"
   else
-    fail "运行态 .claude/$rel 在场（规则 $pattern 缺失或匹配逻辑坏了）：EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
+    fail "排除项 .claude/$rel 在场（规则 $pattern 缺失或匹配逻辑坏了）：EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
   fi
   rm -f "$f"
   ALL_RUNTIME="$ALL_RUNTIME$rel
@@ -132,7 +146,7 @@ for line in $RUNTIME_CASES; do
 done
 IFS=$OLDIFS
 
-# ---- 全部运行态文件同时在场（真实现场就是这样：一次 18 个）----
+# ---- 全部被排除文件同时在场（真实现场就是这样：运行态和垃圾一起来）----
 COUNT=0
 OLDIFS=$IFS
 IFS='
@@ -147,23 +161,23 @@ done
 IFS=$OLDIFS
 release_manifest
 if [ "$M_STATUS" = "PASS" ] && [ "$M_UNLISTED" = "0" ]; then
-  pass "$COUNT 个运行态文件同时在场：manifest=PASS unlisted=0"
+  pass "$COUNT 个被排除文件同时在场：manifest=PASS unlisted=0"
 else
-  fail "$COUNT 个运行态文件同时在场：EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
+  fail "$COUNT 个被排除文件同时在场：EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
 fi
 
-# ---- 对照 ①：带着全部运行态文件重跑 gen-manifest.sh，产物须与干净时逐字节一致 ----
+# ---- 对照 ①：带着全部被排除文件重跑 gen-manifest.sh，产物须与干净时逐字节一致 ----
 # 生成器和 release 是故意分开抄的两张表，这条锁的是它们不许分叉——任一侧漏一条都会让这里 diff。
 bash "$ROOT/.claude/scripts/gen-manifest.sh" >/dev/null
 if cmp -s "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"; then
-  pass "对照：运行态文件在场时 gen-manifest 产物不变（生成器与 MANIFEST_RULES 口径一致）"
+  pass "对照：被排除文件在场时 gen-manifest 产物不变（生成器与 MANIFEST_RULES 口径一致）"
 else
-  fail "对照：运行态文件让 gen-manifest 产物变了，两张排除表已分叉：$(diff "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" | head -5 | tr '\n' ' ')"
+  fail "对照：被排除文件让 gen-manifest 产物变了，两张排除表已分叉：$(diff "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" | head -5 | tr '\n' ' ')"
 fi
 
-# ---- 对照 ②：未登记的**非**运行态文件必须让 manifest 判 FAIL 并点名 ----
+# ---- 对照 ②：未登记的**非**排除类文件必须让 manifest 判 FAIL 并点名 ----
 # 没有这条，「manifestIncludes 一律返回 false」这种把检查废掉的改法会让上面全部照样绿。
-# 先把运行态文件全清掉再造 orphan：排除规则真坏了时那批也会挤进 unlisted，点名列表被 capped()
+# 先把被排除文件全清掉再造 orphan：排除规则真坏了时那批也会挤进 unlisted，点名列表被 capped()
 #   截断后 orphan.sh 就看不见了——这条对照的红绿必须只由 orphan.sh 决定。
 OLDIFS=$IFS
 IFS='
@@ -180,6 +194,35 @@ case "$M_STATUS/$M_NAMES" in
   *) fail "对照：未登记的 hooks/orphan.sh 本该 FAIL 并点名，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]" ;;
 esac
 rm -f "$ROOT/.claude/hooks/orphan.sh"
+
+# ---- 对照 ③：core.mjs STATE_EXCLUDE 挡住 .claude/.runtime/（diff 指纹不被 supervisor 运行态扰动）----
+# 那张排除表是同一件事的第五、六份拷贝（gitignore / 生成器 / 两个安装器 / release / core），
+#   .runtime/ 上一批只补了前四份。沙箱里没有 .claude/.gitignore，所以这里的 .runtime 正是
+#   「没被 gitignore 兜住」的形态——真仓里一个曾被跟踪或被 force-add 的 .runtime 文件同形，
+#   STATE_EXCLUDE 就是那一层，不能靠 gitignore 代劳。
+diff_hash() {
+  ( cd "$ROOT" && env -u CLAUDE_PROJECT_DIR node "$ENTRY" diff-hash 2>/dev/null ) \
+    | sed -n 's/.*"diffHash":"\([0-9a-f]*\)".*/\1/p'
+}
+H_BASE=$(diff_hash)
+mkdir -p "$ROOT/.claude/.runtime/supervisor/web"
+printf 'pid 4242\n' > "$ROOT/.claude/.runtime/supervisor/web/state.json"
+printf 'boot\n'     > "$ROOT/.claude/.runtime/supervisor/web/service.log"
+H_RUNTIME=$(diff_hash)
+if [ -n "$H_BASE" ] && [ "$H_BASE" = "$H_RUNTIME" ]; then
+  pass "对照：.claude/.runtime/ 落文件不改 diff 指纹（core.mjs STATE_EXCLUDE 覆盖 .runtime/）"
+else
+  fail "对照：.claude/.runtime/ 扰动了 diff 指纹（STATE_EXCLUDE 漏 .runtime/）：base=$H_BASE after=$H_RUNTIME"
+fi
+# 非退化：真代码改动必须让指纹变，否则上面的「相等」可能只是 diff-hash 整体坏了
+printf 'echo probe\n' > "$ROOT/.claude/hooks/probe.sh"
+H_REAL=$(diff_hash)
+if [ -n "$H_REAL" ] && [ "$H_REAL" != "$H_BASE" ]; then
+  pass "对照：新增 hooks/probe.sh 改变 diff 指纹（排除表没宽到把真改动也吞掉）"
+else
+  fail "对照：新增 hooks/probe.sh 没改变 diff 指纹，上面那条相等是空转：base=$H_BASE after=$H_REAL"
+fi
+rm -rf "$ROOT/.claude/.runtime" "$ROOT/.claude/hooks/probe.sh"
 
 echo ""
 echo "==== test-release-manifest：PASS=$PASS FAIL=$FAIL ===="

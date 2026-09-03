@@ -6,9 +6,17 @@
 #   checkout 的工作树字节 CRLF/LF 不一，直接对字节算会误判"用户改过"，归一化后跨平台稳定。
 # 排除逻辑对齐 setup.sh copy_claude_tree：运行态/机器特定/私有 feedback 不入清单；
 #   settings.json 走 merge 不套 manifest；FEEDBACK-INDEX.md 装后重置为模板也不入清单。
-# 同一张排除表另有两份，改这里必须同改：setup.sh copy_claude_tree 的 case（安装侧同一套口径）、
+# 同一张排除表另有三份，改这里必须同改：setup.sh copy_claude_tree 的 case（安装侧同一套口径）、
+#   setup.ps1 的 $skip + 目录正则（Windows 安装侧，按 leaf 名匹配，语义等价）、
 #   harness/lib/release.mjs MANIFEST_RULES（release 的 manifest 检查据此判「本表该不该收这个文件」，
-#   它是审计者故意另抄一份、不共用来源，否则审不出本脚本的漂移）。三处口径分叉比缺一条更糟。
+#   它是审计者故意另抄一份、不共用来源，否则审不出本脚本的漂移）。四处口径分叉比缺一条更糟。
+# 不抽单一来源是权衡后的结论，不是没想过：两个安装器要能被单独取走对着源码树跑（setup.sh 连
+#   jq 都不敢依赖，还有整条无 jq 降级路径），多一个 source/parse 依赖就多一条装不上的路；
+#   release.mjs 那份是审计者，共用来源就等于审计者和被审者对同一份表点头，审不出漂移。
+#   代价是四份手工同步，所以口径由测试兜：tests/test-release-manifest.sh 造真文件锁本脚本 +
+#   MANIFEST_RULES 两份行为一致，tests/test-setup.sh 的 ⑥ 逐臂比对四份表的字面口径。
+# 排除项与 .claude/.gitignore 同源同步：gitignore 里排除的系统垃圾（.DS_Store / Thumbs.db /
+#   *.swp）本表也必须挡——不挡就会被当框架文件登记进清单、装进别人项目。
 # 排除项一律显式列名，不用 harness/* 这种通配符一把梭——运行态目录会继续增加，
 #   但静默漏掉本该登记的框架文件（升级时会被当成"用户改过"永不覆盖）是更贵的错。
 set -eu
@@ -42,6 +50,9 @@ while IFS= read -r -d '' src; do
     harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
     .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
     *.bak|*.framework-new) continue ;;                           # 安装器产物
+    .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.gitignore 同条）
+    Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.gitignore 同条）
+    *.swp) continue ;;                                           # vim 交换文件（.gitignore 同条）
     feedback/templates/*) ;;                                     # 保留模板（框架资产）
     feedback/*/*) ;;                                             # feedback 子目录其他文件
     feedback/*.md) continue ;;                                   # 私人经验 + FEEDBACK-INDEX（装后重置为模板）
