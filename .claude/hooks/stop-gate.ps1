@@ -27,7 +27,7 @@ if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }
 $stateFile = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.needs-review'
 $strikeFile = Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.stop-gate-strikes'
 if (-not (Test-Path $stateFile)) {
-  Remove-Item $strikeFile -ErrorAction SilentlyContinue
+  Remove-Item $strikeFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
@@ -63,7 +63,7 @@ if ($files.Count -eq 0) {
       }
       $rvHead = Get-HarnessErrHead -Text $rv.Err
       if ($hstrikes -ge 3) {
-        Remove-Item $strikeFile -ErrorAction SilentlyContinue
+        Remove-Item $strikeFile -Force -ErrorAction SilentlyContinue
         $notice = "stop-gate: harness receipt verify exited with out-of-contract code $($rv.Code) three times in a row (engine failure, NOT a stale receipt) -- consecutive-block limit reached, releasing this stop. The receipt binding was never verified, the debt stands: fix the engine with 'node .claude/harness/harness.mjs receipt verify'. Engine error: $rvHead"
         try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $notice } catch { }
         Write-Output ([pscustomobject]@{ systemMessage = $notice } | ConvertTo-Json -Compress)
@@ -76,9 +76,9 @@ if ($files.Count -eq 0) {
       exit 0
     }
   }
-  Remove-Item $stateFile -ErrorAction SilentlyContinue
-  Remove-Item "$stateFile.lock" -ErrorAction SilentlyContinue
-  Remove-Item $strikeFile -ErrorAction SilentlyContinue
+  Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+  Remove-Item "$stateFile.lock" -Force -ErrorAction SilentlyContinue
+  Remove-Item $strikeFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
@@ -98,7 +98,7 @@ if (Test-Path $strikeFile) {
   if ($prevSig -eq $sig) { [void][int]::TryParse($prevCount, [ref]$strikes) }
 }
 if ($strikes -ge 3) {
-  Remove-Item $strikeFile -ErrorAction SilentlyContinue
+  Remove-Item $strikeFile -Force -ErrorAction SilentlyContinue
   $notice = "stop-gate: consecutive-block limit (3) reached for the same pending list -- releasing this stop, BUT the pending list is NOT cleared ($count files still owed review: $inline). Dispatch the code-reviewer as soon as possible."
   try { . (Join-Path $PSScriptRoot 'lib-gate-log.ps1'); Write-GateLog 'stop-gate' $notice } catch { }
   Write-Output ([pscustomobject]@{ systemMessage = $notice } | ConvertTo-Json -Compress)
