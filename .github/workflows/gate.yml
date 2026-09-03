@@ -131,8 +131,18 @@ jobs:
       # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
       # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
       # **显式 SKIPPED** 而不是悄悄没跑或判失败：一个跳过的段如果不出声，就是假绿。
+      # Windows 那格不跑：本仓是**双形态分发**——Windows 装 .ps1，Linux/mac 装 .sh，
+      # fix-platform 专门负责清掉异平台残留（当初选型时否决过「统一 .sh + shell:bash」，
+      # 理由是 Claude Code 的 Git Bash 自动检测有已知 bug #22700）。所以 Windows 用户手上
+      # 根本没有 .sh hook，在 Git Bash 里跑整套 .sh 测试等于验一个那边不存在的形态：
+      # 它红不红，与 Windows 用户的实际体验无关，而里面大量断言假设 POSIX 语义
+      # （chmod 000 的权限位、kill -9 的信号、进程组…），硬改只会把测试扭曲成迁就 CI。
+      # Windows 真正该验的三样都另有归属且都在跑：引擎（selftest / golden / 审计各步，
+      # 本 job 内）、.ps1 行为与语法（ps1 那格）。这不是「修不动所以跳过」，是修正一处
+      # 覆盖面的设计错误——少测的那部分本来就不该由这一格承担。
       - name: 框架自测 run-all（第三段真触发 case 必为显式 SKIPPED）
         id: runall
+        if: runner.os != 'Windows'
         continue-on-error: true
         run: |
           set -u
