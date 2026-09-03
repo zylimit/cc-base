@@ -14,6 +14,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # 只在 push/PR 跑的话，环境侧的腐烂要等到下次提交才现形：runner 镜像换代、node 大版本
+  # 漂移、gh/git 之类外部工具挪位置——这些都不改一行代码就能让闸失效。每周空跑一次把它们
+  # 提前照出来，别让人在赶提交时才发现是环境的问题。
+  # 17 分不是随手写的：GitHub 明说整点是 schedule 的高负载时段，会延迟甚至丢队列任务，
+  # 要错开。03:17 UTC = 11:17 北京时间，红了当天上班时间就能看见。
+  # 两个前提记牢：schedule 只认默认分支上的这份文件；公开仓 60 天无活动会自动停掉定时任务，
+  # 届时要去 Actions 页面手动 Enable workflow。
+  schedule:
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read
@@ -82,8 +91,26 @@ jobs:
 
       # 现有子命令的 stdout JSON 与退出码是对外契约（hook 在消费），基线漂了先看 diff。
       # --strict 让「没跑成」以 rc 3 现形，不加它 SKIPPED 也返回 0。
+      # Windows 上 preflight() 主动 SKIPPED：沙箱夹具树与 PATH 钉法都是 POSIX-only，
+      # 录进 git 的基线也是 POSIX-only，在 Windows 上比对没有意义。--strict 让这个
+      # skip 以 rc 3 现形（它的本职就是不让「没跑成」返回 0）。所以 Windows 那格
+      # **只接受 rc 3**、并把原因打出来——既不把一个正当的 skip 判成失败，也不用
+      # `if:` 把这一步整个藏掉让人以为跑过了。其余退出码在两个平台上一律失败。
       - name: golden 基线 --check --strict
-        run: node .claude/tests/harness-golden.mjs --check --strict
+        run: |
+          set -u
+          RC=0
+          node .claude/tests/harness-golden.mjs --check --strict || RC=$?
+          echo "golden rc=$RC"
+          if [ "$RC" -eq 0 ]; then
+            exit 0
+          elif [ "$RC" -eq 3 ] && [ "${RUNNER_OS:-}" = "Windows" ]; then
+            echo "::notice::golden 在 Windows 上按设计 SKIPPED（基线 POSIX-only），rc 3 是预期——这一格没有验过基线。"
+            exit 0
+          else
+            echo "::error::golden rc=$RC（Linux 上任何非 0 都是失败；Windows 上只接受 3）"
+            exit 1
+          fi
 
       # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
       # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
@@ -127,17 +154,39 @@ jobs:
         if: always()
         run: node .claude/harness/harness.mjs doctor
 
-  ps1-syntax:
-    # 单独一格，只做一件事：用 pwsh 自己的解析器过一遍全部 .ps1。
-    # 与 gate 那格的 check-syntax 是双保险——check-syntax 的 ps1 分支自己出错时，
-    # 这一格仍然会把坏文件照出来（同一个检查器不能既当运动员又当裁判）。
-    name: ps1 syntax (windows)
+      # 红了才有人看日志，而 log stream 翻起来费劲、还会随保留期消失。
+      # 失败时把 run-all 的完整输出留成 artifact，事后诊断不用重跑一遍 CI。
+      # 放在最末尾 + if: failure()：任何一步失败都能兜到（前面挂了这步照跑），
+      # 日志还没生成时 if-no-files-found: ignore 不再制造第二次失败。
+      - name: 失败时上传 run-all 日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runall-${{ matrix.os }}-node${{ matrix.node }}
+          path: ${{ runner.temp }}/runall.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ps1:
+    # 单独一格，两层：解析 + 真跑。
+    #   ① 用 pwsh 自己的解析器过一遍全部 .ps1。与 gate 那格的 check-syntax 是双保险——
+    #      check-syntax 的 ps1 分支自己出错时，这一格仍然会把坏文件照出来
+    #      （同一个检查器不能既当运动员又当裁判）。
+    #   ② 喂真实输入跑 hook，断言退出码 / stdout / 副作用。语法过 != 闸会拦，
+    #      fail-open 那批修完在 .sh 侧有 test-hook-failopen.sh 锁着，.ps1 侧此前全空。
+    name: ps1 (windows)
     runs-on: windows-latest
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+
+      # 行为测试要造「引擎给契约外退出码」的场景，得有 node。runner 自带的版本不作数：
+      # 显式装一版，缺 node 时脚本会以 rc 3 报「没跑全」，那时问题出在这一步而不是断言。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Parse every .ps1 with the PowerShell parser
         run: |
@@ -160,3 +209,21 @@ jobs:
           }
           Write-Output "parsed $($files.Count) file(s), $bad with errors"
           if ($bad -gt 0) { exit 1 }
+
+      # 退出码契约见脚本头：0=断言全过 / 1=有断言红 / 3=有整组没跑成（缺 node 或 git）。
+      # 这台 runner 两样都装了，所以 rc 3 是这一格自己的问题，照样判失败——「没跑成」不是通过。
+      # 注意跑的是 runner 自带的 pwsh 7，真实用户是 powershell.exe 5.1：绿了只说明逻辑对，
+      # 不代表 5.1 安全（编码默认值与 stderr 处理两边不同，脚本头写了差在哪）。
+      - name: Behaviour test -- 真跑 .ps1 hook，断言退出码与副作用
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & pwsh -NoProfile -File .claude/tests/test-ps1-behavior.ps1
+          $rc = $LASTEXITCODE
+          Write-Output "test-ps1-behavior rc=$rc"
+          if ($rc -eq 0) { exit 0 }
+          if ($rc -eq 3) {
+            Write-Output '::error::test-ps1-behavior rc=3（有整组没跑成，见上面的 [SKIP]）。这台 runner 装了 node 和 git，跑不全就是这一格坏了，未执行 != 通过。'
+            exit 1
+          }
+          Write-Output "::error::test-ps1-behavior rc=$rc（有 .ps1 hook 的行为不符合契约，见上面的 [FAIL] 与 EXPECT/GOT）"
+          exit 1

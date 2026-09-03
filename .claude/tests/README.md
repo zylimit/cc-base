@@ -29,9 +29,25 @@ bash .claude/tests/cases/run-all.sh
 
 `run-all.sh` 三段：先 selftest（断言库本身可信），再静态自测（安装器/路由/闸回归，无需 CLI），最后真触发 cases（`command -v claude` 探测，无 CLI 则明示 SKIP 不假绿）。harness 自测（`cases/test-harness.sh`）只需 node、归第二段。
 
+第二段末尾另跑 `dod` 和 `release` 两个一键闸——最外层的闸自己不在回归网里，是最容易烂掉的那种。
+`dod` 断 rc 0；`release` **不断 rc 0**：工作树脏 / Fast Mode 开着 / CI 红都会让它正确地判「未就绪」，
+断 rc 0 等于把它做成恒红。它断的是「引擎跑出了结构完整的清单」（七个装配项齐、状态在枚举内、
+每条 blocker 带 nextStep）——引擎崩了同样给 rc 1 却吐不出 JSON，正好被这层区分开。
+
 - **selftest.sh** 用 `fixtures/` 里手造的 stream-json 样例跑断言库本身，
   **不需要 claude CLI、不调真 LLM**。验证：good-run 全 PASS、premature-run 的偷跑
   断言被正确判 FAIL（「预期失败」也算 selftest 通过——断言库正确识别偷跑才对）。
+- **test-ps1-behavior.ps1** 是唯一真跑 `.ps1` hook 的回归：喂真实 JSON，断言退出码、stdout、
+  以及 `.needs-review` / `gate-block.log` 的副作用。`run-all.sh` 第二段带 `command -v pwsh`
+  守卫跑它（Linux 开发机没有 pwsh → 明示 SKIP 不假绿）；CI 的 `ps1 (windows)` 那格另跑一遍，
+  且把「没跑全」（rc 3）直接判失败——那台 runner 一定有 pwsh 和 node，跑不全就是它自己坏了。
+  本机跑法：
+  ```bash
+  pwsh -NoProfile -File .claude/tests/test-ps1-behavior.ps1
+  ```
+  退出码 0=断言全过 / 1=有断言红 / 3=有整组没跑成（缺 node 或 git，未执行 != 通过）。
+  CI 跑的是 pwsh 7、真实用户跑的是 powershell.exe 5.1，绿了只说明逻辑对——两者在
+  Console 编码默认值和 stderr 处理上不同，差在哪写在脚本头。
 - **cases/*.sh** 是真触发测试，**需要真 claude CLI，会耗 token**（多 Agent 路由实测）。
   `run-all.sh` 会 `command -v claude` 探测：没有 CLI 就明确打印
   `SKIPPED: 无 claude CLI` 并只跑 selftest——**绝不因缺 CLI 静默假绿**
@@ -66,6 +82,7 @@ bash .claude/tests/cases/run-all.sh
 ├── test-fast-mode.sh                     # Fast Mode 总闸回归
 ├── test-fix-platform.sh                  # fix-platform 跨平台归一回归（6 断言）
 ├── test-hook-parity.sh                   # .sh / .ps1 hook 对等回归（5 断言）
+├── test-ps1-behavior.ps1                 # .ps1 hook 真跑回归（需真 PowerShell，无 pwsh 则 SKIP）
 ├── README.md
 ├── fixtures/                             # 手造样例（让断言库脱离真 LLM 自测）
 │   ├── good-run.jsonl                    # 先 Skill 再 Edit —— 应两个断言全过

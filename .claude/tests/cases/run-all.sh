@@ -101,6 +101,94 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——git hooks 强制层回归跳过，未执行 != 通过。"
     GITHOOKS_NOTE="；git hooks 回归 SKIPPED（无 node）"
 fi
+# 两个一键闸自己也要进回归网：dod（静态治理总闸）和 release（发版就绪装配器）是提交/发版前
+#   最后两道，此前谁都没跑过它们——最外层的闸没人守，是最容易烂掉的那种。
+#   dod 断 rc 0：本仓静态治理常态全绿，红了就是真有 blocking step 挂了。
+#   release **不能**断 rc 0——工作树脏 / Fast Mode 开着 / CI 红都会让它正确地判「未就绪」(rc 1)，
+#   断 rc 0 会把它变成恒红。这里断的是「引擎跑出了结构完整的清单」：rc 在 {0,1} 内、stdout 是
+#   JSON、七个装配项齐、状态在枚举内、每条 blocker 带 nextStep。引擎崩了也给 rc 1 但吐不出 JSON，
+#   正好被结构这一层区分开——「判定为未就绪」和「引擎崩了」不许混成同一个红。
+ONEKEY_NOTE=""
+if command -v node >/dev/null 2>&1; then
+    REPO_ROOT="$(cd "$TESTS_DIR/../.." && pwd)"
+    HARNESS_MJS="$TESTS_DIR/../harness/harness.mjs"
+    echo "----- 运行 dod（一键静态治理闸）-----"
+    DOD_RC=0
+    ( cd "$REPO_ROOT" && node "$HARNESS_MJS" dod >/dev/null ) || DOD_RC=$?
+    if [ "$DOD_RC" -eq 0 ]; then
+        echo "dod: rc 0（每条 blocking 治理步都有结论）"
+    else
+        STATIC_RC=1
+        echo "dod: rc $DOD_RC（有 blocking step 没过或引擎崩了，跑 node .claude/harness/harness.mjs dod 看是哪条）"
+        echo "（上面这个静态测试判 FAIL）"
+    fi
+
+    echo "----- 运行 release（发版就绪装配器，判结构不判就绪）-----"
+    RELEASE_RC=0
+    RELEASE_JSON=$( cd "$REPO_ROOT" && node "$HARNESS_MJS" release 2>/dev/null ) || RELEASE_RC=$?
+    if [ "$RELEASE_RC" -eq 3 ]; then
+        echo "SKIPPED: release rc 3（非 git 仓，或七项全 UNKNOWN 什么都没确立）——未执行 != 通过。"
+        ONEKEY_NOTE="；release SKIPPED（rc 3 什么都没确立）"
+    elif [ "$RELEASE_RC" -ne 0 ] && [ "$RELEASE_RC" -ne 1 ]; then
+        STATIC_RC=1
+        echo "release: rc $RELEASE_RC 不在 {0,1,3} 契约内——引擎崩了，不是判定未就绪"
+        echo "（上面这个静态测试判 FAIL）"
+    else
+        printf '%s' "$RELEASE_JSON" | node -e '
+let s = "";
+process.stdin.on("data", d => s += d).on("end", () => {
+  let j;
+  try { j = JSON.parse(s); } catch (e) {
+    console.error("release: stdout 不是 JSON（引擎崩了，不是判定未就绪）：" + e.message);
+    process.exit(1);
+  }
+  const want = ["worktree", "remote", "dod", "manifest", "review-queue", "fast-mode", "ci"];
+  const got = (j.checks || []).map(c => c.id);
+  const miss = want.filter(w => !got.includes(w));
+  if (miss.length) {
+    console.error("release: 装配项缺 " + miss.join(", ") + "（实得 " + (got.join(", ") || "空") + "）");
+    process.exit(1);
+  }
+  const bad = (j.checks || []).filter(c => !["PASS", "FAIL", "DEGRADED"].includes(c.status));
+  if (bad.length) {
+    console.error("release: 状态越界 " + bad.map(c => c.id + "=" + c.status).join(", "));
+    process.exit(1);
+  }
+  const noStep = (j.blockers || []).filter(b => !b.nextStep);
+  if (noStep.length) {
+    console.error("release: blocker 缺 nextStep（只诊断不给下一步，闸就没人用）：" + noStep.map(b => b.id).join(", "));
+    process.exit(1);
+  }
+  console.log("release: 清单结构完整（" + got.length + " 项，blockers=" + (j.blockers || []).length
+    + "，established=" + j.established + "）——就绪与否是它的判定，不是本测试的断言");
+});
+' || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    fi
+else
+    echo "SKIPPED: 无 node（command -v node 未找到）——dod / release 一键闸跳过，未执行 != 通过。"
+    ONEKEY_NOTE="；dod / release 一键闸 SKIPPED（无 node）"
+fi
+# .ps1 hook 真跑回归：喂真实 JSON 断言退出码 / stdout / .needs-review 与 gate-block.log 的副作用。
+#   与 test-hook-parity.sh 分工——那份从 Git Bash 验对等且明说 .needs-review 内容留给真机，
+#   这份用原生 pwsh 把那块补上，另加 stop-gate / pre-commit-check 的 fail-closed（.sh 侧归
+#   test-hook-failopen.sh，.ps1 侧此前全空）。
+#   本机没 pwsh 就明示 SKIP：CI 的 ps1 那格会真跑，那里 rc 3 直接判失败。
+#   退出码：0=全过 / 1=有断言红 / 3=有整组没跑成（缺 node 或 git）。
+PS1_NOTE=""
+PS1_BEHAVIOR="$TESTS_DIR/test-ps1-behavior.ps1"
+if command -v pwsh >/dev/null 2>&1; then
+    echo "----- 运行 test-ps1-behavior.ps1（原生 pwsh 真跑 .ps1 hook）-----"
+    PS1_RC=0
+    pwsh -NoProfile -File "$PS1_BEHAVIOR" || PS1_RC=$?
+    if [ "$PS1_RC" -eq 3 ]; then
+        PS1_NOTE="；.ps1 行为回归有整组 SKIPPED（未执行 != 通过）"
+    elif [ "$PS1_RC" -ne 0 ]; then
+        STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
+    fi
+else
+    echo "SKIPPED: 无 pwsh（command -v pwsh 未找到）——.ps1 行为回归跳过，未执行 != 通过。"
+    PS1_NOTE="；.ps1 行为回归 SKIPPED（无 pwsh）"
+fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
     echo "########## 结果：静态自测失败（安装器/路由一致性不过），停止。 ##########"
@@ -113,7 +201,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -131,10 +219,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"
