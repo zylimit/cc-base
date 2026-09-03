@@ -3288,25 +3288,40 @@ function rulePoints() {
  * Environment for the S26 git fixtures: a pinned identity so `git commit` works without any
  * user config, and global/system config switched off so a developer's gpg signing, hooks or
  * commit template cannot make these lanes fail on one machine and pass on the next.
- * os.devNull rather than a literal /dev/null, because Windows spells it differently.
+ * An empty config file rather than a device name: os.devNull is `\\.\nul` on Windows, and the
+ * git that runs there is Git for Windows, which reads paths POSIX-style and answers `Invalid
+ * argument`. A file with no config entries in it means the same thing on all three platforms.
  */
-function fixtureGitEnv() {
+function fixtureGitEnv(root) {
+  const empty = emptyGitConfig(root);
   return {
     ...process.env,
     GIT_AUTHOR_NAME: 'selftest', GIT_AUTHOR_EMAIL: 'selftest@example.invalid',
     GIT_COMMITTER_NAME: 'selftest', GIT_COMMITTER_EMAIL: 'selftest@example.invalid',
     GIT_AUTHOR_DATE: '2020-01-01T00:00:00+0000',
     GIT_COMMITTER_DATE: '2020-01-01T00:00:00+0000',
-    GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_SYSTEM: os.devNull, GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty, GIT_CONFIG_NOSYSTEM: '1',
   };
+}
+
+/**
+ * The empty config lives inside the fixture's own .git/, so it goes away with the fixture and
+ * `git add -A` never sees it -- anywhere else under the work tree it would commit itself into
+ * the very history these lanes measure. A fixture that is not a repository has no .git and so
+ * no file there, which git reads as "no global config": the same nothing, by another route.
+ */
+function emptyGitConfig(root) {
+  return path.join(root, '.git', 'empty-gitconfig');
 }
 
 /** A throwaway repository, registered with the caller's cleanup list; returns its realpath. */
 function newGitRepo(roots, label) {
   const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-' + label + '-')));
   roots.push(d);
+  fs.mkdirSync(path.join(d, '.git'), { recursive: true });
+  fs.writeFileSync(emptyGitConfig(d), '', 'utf8');
   const g = spawnSync('git', ['-c', 'init.defaultBranch=main', 'init', '-q'], {
-    cwd: d, encoding: 'utf8', env: fixtureGitEnv(),
+    cwd: d, encoding: 'utf8', env: fixtureGitEnv(d),
   });
   assert.ok(!g.error && g.status === 0,
     'these lanes need git on PATH: co-change is read from commit history: ' + String(g.stderr || ''));
@@ -3320,7 +3335,7 @@ function commitFiles(root, files, message) {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, body, 'utf8');
   }
-  const env = fixtureGitEnv();
+  const env = fixtureGitEnv(root);
   const add = spawnSync('git', ['add', '-A'], { cwd: root, encoding: 'utf8', env });
   assert.ok(!add.error && add.status === 0, 'git add failed: ' + String(add.stderr || ''));
   const commit = spawnSync('git', ['commit', '-q', '-m', message], { cwd: root, encoding: 'utf8', env });
@@ -3339,7 +3354,7 @@ function writeSideCatalog(root, modules) {
 function runCoChange(root, argv) {
   const r = spawnSync(process.execPath,
     [path.join(HARNESS_DIR, 'harness.mjs'), 'cochange', '--catalog', path.join(root, 'side-catalog.json'), ...argv],
-    { cwd: root, encoding: 'utf8', env: { ...fixtureGitEnv(), CLAUDE_PROJECT_DIR: root } });
+    { cwd: root, encoding: 'utf8', env: { ...fixtureGitEnv(root), CLAUDE_PROJECT_DIR: root } });
   assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
   let out = null;
   try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
@@ -3354,7 +3369,7 @@ function runCoChange(root, argv) {
  */
 function runRelease(root) {
   const r = spawnSync(process.execPath, [path.join(HARNESS_DIR, 'harness.mjs'), 'release'],
-    { cwd: root, input: '', encoding: 'utf8', env: { ...fixtureGitEnv(), CLAUDE_PROJECT_DIR: root } });
+    { cwd: root, input: '', encoding: 'utf8', env: { ...fixtureGitEnv(root), CLAUDE_PROJECT_DIR: root } });
   assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
   let out = null;
   try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }

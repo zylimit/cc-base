@@ -195,6 +195,19 @@ for (const r of RULES) {
 }
 
 const ALLOWLIST_PATH = '.claude/harness/audit/instructions-allowlist.json';
+const README_PATH = '.claude/harness/audit/README.md';
+// A lapsed entry needs three values recomputed, and "re-hash the line" names the
+// job without saying how it is done -- so the diagnostic carries the command.
+// This one lapses on every insertion above the exempted line, in a file that is
+// edited every time the engine grows a subcommand, so it is a diagnostic its
+// owner reads often. Re-reading the line comes first and is not automatable:
+// hashes handed over without looking at what they now bind would turn the one
+// checkpoint this binding exists to create into a rubber stamp.
+const REHASH_CMD = 'node -e "const f=process.argv[1],i=+process.argv[2]-1,'
+  + 'h=s=>require(\'crypto\').createHash(\'sha256\').update(s).digest(\'hex\'),'
+  + 'L=require(\'fs\').readFileSync(f,\'utf8\').split(\'\\n\');'
+  + 'console.log(JSON.stringify({line:i+1,sha256:h(L[i]),'
+  + 'context:h((L[i-1]||\'\')+\'\\n\'+L[i]+\'\\n\'+(L[i+1]||\'\'))}))" <file> <line>';
 const MAX_BYTES = 1024 * 1024;
 const MAX_REPORTED = 200;
 const HIDDEN_GLOBAL = new RegExp(HIDDEN_CLASS, 'g');
@@ -676,7 +689,7 @@ for (const [key, entry] of allowIndex) {
     }
     continue;
   }
-  allowUnused.push({ file: parts[0], line: Number(parts[1]), rule: parts[2] });
+  allowUnused.push({ file: parts[0], line: Number(parts[1]), rule: parts[2], nextStep: REHASH_CMD });
 }
 
 // ---------------------------------------------------------------------------
@@ -704,7 +717,10 @@ if (!opts.json) {
   }
   for (const u of allowUnused) {
     err(' note  ' + 'allowlist-entry-unused'.padEnd(26) + u.file + ':' + u.line +
-      '  ' + u.rule + ' no longer matches; delete the entry or re-hash the line\n');
+      '  ' + u.rule + ' no longer matches; delete the entry, or re-read the line where it now sits'
+      + ' and re-sign it with all three of {line, sha256, context}\n');
+    err('       ^ ' + u.nextStep + '\n');
+    err('       ^ ' + README_PATH + ' -- see the allowlist section\n');
   }
   for (const n of notes) err(' note  ' + n.note.padEnd(26) + '  ' + n.file + '\n');
   if ((source === 'paths' || source === 'staged+paths') && skipped.length) {

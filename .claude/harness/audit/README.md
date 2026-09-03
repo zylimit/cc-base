@@ -199,10 +199,21 @@ PowerShell 侧包一层「wrapper 永远 exit 0、坏文件走 stdout」，这�
   不是错误。
 - 每条生效的豁免都在 stderr 打 ` allow ` 行、在 JSON 的 `allowlisted` 里列出，
   并计进 `counts.allowlisted`。**看不见的豁免不是决定，是盲区**。
-- 匹配不上的条目报 `allowlist-entry-unused`（行改过了，该删或该重新算哈希）；
+- 匹配不上的条目报 `allowlist-entry-unused`（行改过了或位置挪了，该删或该重签）；
   指向本仓根本没有的文件报 `allowlist-entry-orphan`（它既不会生效也不会过期，
   不点名就会一直堆着）；规则 id 不存在、同一 `{file,line,rule}` 重复、
   白名单本身坏了（JSON 不合法、版本不认识）算降级，退 3，不静默把豁免丢掉。
+
+  **重签一条条目**：先把那行**重新读一遍**——豁免失效正是让人再看一眼的那个卡点，
+  不看就换哈希等于盖橡皮章。确认它还是同一个意思之后，`{line, sha256, context}`
+  三个值一起按当前文件重算（`allowlist-entry-unused` 的诊断里印的就是这条命令）：
+
+  ```bash
+  node -e "const f=process.argv[1],i=+process.argv[2]-1,h=s=>require('crypto').createHash('sha256').update(s).digest('hex'),L=require('fs').readFileSync(f,'utf8').split('\n');console.log(JSON.stringify({line:i+1,sha256:h(L[i]),context:h((L[i-1]||'')+'\n'+L[i]+'\n'+(L[i+1]||''))}))" <file> <line>
+  ```
+
+  在别处插了几行、把被豁免的行整体推下去时，`sha256` 与 `context` 都不会变，
+  变的只有 `line`——三个值一起重算就不用自己判断哪个动了。
 
 **这道机制的边界（当前默认态就是这样，不是待办）**：
 
