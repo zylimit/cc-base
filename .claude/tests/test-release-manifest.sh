@@ -300,6 +300,7 @@ harness/waivers/w-001.json|:(exclude).claude/harness/waivers/**
 harness/trend/arch-trend.jsonl|:(exclude).claude/harness/trend/**
 harness/state/nested/task.json|:(exclude).claude/harness/state/**
 harness/evidence/static-check.stdout|:(exclude).claude/harness/evidence/**
+worktrees/agent-x/foo.txt|:(exclude).claude/worktrees/**
 "
 
 # ⑤a force-add 形态：逐条进索引，指纹都不许动
@@ -390,7 +391,7 @@ fi
 #   改一条、删一条，都会在这里红并打印出差在哪，逼着上面两段的用例表跟着长。
 # 抽取自检写死条数（不写 >=）：抽取正则半坏时只抽到一部分，逐条比对会在空转而闸不响。
 CORE_FILE="$(cd "$(dirname "$ENTRY")" && pwd)/lib/core.mjs"
-EXP_EXCLUDE=10
+EXP_EXCLUDE=11
 EXP_PATHS=3
 EXP_PREFIXES=8
 
@@ -449,9 +450,14 @@ cmp_table STATE_EXCLUDE_PREFIXES "$EXP_PREFIXES" "$MINE_PREFIXES" "UNTRACKED_CAS
 #   本段管其中三面：生成器不收、release 不判 unlisted、untracked 指纹不计入。
 #   ④a 已按 STATE_EXCLUDE_PREFIXES 的表成员单独锁了平铺形态（worktrees/agent-x/foo.txt），
 #   这里补的是真实形态——副本里**还有一层 .claude/**，naive 的 `*/.claude/**` 类规则会在这里翻车。
-# 前置还原：⑤d 往 hooks/demo.sh 追加过内容，不还原的话 manifest 项会因 digestChanged 而 FAIL，
-#   ⑦b 的红就会记到错的账上。
+# 前置还原两处，否则 ⑦ 的红会记到错的账上：
+#   ① ⑤d 往 hooks/demo.sh 追加过内容，不还原 manifest 项会因 digestChanged 而 FAIL；
+#   ② ⑤c 把 TRACKED_CASES 里那条 worktrees 文件提交进了 HEAD，工作树和 HEAD 都得清干净，
+#      否则它自己就会把 ⑦ 脚手架和 ⑦b 顶红——那不是本段要测的形态。
 printf 'echo hi\n' > "$ROOT/.claude/hooks/demo.sh"
+rm -rf "$ROOT/.claude/worktrees"
+( cd "$ROOT" && git add -A -- .claude/worktrees \
+  && git -c user.email=t@example.com -c user.name=t commit -qm wt-cleanup ) >/dev/null 2>&1 || true
 cp "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"
 release_manifest
 if [ "$M_STATUS" = "PASS" ] && [ "$M_UNLISTED" = "0" ]; then
