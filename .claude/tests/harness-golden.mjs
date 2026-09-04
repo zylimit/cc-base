@@ -44,7 +44,7 @@
 //   <HASH>  receipt `contentHash` only. It folds the receipt timestamp into the digest, so
 //           it moves whenever the timestamp does.
 //
-// Four more are masked on argument rather than on observed movement, each because the
+// Five more are masked on argument rather than on observed movement, each because the
 // field describes the environment rather than the harness's behaviour:
 //
 //   <TMP>   the sandbox path. mkdtemp picks a fresh directory per run, so a path the
@@ -61,6 +61,15 @@
 //   <NODE>  process.version from `doctor`. Same argument: a node upgrade would otherwise
 //           surface as "the split changed something", the exact false alarm this exists
 //           to avoid.
+//   <ENGINE> receipt `engineHash`, and the `receipt verify` field that echoes it back. It
+//           digests harness.mjs plus lib/*.mjs, so it says which engine produced a verdict,
+//           never what that engine did -- environment rather than behaviour, the same
+//           argument as <NODE>. Recorded verbatim it cost twice: every edit to a lib file,
+//           a comment included, became a golden diff and forced a re-record, and `--mutate`
+//           got a free kill out of it, because an injected mutation moves the digest whether
+//           or not the matrix can see the mutation itself. What the binding actually does --
+//           STALE on engine-moved, legacy receipts without the field still matching -- is
+//           asserted in test-release-binding.sh, which compares states, not digests.
 //   <ENV>   `adapters list` -> `available` and `adapters add` -> `executableAvailable`.
 //           Both are live PATH probes. The runner pins PATH to git's directory plus
 //           /usr/bin:/bin, but /usr/bin is a shared system directory: the recorded
@@ -713,6 +722,10 @@ function runScenario(scenario) {
 const KEY_RULES = [
   { re: /^(headCommit|baseCommit|latestCommit|commit|sha)$/, token: '<SHA>' },
   { re: /^contentHash$/, token: '<HASH>' },
+  // Not folded into the contentHash rule: that one masks a digest that moves with the clock,
+  // this one masks a digest that moves with the engine's own source. Different reasons, and
+  // a reader who conflates them would re-record on the wrong evidence.
+  { re: /^engineHash$/, token: '<ENGINE>' },
   { re: /^(timestamp|latestAt)$/, token: '<TS>' },
   // Anchored at both ends. `/Ms$/` alone would also swallow any future field whose name
   // merely ends in Ms, which is precisely the blanket-regex mistake this list avoids.

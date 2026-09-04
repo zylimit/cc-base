@@ -77,7 +77,17 @@ else
 fi
 
 # 关键脚本存在
-[ -f make-release.sh ] && ok "make-release.sh 存在" || bad "make-release.sh 缺失"
+# make-release.sh 只在框架仓有：setup.sh 只装 .claude/ 那棵树，装到目标项目后它天然不在，
+# 无条件判 ✗ 会让每个目标项目的 doctor 恒红——一个永远为真的红等于没有红。
+# 判据取「像不像框架仓」：它自己在（那就该完好），或者仓根同时有 setup.sh 与 .git
+# （框架仓的形态，此时缺了才是真缺）。两者都不成立就是目标项目，跳过并留一句话。
+if [ -f make-release.sh ]; then
+  ok "make-release.sh 存在"
+elif [ -f setup.sh ] && [ -e .git ]; then
+  bad "make-release.sh 缺失"
+else
+  note "非框架仓，跳过发布脚本检查"
+fi
 for s in doctor.sh plan-lint.sh skill-description-lint.sh; do
   [ -f ".claude/scripts/$s" ] && ok ".claude/scripts/$s 存在" || bad ".claude/scripts/$s 缺失"
 done
@@ -111,7 +121,15 @@ if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1
   MAN_MAX_NAMED=20
   while IFS=$(printf '\t') read -r m_rel m_sha; do
     case "$m_rel" in ''|\#*) continue ;; esac
-    if [ ! -f ".claude/$m_rel" ]; then missing=$((missing + 1)); continue; fi
+    # 登记了却不在本地 = 分发缺件，和内容不符一样是「这棵树跟清单说的不是一回事」。
+    # 原先只累加计数、末尾报一句告警，于是删掉三个框架文件 doctor 照样 rc 0，
+    # 「N 条一致」只是悄悄变小——没人会去记上次那个 N 是多少。
+    if [ ! -f ".claude/$m_rel" ]; then
+      missing=$((missing + 1))
+      [ "$missing" -le "$MAN_MAX_NAMED" ] \
+        && bad "FRAMEWORK-MANIFEST 缺失：$m_rel 登记了但本地没有（期望 ${m_sha:0:8}）"
+      continue
+    fi
     checked=$((checked + 1))
     actual=$(tr -d '\r' <".claude/$m_rel" | sha256sum | awk '{print $1}')
     [ "$actual" = "$m_sha" ] && continue
@@ -122,6 +140,9 @@ if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1
   if [ "$mismatch" -gt "$MAN_MAX_NAMED" ]; then
     bad "FRAMEWORK-MANIFEST 另有 $((mismatch - MAN_MAX_NAMED)) 条不符未逐条列出（先修上面这些）"
   fi
+  if [ "$missing" -gt "$MAN_MAX_NAMED" ]; then
+    bad "FRAMEWORK-MANIFEST 另有 $((missing - MAN_MAX_NAMED)) 条缺失未逐条列出（先补上面这些）"
+  fi
   if [ "$checked" -eq 0 ]; then
     note "FRAMEWORK-MANIFEST 存在但一条都没验到（清单为空，或登记的文件都不在本地）"
   elif [ "$mismatch" -eq 0 ]; then
@@ -129,8 +150,8 @@ if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1
   else
     bad "FRAMEWORK-MANIFEST 全量比对 $checked 条，$mismatch 条 SHA 不符"
   fi
-  # 登记了却不在本地的另算一档：没参与比对，不许混进「一致」的计数里。
-  [ "$missing" -ne 0 ] && note "FRAMEWORK-MANIFEST 有 $missing 条登记的文件不在本地（未参与比对）"
+  # 缺件另算一档：没参与比对，不许混进「一致」的计数里，也不许只当告警。
+  [ "$missing" -ne 0 ] && bad "FRAMEWORK-MANIFEST 全量比对 $checked 条，另有 $missing 条登记的文件不在本地"
 fi
 
 if [ "$fail" -ne 0 ]; then

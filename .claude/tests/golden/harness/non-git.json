@@ -235,7 +235,7 @@
         "taskId": "golden-task",
         "baseCommit": null,
         "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
-        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41",
+        "engineHash": "<ENGINE>",
         "reviewer": "golden-baseline",
         "verdict": "pass",
         "scope": "sandbox fixture tree",

@@ -76,8 +76,9 @@ deepseek-base 的 `docs/CROSS-POLLINATION.md:40-58` 把 cc-base 定性为「a de
 | 批 | 内容 | commit |
 |---|---|---|
 | 0 | 审查清单挂账 #31 `.runtime` pathspec 裸奔 / #32 软链路径 / #33 DENY 注释（连同本台账首版、feedback 索引重建） | `f3cd449` |
-| 1 | 「读不出来 ≠ 不存在」：`quarantine()` 原语、receipt 不可读 fail-closed、supervisor 坏 state fail-visible、arch-trend 坏行判红、verify all-SKIPPED → rc 3、trace 截断 → rc 3 | 待填 |
-| 2 | golden `--mutate` + `MUTANTS.json` | 待填 |
-| 3 | 发版与证据绑定：release `gate-fresh` 项 + 信任边界字段、receipt 绑 `engineHash`、治理面改动 risk 自动升档 | 待填 |
-| 4 | 小修：doctor 清单全量比对、Windows shim 发现、`url-userinfo` 密钥模式、`validate_target` 路径边界 | 待填 |
-| 5 | 安装器事务化最小切片（dry-run + 锁 + marker + fail-closed） | 待填 |
+| 1 | 「读不出来 ≠ 不存在」：留痕原语、receipt 不可读 fail-closed、supervisor 坏 state fail-visible、arch-trend 坏行判红、verify all-SKIPPED → rc 3、trace 截断 → rc 3；第二轮把目录级 / 权限级 I/O 失败也收进来（只有 ENOENT 算不存在） | `66f7725` |
+| 2 | golden `--mutate` + `MUTANTS.json`（13 条，本仓 13/13 killed） | `c60ea14` |
+| 3 | 发版与证据绑定：release `gate-fresh` 项 + 信任边界字段、receipt 绑 `engineHash`、治理面改动 risk 告警、shim 发现 | `c60ea14` |
+| 4 | 小修：doctor 清单全量比对、`url-userinfo` 密钥模式、static-check 补 `node --check`（shim 与 validate_target 分别并入批 3 / 批 5） | `c60ea14` |
+| 5 | 安装器事务化最小切片（dry-run + 锁 + marker + 路径边界，.sh/.ps1 成对） | `c60ea14` |
+| 6 | `.claude/worktrees/` 进六份排除表——本轮并行时发现 Claude Code 隔离副本会被当框架文件登记与安装 | `c60ea14` |

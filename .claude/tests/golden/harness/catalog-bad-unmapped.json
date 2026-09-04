@@ -247,7 +247,7 @@
         "taskId": "golden-task",
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41",
+        "engineHash": "<ENGINE>",
         "reviewer": "golden-baseline",
         "verdict": "pass",
         "scope": "sandbox fixture tree",
@@ -269,7 +269,7 @@
         "state": "PASS",
         "matched": "golden-task",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41"
+        "engineHash": "<ENGINE>"
       },
       "stderr": []
     },

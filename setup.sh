@@ -12,6 +12,16 @@ die() {
   exit 1
 }
 
+# 拼错的选项曾经是最贵的一种「成功」：`--dryrun` 不在选项表里，就被当成 target 收下，
+# 于是一次本该只算不写的演练把 240 个文件真装进了 /tmp/x。以 - 开头的东西一律不许当路径，
+# 报清楚合法选项、退 2（和 die 的 1 分开，让调用方分得出「参数用错」和「装到一半失败」）。
+usage_die() {
+  printf 'setup: %s\n' "$1" >&2
+  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [target_dir]\n' >&2
+  printf '合法选项：-win  -mac  -ubt  --dry-run\n' >&2
+  exit 2
+}
+
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少必需命令：$1"
 }
@@ -354,6 +364,7 @@ main() {
       -mac) platform="mac" ;;
       -ubt) platform="ubt" ;;
       --dry-run) DRY_RUN=1 ;;
+      -*) usage_die "未知选项：$1" ;;
       *) target="$1" ;;
     esac
     shift

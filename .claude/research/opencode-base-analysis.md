@@ -1,6 +1,6 @@
 # opencode-base 深度架构分析
 
-> 分析对象：`/home/z00632348/code/opencode-base`（SST OpenCode CLI 的产品开发框架脚手架，v1.1.0，commit d49f8bb 2026-08-07「harness v2 大仓治理全量落地」）
+> 分析对象：`~/code/opencode-base`（SST OpenCode CLI 的产品开发框架脚手架，v1.1.0，commit d49f8bb 2026-08-07「harness v2 大仓治理全量落地」）
 > 分析目的：为 cc-base（纯 Claude Code 框架脚手架 v1.10.0）提炼可借鉴的扩展能力——**只报差异，不报同构**
 > 分析日期：2026-08-16 ｜ 分析者：只读研究 Sub-Agent
 > 对标基线：cc-base v1.10.0（17 skills / 7 agents / 14 hooks×双写 / harness v2 十五子命令 / supervisor / setup+FRAMEWORK-MANIFEST）

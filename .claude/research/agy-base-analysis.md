@@ -1,6 +1,6 @@
 # agy-base 深度架构分析
 
-> 分析对象：`/home/z00632348/code/agy-base`（Google Antigravity 平台的 SiteMaster 脚手架移植版，自称 v2.0.0，单 initial commit，2026-08-09）
+> 分析对象：`~/code/agy-base`（Google Antigravity 平台的 SiteMaster 脚手架移植版，自称 v2.0.0，单 initial commit，2026-08-09）
 > 分析目的：为 cc-base（纯 Claude Code 框架脚手架 v1.10.0）提炼可借鉴的扩展能力
 > 分析日期：2026-08-16 ｜ 分析者：只读研究 Sub-Agent
 > 约束遵守：对 agy-base 零写操作；本文件是唯一产出
