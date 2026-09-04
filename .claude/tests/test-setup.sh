@@ -5,6 +5,11 @@
 #   FEEDBACK-INDEX.md，无顶层私有 *.md，守 setup.sh #5）；③ 幂等性（装两次产物 SHA256 一致）。
 # 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（各自表内比，含臂序与 drop/keep 处置）
 #   + ⑥b 系统垃圾不入装不入清单（行为）+ ⑦ Claude Code 的 .claude/worktrees/ 不入装不入清单不入库。
+#   + ⑥b 系统垃圾不入装不入清单（行为）。
+# ⑦–⑩ 验的是安装过程本身扛不扛得住事故：⑦ --dry-run 零写入 + 打计划、⑧ 独占锁、
+#   ⑨ 维护标记（doctor 与 SessionStart 横幅两个消费方）、⑩ validate_target 逐段路径边界。
+#   这四段用 pass/fail 逐条计数、末尾汇总，不像前六段撞见第一条就 exit——四项互相独立，
+#   要一次看全各红在哪。①–⑥ 的写法不动。
 # 无依赖 claude CLI，纳入 cases/run-all.sh 在 selftest 之后跑。装完清理临时目录。
 set -eu
 
@@ -452,3 +457,396 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 echo "test-setup: ⑦ worktrees 隔离校验通过（不入装 / 不入清单 / .claude/.gitignore 挡住，框架文件照常）"
+# ---- ⑦–⑩ 安装器事务化 + 路径边界（批 5 红锁，实现落地前整段为红）----
+# 前六段验的是「装出来的东西对不对」，这四段验的是「装的过程扛不扛得住事故」：
+#   ⑦ --dry-run 零写入 + 打计划、⑧ 独占锁、⑨ 维护标记（含 doctor 与 SessionStart 横幅两个消费方）、
+#   ⑩ validate_target 逐段路径边界。setup.sh 当前只有 `case "$target" in *..*)` 一条路径检查，
+#   另三项一行实现都没有——所以这四段现在必须红，红因是功能缺失不是夹具坏。
+# 与前六段的差别：这里不用 fail() 直接中断，改 pass/fail 逐条计数。红锁在库期间要一次看全四段
+# 各红在哪，撞见第一条就 exit 的话后面三段永远看不见。脚手架自证（首装成功、探针文件在、
+# doctor 基线绿）仍用 fail()——它红了后面的断言没有判别力，继续跑只会产出误导性的红。
+B5_PASS=0
+B5_FAIL=0
+
+chk() {  # chk <0=通过/非0=失败> <标题> <EXPECT> <GOT>
+  if [ "$1" = "0" ]; then
+    B5_PASS=$((B5_PASS + 1)); printf '  [PASS] %s\n' "$2"
+  else
+    B5_FAIL=$((B5_FAIL + 1)); printf '  [FAIL] %s\n' "$2"
+  fi
+  printf '         EXPECT %s\n' "$3"
+  printf '         GOT    %s\n' "$4"
+}
+# 日志首行塞进 GOT，主 Agent 不用重跑就能分辨「没实现」和「夹具没搭起来」。
+# 控制字符会被路径用例带进输出，先滤掉再截断，别把终端搞花；只删 C0，别用 tr -cd '[:print:]'——
+# C locale 下那个会把中文一起吃掉，中文路径用例的 GOT 就成了看不出所以然的空壳。
+b5_head() { head -1 "$1" 2>/dev/null | tr -d '\000-\011\013-\037\177' | cut -c1-140; }
+
+# ---- ⑦ --dry-run：目标一个字节不动，只在 stdout 打计划 ----
+# 判据设计：光跑一次 dry-run 再比 sha 是不够的——幂等安装本来产物就不变（③ 已证），
+# 那样「没变化」是恒真的废话。先在目标上种两处「真装一定会动」的扰动：
+#   改过一个框架文件（真装会落 .framework-new）、删掉一个框架文件（真装会补回来），
+# 这样 sha 清单相同才真的等于「一个字节没动」。
+T7="$TMP/b5-dryrun"
+bash "$ROOT/setup.sh" -ubt "$T7" >"$TMP/b5-d7-install.log" 2>&1 \
+  || { cat "$TMP/b5-d7-install.log" >&2; fail "⑦ 脚手架：dry-run 目标首装失败"; }
+[ -f "$T7/.claude/hooks/notify.sh" ] || fail "⑦ 脚手架：装完没有 hooks/notify.sh（换个仍存在的文件当 create 探针）"
+[ -f "$T7/.claude/CLAUDE.md" ]       || fail "⑦ 脚手架：装完没有 CLAUDE.md（换个仍存在的文件当 conflict 探针）"
+[ -z "$(find "$T7" -type f \( -name '*.framework-new' -o -name '*.bak' \) -print)" ] \
+  || fail "⑦ 脚手架：首装就留下了 .bak/.framework-new，「dry-run 不许产生它们」的断言会失去判别力"
+printf '# user local edit for dry-run probe\n' >>"$T7/.claude/CLAUDE.md"
+rm -f "$T7/.claude/hooks/notify.sh"
+find "$T7" -type f -exec sha256sum {} + | LC_ALL=C sort >"$TMP/b5-d7.before"
+
+D7RC=0
+bash "$ROOT/setup.sh" -ubt --dry-run "$T7" >"$TMP/b5-d7.out" 2>"$TMP/b5-d7.err" || D7RC=$?
+find "$T7" -type f -exec sha256sum {} + | LC_ALL=C sort >"$TMP/b5-d7.after"
+
+ok=0; [ "$D7RC" = "0" ] || ok=1
+chk "$ok" "⑦-1 --dry-run 是被识别的开关、正常退出" \
+  "rc=0（防回归位：现在偶然绿——--dry-run 没被当开关，是被参数循环当成 target 顺位吃掉了）" \
+  "rc=$D7RC stderr=[$(b5_head "$TMP/b5-d7.err")]"
+
+ok=0; cmp -s "$TMP/b5-d7.before" "$TMP/b5-d7.after" || ok=1
+chk "$ok" "⑦-2 --dry-run 后目标目录逐字节不变" \
+  "find -type f 的 sha256 清单前后完全相同（含文件增删）" \
+  "差异 $(diff "$TMP/b5-d7.before" "$TMP/b5-d7.after" 2>/dev/null | grep -c '^[<>]' || true) 行：$(diff "$TMP/b5-d7.before" "$TMP/b5-d7.after" 2>/dev/null | grep '^[<>]' | sed "s#$T7##g" | tr '\n' ' ' | cut -c1-200)"
+
+ok=0
+[ ! -e "$T7/.claude/CLAUDE.md.framework-new" ] || ok=1
+[ -z "$(find "$T7" -type f \( -name '*.framework-new' -o -name '*.bak' \) -print)" ] || ok=1
+chk "$ok" "⑦-3 --dry-run 不落 .framework-new / .bak" \
+  "被用户改过的 CLAUDE.md 只该出现在计划的 conflict 清单里，不该在磁盘上多出一份新文件" \
+  "残留=[$(find "$T7" -type f \( -name '*.framework-new' -o -name '*.bak' \) -print | sed "s#$T7##g" | tr '\n' ' ')]"
+
+ok=0
+[ ! -e "$T7/.claude/.runtime/install.lock" ]   || ok=1
+[ ! -e "$T7/.claude/.runtime/install.marker" ] || ok=1
+chk "$ok" "⑦-4 --dry-run 不建锁、不留维护标记（防回归位：现在偶然绿，.runtime 本就没人写）" \
+  ".claude/.runtime/install.lock 与 install.marker 都不存在" \
+  "lock=$([ -e "$T7/.claude/.runtime/install.lock" ] && echo yes || echo no) marker=$([ -e "$T7/.claude/.runtime/install.marker" ] && echo yes || echo no)"
+
+# 计划的四类计数。形态不钉死（`create: 1` 与 `plan: create=1 update=233 ...` 都算），
+# 只要求四个类别词各自与一个数字同行——「文件数」是契约明写的，没数字等于没报计划。
+d7miss=""
+for w in create update conflict skip; do
+  grep -qiE "$w[^0-9]*[0-9]" "$TMP/b5-d7.out" || d7miss="$d7miss $w"
+done
+ok=0; [ -z "$d7miss" ] || ok=1
+chk "$ok" "⑦-5 stdout 打出 create / update / conflict / skip 四类的文件数" \
+  "四个类别词各有一行带计数（大小写不限）" \
+  "缺的类别=[${d7miss# }] stdout 首行=[$(b5_head "$TMP/b5-d7.out")] 行数=$(wc -l <"$TMP/b5-d7.out" | tr -d ' ')"
+
+ok=0
+grep -q 'hooks/notify\.sh' "$TMP/b5-d7.out" || ok=1
+grep -q 'CLAUDE\.md'       "$TMP/b5-d7.out" || ok=1
+chk "$ok" "⑦-6 计划点名具体文件：被删的进 create、被改的进 conflict" \
+  "stdout 同时出现 hooks/notify.sh（本地已删，真装会补回）与 CLAUDE.md（本地改过，真装会落 .framework-new）" \
+  "notify=$(grep -c 'hooks/notify\.sh' "$TMP/b5-d7.out" || true) claude_md=$(grep -c 'CLAUDE\.md' "$TMP/b5-d7.out" || true)"
+
+# ---- ⑧ 独占锁：活锁拒绝、陈旧锁接管、装完清锁 ----
+# 不起两个真并发进程（那是 flaky 的来源），改手工造锁——锁的语义本来就是「文件里的 pid 还活着吗」，
+# 造一个活 pid（本测试脚本自己）和一个死 pid 就能把两条分支都走到。
+T8="$TMP/b5-lock"
+bash "$ROOT/setup.sh" -ubt "$T8" >"$TMP/b5-l8-install.log" 2>&1 \
+  || { cat "$TMP/b5-l8-install.log" >&2; fail "⑧ 脚手架：锁场景目标首装失败"; }
+LOCKF="$T8/.claude/.runtime/install.lock"
+mkdir -p "$T8/.claude/.runtime"
+
+# 活锁：pid 用本脚本自己的 $$，跑测期间必然活着，不受 pid 复用/权限影响
+printf '{"pid": %s, "startedAt": "2026-09-04T00:00:00Z"}\n' "$$" >"$LOCKF"
+LOCK_SHA=$(sha256sum "$LOCKF" | awk '{print $1}')
+L8RC=0
+bash "$ROOT/setup.sh" -ubt "$T8" >"$TMP/b5-l8.out" 2>"$TMP/b5-l8.err" || L8RC=$?
+cat "$TMP/b5-l8.out" "$TMP/b5-l8.err" >"$TMP/b5-l8.all"
+
+ok=0; [ "$L8RC" != "0" ] || ok=1
+chk "$ok" "⑧-1 锁里的 pid 还活着时，第二个 setup 必须拒绝安装" \
+  "rc 非 0（不许一声不吭地和持锁进程并发写同一棵目标树）" \
+  "rc=$L8RC 输出首行=[$(b5_head "$TMP/b5-l8.all")]"
+
+ok=0
+grep -q 'install\.lock' "$TMP/b5-l8.all" || ok=1
+grep -qF -- "$$"        "$TMP/b5-l8.all" || ok=1
+chk "$ok" "⑧-2 拒绝时点名锁文件与持锁 pid" \
+  "输出同时含 install.lock 与持锁 pid=$$（不点名的话用户无从判断该等还是该清）" \
+  "含 install.lock=$(grep -c 'install\.lock' "$TMP/b5-l8.all" || true) 含 pid=$(grep -cF -- "$$" "$TMP/b5-l8.all" || true)"
+
+ok=0
+[ -f "$LOCKF" ] || ok=1
+[ "$(sha256sum "$LOCKF" 2>/dev/null | awk '{print $1}')" = "$LOCK_SHA" ] || ok=1
+chk "$ok" "⑧-3 被拒的一方不许删改别人的锁（防砖，现在偶然绿：.runtime/* 在排除表里没人碰）" \
+  "锁文件仍在且内容逐字节不变" \
+  "存在=$([ -f "$LOCKF" ] && echo yes || echo no) sha 一致=$([ "$(sha256sum "$LOCKF" 2>/dev/null | awk '{print $1}')" = "$LOCK_SHA" ] && echo yes || echo no)"
+
+# 陈旧锁：挑一个确实不存在的 pid。pid_max 在本机是 4194304，999999 是合法 pid 号、
+# 理论上可能正被占用，所以现查现挑，别把 flaky 埋进来。
+DEADPID=""
+for cand in 999999 999998 999997 999996 999995; do
+  if [ -d /proc ]; then
+    [ -d "/proc/$cand" ] || DEADPID=$cand
+  else
+    kill -0 "$cand" 2>/dev/null || DEADPID=$cand
+  fi
+  [ -z "$DEADPID" ] || break
+done
+[ -n "$DEADPID" ] || fail "⑧ 脚手架：挑不出一个确定已死的 pid，陈旧锁分支没法验"
+printf '{"pid": %s, "startedAt": "2026-09-04T00:00:00Z"}\n' "$DEADPID" >"$LOCKF"
+L8SRC=0
+bash "$ROOT/setup.sh" -ubt "$T8" >"$TMP/b5-l8s.out" 2>"$TMP/b5-l8s.err" || L8SRC=$?
+
+ok=0; [ "$L8SRC" = "0" ] || ok=1
+chk "$ok" "⑧-4 锁里的 pid 已死时，视为陈旧锁并接管，安装照常成功" \
+  "rc=0（防回归位：现在偶然绿——根本没人读锁；实现后它变成「别被自己的崩溃残留锁死」的防砖位）" \
+  "rc=$L8SRC 输出首行=[$(b5_head "$TMP/b5-l8s.err")]"
+
+# 关键词不许只写「说了句什么」就算数，还得点名说的是哪把锁——试过一版把「残留」也放进
+# 备选词，当场被 setup.sh 自己那句「清理异平台残留 + chmod」冒充成绿的。
+ok=0
+grep -qiE 'stale|陈旧|过期' "$TMP/b5-l8s.err" || ok=1
+{ grep -q 'install\.lock' "$TMP/b5-l8s.err" || grep -qF -- "$DEADPID" "$TMP/b5-l8s.err"; } || ok=1
+chk "$ok" "⑧-5 接管陈旧锁要在 stderr 说一句，且点名是哪把锁" \
+  "stderr 含 stale / 陈旧 / 过期 之一，并且含 install.lock 或死 pid=$DEADPID（静默接管 = 用户看不出上一次装崩过）" \
+  "stderr=[$(b5_head "$TMP/b5-l8s.err")]"
+
+ok=0; [ ! -e "$LOCKF" ] || ok=1
+chk "$ok" "⑧-6 装完删锁" \
+  "安装成功返回后 .claude/.runtime/install.lock 不存在" \
+  "锁仍在=$([ -e "$LOCKF" ] && echo yes || echo no)"
+
+# ---- ⑨ 维护标记：中途失败留痕，doctor 与 SessionStart 横幅都要看得见 ----
+# 目标先完整装一遍再打断，是为了让 doctor 的判据有判别力：装了一半的空目录 doctor 本来就报一堆
+# 缺失、rc 恒 1，那条「未完成」断言会永远偶然绿。仓根的 make-release.sh 是 doctor 的必查项、
+# 装出来的 target 天然没有，补个 stub 把这条无关的红去掉，doctor 基线才能压到 rc=0。
+T9="$TMP/b5-marker"
+bash "$ROOT/setup.sh" -ubt "$T9" >"$TMP/b5-m9-install.log" 2>&1 \
+  || { cat "$TMP/b5-m9-install.log" >&2; fail "⑨ 脚手架：标记场景目标首装失败"; }
+: >"$T9/make-release.sh"
+DOCTOR="$ROOT/.claude/scripts/doctor.sh"
+[ -f "$DOCTOR" ] || fail "⑨ 脚手架：找不到 doctor.sh（$DOCTOR）"
+D0RC=0
+bash "$DOCTOR" "$T9" >"$TMP/b5-doc0.out" 2>"$TMP/b5-doc0.err" || D0RC=$?
+[ "$D0RC" = "0" ] || { cat "$TMP/b5-doc0.err" >&2; fail "⑨ 脚手架：干净目标上 doctor 基线不是 rc=0（实得 $D0RC），「上次安装未完成」的断言会永远偶然绿"; }
+
+MARKER="$T9/.claude/.runtime/install.marker"
+M9RC=0
+env CC_SETUP_FAIL_AFTER=3 bash "$ROOT/setup.sh" -ubt "$T9" >"$TMP/b5-m9.out" 2>"$TMP/b5-m9.err" || M9RC=$?
+
+ok=0; [ "$M9RC" != "0" ] || ok=1
+chk "$ok" "⑨-1 CC_SETUP_FAIL_AFTER=3 注入的中途失败要如实报错" \
+  "rc 非 0（这个环境变量是测试用的故障注入口；不认它就没法验中断留痕）" \
+  "rc=$M9RC 输出首行=[$(b5_head "$TMP/b5-m9.err")]"
+
+ok=0; [ -f "$MARKER" ] || ok=1
+chk "$ok" "⑨-2 中途失败后维护标记留在原地" \
+  ".claude/.runtime/install.marker 存在" \
+  "存在=$([ -f "$MARKER" ] && echo yes || echo no) .runtime 内容=[$(ls -A "$T9/.claude/.runtime" 2>/dev/null | tr '\n' ' ')]"
+
+ok=0; grep -q 'interrupted' "$MARKER" 2>/dev/null || ok=1
+chk "$ok" "⑨-3 标记的 status 从 active 翻成 interrupted" \
+  "标记内容含 interrupted（装完删掉的那条路径走的是正常结束，中断留下的必须能自证是中断）" \
+  "标记内容=[$(b5_head "$MARKER")]"
+
+ok=0; grep -qE '"[^"]*\.(md|sh|ps1|mjs|json|txt)"' "$MARKER" 2>/dev/null || ok=1
+chk "$ok" "⑨-4 标记附已写文件清单" \
+  "标记里至少出现一个带扩展名的文件名（重装/回滚要知道上次写到哪）" \
+  "标记内容=[$(b5_head "$MARKER")]"
+
+D9RC=0
+bash "$DOCTOR" "$T9" >"$TMP/b5-doc9.out" 2>"$TMP/b5-doc9.err" || D9RC=$?
+cat "$TMP/b5-doc9.out" "$TMP/b5-doc9.err" >"$TMP/b5-doc9.all"
+ok=0
+[ "$D9RC" != "0" ] || ok=1
+grep -qiE '未完成|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-doc9.all" || ok=1
+chk "$ok" "⑨-5 doctor 对该目标报「上次安装未完成」且 rc 非 0" \
+  "rc 非 0 且输出含 未完成 / INSTALL INTERRUPTED / install.marker / interrupted 之一（同一目标在中断前刚验过 doctor rc=0，所以这条红不是别的缺失撑出来的）" \
+  "rc=$D9RC（中断前基线 rc=$D0RC）点名=$(grep -ciE '未完成|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-doc9.all" || true)"
+
+BANNER="$ROOT/.claude/hooks/session-rules-banner.sh"
+if [ -f "$BANNER" ]; then
+  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T9" bash "$BANNER" >"$TMP/b5-ban9.out" 2>"$TMP/b5-ban9.err" || true
+  cat "$TMP/b5-ban9.out" "$TMP/b5-ban9.err" >"$TMP/b5-ban9.all"
+  ok=0; grep -qiE '未完成|安装中断|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-ban9.all" || ok=1
+  chk "$ok" "⑨-6 SessionStart 横幅看到 marker 也打一行警告" \
+    "输出含 未完成 / 安装中断 / INSTALL INTERRUPTED / install.marker / interrupted 之一（现有六条铁律横幅一个都不含，所以这条不会被原文蒙混）" \
+    "输出行数=$(wc -l <"$TMP/b5-ban9.all" | tr -d ' ') 首行=[$(b5_head "$TMP/b5-ban9.all")]"
+
+  # 对照组：期望值写死「一条都不许命中」，不从上面那次探测回填——没有 marker 的项目
+  # 每次开 session 都被吓一跳，比不告警还糟。
+  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T7" bash "$BANNER" >"$TMP/b5-ban7.out" 2>"$TMP/b5-ban7.err" || true
+  cat "$TMP/b5-ban7.out" "$TMP/b5-ban7.err" >"$TMP/b5-ban7.all"
+  ban7hit=$(grep -ciE '未完成|安装中断|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-ban7.all" || true)
+  ok=0; [ "$ban7hit" = "0" ] || ok=1
+  chk "$ok" "⑨-6b 对照组：目标没有 marker 时横幅不许打这条警告" \
+    "命中数 = 0" \
+    "命中数=$ban7hit 首行=[$(b5_head "$TMP/b5-ban7.all")]"
+else
+  chk 1 "⑨-6 SessionStart 横幅看到 marker 也打一行警告" \
+    "hooks/session-rules-banner.sh 存在并可跑" "找不到 $BANNER"
+fi
+
+R9RC=0
+bash "$ROOT/setup.sh" -ubt "$T9" >"$TMP/b5-m9re.out" 2>"$TMP/b5-m9re.err" || R9RC=$?
+ok=0; [ "$R9RC" = "0" ] || ok=1
+chk "$ok" "⑨-7 重跑安装能从中断态恢复" \
+  "rc=0（顺带压住一个坑：崩溃时留下的锁 pid 已死，重跑必须能接管，不能被自己的残留锁死）" \
+  "rc=$R9RC 输出首行=[$(b5_head "$TMP/b5-m9re.err")]"
+
+ok=0; [ ! -e "$MARKER" ] || ok=1
+chk "$ok" "⑨-8 重跑成功后标记消失（防回归位：现在偶然绿，标记压根没被创建过）" \
+  "install.marker 不存在" \
+  "标记仍在=$([ -e "$MARKER" ] && echo yes || echo no)"
+
+ok=0; [ ! -e "$T9/.claude/.runtime/install.lock" ] || ok=1
+chk "$ok" "⑨-9 正常安装结束不留锁（防回归位，同上）" \
+  "install.lock 不存在" \
+  "锁仍在=$([ -e "$T9/.claude/.runtime/install.lock" ] && echo yes || echo no)"
+
+# 锁和标记住在 .claude/.runtime/ 里，而 ⑤ 的运行态隔离是按 `[ ! -e ]` 判**目录**的——
+# 装完只删两个文件、把空目录留在原地，⑤ 当场红。这条把跨段约束摆到明面上，
+# 免得实现者只看到 ⑤ 报「运行态目录被装进产物」一头雾水地去翻排除表。
+ok=0; [ ! -e "$T9/.claude/.runtime" ] || ok=1
+chk "$ok" "⑨-9b 正常安装结束后 .claude/.runtime 整个不留（含空目录，⑤ 按 -e 判目录）" \
+  ".claude/.runtime 不存在" \
+  "残留=[$(ls -A "$T9/.claude/.runtime" 2>/dev/null | tr '\n' ' ')] 目录还在=$([ -e "$T9/.claude/.runtime" ] && echo yes || echo no)"
+
+DR9RC=0
+bash "$DOCTOR" "$T9" >"$TMP/b5-docr.out" 2>"$TMP/b5-docr.err" || DR9RC=$?
+cat "$TMP/b5-docr.out" "$TMP/b5-docr.err" >"$TMP/b5-docr.all"
+docr_hit=$(grep -ciE '未完成|INSTALL INTERRUPTED|install\.marker' "$TMP/b5-docr.all" || true)
+ok=0
+[ "$DR9RC" = "0" ] || ok=1
+[ "$docr_hit" = "0" ] || ok=1
+chk "$ok" "⑨-10 恢复后 doctor 不再报未完成（防回归位：别把告警做成一装上就永久粘着）" \
+  "rc=0 且「未完成」类点名 0 次" \
+  "rc=$DR9RC 点名数=$docr_hit"
+
+# ---- ⑩ validate_target 逐段路径边界 ----
+# 拿真安装器跑真路径，但源码树换成一棵 5 个文件的迷你树：validate_target 在 main() 里跑在
+# mkdir -p "$target" 之前，与源码树规模无关，而每趟少 2 秒，二十几个用例才跑得起。
+TINY="$TMP/b5-tiny-src"
+mkdir -p "$TINY/.claude/hooks" "$TINY/.claude/skills/demo" "$TINY/.claude/feedback/templates"
+cp -p "$ROOT/setup.sh" "$TINY/setup.sh"
+printf '# tiny 主控\n' >"$TINY/.claude/CLAUDE.md"
+printf '{}\n'          >"$TINY/.claude/settings.json"
+printf 'echo hi\n'     >"$TINY/.claude/hooks/demo.sh"
+printf '# demo\n'      >"$TINY/.claude/skills/demo/SKILL.md"
+printf '# 模板\n'      >"$TINY/.claude/feedback/templates/feedback-index-template.md"
+TINYOK="$TMP/b5-tiny-sanity"
+bash "$TINY/setup.sh" -ubt "$TINYOK" >"$TMP/b5-tiny.log" 2>&1 \
+  || { cat "$TMP/b5-tiny.log" >&2; fail "⑩ 脚手架：迷你源码树装不进普通路径，后面的路径用例全无意义"; }
+[ -f "$TINYOK/.claude/CLAUDE.md" ] || fail "⑩ 脚手架：迷你源码树装完没有 CLAUDE.md"
+
+B5_CASE=0
+b5_reject() {  # b5_reject <标题> <caseroot 下的相对目标路径> <应被点名的段；- = 这条规则没有可点名的段> <规则关键词正则；空=不查>
+  local title=$1 rel=$2 seg=$3 rule=$4
+  local caseroot log rc named ruled created
+  B5_CASE=$((B5_CASE + 1))
+  caseroot="$TMP/b5-pc-$B5_CASE"
+  log="$TMP/b5-pc-$B5_CASE.log"
+  rc=0
+  bash "$TINY/setup.sh" -ubt "$caseroot/$rel" >"$log" 2>&1 || rc=$?
+  # 「段」这一列有两种情况没法查：段本身是 `.`（grep -F 恒真，查了等于没查），
+  # 以及规则根本不针对某一段（总段数超限点名的是数量）。这两条传 `-` 显式跳过，
+  # 判据落在 rc / 没建目录 / 规则关键词上，别为了凑一列而写出必然误伤正确实现的断言。
+  named=n/a
+  if [ "$seg" != "-" ]; then
+    named=no; grep -qF -- "$seg" "$log" && named=yes
+  fi
+  ruled=n/a;  [ -z "$rule" ] || { ruled=no; grep -qiE -- "$rule" "$log" && ruled=yes; }
+  created=no; [ ! -e "$caseroot" ] || created=yes
+  ok=0
+  [ "$rc" != "0" ]     || ok=1
+  [ "$created" = "no" ] || ok=1
+  [ "$named" != "no" ]  || ok=1
+  [ "$ruled" != "no" ]  || ok=1
+  chk "$ok" "$title" \
+    "rc 非 0 / 一个目录都不许建（validate_target 跑在 mkdir 之前）/ 点名犯规的那一段${rule:+ / 报得出是哪条规则（认 $rule）}" \
+    "rc=$rc 建了目录=$created 点名段=$named 点名规则=$ruled 输出=[$(b5_head "$log")]"
+}
+b5_accept() {  # b5_accept <标题> <caseroot 下的相对目标路径>
+  local title=$1 rel=$2 caseroot log rc
+  B5_CASE=$((B5_CASE + 1))
+  caseroot="$TMP/b5-pc-$B5_CASE"
+  log="$TMP/b5-pc-$B5_CASE.log"
+  rc=0
+  bash "$TINY/setup.sh" -ubt "$caseroot/$rel" >"$log" 2>&1 || rc=$?
+  ok=0
+  [ "$rc" = "0" ] || ok=1
+  [ -f "$caseroot/$rel/.claude/CLAUDE.md" ] || ok=1
+  chk "$ok" "$title" \
+    "rc=0 且真的装进去了（对照组：边界收严不许误伤正常路径）" \
+    "rc=$rc 装出 CLAUDE.md=$([ -f "$caseroot/$rel/.claude/CLAUDE.md" ] && echo yes || echo no) 输出=[$(b5_head "$log")]"
+}
+
+# ⑩-A 非法字符 <>:"|?* ——逐个一条断言，一张表 N 条就写 N 条，
+# 少写哪个哪个就永久免检（`*` 还顺带验了引用没漏，路径不许被 glob 展开）。
+for ch in '<' '>' ':' '"' '|' '?' '*'; do
+  b5_reject "⑩ 非法字符 [$ch]" "a/x${ch}y/b" "x${ch}y" 'char|字符|非法|illegal|invalid|禁'
+done
+
+# ⑩-B Windows 保留名 22 个全覆盖 + 大小写变体。不分大小写是契约明写的，
+# 只测小写的话 `CON` 从 Windows 侧漏过去这套断言一声不吭。
+for rn in con prn aux nul com1 com2 com3 com4 com5 com6 com7 com8 com9 \
+          lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9 CON Nul LPT3; do
+  b5_reject "⑩ Windows 保留名 [$rn]" "a/$rn/b" "$rn" ''
+done
+
+CTRLSEG=$(printf 'x\001y')
+b5_reject "⑩ 段以 . 结尾"        'a/x./b'      'x.'       'trailing|结尾|末尾|点|dot'
+b5_reject "⑩ 段以空格结尾"      'a/x /b'      'x '       'trailing|结尾|末尾|空格|space'
+b5_reject "⑩ 段含控制字符 0x01" "a/$CTRLSEG/b" "$CTRLSEG" 'control|控制'
+b5_reject "⑩ 段是单个 ."        'a/./b'       '-'        'dot|点|段'
+# `..` 是当前唯一已实现的那条：现在就该全绿，摆在这儿是防回归位，
+# 别在改写成逐段检查时把这条老规则弄丢了。规则关键词不查——现有 die 文案本来就没有。
+b5_reject "⑩ 段是 ..（防回归位，现在已实现）" 'a/../b' '..' ''
+# 长度那条的关键词不收 `too long`：mkdir 自己的 ENAMETOOLONG 就叫 "File name too long"，
+# 收了它等于让内核的报错替 validate_target 顶包（现在正是这条 rc 非 0 的来源）。
+SEG256=$(head -c 256 /dev/zero | tr '\0' 'a')
+b5_reject "⑩ 单段 256 字节" "a/$SEG256/b" "$SEG256" '255|长度|length|字节|byte'
+DEEPREL=""
+b5_i=0
+while [ "$b5_i" -lt 200 ]; do DEEPREL="$DEEPREL/s$b5_i"; b5_i=$((b5_i + 1)); done
+DEEPREL=${DEEPREL#/}
+# 段数那条的关键词不收裸 `64`：路径里本来就有一段叫 s64，回显整条路径就把它蒙过去了。
+# 「段」那列传 `-`：这条规则违反的是数量不是某一段，硬要求点名 s199 会误伤正确实现。
+b5_reject "⑩ 总段数 200 段" "$DEEPREL" '-' '段数|层数|depth|too deep|过深|嵌套'
+
+# ---- ⑩ 对照组：正常路径不许被误伤 ----
+b5_accept "⑩ 对照：中文 + 空格路径" '正常/目录 名'
+b5_accept "⑩ 对照：形近保留名不是保留名（console / com10 / auxiliary）" 'console/com10/auxiliary'
+SEG255=$(head -c 255 /dev/zero | tr '\0' 'a')
+b5_accept "⑩ 对照：单段 255 字节（边界内，>255 才拒）" "$SEG255/x"
+
+# `.` 与 `./sub` 是文档里写死的默认调用形态（setup.sh 不给 target 就是 "."）。
+# 契约说「拒绝 . 段」，字面照做会把这两种用法一起砖掉——这两条防砖位摆在这里，
+# 逼实现把「路径中间的 . 段」和「以 . 起头的相对路径」分开处理。
+B5_CASE=$((B5_CASE + 1))
+DOTROOT="$TMP/b5-pc-$B5_CASE"
+mkdir -p "$DOTROOT"
+DOTRC=0
+( cd "$DOTROOT" && bash "$TINY/setup.sh" -ubt . ) >"$TMP/b5-pc-$B5_CASE.log" 2>&1 || DOTRC=$?
+ok=0
+[ "$DOTRC" = "0" ] || ok=1
+[ -f "$DOTROOT/.claude/CLAUDE.md" ] || ok=1
+chk "$ok" "⑩ 防砖：target 为 .（不给参数时的默认值）必须照装" \
+  "rc=0 且装进当前目录" \
+  "rc=$DOTRC 装出 CLAUDE.md=$([ -f "$DOTROOT/.claude/CLAUDE.md" ] && echo yes || echo no) 输出=[$(b5_head "$TMP/b5-pc-$B5_CASE.log")]"
+
+B5_CASE=$((B5_CASE + 1))
+DOTROOT2="$TMP/b5-pc-$B5_CASE"
+mkdir -p "$DOTROOT2"
+DOT2RC=0
+( cd "$DOTROOT2" && bash "$TINY/setup.sh" -ubt ./sub ) >"$TMP/b5-pc-$B5_CASE.log" 2>&1 || DOT2RC=$?
+ok=0
+[ "$DOT2RC" = "0" ] || ok=1
+[ -f "$DOTROOT2/sub/.claude/CLAUDE.md" ] || ok=1
+chk "$ok" "⑩ 防砖：target 为 ./sub（最常见的相对写法）必须照装" \
+  "rc=0 且装进 ./sub" \
+  "rc=$DOT2RC 装出 CLAUDE.md=$([ -f "$DOTROOT2/sub/.claude/CLAUDE.md" ] && echo yes || echo no) 输出=[$(b5_head "$TMP/b5-pc-$B5_CASE.log")]"
+
+echo "==== test-setup ⑦–⑩（批 5 安装器事务化 + 路径边界）：PASS=$B5_PASS FAIL=$B5_FAIL ===="
+if [ "$B5_FAIL" -ne 0 ]; then
+  echo "test-setup: ⑦–⑩ 有 $B5_FAIL 条未通过（批 5 实现落地前这是预期的红；①–⑥ 已在上面全绿）" >&2
+  exit 1
+fi

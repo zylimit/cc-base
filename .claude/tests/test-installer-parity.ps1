@@ -16,6 +16,10 @@
 #   It stages the source tree, runs both installers into two fresh targets, and diffs the two file
 #   lists by name. Green means the two exclusion tables agree on this tree. It says nothing about file
 #   contents, permission bits, or the settings.json merge -- tests/test-setup.sh owns those.
+#   A second group at the end covers batch 5 (the installer as a transaction): -DryRun writes
+#   nothing and prints a plan, CC_SETUP_FAIL_AFTER leaves an interrupted marker, a clean rerun
+#   clears it, and a reserved path segment is refused. Those four are red until setup.ps1 grows
+#   them; tests/test-setup.sh sections (7)-(10) hold the full matrix for the .sh side.
 #   pwsh is cross-platform, so the diff is real on Linux too; what a Linux run cannot show is anything
 #   that depends on the Windows filesystem itself (hidden attributes, case-insensitive names, 8.3).
 #
@@ -140,6 +144,21 @@ function ToPosix {
     return ($P -replace '\\', '/')
 }
 
+# Content fingerprint of a whole target: relative path plus SHA256, one line per file, sorted.
+# Get-InstalledList above compares names only, which is all the parity diff needs; the -DryRun
+# assertions need to see a file whose bytes changed, not only one that appeared or vanished.
+function Get-TreeFingerprint {
+    param([string]$Root)
+    if (-not (Test-Path $Root)) { return '' }
+    $prefix = (Resolve-Path $Root).Path.Length
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($f in (Get-ChildItem -Path $Root -Recurse -File -Force)) {
+        $rel = $f.FullName.Substring($prefix).TrimStart('/', '\') -replace '\\', '/'
+        $lines.Add($rel + '  ' + (Get-FileHash $f.FullName -Algorithm SHA256).Hash)
+    }
+    return (($lines | Sort-Object) -join "`n")
+}
+
 Write-Output '=== test-installer-parity: setup.ps1 vs setup.sh, same tree, diff what landed ==='
 Write-Output "repo:  $RepoRoot"
 Write-Output "host:  $HostExe"
@@ -234,6 +253,103 @@ try {
             'any-depth junk and root-anchored runtime markers are installed by neither' `
             ('neither side carries ' + ($mustSkip -join ', ')) `
             ("setup.sh kept=[" + ($shKeptJunk -join ', ') + "] setup.ps1 kept=[" + ($psKeptJunk -join ', ') + "]")
+
+        # --- batch 5: the installer as a transaction, setup.ps1 half ---------------------
+        # setup.sh is growing -dry-run, an install lock, an interrupted-install marker and
+        # per-segment target validation; the contract says setup.ps1 moves with it, and the
+        # last time the two tables drifted apart nothing on the box said so (see the header).
+        # None of the four exist on either side yet, so this group is red by construction.
+        # tests/test-setup.sh sections (7)-(10) are the .sh half and carry the full matrix --
+        # 68 assertions there against 4 here, because everything above the parity line is
+        # already covered once and a second full copy would only rot.
+        $t7 = Join-Path $TmpRoot 'target-dryrun'
+        $t9 = Join-Path $TmpRoot 'target-marker'
+        New-Item -ItemType Directory -Path $t7 -Force | Out-Null
+        New-Item -ItemType Directory -Path $t9 -Force | Out-Null
+        & $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $t7 2>&1 | Out-Null
+        $t7BaseRc = $LASTEXITCODE
+        & $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $t9 2>&1 | Out-Null
+        $t9BaseRc = $LASTEXITCODE
+        $t7Claude = Join-Path $t7 '.claude'
+        $t7Edited = Join-Path $t7Claude 'CLAUDE.md'
+        $t7Deleted = Join-Path $t7Claude 'hooks/notify.ps1'
+
+        Chk (($t7BaseRc -eq 0) -and ($t9BaseRc -eq 0) -and (Test-Path $t7Edited) -and (Test-Path $t7Deleted)) `
+            'scaffolding: the two batch-5 targets installed and carry both dry-run probes' `
+            'both baseline installs rc 0, and .claude/CLAUDE.md plus .claude/hooks/notify.ps1 are on disk to perturb' `
+            ("t7Rc=$t7BaseRc t9Rc=$t9BaseRc CLAUDE.md=" + (Test-Path $t7Edited) + " notify.ps1=" + (Test-Path $t7Deleted))
+
+        # Plant the two perturbations a real install has to undo, so "nothing changed" is not the
+        # trivially true statement it would be on an already-idempotent target: one framework file
+        # edited (a real install drops CLAUDE.md.framework-new beside it) and one deleted (a real
+        # install puts it back). Without them a plain second install is byte-stable and the
+        # zero-write assertion would pass on an installer that ignored -DryRun completely.
+        Add-Content -Path $t7Edited -Value '# user local edit for dry-run probe'
+        if (Test-Path $t7Deleted) { Remove-Item $t7Deleted -Force }
+        $t7Before = Get-TreeFingerprint $t7
+
+        $dryOut = (& $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $t7 -DryRun 2>&1 | Out-String)
+        $dryRc = $LASTEXITCODE
+        $t7After = Get-TreeFingerprint $t7
+        $t7New = Join-Path $t7Claude 'CLAUDE.md.framework-new'
+        $t7Lock = Join-Path $t7Claude '.runtime/install.lock'
+        $t7Marker = Join-Path $t7Claude '.runtime/install.marker'
+
+        Chk (($dryRc -eq 0) -and ($dryOut -match 'create') -and ($dryOut -match 'update') `
+                -and ($dryOut -match 'conflict') -and ($dryOut -match 'skip')) `
+            '(7) setup.ps1 -DryRun is a bound switch and prints the plan' `
+            'rc 0 and all four plan categories create/update/conflict/skip in the output' `
+            ("rc=$dryRc first line=[" + (($dryOut -split "`n" | Select-Object -First 1)) + "]")
+
+        # Regression guard, green today for the wrong reason: -DryRun does not bind, so the host
+        # fails parameter binding and setup.ps1 never runs at all. It only starts carrying weight
+        # once the switch exists.
+        Chk (($t7Before -eq $t7After) -and (-not (Test-Path $t7New)) `
+                -and (-not (Test-Path $t7Lock)) -and (-not (Test-Path $t7Marker))) `
+            '(7) setup.ps1 -DryRun writes nothing into the target' `
+            'every file SHA256 unchanged, and no .framework-new / install.lock / install.marker appeared' `
+            ("fingerprint equal=" + ($t7Before -eq $t7After) + " framework-new=" + (Test-Path $t7New) `
+                + " lock=" + (Test-Path $t7Lock) + " marker=" + (Test-Path $t7Marker))
+
+        # The env var is the fault injection point the contract names: fail after the Nth file
+        # write, so the interrupted-install marker has something to be interrupted out of.
+        $markerPath = Join-Path $t9 '.claude/.runtime/install.marker'
+        $env:CC_SETUP_FAIL_AFTER = '3'
+        $failOut = (& $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $t9 2>&1 | Out-String)
+        $failRc = $LASTEXITCODE
+        Remove-Item Env:CC_SETUP_FAIL_AFTER -ErrorAction SilentlyContinue
+        $markerText = ''
+        if (Test-Path $markerPath) { $markerText = (Get-Content $markerPath -Raw) }
+
+        Chk (($failRc -ne 0) -and (Test-Path $markerPath) -and ($markerText -match 'interrupted')) `
+            '(9) CC_SETUP_FAIL_AFTER leaves an interrupted marker behind' `
+            'rc non-zero, .claude/.runtime/install.marker on disk, status interrupted' `
+            ("rc=$failRc marker=" + (Test-Path $markerPath) + " text=[" + ($markerText -replace "`r", '' -replace "`n", ' ') + "] out=[" `
+                + (($failOut -split "`n" | Select-Object -First 1)) + "]")
+
+        $reOut = (& $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $t9 2>&1 | Out-String)
+        $reRc = $LASTEXITCODE
+        $t9Runtime = Join-Path $t9 '.claude/.runtime'
+        # The whole .runtime directory has to go, not just the two files inside it:
+        # tests/test-setup.sh section (5) asserts -e on that directory for an installed target,
+        # so leaving an empty one behind turns a green suite red somewhere that reads unrelated.
+        Chk (($reRc -eq 0) -and (-not (Test-Path $markerPath)) -and (-not (Test-Path $t9Runtime))) `
+            '(9) a clean rerun clears the marker and leaves no .runtime behind' `
+            'rc 0, no install.marker, and no .claude/.runtime directory at all' `
+            ("rc=$reRc marker=" + (Test-Path $markerPath) + " runtime dir=" + (Test-Path $t9Runtime) + " out=[" `
+                + (($reOut -split "`n" | Select-Object -First 1)) + "]")
+
+        # (10) Path bounds, one representative case. On Linux this bites for real: a/con/b is an
+        # ordinary directory here and setup.ps1 installs straight into it. On a Windows runner the
+        # reserved name makes New-Item throw by itself, so a green there proves nothing about
+        # validation -- the Linux run is the one that holds this line.
+        $t10 = Join-Path $TmpRoot 'target-reserved'
+        $badOut = (& $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target (Join-Path $t10 'a/con/b') 2>&1 | Out-String)
+        $badRc = $LASTEXITCODE
+        Chk (($badRc -ne 0) -and (-not (Test-Path $t10))) `
+            '(10) setup.ps1 rejects a target whose path has a Windows reserved segment' `
+            'rc non-zero and not one directory created -- validation belongs before the first New-Item' `
+            ("rc=$badRc created=" + (Test-Path $t10) + " first line=[" + (($badOut -split "`n" | Select-Object -First 1)) + "]")
     }
 } finally {
     Remove-Item -Path $TmpRoot -Recurse -Force -ErrorAction SilentlyContinue
