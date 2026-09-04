@@ -224,6 +224,219 @@ else
 fi
 rm -rf "$ROOT/.claude/.runtime" "$ROOT/.claude/hooks/probe.sh"
 
+# ---- 对照 ④：isStateExcluded 那两张表（untracked 分支，逐条）----
+# ③ 只造了 `.claude/.runtime/` 一条 untracked 文件，那是 STATE_EXCLUDE_PREFIXES 七条里的**一条**，
+#   STATE_EXCLUDE_PATHS 那三条一条没碰。删表实测：把 '.claude/evidence/'、'.claude/harness/state/'、
+#   '.claude/.fast-mode' 里任意一条从表里删掉，③ + ⑤ + selftest(268) + golden(20127) 全部照样全绿——
+#   十条里只有 `.runtime/` 那条真被守着，其余九条一直在裸奔。本段把它们逐条补齐。
+# 与 ⑤ 的分工：这里造 untracked 文件走 hashUntracked() → isStateExcluded()；⑤ 把文件送进索引/HEAD
+#   去走 canonicalDiff() 的 pathspec。同一批目录，两条互不相交的代码路径，删哪张表就红哪一段。
+# 左列 = 相对 .claude/ 的路径；中列 = 它对应的表成员（红了直接点名）；右列 = 它属于哪张表。
+UNTRACKED_CASES="
+.needs-review|.claude/.needs-review|STATE_EXCLUDE_PATHS
+.needs-review.lock|.claude/.needs-review.lock|STATE_EXCLUDE_PATHS
+.fast-mode|.claude/.fast-mode|STATE_EXCLUDE_PATHS
+.runtime/supervisor/web/state.json|.claude/.runtime/|STATE_EXCLUDE_PREFIXES
+evidence/run-1.log|.claude/evidence/|STATE_EXCLUDE_PREFIXES
+harness/receipts/task-1.json|.claude/harness/receipts/|STATE_EXCLUDE_PREFIXES
+harness/waivers/w-001.json|.claude/harness/waivers/|STATE_EXCLUDE_PREFIXES
+harness/trend/arch-trend.jsonl|.claude/harness/trend/|STATE_EXCLUDE_PREFIXES
+harness/state/nested/task.json|.claude/harness/state/|STATE_EXCLUDE_PREFIXES
+harness/evidence/static-check.stdout|.claude/harness/evidence/|STATE_EXCLUDE_PREFIXES
+"
+
+# ④a 逐条造 untracked 文件，指纹都不许动
+U_BASE=$(diff_hash)
+OLDIFS=$IFS
+IFS='
+'
+for line in $UNTRACKED_CASES; do
+  [ -n "$line" ] || continue
+  rel=$(printf '%s' "$line" | cut -d'|' -f1)
+  member=$(printf '%s' "$line" | cut -d'|' -f2)
+  table=$(printf '%s' "$line" | cut -d'|' -f3)
+  f="$ROOT/.claude/$rel"
+  mkdir -p "$(dirname "$f")"
+  printf 'runtime-state-%s\n' "$rel" > "$f"
+  H=$(diff_hash)
+  if [ -n "$U_BASE" ] && [ "$H" = "$U_BASE" ]; then
+    pass "④a 未跟踪的 .claude/$rel 不改 diff 指纹（$table 的 '$member' 在）"
+  else
+    fail "④a 未跟踪的 .claude/$rel 扰动了 diff 指纹——$table 缺 '$member'（untracked 分支走 isStateExcluded，不是 pathspec）：base=$U_BASE after=$H"
+  fi
+  rm -f "$f"
+done
+IFS=$OLDIFS
+
+# ④b 非退化：未跟踪的**非**排除类文件必须让指纹变，否则上面 10 条相等只是 hashUntracked 整体失明
+printf 'echo untracked-probe\n' > "$ROOT/.claude/hooks/untracked-probe.sh"
+U_CTRL=$(diff_hash)
+if [ -n "$U_CTRL" ] && [ "$U_CTRL" != "$U_BASE" ]; then
+  pass "④b 对照：未跟踪的 hooks/untracked-probe.sh 改变 diff 指纹（hashUntracked 确实在看未跟踪文件，④a 那 10 条不是空转）"
+else
+  fail "④b 对照：未跟踪的 hooks/untracked-probe.sh 没改变 diff 指纹，hashUntracked 整体失明，④a 那 10 条全是空转：base=$U_BASE after=$U_CTRL"
+fi
+rm -f "$ROOT/.claude/hooks/untracked-probe.sh"
+
+# ---- 对照 ⑤：STATE_EXCLUDE 那张 pathspec 表（tracked 分支，逐条）----
+# ③ 和 ④ 造的都是 untracked 文件，走 hashUntracked() 里的 isStateExcluded()（= STATE_EXCLUDE_PATHS
+#   + STATE_EXCLUDE_PREFIXES 那两张表）；canonicalDiff() 里 `git diff HEAD -- ...STATE_EXCLUDE` 那
+#   **第三张**表只对已进索引/已被提交的路径起作用，③/④ 一次都碰不到。
+#   实测：删掉 STATE_EXCLUDE 里任意一条 pathspec，③/④ 与 selftest（268）、golden（20127 断言）全绿。
+# core.mjs 给这张表写的存在理由是「a path that was once tracked, or force-added」——两种形态各跑一遍
+#   全部 10 条，逐条隔离，红了直接点名是哪条 pathspec 没了。各配一条非退化对照，防「相等」其实是
+#   tracked 分支整体失明。
+# 左边是相对 .claude/ 的路径，右边是它对应的 pathspec（`**` 的那几条特意放到嵌套层，顺带验 glob）。
+TRACKED_CASES="
+.needs-review|:(exclude).claude/.needs-review
+.needs-review.lock|:(exclude).claude/.needs-review.lock
+.fast-mode|:(exclude).claude/.fast-mode
+.runtime/supervisor/web/state.json|:(exclude).claude/.runtime/**
+evidence/run-1.log|:(exclude).claude/evidence/**
+harness/receipts/task-1.json|:(exclude).claude/harness/receipts/**
+harness/waivers/w-001.json|:(exclude).claude/harness/waivers/**
+harness/trend/arch-trend.jsonl|:(exclude).claude/harness/trend/**
+harness/state/nested/task.json|:(exclude).claude/harness/state/**
+harness/evidence/static-check.stdout|:(exclude).claude/harness/evidence/**
+"
+
+# ⑤a force-add 形态：逐条进索引，指纹都不许动
+H4_BASE=$(diff_hash)
+ALL_TRACKED=""
+OLDIFS=$IFS
+IFS='
+'
+for line in $TRACKED_CASES; do
+  [ -n "$line" ] || continue
+  rel=${line%%|*}
+  pattern=${line#*|}
+  f="$ROOT/.claude/$rel"
+  mkdir -p "$(dirname "$f")"
+  printf 'runtime-state-%s\n' "$rel" > "$f"
+  ( cd "$ROOT" && git add -f -- ".claude/$rel" )
+  H=$(diff_hash)
+  if [ -n "$H4_BASE" ] && [ "$H" = "$H4_BASE" ]; then
+    pass "⑤a force-add .claude/$rel 进索引不改 diff 指纹（pathspec $pattern 在）"
+  else
+    fail "⑤a force-add .claude/$rel 扰动了 diff 指纹——STATE_EXCLUDE 缺 '$pattern'（tracked 分支，非 STATE_EXCLUDE_PREFIXES）：base=$H4_BASE after=$H"
+  fi
+  ( cd "$ROOT" && git reset -q -- ".claude/$rel" )
+  rm -f "$f"
+  ALL_TRACKED="$ALL_TRACKED$rel
+"
+done
+IFS=$OLDIFS
+
+# ⑤b 非退化：同样进索引的**非**排除类文件必须让指纹变，否则上面 10 条相等可能只是 tracked 分支不看索引
+printf 'echo staged-probe\n' > "$ROOT/.claude/hooks/staged-probe.sh"
+( cd "$ROOT" && git add -- .claude/hooks/staged-probe.sh )
+H4_CTRL=$(diff_hash)
+if [ -n "$H4_CTRL" ] && [ "$H4_CTRL" != "$H4_BASE" ]; then
+  pass "⑤b 对照：进索引的 hooks/staged-probe.sh 改变 diff 指纹（tracked 分支确实在看索引，⑤a 那 10 条不是空转）"
+else
+  fail "⑤b 对照：进索引的 hooks/staged-probe.sh 没改变 diff 指纹，tracked 分支整体失明，⑤a 那 10 条全是空转：base=$H4_BASE after=$H4_CTRL"
+fi
+( cd "$ROOT" && git reset -q -- .claude/hooks/staged-probe.sh )
+rm -f "$ROOT/.claude/hooks/staged-probe.sh"
+
+# ⑤c once-tracked 形态：全部提交进 HEAD，再逐条改内容——改动落在 tracked diff 上，同一张表的另一种形态
+OLDIFS=$IFS
+IFS='
+'
+for rel in $ALL_TRACKED; do
+  [ -n "$rel" ] || continue
+  f="$ROOT/.claude/$rel"
+  mkdir -p "$(dirname "$f")"
+  printf 'runtime-state-%s\n' "$rel" > "$f"
+  ( cd "$ROOT" && git add -f -- ".claude/$rel" )
+done
+IFS=$OLDIFS
+( cd "$ROOT" && git -c user.email=t@example.com -c user.name=t commit -qm runtime-tracked ) >/dev/null
+H4_BASE2=$(diff_hash)
+OLDIFS=$IFS
+IFS='
+'
+for line in $TRACKED_CASES; do
+  [ -n "$line" ] || continue
+  rel=${line%%|*}
+  pattern=${line#*|}
+  f="$ROOT/.claude/$rel"
+  printf 'runtime-state-%s-CHANGED\n' "$rel" > "$f"
+  H=$(diff_hash)
+  if [ -n "$H4_BASE2" ] && [ "$H" = "$H4_BASE2" ]; then
+    pass "⑤c 已跟踪的 .claude/$rel 改内容不改 diff 指纹（pathspec $pattern 的 once-tracked 形态）"
+  else
+    fail "⑤c 已跟踪的 .claude/$rel 改内容就扰动了 diff 指纹——STATE_EXCLUDE 缺 '$pattern'：base=$H4_BASE2 after=$H"
+  fi
+  printf 'runtime-state-%s\n' "$rel" > "$f"
+done
+IFS=$OLDIFS
+
+# ⑤d 非退化：改普通已跟踪文件必须让指纹变
+printf 'echo appended\n' >> "$ROOT/.claude/hooks/demo.sh"
+H4_CTRL2=$(diff_hash)
+if [ -n "$H4_CTRL2" ] && [ "$H4_CTRL2" != "$H4_BASE2" ]; then
+  pass "⑤d 对照：改已跟踪的 hooks/demo.sh 改变 diff 指纹（排除表没宽到把真改动也吞掉）"
+else
+  fail "⑤d 对照：改已跟踪的 hooks/demo.sh 没改变 diff 指纹，⑤c 那 10 条全是空转：base=$H4_BASE2 after=$H4_CTRL2"
+fi
+
+
+# ---- 对照 ⑥：本文件的用例表与 core.mjs 三张排除表对拍（加了第 11 条时测试自己会红）----
+# ④/⑤ 是「每条表成员都有断言守着」，但表长出新成员时它们一声不吭——新成员天生免检，正是
+#   ④ 头注释里那九条裸奔了很久的成因。这里把两边的成员集合直接比一次：core.mjs 加一条、
+#   改一条、删一条，都会在这里红并打印出差在哪，逼着上面两段的用例表跟着长。
+# 抽取自检写死条数（不写 >=）：抽取正则半坏时只抽到一部分，逐条比对会在空转而闸不响。
+CORE_FILE="$(cd "$(dirname "$ENTRY")" && pwd)/lib/core.mjs"
+EXP_EXCLUDE=10
+EXP_PATHS=3
+EXP_PREFIXES=7
+
+# 从被测那份 core.mjs 里把数组字面量的字符串成员抠出来（单引号用 charCode 拼，避开 shell 引号地狱）
+dump_table() {
+  node -e '
+const fs = require("fs");
+const Q = String.fromCharCode(39);
+const src = fs.readFileSync(process.argv[1], "utf8");
+const m = new RegExp("const\\s+" + process.argv[2] + "\\s*=\\s*\\[([^\\]]*)\\]").exec(src);
+if (!m) { console.log("<TABLE-NOT-FOUND>"); process.exit(0); }
+const re = new RegExp(Q + "([^" + Q + "]*)" + Q, "g");
+const out = [];
+let x;
+while ((x = re.exec(m[1])) !== null) out.push(x[1]);
+for (const v of out) console.log(v);
+' "$CORE_FILE" "$1" 2>/dev/null
+}
+
+# ⑥ 逐表比对
+cmp_table() { # $1=core 表名  $2=写死条数  $3=本文件的成员清单（已排序）  $4=来源说明
+  local tname="$1" want="$2" mine="$3" src="$4"
+  local got n_got n_mine
+  got=$(dump_table "$tname" | sort)
+  n_got=$(printf '%s\n' "$got" | sed '/^$/d' | wc -l | tr -d ' ')
+  n_mine=$(printf '%s\n' "$mine" | sed '/^$/d' | wc -l | tr -d ' ')
+  if [ "$got" = "<TABLE-NOT-FOUND>" ] || [ "$n_got" -eq 0 ]; then
+    fail "⑥ 抽取坏了：在 $CORE_FILE 里没抠出 $tname 的成员（不是表变了，是本段的抽取正则失效了）"
+    return
+  fi
+  if [ "$n_got" -ne "$want" ] || [ "$n_mine" -ne "$want" ]; then
+    fail "⑥ $tname 条数对不上：core.mjs=$n_got 本文件$src=$n_mine 写死期望=$want。core 独有：[$(comm -23 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')] 本文件独有：[$(comm -13 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')]"
+    return
+  fi
+  if [ "$got" = "$mine" ]; then
+    pass "⑥ $tname 的 $want 条成员与本文件$src 逐条一致（表长新成员时这里会红）"
+  else
+    fail "⑥ $tname 与本文件$src 成员不一致。core 独有：[$(comm -23 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')] 本文件独有：[$(comm -13 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')]"
+  fi
+}
+
+MINE_EXCLUDE=$(printf '%s\n' "$TRACKED_CASES" | sed '/^$/d' | cut -d'|' -f2 | sort)
+MINE_PATHS=$(printf '%s\n' "$UNTRACKED_CASES" | sed '/^$/d' | awk -F'|' '$3=="STATE_EXCLUDE_PATHS"{print $2}' | sort)
+MINE_PREFIXES=$(printf '%s\n' "$UNTRACKED_CASES" | sed '/^$/d' | awk -F'|' '$3=="STATE_EXCLUDE_PREFIXES"{print $2}' | sort)
+
+cmp_table STATE_EXCLUDE          "$EXP_EXCLUDE"  "$MINE_EXCLUDE"  "TRACKED_CASES"
+cmp_table STATE_EXCLUDE_PATHS    "$EXP_PATHS"    "$MINE_PATHS"    "UNTRACKED_CASES(PATHS)"
+cmp_table STATE_EXCLUDE_PREFIXES "$EXP_PREFIXES" "$MINE_PREFIXES" "UNTRACKED_CASES(PREFIXES)"
 echo ""
 echo "==== test-release-manifest：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]

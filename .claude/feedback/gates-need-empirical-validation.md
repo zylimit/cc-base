@@ -4,6 +4,7 @@ description: 审查/验收/测试闸要靠数据验证有效性——记录它�
 created: 2026-06-15
 updated: 2026-06-15
 occurrences: 1
+graduated: true  # 毕业→CLAUDE.md [开发测试规则]；本文件留作细则参照
 source_skill: 无（框架级规则）
 ---
 

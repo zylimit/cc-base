@@ -4,7 +4,7 @@ description: 用户已明确允许清理本地并要求直接获取最新仓库�
 created: 2026-07-19
 updated: 2026-07-19
 occurrences: 1
-graduated: false
+graduated: true  # 毕业→CLAUDE.md [总体规则] 用户当前指令优先；本文件留作细则参照
 source_skill: N/A
 ---
 

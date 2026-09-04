@@ -4,7 +4,7 @@ description: 开发脚手架内核时，用户可对本轮维护临时豁免脚�
 created: 2026-07-19
 updated: 2026-07-19
 occurrences: 1
-graduated: false
+graduated: true  # 毕业→CLAUDE.md [Fast Mode]；本文件留作细则参照
 source_skill: dev-builder
 ---
 

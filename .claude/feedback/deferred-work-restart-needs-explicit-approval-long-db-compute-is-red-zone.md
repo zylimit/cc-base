@@ -4,7 +4,7 @@ description: 用户明确押后/否决过的事项，重新启动的唯一途径
 created: 2026-07-19
 updated: 2026-07-19
 occurrences: 1
-graduated: false
+graduated: true  # 毕业→CLAUDE.md 审批三档 HIGH；本文件留作细则参照
 source_skill: N/A（主 Agent 指令解读与任务启动环节，无 Skill 介入）
 ---
 

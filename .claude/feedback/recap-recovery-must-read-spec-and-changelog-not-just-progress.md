@@ -4,7 +4,7 @@ description: recap / Clear 之后的上下文恢复必须读齐 progress.md + Pr
 created: 2026-06-15
 updated: 2026-06-15
 occurrences: 1
-graduated: false
+graduated: true  # 毕业→CLAUDE.md [指令集] recap；本文件留作细则参照
 source_skill: N/A  # recap 指令 / Clear 后首次恢复，跨 Skill 通用约束
 priority: 用户明确修正
 ---

@@ -4,6 +4,7 @@ description: 任何"完成/通过/修好"结论前必须有当场跑出的新鲜
 created: 2026-06-15
 updated: 2026-06-15
 occurrences: 2
+graduated: true  # 毕业→CLAUDE.md [总体规则] 验收铁律；本文件留作细则参照
 source_skill: dev-builder
 scores:
   accuracy: 2

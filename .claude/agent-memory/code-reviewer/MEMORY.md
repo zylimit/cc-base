@@ -8,3 +8,4 @@
 - [审哈希链账本/证据落盘/硬闸的七条攻法](pattern_evidence-ledger-attacks.md) — 读不出=报绿 / 并发写死链 / 写而不读的 sha / 闸范围可伪造
 - [「同一张表抄成 N 份」的审法](pattern_duplicated-rule-tables.md) — 注释写几份不算数，逐份删除突变；字面 grep 对照会给部分臂发免检
 - [审「stdout 路径一律仓库相对」契约的五条攻法](pattern_path-naming-contract.md) — 软链降级 / 相对入参方向搞反 / 断言同义反复 / 命名修了读取没修
+- [判跨平台覆盖看 CI step 的 if:，不看测试放哪](pattern_cross-platform-coverage-claims.md) — selftest 无 if 双 OS 跑 / run-all Windows 不跑 / golden POSIX-only；win32 语义在 Linux 上可直接实跑

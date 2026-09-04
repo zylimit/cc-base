@@ -368,27 +368,88 @@ function catalogFilePath() {
 }
 
 /**
+ * Resolve an absolute path through symlinks without requiring that it exist. realpathSync on a
+ * missing path throws ENOENT, and a missing path is the normal case here -- `catalog-lint
+ * --catalog nope.json` probes a file whose absence is the whole answer -- so the longest
+ * existing prefix is resolved and the missing tail is joined back onto it. That resolves the
+ * part of the path the filesystem can speak for and leaves the rest spelled as it arrived.
+ * A path with no resolvable ancestor at all falls back to the plain resolve, so this call can
+ * only ever narrow the answer: it never throws and never returns nothing.
+ * realpathSync rather than realpathSync.native, and the same function on both sides of every
+ * comparison: on Windows the native variant expands 8.3 short names and normalizes case, so
+ * resolving one side with one variant and the other side with the other invents a mismatch
+ * between two spellings of the same directory.
+ */
+function resolveThroughLinks(p) {
+  const abs = path.resolve(String(p));
+  let cur = abs;
+  const tail = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(cur);
+      return tail.length ? path.join(real, ...tail) : real;
+    } catch (_e) {
+      const parent = path.dirname(cur);
+      if (parent === cur) return abs;      // walked out to the volume root and nothing resolved
+      tail.unshift(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * True when path.relative()'s answer does not actually stay under the base it was measured
+ * from -- it has to climb out (`..`), or, across Windows drives, there is no relative route at
+ * all and relative() hands back an absolute path instead. Named once because repoRelative asks
+ * this of two different bases and the two tests must not drift apart.
+ */
+function escapesBase(rel) {
+  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../')) return true;
+  return path.isAbsolute(rel);
+}
+
+/**
  * Name a path the way stdout names paths: repo-relative when it is inside the project root,
  * verbatim when it is not. A bare path.relative() produces a third thing for the outside
  * case and that third thing is useless -- `catalog-lint --catalog /etc/nope/x.json` answered
  * `../../etc/nope/x.json`, which is neither the file the caller named nor a path that exists
  * in this repo, and it leaks how deep the checkout sits on top. The test is path.relative()'s
  * own answer: a route that has to climb out of the root, or (on Windows, across drives) no
- * route at all, means the path has no repo-relative name and must be echoed as given.
+ * route at all, means that base yields no repo-relative name -- which base gets asked, and in
+ * what order, is the two-question rule below.
  * Relative input is resolved against the cwd first and then judged like anything else, because
  * the cwd is where fs opened it: `--catalog nope.json` run from .claude/ reads .claude/nope.json,
  * and echoing the bare `nope.json` hands every reader of this output a repo-relative name for
  * <root>/nope.json -- a different file than the one the command probed. Absolute input is never
  * rewritten, so a path outside the root still comes back exactly as the caller spelled it.
+ * Spelling first, identity only as a fallback. The question gets asked twice and the first
+ * answer wins: path.relative() on the two spellings as they arrived, with no link followed on
+ * either side, so a link the caller chose to go through keeps the name they used. `<root>/linkout/nope.json` is
+ * named `linkout/nope.json` whether or not linkout leads back out of the tree, and a link that
+ * stays inside is not unfolded into the name of whatever sits behind it -- answering with a
+ * path the caller never probed is the same failure as answering with an absolute one, since
+ * either way the reader cannot get back to the file that was opened.
+ * Only when the spelling already points out of the root does the pair get resolved through
+ * symlinks and the question asked again, and that second question exists for one shape: a
+ * checkout reached through a linked parent, where the argument and projectRoot() name the same
+ * directory two different ways -- process.cwd() is already physical, CLAUDE_PROJECT_DIR is
+ * whatever the caller exported -- so comparing the raw spellings reads a file that sits in this
+ * repo as being outside it. Resolving one of the two sides fixes one direction of that and
+ * leaves the mirror case leaking, which is why the fallback normalizes the pair rather than the
+ * input. A path that is outside under both questions is echoed as the caller spelled it and
+ * never in its resolved form, which would unfold those same links and print the real directory
+ * behind them.
  */
 function repoRelative(p) {
   const raw = String(p);
   const abs = path.isAbsolute(raw) ? raw : path.resolve(raw);
-  const rel = path.relative(projectRoot(), abs);
-  if (rel === '') return '.';
-  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../')) return toPosixPath(abs);
-  if (path.isAbsolute(rel)) return toPosixPath(abs);
-  return toPosixPath(rel);
+  const relSpelling = path.relative(path.resolve(projectRoot()), abs);
+  if (relSpelling === '') return '.';
+  if (!escapesBase(relSpelling)) return toPosixPath(relSpelling);
+  const relIdentity = path.relative(resolveThroughLinks(projectRoot()), resolveThroughLinks(abs));
+  if (relIdentity === '') return '.';
+  if (!escapesBase(relIdentity)) return toPosixPath(relIdentity);
+  return toPosixPath(abs);
 }
 
 /**
@@ -450,6 +511,13 @@ function normalizeTier(req) {
 // Covers VCS/build dirs, harness runtime state, and secret material. A narrow
 // whitelist (.env.example|sample|template) is checked first so shareable templates
 // stay includable.
+// This is the second layer, not the first. Changed files are already dropped by
+// isStateExcluded before context-pack ever offers them as candidates, so the runtime-state
+// rows below exist for the paths that never pass through that filter: catalog-authored
+// strings such as modules[].verification, which arrive from a JSON file the author typed
+// rather than from a git listing. Both layers are kept because the overlap costs one regex
+// test, while a single choke point is something every future non-git path source can walk
+// around without anyone noticing it did.
 const DENY = [
   /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
   /(^|\/)\.claude\/(\.runtime|evidence|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,

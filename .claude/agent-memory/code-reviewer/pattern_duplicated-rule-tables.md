@@ -39,4 +39,22 @@ metadata:
 CI 干净 checkout 上删同样的排除项全绿——闸只在不需要它的地方响。
 固定实验：把源树复制一份、删光运行态文件（模拟 CI checkout），再做突变，看还红不红。
 （⑥b 是正解范式：自己在 mktemp 里搭迷你源码树跑真安装器，与源树脏净无关。）
+
+2026-09-04 审「一张表拆成两半、只补了一半的覆盖」时又中两条：
+
+8. **同一批排除规则常拆成两半各管一种输入**（本仓 `core.mjs` 的 `STATE_EXCLUDE` 是 git pathspec、
+   只对 tracked/force-add 生效；`STATE_EXCLUDE_PATHS`+`STATE_EXCLUDE_PREFIXES` 是 `isStateExcluded`、
+   管 untracked 与其余九个调用点）。补了 tracked 那半的逐条覆盖，**不等于** untracked 那半有覆盖。
+   实测：删 `':(exclude).claude/harness/state/**'` → 新测试恰红 2 条；删 `'.claude/harness/state/'`
+   → selftest 268 / release-manifest 49 / test-harness 82 **三套全绿**。裸奔在姊妹半边。
+9. **新测试的头注释会把姊妹半说成「已被某条老用例覆盖」——那句同样是待验证断言**。
+   本轮注释写「③ 走的是 `STATE_EXCLUDE_PREFIXES`」，实际 ③ 只造了 `.runtime/` 一条。
+   查检：拿姊妹半的每一条做删除突变，别信「走的是同一条路径所以顺带覆盖了」。
+   另：逐条表驱动的测试要有**条数对拍闸**（臂数 vs 源码表长度），否则表加第 11 条时静默失覆盖——
+   同 ⑥ 那条 `-ge 20` 下限失守的同型。
+
+10. **表驱动测试的完备性闸要「条数写死 + 成员集合双向差集」，不是 `-ge N` 下限**。正解范式：
+    从被测源码里正则抠出数组字面量成员，与测试自己的用例表 `comm -23 / -13` 双向比，抽取失败要
+    单独 fail（防「正则半坏 → 空转全绿」）。验它用两次突变：加第 11 条（④/⑤ 全程沉默、只有对拍闸响）
+    与条数不变改名（差集报出 core 独有 / 本文件独有）。
 相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_golden-baseline-rulers]]、[[pattern_path-naming-contract]]

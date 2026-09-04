@@ -4,6 +4,7 @@ description: 接收 code-review 结论或用户反馈时不表演式认同——
 created: 2026-06-15
 updated: 2026-06-15
 occurrences: 1
+graduated: true  # 毕业→CLAUDE.md [总体规则]；本文件留作细则参照
 source_skill: code-review
 ---
 

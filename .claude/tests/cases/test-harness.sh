@@ -1302,6 +1302,119 @@ else
 fi
 rm -rf "$TMPT"
 
+# ㉖ 软链路径归一化（红锁 · 修好前应红）：经软链传入的仓内路径必须回显**仓相对**形态。
+# repoRelative() 判「仓内 / 仓外」的依据是 path.relative(projectRoot(), abs)，而两端的 realpath
+#   基准不一致：projectRoot() 取自 process.cwd()（node 已解析成真实路径）或 CLAUDE_PROJECT_DIR，
+#   入参却原样 resolve。于是同一个文件从软链那侧递进来就被判成仓外，detail 回显机器绝对路径——
+#   既泄露 checkout 的落盘位置，也给不出调用方能在本仓里定位的名字。
+# selftest 里那条 repoRelative 用例夹具是 fs.realpathSync(mkdtempSync(...))，两端天然同基准，
+#   恰好绕开这个形态；所以断言落在 CLI 行为层（catalog-lint 的 detail 字段），实现换写法也不假红。
+# 落点选 test-harness.sh 而非 selftest.mjs：① run-all 在 CI 的 windows 格 `if: runner.os != 'Windows'`
+#   明确不跑，这里是 Linux 主场，ln -s 可直接用，不必为 EPERM 写个会假绿的 skip 分支；
+#   ② 不动 selftest 的 tests 计数，golden 基线无需重录。
+TMPS="$(mktemp -d)"
+TMPS="$(cd "$TMPS" && pwd -P)"   # /tmp 自身可能是软链，基准先钉死成物理路径
+mkdir -p "$TMPS/repo/.claude/harness" "$TMPS/outside" "$TMPS/elsewhere" "$TMPS/repo/.claude/real"
+
+# catalog-lint 对缺失 catalog 回 {"error":"catalog-missing","detail":<路径>} + rc 3；detail 就是被测的回显。
+DET=""
+DRC=0
+lint_detail() { # $1=cwd  $2=CLAUDE_PROJECT_DIR（空串则不设）  $3=--catalog 值
+  local out
+  DRC=0
+  if [ -n "$2" ]; then
+    out=$( cd "$1" && CLAUDE_PROJECT_DIR="$2" node "$HARNESS" catalog-lint --catalog "$3" 2>/dev/null ) || DRC=$?
+  else
+    out=$( cd "$1" && env -u CLAUDE_PROJECT_DIR node "$HARNESS" catalog-lint --catalog "$3" 2>/dev/null ) || DRC=$?
+  fi
+  DET=$(printf '%s' "$out" | node -e '
+let s = "";
+process.stdin.on("data", d => s += d).on("end", () => {
+  let j;
+  try { j = JSON.parse(s); } catch (e) { return console.log("<parse-err:" + String(s).slice(0, 60) + ">"); }
+  console.log(j.detail === undefined ? "<no-detail>" : String(j.detail));
+});')
+}
+
+if ln -s "$TMPS/repo" "$TMPS/lnk" 2>/dev/null && [ -d "$TMPS/lnk/.claude" ]; then
+  # ㉖a 入参经软链、根是真实路径（finding 给的复现形态）
+  lint_detail "$TMPS/repo" "" "$TMPS/lnk/.claude/harness/nope.json"
+  if [ "$DET" = ".claude/harness/nope.json" ]; then
+    pass "㉖a 经软链传入的仓内路径回显仓相对形态"
+  else
+    fail "㉖a 经软链传入的仓内路径漏出机器绝对路径（repoRelative 未把入参与 projectRoot 归到同一 realpath 基准）：EXPECT .claude/harness/nope.json，GOT $DET"
+  fi
+
+  # ㉖b 镜像方向：根经软链（CLAUDE_PROJECT_DIR 指软链）、入参是真实路径——同一处不对称的另一半
+  lint_detail "$TMPS/repo" "$TMPS/lnk" "$TMPS/repo/.claude/harness/nope.json"
+  if [ "$DET" = ".claude/harness/nope.json" ]; then
+    pass "㉖b 根经软链时真实仓内路径仍回显仓相对形态"
+  else
+    fail "㉖b 根经软链（CLAUDE_PROJECT_DIR 指软链）时真实仓内路径漏出机器绝对路径（同 ㉖a 一处不对称，只 realpath 入参补不上这半边）：EXPECT .claude/harness/nope.json，GOT $DET"
+  fi
+
+  # ㉖c 对照（现在就该绿）：两端都是真实路径时本来就对——期望写死同一字面量，不从 ㉖a 的结果里取，
+  #     否则 ㉖a 一红它跟着红，对照当场失效。
+  lint_detail "$TMPS/repo" "" "$TMPS/repo/.claude/harness/nope.json"
+  if [ "$DET" = ".claude/harness/nope.json" ]; then
+    pass "㉖c 对照：无软链时仓内路径本就回显仓相对（夹具与 detail 取字段没坏，上面的红是真红）"
+  else
+    fail "㉖c 对照：无软链的仓内路径都没能回显仓相对，夹具或 detail 取字段坏了，㉖a/㉖b 的红不可信：EXPECT .claude/harness/nope.json，GOT $DET（rc=$DRC）"
+  fi
+
+  # ㉖d 防砖（现在绿、修完必须还绿）：真·仓外路径不许被 realpath 顺手拽进来，也不许出现爬链
+  lint_detail "$TMPS/repo" "" "$TMPS/outside/nope.json"
+  case "$DET" in
+    ..*) OUTOK=0 ;;
+    "$TMPS/outside/nope.json") OUTOK=1 ;;
+    *) OUTOK=0 ;;
+  esac
+  if [ "$OUTOK" -eq 1 ]; then
+    pass "㉖d 防砖：仓外路径仍原样绝对回显、无 ../ 爬链"
+  else
+    fail "㉖d 防砖：仓外路径被改写了（归一化修过头，把仓外也拽成相对或爬链）：EXPECT $TMPS/outside/nope.json，GOT $DET"
+  fi
+
+  # ㉖e 防砖（现在绿、修完必须还绿）：路径整条都不存在时不许崩——realpath 直接打在不存在的路径上会 ENOENT，
+  #     修法得落在存在的祖先上。这条塌了说明修复引入了新的崩溃面。
+  lint_detail "$TMPS/repo" "" "$TMPS/no-such-dir/deep/nope.json"
+  if [ "$DRC" -eq 3 ] && [ "$DET" = "$TMPS/no-such-dir/deep/nope.json" ]; then
+    pass "㉖e 防砖：整条不存在的仓外路径仍走 rc 3 契约码 + 原样回显（归一化没在 ENOENT 上崩）"
+  else
+    fail "㉖e 防砖：整条不存在的路径没走 rc 3 契约码或回显被改（realpath 打在不存在的路径上崩了？）：EXPECT rc=3 且 $TMPS/no-such-dir/deep/nope.json，GOT rc=$DRC 且 $DET"
+  fi
+
+  # ㉖f/㉖g 锁的是「拼法优先、身份兜底」这条规则的**拼法优先**那一半（红锁 · 修好前应红）：
+  #   入参拼法（path.resolve 后、不解软链）落在 projectRoot() 拼法之内 → 就按拼法给仓相对名，
+  #   软链一律不解开；只有拼法已经在仓外时，才两侧 realpath 用身份再判一次（㉖a/㉖b 走的是那半）。
+  # 这半边现在是反的：两侧无条件 realpath，于是「仓内拼法」被身份带走——指向仓外的软链回显成机器
+  #   绝对路径（rules/harness-large-repo.md:40 明文禁止的形态），指向仓内的软链被解开成另一个名字。
+  # 两条都不是既有债，是把 ㉖a/㉖b 修绿时带进来的回退；㉖a–㉖e 保持不动，修完七条要一起绿。
+  if ln -s "$TMPS/elsewhere" "$TMPS/repo/linkout" 2>/dev/null \
+     && ln -s "$TMPS/repo/.claude/real" "$TMPS/repo/.claude/link" 2>/dev/null; then
+    # ㉖f 仓内拼法、软链指向仓外：按拼法命名，不许因为身份在仓外就回显机器绝对路径
+    lint_detail "$TMPS/repo" "" "$TMPS/repo/linkout/nope.json"
+    if [ "$DET" = "linkout/nope.json" ]; then
+      pass "㉖f 仓内软链指向仓外时按拼法给仓相对名（拼法优先）"
+    else
+      fail "㉖f 仓内软链指向仓外，拼法本在仓内却回显了机器绝对路径（身份判定盖掉了拼法优先，泄露 checkout 落盘位置）：EXPECT linkout/nope.json，GOT $DET"
+    fi
+
+    # ㉖g 仓内拼法、软链指向仓内：按调用方写的拼法命名，不许把软链解开成另一个名字
+    lint_detail "$TMPS/repo" "" "$TMPS/repo/.claude/link/nope.json"
+    if [ "$DET" = ".claude/link/nope.json" ]; then
+      pass "㉖g 仓内软链指向仓内时保留调用方拼法（不解开软链）"
+    else
+      fail "㉖g 仓内软链被解开成了另一个名字，回显的不是调用方探测的那个路径：EXPECT .claude/link/nope.json，GOT $DET"
+    fi
+  else
+    fail "㉖f/㉖g 夹具软链创建失败（$TMPS/repo/linkout 或 $TMPS/repo/.claude/link）——这两条红锁未执行，未执行 != 通过"
+  fi
+else
+  fail "㉖ 软链创建失败（$TMPS/lnk），本机不支持符号链接——本组红锁整组未执行，未执行 != 通过"
+fi
+rm -rf "$TMPS"
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

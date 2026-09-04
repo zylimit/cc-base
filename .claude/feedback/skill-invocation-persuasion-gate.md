@@ -4,6 +4,7 @@ description: agent 合规靠劝服工程不靠"写清楚"——规则用绝对�
 created: 2026-06-15
 updated: 2026-06-15
 occurrences: 1
+graduated: true  # 毕业→CLAUDE.md [Skill 调用规则]；本文件留作细则参照
 source_skill: 无（框架级规则）
 ---
 
