@@ -90,26 +90,37 @@ else
   printf -- '- %s\n' "module-catalog.json 未配置（大仓治理默认关闭，接线走原逻辑）"
 fi
 
-# FRAMEWORK-MANIFEST 抽验（note 级，不 fail）：存在则抽 3 个文件比对 LF 归一化 SHA256，
-# 不符只提示「本地有改动或框架已更新」——这是分层信息，不是错误。
+# FRAMEWORK-MANIFEST 全量比对：清单里每一条都算 LF 归一化 SHA256 对一遍，不符的逐条点名
+# （路径 + 期望/实际 sha 前 8 位）并判 ✗。旧实现是「前 20 行里随机抽 3 个」的 note 级抽验，
+# 两处都不成立：抽样窗口外的篡改永远看不见；shuf 让同一棵树每次给出不同结论。
+# 分发完整性这种事要么全量确定地答，要么别答——不符也不再降级成告警，
+# 它意味着框架文件被改过或清单已陈，两种都得有人看一眼。
 if [ -f .claude/FRAMEWORK-MANIFEST.txt ] && command -v sha256sum >/dev/null 2>&1; then
-  mismatch=0; checked=0
+  mismatch=0; checked=0; missing=0
+  # 逐条点名有上限：几百条全不符时刷屏没人读，超出部分只报条数（下面那行）。
+  MAN_MAX_NAMED=20
   while IFS=$(printf '\t') read -r m_rel m_sha; do
     case "$m_rel" in ''|\#*) continue ;; esac
-    [ -f ".claude/$m_rel" ] || continue
+    if [ ! -f ".claude/$m_rel" ]; then missing=$((missing + 1)); continue; fi
     checked=$((checked + 1))
     actual=$(tr -d '\r' <".claude/$m_rel" | sha256sum | awk '{print $1}')
-    [ "$actual" = "$m_sha" ] || mismatch=$((mismatch + 1))
-    [ "$checked" -ge 3 ] && break
-  done < <(grep -v '^#' .claude/FRAMEWORK-MANIFEST.txt | head -20 | shuf 2>/dev/null | head -3 \
-           || grep -v '^#' .claude/FRAMEWORK-MANIFEST.txt | head -3)
-  if [ "$checked" -eq 0 ]; then
-    note "FRAMEWORK-MANIFEST 存在但未抽到可验文件"
-  elif [ "$mismatch" -eq 0 ]; then
-    ok "FRAMEWORK-MANIFEST 抽验 $checked 个文件 SHA 一致"
-  else
-    note "FRAMEWORK-MANIFEST 抽验 $mismatch/$checked 个文件 SHA 不符（本地有改动或框架已更新，非错误）"
+    [ "$actual" = "$m_sha" ] && continue
+    mismatch=$((mismatch + 1))
+    [ "$mismatch" -le "$MAN_MAX_NAMED" ] \
+      && bad "FRAMEWORK-MANIFEST 不符：$m_rel 期望 ${m_sha:0:8} 实际 ${actual:0:8}"
+  done < <(grep -v '^#' .claude/FRAMEWORK-MANIFEST.txt)
+  if [ "$mismatch" -gt "$MAN_MAX_NAMED" ]; then
+    bad "FRAMEWORK-MANIFEST 另有 $((mismatch - MAN_MAX_NAMED)) 条不符未逐条列出（先修上面这些）"
   fi
+  if [ "$checked" -eq 0 ]; then
+    note "FRAMEWORK-MANIFEST 存在但一条都没验到（清单为空，或登记的文件都不在本地）"
+  elif [ "$mismatch" -eq 0 ]; then
+    ok "FRAMEWORK-MANIFEST 全量比对 $checked 条 SHA 一致"
+  else
+    bad "FRAMEWORK-MANIFEST 全量比对 $checked 条，$mismatch 条 SHA 不符"
+  fi
+  # 登记了却不在本地的另算一档：没参与比对，不许混进「一致」的计数里。
+  [ "$missing" -ne 0 ] && note "FRAMEWORK-MANIFEST 有 $missing 条登记的文件不在本地（未参与比对）"
 fi
 
 if [ "$fail" -ne 0 ]; then

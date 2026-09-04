@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# static-check.sh — 识别技术栈并跑静态检查（shellcheck / ruff|py_compile / tsc）。
+# static-check.sh — 识别技术栈并跑静态检查（shellcheck / ruff|py_compile / tsc / node --check）。
 # 全绿 exit 0；任一红 exit 1（并打印错误）；工具未装 → 跳过该栈（绝不因缺工具卡死）。
 # 用法： bash static-check.sh [project_dir]
 #
@@ -44,14 +44,49 @@ fi
 # ---- TypeScript ----
 # tsconfig 不一定在仓库顶层（前端常在子目录，如 conflation/web）——有限深度探测全部
 # tsconfig.json；目录里装好依赖（有 node_modules）才进去跑，否则跳过该目录（缺依赖不卡死）。
+TSDIRS=()
 if have npx; then
   mapfile -t TSCONFIGS < <(find . -maxdepth 3 -name 'tsconfig.json' "${PRUNE[@]}" 2>/dev/null)
   for cfg in "${TSCONFIGS[@]}"; do
     tsdir=$(dirname "$cfg")
     [ -d "$tsdir/node_modules" ] || continue
+    TSDIRS+=("$tsdir")
     ran="$ran tsc($tsdir)"
     if ! out=$(cd "$tsdir" && npx --no-install tsc --noEmit 2>&1); then report_fail "tsc $tsdir" "$out"; fi
   done
+fi
+
+# ---- JavaScript ----
+# JS 用的是另一张排除表，不复用上面的 PRUNE：.claude 底下就是框架自己的 JS（引擎、审计
+# 脚本、workflow 编排），按 PRUNE 整块排掉等于框架的 .mjs 从来没人做过语法检查。
+# 但 .claude/worktrees/ 必须挡——那底下是各 agent 的完整工作树副本，扫进去就是把同一个仓
+# 重复检查 N 遍，还会把别的分支的代码算到本次审查头上。
+JS_PRUNE=(-not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/.ccb/*'
+  -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/.venv/*' -not -path '*/out/*'
+  -not -path '*/coverage/*' -not -path '*/.opencode/*' -not -path '*/.claude/worktrees/*')
+
+mapfile -t JS < <(find . \( -name '*.mjs' -o -name '*.cjs' -o -name '*.js' \) "${JS_PRUNE[@]}" 2>/dev/null)
+if [ "${#JS[@]}" -gt 0 ] && have node; then
+  jsout=""
+  jsn=0
+  for f in "${JS[@]}"; do
+    # 落在跑过 tsc 的子树里的不重复检查：tsc 看得比语法更远，同一份文件报两遍只是噪音。
+    skip=0
+    if [ "${#TSDIRS[@]}" -gt 0 ]; then
+      for d in "${TSDIRS[@]}"; do case "$f" in "$d"/*) skip=1; break ;; esac; done
+    fi
+    [ "$skip" -eq 1 ] && continue
+    jsn=$((jsn + 1))
+    # node --check 自己就打 <文件>:<行>，原样透出去、不另造格式；只滤掉纯噪音的调用栈。
+    if ! o=$(node --check "$f" 2>&1); then
+      jsout="$jsout$(printf '%s\n' "$o" | grep -v '^    at ' | grep -v '^Node\.js v')
+"
+    fi
+  done
+  if [ "$jsn" -gt 0 ]; then
+    ran="$ran node --check($jsn)"
+    [ -n "$jsout" ] && report_fail "node --check" "$jsout"
+  fi
 fi
 
 if [ -z "$ran" ]; then

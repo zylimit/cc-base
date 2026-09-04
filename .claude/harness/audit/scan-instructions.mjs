@@ -124,6 +124,7 @@ const RULES = [
     // the setx branch covers the Windows shape, where the separator is a space.
     re: new RegExp('\\b(?:' + ENDPOINT_NAME + ')\\b["\']?\\s*[:=]' +
       '|\\bsetx\\s+["\']?(?:' + ENDPOINT_NAME + ')\\b', 'i'),
+    // scan-secrets:ignore -- next line names the shape maskUrl exists for
     // The line is echoed, and HTTPS_PROXY=https://user:token@host would echo a
     // credential straight into a CI log.
     maskUrl: true,

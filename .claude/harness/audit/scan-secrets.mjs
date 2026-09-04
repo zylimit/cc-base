@@ -80,6 +80,15 @@ const SECRET_PATTERNS = [
   // dot: without this entry, excluding dots would open a hole instead of closing
   // false positives.
   { id: 'jwt', confident: true, re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
+  // A URL that carries the credential inside itself: the userinfo segment that
+  // sits between the scheme and the host. It leaks the same way a token does and
+  // is the shape a connection string arrives in, which is why the format table
+  // needs it explicitly -- none of the prefix rules above sees it.
+  // The user part excludes ':' and the password part excludes '/', so a plain
+  // host, a host with a user and no password, and a port followed by a path
+  // holding an at-sign all stay quiet; the lazy \S+:\S+@ spelling reports the
+  // port form as a credential and gets switched off within a week.
+  { id: 'url-userinfo', confident: true, re: /\bhttps?:\/\/[^/\s@:"]+:[^/\s@"]+@/i },
   {
     id: 'generic-assignment',
     confident: false,
