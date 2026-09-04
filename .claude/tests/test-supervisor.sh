@@ -6,6 +6,7 @@
 #   ⑤ win32 stop 分支（正向，垫片）-> 只写 flag 不发信号，靠 1s tick 收敛 stopped
 #   ⑥ win32 SIGTERM 语义（负向对照）-> 无条件终止收敛不出 stopped，只能是 dead + state 停在 running
 #   ⑦ 无孤儿孙进程残留（测试自身卫生，同时锁住 kill 按进程组走）。
+#   ⑧⑨⑩ state.json 坏掉 != 服务不存在 -> status 报 corrupt、start 拒绝再起一个、stop 不说没有
 set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,13 +25,16 @@ fi
 
 PASS=0
 FAIL=0
+SKIP=0
 pass() { PASS=$((PASS + 1)); echo "  [PASS] $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $1"; }
+# 未执行 != 通过：跑不了的用例单独计数并说明理由，绝不悄悄算进 PASS。
+skip() { SKIP=$((SKIP + 1)); echo "  [SKIP] $1"; }
 
 TMP="$(mktemp -d)"
 cleanup() {
   # 兜底清进程：state 里记录的 supervisor/child pid 全部补刀，临时目录删除。
-  for id in svc crashy winstop winneg; do
+  for id in svc crashy winstop winneg badstate badstart badstop; do
     ( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" stop --id "$id" ) >/dev/null 2>&1 || true
   done
   rm -rf "$TMP"
@@ -72,6 +76,17 @@ leaked_in_group() {
     MINGW*|MSYS*|CYGWIN*) printf '' ;;   # Windows 无进程组语义，taskkill /T 已杀树
     *) ps -eo pgid=,pid=,args= 2>/dev/null | awk -v g="$1" '$1 == g { print }' || true ;;
   esac
+}
+
+# chmod 000 能不能真的挡住本进程读？root 读得穿、Windows 的 mode 位压根不是这个语义。
+# 挡不住时对应用例走 skip 而不是 pass——⑪ 的主用例用「路径在、但不是目录」那种形态，
+# 不需要权限、各平台同义，所以这条只是给能做权限试验的机器多加一档。
+chmod_can_deny() {
+  _probe="$TMP/.chmod-capability-probe"
+  printf 'x' > "$_probe" 2>/dev/null || return 1
+  chmod 000 "$_probe" 2>/dev/null || { rm -f "$_probe"; return 1; }
+  if cat "$_probe" >/dev/null 2>&1; then chmod 600 "$_probe"; rm -f "$_probe"; return 1; fi
+  chmod 600 "$_probe"; rm -f "$_probe"; return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -257,6 +272,103 @@ else
   fail "⑦ 有孤儿孙进程残留（只杀了 shell 那层、没按进程组杀）：$LEAKS"
 fi
 
+# ⑧⑨⑩ 坏掉的 state.json 不等于「没这个服务」。三条各锁一个动词：读不出来时 status 不许报
+#     「dead」（dead 说的是进程死了、状态是可信的；corrupt 说的是这份状态根本没读出来），
+#     start 不许当没在跑直接再起一个 supervisor（真起了就是同一个 id 两个守护进程在抢一个
+#     子进程和一份 state.json），stop 不许说「no state for id」（文件就在那儿，只是坏了）。
+#     判据都避开 id 字面量里带 corrupt 的写法，否则 grep 会匹配到自己发出去的那行命令行。
+
+# ⑧ status：坏 state.json -> 报 corrupt + rc 1，且不得报成 dead
+mkdir -p "$TMP/.claude/.runtime/supervisor/badstate"
+printf '{ "supervisorPid": 424242, "status": "runn' > "$(STATE_OF badstate)"
+RC=0
+OUT=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" status --id badstate 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'corrupt' && ! printf '%s' "$OUT" | grep -q '"status":"dead"'; then
+  pass "⑧ 坏 state.json -> status 报 corrupt + rc 1（不冒充 dead）"
+else
+  fail "⑧ 坏 state.json 被读成「没在跑」：期望 rc=1 且输出点名 corrupt、不出现 \"status\":\"dead\"，实得 rc=$RC 输出：$OUT"
+fi
+
+# ⑨ start：同 id 的 state.json 坏着 -> 拒绝启动 + rc 1 + 点名那个文件。
+#    判据不看 start 自己回什么，看 state.json 有没有被覆盖——它被改写就说明第二个 supervisor
+#    真起来了并开始往里写，那才是这条要挡的事故。
+mkdir -p "$TMP/.claude/.runtime/supervisor/badstart"
+printf '{ "supervisorPid": 424243, "status": "run' > "$(STATE_OF badstart)"
+SHA_BEFORE=$(sha256sum "$(STATE_OF badstart)" | cut -d' ' -f1)
+RC=0
+OUT=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" start --id badstart -- sleep 30 2>&1) || RC=$?
+SHA_AFTER=$(sha256sum "$(STATE_OF badstart)" | cut -d' ' -f1)
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'state.json' && [ "$SHA_BEFORE" = "$SHA_AFTER" ]; then
+  pass "⑨ 坏 state.json -> start 拒绝启动 + rc 1 + 点名 state.json（未覆盖原文件）"
+else
+  fail "⑨ 坏 state.json 被当成「没在跑」直接起了第二个 supervisor：期望 rc=1 + 输出点名 state.json + 文件未被覆盖，实得 rc=$RC state.json 覆盖=$([ "$SHA_BEFORE" = "$SHA_AFTER" ] && echo 否 || echo 是) 输出：$OUT"
+fi
+( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" stop --id badstart ) >/dev/null 2>&1 || true
+
+# ⑩ stop：坏 state.json -> 报 corrupt + rc 1，不得说「no state for id」
+mkdir -p "$TMP/.claude/.runtime/supervisor/badstop"
+printf '{ "supervisorPid": 424244, "status"' > "$(STATE_OF badstop)"
+RC=0
+OUT=$(cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" node "$SUP" stop --id badstop 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'corrupt' && ! printf '%s' "$OUT" | grep -q 'no state for id'; then
+  pass "⑩ 坏 state.json -> stop 报 corrupt + rc 1（不说 no state for id）"
+else
+  fail "⑩ 坏 state.json 被 stop 说成「没有这个 id 的状态」：期望 rc=1 且点名 corrupt、不出现 no state for id，实得 rc=$RC 输出：$OUT"
+fi
+
+# ⑪ 列不出来的 baseDir 不等于「一个服务都没有」。⑧⑨⑩ 锁的是单个 state.json 坏掉，这条锁的是
+#    上一层：整个 .claude/.runtime/supervisor/ 读不出来时，status 现在回 rc 0 + services:[]，
+#    和「这台机器上从没起过服务」一模一样——于是「都停干净了吗」这个问题得到一个没人核实过的
+#    「是」。用独立的 TMP2 做，免得毁掉前面几条用例的运行态；主形态取「路径在、但是个文件」
+#    （ENOTDIR），不吃权限、Windows 上同样成立，权限形态另做一档。
+TMP2="$(mktemp -d)"
+cleanup2() { chmod 700 "$TMP2/.claude/.runtime/supervisor" 2>/dev/null || true; rm -rf "$TMP2"; }
+trap 'cleanup; cleanup2' EXIT
+BASE2="$TMP2/.claude/.runtime/supervisor"
+mkdir -p "$BASE2/svc"
+printf '{ "supervisorPid": 424245, "childPid": 424246, "status": "running" }' > "$BASE2/svc/state.json"
+
+# 对照组：目录读得出来时，那个服务是列得出来的——下面两条红才说明是「读不出来」造成的。
+RC=0
+OUT=$(cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" node "$SUP" status 2>&1) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"id":"svc"'; then
+  pass "⑪a 对照组：baseDir 读得出来时 status 列得出 svc（rc 0）"
+else
+  fail "⑪a 对照组没搭起来：期望 rc=0 且输出含 \"id\":\"svc\"，实得 rc=$RC 输出：$OUT"
+fi
+
+# ⑪b 主形态：baseDir 位置是个文件（ENOTDIR）。判据取「码」和「话」两件：rc 不许是 0，
+#     且不许交出 services:[] 这个和「真没有服务」逐字节相同的答案。
+rm -rf "$BASE2"
+printf 'somebody dropped a file where the supervisor state directory belongs\n' > "$BASE2"
+RC=0
+OUT=$(cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" node "$SUP" status 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] \
+   && printf '%s' "$OUT" | grep -q 'runtime/supervisor' \
+   && ! printf '%s' "$OUT" | grep -q '"services":\[\]'; then
+  pass "⑪b baseDir 列不出来 -> status rc 1 + 点名那个路径（不冒充「没有服务」）"
+else
+  fail "⑪b baseDir 列不出来被读成「一个服务都没有」：期望 rc=1 + 输出点名 runtime/supervisor + 不出现 \"services\":[]，实得 rc=$RC 输出：$OUT"
+fi
+
+# ⑪c 权限形态：目录在、内容也在，只是本进程没权限列。挡不住 chmod 的机器上走 skip。
+rm -f "$BASE2"
+mkdir -p "$BASE2/svc"
+printf '{ "supervisorPid": 424247, "childPid": 424248, "status": "running" }' > "$BASE2/svc/state.json"
+if chmod_can_deny; then
+  chmod 000 "$BASE2"
+  RC=0
+  OUT=$(cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" node "$SUP" status 2>&1) || RC=$?
+  chmod 700 "$BASE2"
+  if [ "$RC" -eq 1 ] && ! printf '%s' "$OUT" | grep -q '"services":\[\]'; then
+    pass "⑪c 无权限列 baseDir -> status rc 1（服务好端端在里面，答案不许是「没有服务」）"
+  else
+    fail "⑪c 无权限列 baseDir 被读成「一个服务都没有」：期望 rc=1 且不出现 \"services\":[]，实得 rc=$RC 输出：$OUT"
+  fi
+else
+  skip "⑪c chmod 000 在本机挡不住读（root 或 Windows），权限形态未执行；同一族的 ⑪b 不吃权限、已真跑"
+fi
+
 echo ""
-echo "结果：PASS=$PASS FAIL=$FAIL"
+echo "结果：PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
 [ "$FAIL" -eq 0 ]

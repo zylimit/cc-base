@@ -9,7 +9,9 @@ import path from 'node:path';
 import {
   TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, isGitRepo, isStateExcluded, normalizeTier,
-  parseCsv, projectRoot, readStdin, repoRelative, sha256, stableJson, whichCmd,
+  errDetail, parseCsv, projectRoot, readDirNames, readStdin, readTextFile, recordCorruptState,
+  repoRelative,
+  sha256, stableJson, whichCmd,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -97,17 +99,34 @@ function matchReceipts(receipts, D) {
   return { matched: null, hadReceipts: list.length > 0 };
 }
 
-/** Load every receipt JSON in the receipts dir (skips unreadable/unparseable). */
+/**
+ * Every receipt JSON in the receipts dir, and the ones that could not be read. A receipt
+ * nobody can read is not a receipt that is not there: it may be the tampered one, so it is
+ * named rather than skipped and the caller decides what it is worth. No receipts dir at all
+ * is a genuine absence and answers empty; a receipts dir that will not list is every receipt
+ * inside it unreadable at once, and is named as the directory it is.
+ * @returns {{receipts:Receipt[],unreadable:string[]}}
+ */
 function loadReceipts() {
   const dir = receiptsDir();
-  let names;
-  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
-  const out = [];
-  for (const n of names) {
-    if (!n.endsWith('.json')) continue;
-    try { out.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))); } catch (_e) { /* skip bad file */ }
+  const listing = readDirNames(dir);
+  if (listing.error) {
+    const detail = errDetail(listing.error);
+    recordCorruptState({ kind: 'receipt', path: dir, reason: detail });
+    return { receipts: [], unreadable: [repoRelative(dir)] };
   }
-  return out;
+  if (listing.absent) return { receipts: [], unreadable: [] };
+  const receipts = [];
+  const unreadable = [];
+  for (const n of listing.names.sort()) {
+    if (!n.endsWith('.json')) continue;
+    const fp = path.join(dir, n);
+    try { receipts.push(JSON.parse(fs.readFileSync(fp, 'utf8'))); } catch (e) {
+      unreadable.push(repoRelative(fp));
+      recordCorruptState({ kind: 'receipt', path: fp, reason: errDetail(e) });
+    }
+  }
+  return { receipts, unreadable };
 }
 
 /**
@@ -115,6 +134,7 @@ function loadReceipts() {
  *  - non-git            -> DEGRADED, exit 3 (cannot compute a trustworthy diff; do not block).
  *  - --task <id>        -> that receipt must exist + be intact + bind to current diff, else exit 4.
  *  - no --task (stop-gate default):
+ *      * any receipt unreadable    -> STALE exit 4, note:"receipt-unreadable" (fail closed).
  *      * no code change            -> PASS exit 0 (nothing to review).
  *      * no receipts yet           -> PASS exit 0, note:"no-receipts" (adoption grace, never over-block).
  *      * some receipt binds diff   -> PASS exit 0.
@@ -131,9 +151,26 @@ function verifyReceipt(flags = {}) {
   if (typeof flags.task === 'string' && flags.task) {
     const id = safeTaskId(flags.task);
     const file = path.join(receiptsDir(), id + '.json');
-    let receipt;
-    try { receipt = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_e) {
+    const read = readTextFile(file);
+    if (read.absent) {
       return { result: { state: 'STALE', note: 'receipt-missing', task: flags.task, diffHash: D }, code: 4 };
+    }
+    let receipt = null;
+    let detail = read.error ? errDetail(read.error) : null;
+    if (!detail) {
+      try { receipt = JSON.parse(read.text); } catch (e) { detail = errDetail(e); }
+    }
+    if (detail) {
+      // Not "receipt-missing": that answer sends the reader off to write a receipt which is
+      // already sitting there, and the fix for a file that cannot be read is a different one.
+      // A mode bit and a truncated line are the same situation here -- the receipt exists and
+      // nobody knows what it says.
+      recordCorruptState({ kind: 'receipt', path: file, reason: detail });
+      process.stderr.write('receipt verify: ' + repoRelative(file) + ' exists and cannot be read (' + detail + ')\n');
+      return {
+        result: { state: 'STALE', note: 'receipt-unreadable', task: flags.task, diffHash: D, unreadable: [repoRelative(file)] },
+        code: 4,
+      };
     }
     if (!receiptIntact(receipt)) {
       return { result: { state: 'STALE', note: 'tampered', task: flags.task, diffHash: D }, code: 4 };
@@ -144,14 +181,23 @@ function verifyReceipt(flags = {}) {
     return { result: { state: 'STALE', note: 'diff-moved', task: flags.task, diffHash: D, receiptDiffHash: receipt.diffHash }, code: 4 };
   }
 
+  // Read the directory before anything else answers, because an unreadable receipt outranks
+  // every other result here -- including a sibling that binds the current diff. The file that
+  // would not parse may be the tampered one, and "some other receipt is fine" says nothing
+  // about it. It stays on disk: a person has to open it.
+  const loaded = loadReceipts();
+  if (loaded.unreadable.length) {
+    process.stderr.write('receipt verify: ' + loaded.unreadable.length + ' receipt path(s) exist and cannot be read ('
+      + loaded.unreadable.join(', ') + '); this tree is not reviewed until somebody reads them\n');
+    return { result: { state: 'STALE', note: 'receipt-unreadable', diffHash: D, unreadable: loaded.unreadable }, code: 4 };
+  }
   if (!hasCodeChange()) {
     return { result: { state: 'PASS', note: 'no-change', diffHash: D }, code: 0 };
   }
-  const receipts = loadReceipts();
-  if (receipts.length === 0) {
+  if (loaded.receipts.length === 0) {
     return { result: { state: 'PASS', note: 'no-receipts', diffHash: D }, code: 0 };
   }
-  const m = matchReceipts(receipts, D);
+  const m = matchReceipts(loaded.receipts, D);
   if (m.matched) {
     return { result: { state: 'PASS', matched: m.matched, diffHash: D }, code: 0 };
   }
@@ -302,7 +348,8 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runC
   // Non-security/safety FAIL/BLOCKED with a matching valid waiver become SKIPPED
   // (reason waiver:<scope>). Security/safety classes are never rewritten. Fast-mode
   // SKIPPED stays orthogonal.
-  const waivers = loadWaivers();
+  const waiverState = loadWaiverState();
+  const waivers = waiverState.waivers;
   const waived = checks.map(c => {
     const next = applyWaiver(c, waivers);
     // preserve module field if present
@@ -322,6 +369,9 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runC
     checks: waived, affected: imp.affected, degraded: imp.degraded,
     emptyPlan,
     attributes: attrs.attributes, attributeGaps: attrs.blockingGaps,
+    // Only when there are any: the gate output is where a reviewer actually looks, and a
+    // field that is always there is a field nobody reads.
+    ...(waiverState.corrupt.length ? { corruptWaivers: waiverState.corrupt } : {}),
   };
 }
 
@@ -331,15 +381,23 @@ function fastModeActive() {
   let raw;
   try { raw = fs.readFileSync(flag, 'utf8'); } catch (_e) { return false; }
   const m = raw.match(/^expires_epoch=(\d+)$/m);
-  if (!m) return false;
+  if (!m) {
+    // Closed is the answer either way, and it is the right one -- lib-fast-mode.sh fails
+    // closed on the same input, and a switch nobody can read must never open the window.
+    // But closed is also what an absent file answers, so a damaged switch and a switch
+    // nobody ever set leave exactly the same trace: none. Then "why did fast mode stop
+    // working" has nowhere to be answered from.
+    recordCorruptState({ kind: 'fast-mode', path: flag, reason: 'no readable expires_epoch line' });
+    return false;
+  }
   return Number(m[1]) * 1000 > Date.now();
 }
 
 /**
  * `verify` subcommand driver. Exit convention:
- *   PASS or all-SKIPPED, no blocking attribute gap -> 0
+ *   PASS with at least one check executed, no blocking attribute gap -> 0
  *   FAIL or BLOCKED, or a critical/high attribute lacks evidence -> 2 (never fake green)
- *   no catalog / non-git -> 3 (degraded, gate skipped rather than block or fake-pass)
+ *   no catalog / non-git, or every check skipped -> 3 (degraded, nothing was established)
  */
 function verifyPlanCmd(flags) {
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
@@ -363,8 +421,16 @@ function verifyPlanCmd(flags) {
   const attrBlocked = Array.isArray(plan.attributeGaps) && plan.attributeGaps.length > 0;
   const gate = (plan.state === 'FAIL' || plan.state === 'BLOCKED') ? plan.state
     : attrBlocked ? 'BLOCKED_BY_ATTRIBUTES' : 'PASS';
-  const code = gate === 'PASS' ? 0 : 2;
-  return { result: { ...plan, gate, fastActive }, code };
+  // A run in which every check was skipped ran nothing, so it established nothing, and 0 is
+  // the answer a caller reads as "verified". The same nothing is already a 3 in dod (every
+  // blocking step degraded) and in release (all seven checks degraded). Blocking still wins:
+  // a FAIL or a missing attribute is a verdict, and 2 is stronger news than 3.
+  const everySkipped = plan.checks.length > 0 && plan.checks.every(c => c.state === 'SKIPPED');
+  const code = gate !== 'PASS' ? 2 : everySkipped ? 3 : 0;
+  return {
+    result: { ...plan, gate, fastActive, ...(everySkipped ? { note: 'every-check-skipped' } : {}) },
+    code,
+  };
 }
 
 // ===========================================================================
@@ -414,25 +480,45 @@ function validateWaiver(w) {
 }
 
 /**
- * Load *.json waivers that pass validateWaiver (skips bad/expired files).
+ * Load *.json waivers that pass validateWaiver, and name the files that could not be read
+ * at all -- including the waivers directory itself, when that is what will not list. Dropping an unreadable waiver is the strict direction and stays -- it exempts
+ * nothing -- but an empty list also reads as "nobody has waived anything", which is a
+ * different fact from "somebody filed a waiver nobody can read", and only one of the two
+ * has an owner. A file that parses and fails validation is not corruption: validateWaiver
+ * already names what is wrong with it and `waiver check` reads it back.
  * Each entry is annotated with _path (absolute) so callers can reach the file; what goes
  * on stdout is the repo-relative rendering, never this one.
- * @returns {Array<Waiver & {_path?:string}>}
+ * @returns {{waivers:Array<Waiver & {_path?:string}>,corrupt:string[]}}
  */
-function loadWaivers() {
+function loadWaiverState() {
   const dir = waiversDir();
-  let names;
-  try { names = fs.readdirSync(dir); } catch (_e) { return []; }
+  const listing = readDirNames(dir);
+  if (listing.error) {
+    const detail = errDetail(listing.error);
+    recordCorruptState({ kind: 'waiver', path: dir, reason: detail });
+    return { waivers: [], corrupt: [repoRelative(dir)] };
+  }
+  if (listing.absent) return { waivers: [], corrupt: [] };
   const out = [];
-  for (const n of names) {
+  const corrupt = [];
+  for (const n of listing.names.sort()) {
     if (!n.endsWith('.json')) continue;
     const fp = path.join(dir, n);
     let obj;
-    try { obj = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_e) { continue; }
+    try { obj = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) {
+      corrupt.push(repoRelative(fp));
+      recordCorruptState({ kind: 'waiver', path: fp, reason: errDetail(e) });
+      continue;
+    }
     if (validateWaiver(obj).length) continue;
     out.push({ ...obj, _path: fp });
   }
-  return out;
+  return { waivers: out, corrupt };
+}
+
+/** The valid waivers alone, for callers that only apply them. */
+function loadWaivers() {
+  return loadWaiverState().waivers;
 }
 
 /**
@@ -481,11 +567,15 @@ function applyWaiver(result, waivers) {
 function cmdWaiver(flags = {}, positional = []) {
   const sub = (positional[0] || flags.sub || 'list');
   if (sub === 'list') {
-    const list = loadWaivers().map(w => {
+    const state = loadWaiverState();
+    const list = state.waivers.map(w => {
       const { _path, ...rest } = w;
       return { path: _path ? repoRelative(_path) : null, ...rest };
     });
-    return emit({ ok: true, waivers: list }, 0);
+    return emit({
+      ok: true, waivers: list,
+      ...(state.corrupt.length ? { corruptWaivers: state.corrupt } : {}),
+    }, 0);
   }
   if (sub === 'check') {
     const file = (typeof flags.file === 'string' && flags.file) || positional[1] || '';
@@ -646,6 +736,7 @@ export {
   receiptsDir, safeTaskId, contentHash, hasCodeChange, writeReceipt, receiptIntact,
   matchReceipts, loadReceipts, verifyReceipt, cmdReceipt, cmdVerify,
   runCheck, aggregateStates, requiredChecks, resolveCheck, verifyPlan, fastModeActive, verifyPlanCmd,
-  WAIVER_FORBIDDEN_RE, waiversDir, validateWaiver, loadWaivers, findWaiverForCheck, applyWaiver, cmdWaiver,
+  WAIVER_FORBIDDEN_RE, waiversDir, validateWaiver, loadWaiverState, loadWaivers, findWaiverForCheck,
+  applyWaiver, cmdWaiver,
   claimingChecks, assessAttributes, cmdAttributes,
 };

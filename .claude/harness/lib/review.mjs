@@ -33,7 +33,8 @@ import process from 'node:process';
 import {
   TIER_RANK,
   changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
-  normalizeTier, readStdin, splitNul, toPosixPath, withDirLock,
+  errDetail, normalizeTier, readStdin, readTextFile, recordCorruptState, splitNul, toPosixPath,
+  withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -213,8 +214,33 @@ function reviewPackDir() {
   return contextPackDir();
 }
 
-function readReview() {
-  try { return JSON.parse(fs.readFileSync(reviewFilePath(), 'utf8')); } catch (_e) { return null; }
+/**
+ * The session, and the reason there is not one. A file that exists and cannot be read is
+ * not a missing session: every caller answers a missing one with "open one with review
+ * start", and opening one writes straight over the file it could not read -- the review it
+ * held goes with it. Whether the read failed on a mode bit or on a truncated line makes no
+ * difference to that, so both come back the same way.
+ * @returns {{session:Object|null,corrupt:{path:string,detail:string}|null}}
+ */
+function readReviewState() {
+  const fp = reviewFilePath();
+  const read = readTextFile(fp);
+  if (read.absent) return { session: null, corrupt: null };
+  let detail = read.error ? errDetail(read.error) : null;
+  if (!detail) {
+    try { return { session: JSON.parse(read.text), corrupt: null }; } catch (e) {
+      detail = errDetail(e);
+    }
+  }
+  recordCorruptState({ kind: 'review', path: fp, reason: detail });
+  return { session: null, corrupt: { path: relFromRoot(fp), detail } };
+}
+
+/** The refusal every session-reading sub-form shares. */
+function corruptSession(sub, corrupt, extra = {}) {
+  process.stderr.write('review ' + sub + ': ' + corrupt.path + ' exists and cannot be read ('
+    + corrupt.detail + '); the session is damaged, not absent -- do not open a new one over it\n');
+  return emit({ ok: false, sub, ...extra, error: 'corrupt-state', path: corrupt.path, detail: corrupt.detail }, 3);
 }
 
 function saveReview(session) {
@@ -616,7 +642,11 @@ function reviewStart(flags) {
 
   // Consecutive rejections of the same work are information about the bar, not an instruction
   // to try again. The lineage carries them across sessions so the round limit can see them.
-  const previous = readReview();
+  const prior = readReviewState();
+  // Opening a review is the one command that writes over this file, so a session it could
+  // not read has to stop it here rather than be treated as no session at all.
+  if (prior.corrupt) return corruptSession('start', prior.corrupt);
+  const previous = prior.session;
   const lineage = (previous && Array.isArray(previous.lineage)) ? previous.lineage : [];
   const carried = (previous && previous.verdict && previous.verdict.verdict === 'FIX_REQUIRED')
     ? lineage.concat([{ at: previous.verdict.at, diffHash: previous.diffHash, errors: previous.verdict.errorCount }])
@@ -668,7 +698,9 @@ function readJsonStdin(shape) {
 function reviewBlue() {
   const parsed = readJsonStdin('{"claims":[{"statement":"...","evidence":"..."}]}');
   if (!parsed.ok) return emit({ ok: false, sub: 'blue', ...parsed }, 3);
-  const session = readReview();
+  const state = readReviewState();
+  if (state.corrupt) return corruptSession('blue', state.corrupt);
+  const session = state.session;
   const f = freshness(session, isGitRepo() ? gitFingerprint() : '');
   if (!f.ok) {
     process.stderr.write('review blue: ' + f.reason + '\n');
@@ -691,7 +723,9 @@ function reviewLens(flags, name) {
   }
   const parsed = readJsonStdin('{"findings":[{"severity":"error","location":"file:line","summary":"..."}]}');
   if (!parsed.ok) return emit({ ok: false, sub: 'lens', lens: name, ...parsed }, 3);
-  const session = readReview();
+  const state = readReviewState();
+  if (state.corrupt) return corruptSession('lens', state.corrupt, { lens: name });
+  const session = state.session;
   const f = freshness(session, isGitRepo() ? gitFingerprint() : '');
   if (!f.ok) {
     process.stderr.write('review lens: ' + f.reason + '\n');
@@ -745,7 +779,9 @@ function reviewLens(flags, name) {
 }
 
 function reviewVerdictCmd(flags) {
-  const session = readReview();
+  const state = readReviewState();
+  if (state.corrupt) return corruptSession('verdict', state.corrupt);
+  const session = state.session;
   const f = freshness(session, isGitRepo() ? gitFingerprint() : '');
   if (!f.ok) {
     process.stderr.write('review verdict: ' + f.reason + '\n');
@@ -819,7 +855,9 @@ function reviewVerdictCmd(flags) {
 }
 
 function reviewBacklog(flags, act) {
-  const session = readReview();
+  const state = readReviewState();
+  if (state.corrupt) return corruptSession('backlog', state.corrupt, { act });
+  const session = state.session;
   if (act === 'list') {
     const now = Date.now();
     const entries = ((session && session.backlog) || []).map(e => ({
@@ -865,7 +903,9 @@ function reviewBacklog(flags, act) {
 }
 
 function reviewStatus() {
-  const session = readReview();
+  const state = readReviewState();
+  if (state.corrupt) return corruptSession('status', state.corrupt);
+  const session = state.session;
   const diffHash = isGitRepo() ? gitFingerprint() : null;
   if (!session) {
     return emit({ ok: false, sub: 'status', note: 'no-review-session', session: null, diffHash }, 0);
@@ -1142,7 +1182,7 @@ export {
   REVIEW_STAGES, LENS_LIBRARY, REVIEW_PROFILES, LOCATION_RE, SEVERITIES,
   BACKLOG_PROTECTED_LENSES, BACKLOG_FORBIDDEN_RE, DEFAULT_MAX_ROUNDS,
   stageOf, reviewProfile, maxRoundsOf, reviewLenses, lensExclusions, stagePassed, currentStage,
-  reviewFilePath, authorshipFilePath, reviewPackDir, readReview, saveReview, freshness,
+  reviewFilePath, authorshipFilePath, reviewPackDir, readReviewState, saveReview, freshness,
   validateClaims, validateFindings, backlogViolations,
   parseAuthorshipLines, readAuthorship, appendAuthorship, authorSetFor, selfReviewedLenses,
   authorshipStatus, computeVerdict, verdictAdvice,

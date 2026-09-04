@@ -3173,6 +3173,860 @@ function selftestCases() {
       }
     }],
 
+    // -----------------------------------------------------------------------
+    // "unreadable" is not "absent". Every path below used to answer a damaged file the way it
+    // answers a missing one, which reads a truncated or tampered artefact as a clean tree --
+    // the one inference a checker must never make, because corruption is the shape tampering
+    // arrives in. Each lane damages exactly one artefact so a failure names which one went
+    // quiet, and none of them removes the damaged file: that is evidence for a person.
+    // -----------------------------------------------------------------------
+    ['receipt verify: an unreadable receipt fails closed, outranks a receipt that binds, and stays on disk', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unreadable-receipt');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'receipt fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+
+        // A receipt that genuinely binds the current diff. Without it this lane could pass on
+        // "there was nothing to match" rather than on the corrupt file being decisive.
+        const written = runIn(root, ['receipt', 'write'], '{"taskId":"good","reviewer":"selftest","verdict":"pass"}');
+        assert.deepEqual([written.code, written.out && written.out.taskId], [0, 'good'], written.err);
+        const control = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([control.code, control.out.state], [0, 'PASS'],
+          'control: with only the intact receipt present this tree verifies, so every result '
+          + 'below is the damaged file talking and nothing else');
+
+        const badRel = '.claude/harness/receipts/broken.json';
+        const bad = writeUnder(root, badRel, '{ "taskId": "broken", "diffHash": "trunc');
+        const beforeSha = createHash('sha256').update(fs.readFileSync(bad)).digest('hex');
+
+        const all = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([all.code, all.out.state, all.out.note], [4, 'STALE', 'receipt-unreadable'],
+          'a receipt nobody can read may be the tampered one, so a sibling that binds the current '
+          + 'diff does not make this tree reviewed: ' + JSON.stringify(all.out));
+        assert.deepEqual(all.out.unreadable, [badRel],
+          'and the answer names the file a person now has to open, repo-relative: ' + JSON.stringify(all.out));
+
+        const one = runIn(root, ['receipt', 'verify', '--task', 'broken']);
+        assert.deepEqual([one.code, one.out.state, one.out.note], [4, 'STALE', 'receipt-unreadable'],
+          '"receipt-missing" sends the reader off to write a receipt that is already there; the '
+          + 'file exists and will not parse, which is a different problem with a different fix: '
+          + JSON.stringify(one.out));
+
+        assert.ok(fs.existsSync(bad), 'the damaged receipt is evidence and is not deleted');
+        assert.deepEqual(createHash('sha256').update(fs.readFileSync(bad)).digest('hex'), beforeSha,
+          'nor rewritten in place');
+        assert.deepEqual(fs.readdirSync(path.dirname(bad)).sort(), ['broken.json', 'good.json'],
+          'nor renamed out of the way: moving evidence aside is a decision for a person, and a '
+          + 'checker that tidies up destroys the only copy of what went wrong');
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['arch-trend: a history line that will not parse is counted, and the ratchet refuses to judge a history with holes', () => {
+      const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-trend-hole-')));
+      try {
+        const snap = (at, undeclared) => JSON.stringify({
+          at, headCommit: 'c-' + at, undeclared, forbidden: 0, cycles: 0, unused: 0, unresolved: 0,
+          undeclaredEdges: [], cycleKeys: [],
+        });
+        const trendRel = '.claude/harness/trend/arch-trend.jsonl';
+        writeUnder(root, trendRel,
+          [snap('2020-01-01', 1), '{ "at": "2020-01-02", "undeclared": tru', snap('2020-01-03', 1)].join('\n') + '\n');
+
+        const report = runIn(root, ['arch-trend']);
+        assert.deepEqual([report.code, report.out.records, report.out.corruptLines], [0, 2, 1],
+          'reporting mode still reports -- two records read -- but the line nobody could read is a '
+          + 'number in the answer rather than an absence: ' + JSON.stringify(report.out));
+
+        const gated = runIn(root, ['arch-trend', '--gate']);
+        assert.deepEqual(gated.code, 1,
+          'the ratchet compares the latest state against the best recorded one; with a record '
+          + 'missing from the history it cannot tell new debt from debt somebody failed to write '
+          + 'down, and 0 there is a pass nobody established: ' + JSON.stringify(gated.out));
+        // Read through whichever field carries the why: the command answers today in `note` and
+        // the contract names it `reason`, and pinning one spelling would make this lane about a
+        // field name rather than about the refusal.
+        const why = String((gated.out && (gated.out.reason || gated.out.note)) || '');
+        assert.ok(why.includes('trend-history-corrupt'),
+          'and it says so in those words, so the next step is "repair the ledger" rather than '
+          + '"go find the new dependency": ' + why);
+
+        // Control: the same two good records with nothing damaged between them pass the gate.
+        // That is what proves the exit code above comes from the hole and not from the snapshots.
+        writeUnder(root, trendRel, [snap('2020-01-01', 1), snap('2020-01-03', 1)].join('\n') + '\n');
+        const clean = runIn(root, ['arch-trend', '--gate']);
+        assert.deepEqual([clean.code, clean.out.records, clean.out.corruptLines || 0], [0, 2, 0],
+          'control: an intact history of the same two snapshots ratchets clean: ' + JSON.stringify(clean.out));
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }],
+
+    ['verify and gate: a run in which every check was skipped established nothing, and does not answer 0', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'all-skipped');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'skip fixture base');
+        writeSkippableCatalog(root);
+        writeFastMode(root);
+
+        const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
+        assert.deepEqual([ver.out.affected, ver.out.checks.map(c => c.state)], [['pay'], ['SKIPPED']],
+          'fixture check: the module resolved and its one check was deferred by fast mode, so '
+          + 'this run really is the all-skipped shape: ' + JSON.stringify(ver.out));
+        assert.deepEqual([ver.code, ver.out.note], [3, 'every-check-skipped'],
+          'nothing ran, so nothing was established, and 0 is the answer a caller reads as '
+          + '"verified" -- the same nothing dod and release already report as 3: ' + JSON.stringify(ver.out));
+
+        const gated = runIn(root, ['gate', '--changed', 'pay/a.ts']);
+        assert.deepEqual([gated.code, gated.out.reason], [3, 'every-check-skipped'],
+          'the gate already writes the reason into its ledger record and then exits 0 beside it; '
+          + 'the record being right does not help a caller that only reads the code: '
+          + JSON.stringify({ code: gated.code, gate: gated.out.gate, reason: gated.out.reason }));
+
+        // Control: close the fast-mode window and the same catalog runs for real. A green here
+        // is what proves the two results above come from the skipping and not from the fixture.
+        writeFastMode(root, 'enabled_epoch=1\nexpires_epoch=1\nhours=24\n');
+        const real = runIn(root, ['verify', '--changed', 'pay/a.ts']);
+        assert.deepEqual([real.code, real.out.state, real.out.checks.map(c => c.state)], [0, 'PASS', ['PASS']],
+          'control: with the window shut the check executes and the gate passes for a reason: '
+          + JSON.stringify(real.out));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['task: a task record that will not parse is corrupt-state, not "no active task"', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unreadable-task');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'task fixture base');
+        writeSkippableCatalog(root);
+        const rel = '.claude/harness/state/task.json';
+        writeUnder(root, rel, '{ "id": "T-1", "state": "activ');
+
+        const st = runIn(root, ['task', 'status']);
+        assert.deepEqual([st.code, st.out.error, st.out.path], [3, 'corrupt-state', rel],
+          'no-task-record is the answer for a tree where nobody started a task; here somebody did '
+          + 'and the record went bad, and the two need different next moves -- one is "start one", '
+          + 'the other is "find out who wrote this": ' + JSON.stringify(st.out));
+        assert.ok(typeof st.out.detail === 'string' && st.out.detail.length > 0,
+          'and it carries the parse error, or the next reader reproduces it by hand: ' + JSON.stringify(st.out));
+
+        const done = runIn(root, ['task', 'complete']);
+        assert.deepEqual([done.code, done.out.error], [3, 'corrupt-state'],
+          'and completing against it must not report "no active task" either: that sentence '
+          + 'invites starting a fresh record straight over the damaged one: ' + JSON.stringify(done.out));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['review: a session file that will not parse is corrupt-state, not an invitation to open a new one', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unreadable-review');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'review fixture base');
+        const rel = '.claude/harness/state/review.json';
+        writeUnder(root, rel, '{ "version": 1, "diffHash": "D0", "requiredLen');
+
+        for (const [argv, stdin] of [[['review', 'verdict'], ''], [['review', 'lens', 'correctness'], '{"findings":[]}']]) {
+          const r = runIn(root, argv, stdin);
+          const label = argv.join(' ');
+          assert.deepEqual([r.code, r.out.error], [3, 'corrupt-state'],
+            label + ': "no review session; open one with review start" is advice that overwrites '
+            + 'the file it could not read, and the review it held goes with it: ' + JSON.stringify(r.out));
+          assert.ok(JSON.stringify(r.out).includes(rel),
+            label + ': the answer names the session file, since that is the thing to go look at: '
+            + JSON.stringify(r.out));
+          assert.ok(!r.out.missing,
+            label + ': a session file that exists is not a missing one, and reporting missing:true '
+            + 'is what makes the advice above look correct: ' + JSON.stringify(r.out));
+        }
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['waiver: a waiver file that will not parse is named by waiver list and by verify, not just dropped', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unreadable-waiver');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'waiver fixture base');
+        writeSkippableCatalog(root);
+        const rel = '.claude/harness/waivers/broken.json';
+        writeUnder(root, rel, '{ "version": 1, "scope": "unit", "expiry": "20');
+
+        const list = runIn(root, ['waiver', 'list']);
+        assert.deepEqual([list.code, list.out.corruptWaivers], [0, [rel]],
+          'dropping it is the strict direction and stays -- an unreadable waiver must not exempt '
+          + 'anything -- but an empty list also reads as "nobody has waived anything", which is a '
+          + 'different fact from "somebody filed a waiver nobody can read": ' + JSON.stringify(list.out));
+
+        const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
+        assert.deepEqual(ver.out.corruptWaivers, [rel],
+          'and the gate output is where a reviewer actually looks, so it carries the same list: '
+          + JSON.stringify(ver.out));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['fast-mode: a damaged flag file reads as closed, and the damage is recorded rather than inferred away', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unreadable-fastmode');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'fast-mode fixture base');
+        writeSkippableCatalog(root);
+        writeFastMode(root, 'this file was half written and carries no expiry at all\n');
+
+        const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
+        // Regression guard, green before the fix as well: closed is already the direction both
+        // the engine and lib-fast-mode.sh take, and it is the direction that must not drift --
+        // a flag file nobody can read must never open the window.
+        assert.deepEqual([ver.out.fastActive, ver.out.checks.map(c => c.state)], [false, ['PASS']],
+          'a flag file with no readable expiry does not open the window, in the engine exactly as '
+          + 'in lib-fast-mode.sh: ' + JSON.stringify(ver.out));
+
+        const qRel = '.claude/harness/state/quarantine.jsonl';
+        const q = path.join(root, qRel);
+        assert.ok(fs.existsSync(q),
+          'but "closed" is the whole of what gets reported today, and a switch file somebody '
+          + 'damaged then leaves no trace at all -- the same silence a tampered one would leave');
+        const lines = fs.readFileSync(q, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+        assert.ok(lines.some(l => l && String(l.path) === '.claude/.fast-mode'),
+          'and the line names the file, so "why did fast mode stop working" has an answer: '
+          + JSON.stringify(lines));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['quarantine: a corruption detection leaves a line behind, and risk reports the pile', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'quarantine');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'quarantine fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const badRel = '.claude/harness/receipts/broken.json';
+        const bad = writeUnder(root, badRel, '{ "taskId": "broken", "diffHash": "trunc');
+
+        // The trigger. Whatever exit code it lands on is the receipt lane's subject, not this
+        // one's -- what this lane is about is what the detection left behind for the next reader.
+        runIn(root, ['receipt', 'verify']);
+
+        const qRel = '.claude/harness/state/quarantine.jsonl';
+        const q = path.join(root, qRel);
+        assert.ok(fs.existsSync(q),
+          'a command that noticed a damaged artefact and then exited is the only record that it '
+          + 'ever noticed; the next run starts from the same nothing, and nobody counts anything');
+        const lines = fs.readFileSync(q, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+        const hit = lines.find(l => l && l.kind === 'receipt' && l.path === badRel);
+        assert.ok(hit, 'the line names what kind of artefact and which file: ' + JSON.stringify(lines));
+        assert.ok(typeof hit.ts === 'string' && String(hit.reason || '').length > 0,
+          'with a timestamp and a reason, or the pile is unreadable by the time it matters: ' + JSON.stringify(hit));
+        assert.ok(fs.existsSync(bad),
+          'and recording it is all that happens: the file itself is not moved into a quarantine '
+          + 'directory, because relocating evidence is a decision for a person');
+
+        const risk = runIn(root, ['risk']);
+        const finding = ((risk.out && risk.out.findings) || []).find(f => f.code === 'QUARANTINED_STATE');
+        assert.ok(finding,
+          'risk is the one command whose job is "what is quietly wrong here"; damaged state that '
+          + 'only the command that tripped over it ever saw does not reach anybody: '
+          + JSON.stringify(risk.out));
+        assert.deepEqual(finding.severity, 'warning',
+          'warning, not error: the damage is already refused wherever it matters, and an exit code '
+          + 'here would only teach people to stop running risk: ' + JSON.stringify(finding));
+        assert.ok(JSON.stringify(finding).includes(badRel),
+          'and it carries the most recent path, so the report is actionable without opening the '
+          + 'ledger by hand: ' + JSON.stringify(finding));
+        // How many is the other half -- one damaged file and forty are different situations --
+        // read through any numeric field or a number in the message, because which of the two
+        // carries it is the implementation's choice and not the contract.
+        assert.ok(['count', 'entries', 'occurrences', 'lines'].some(k => typeof finding[k] === 'number')
+          || /\d/.test(String(finding.message || '')),
+          'and how many entries the pile holds: ' + JSON.stringify(finding));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['trace: a corpus the budget cut short is a degraded measurement, not a smaller one', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'trace-truncated');
+        commitFiles(root, {
+          'Product-Spec.md': specDoc(['- [REQ-PAY-001] pay: user clicks -> system charges -> receipt shows']),
+          'pay/a.ts': '// implements REQ-PAY-001\nexport const a = 1;\n',
+          'tests/pay.test.ts': '// covers REQ-PAY-001\n',
+        }, 'trace fixture base');
+        const cat = (name, extra) => writeUnder(root, name,
+          JSON.stringify({ version: 1, ...extra, modules: [{ id: 'pay', paths: ['pay/**'] }] }, null, 2) + '\n');
+        const full = cat('full-catalog.json', {});
+        // One tracked path is all this catalog will look at, and git lists Product-Spec.md first
+        // -- which trace skips as the document itself. So the corpus that reaches collectReferences
+        // is empty for a reason that has nothing to do with the repository.
+        const capped = cat('capped-catalog.json', { maxTrackedPaths: 1 });
+
+        const whole = runIn(root, ['trace', '--catalog', full]);
+        assert.deepEqual([whole.code, whole.out.truncated, whole.out.verified], [0, false, 1],
+          'control: read whole, this repository traces clean -- one requirement, one test that '
+          + 'references it: ' + JSON.stringify(whole.out));
+
+        const cut = runIn(root, ['trace', '--catalog', capped]);
+        assert.deepEqual([cut.out.truncated, cut.out.scanned], [true, 0],
+          'fixture check: the cap really did cut the corpus short: ' + JSON.stringify(cut.out));
+        assert.deepEqual([cut.code, cut.out.degraded === true], [3, true],
+          'the same tree now answers "one requirement is unverified" with the exit code that means '
+          + 'exactly that, when what actually happened is that the files which would have verified '
+          + 'it were never read -- a wrong diagnosis, not a stricter one: '
+          + JSON.stringify({ code: cut.code, unverified: cut.out.unverified, truncated: cut.out.truncated }));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    // ---------------------------------------------------------------------
+    // The same family one level out: ENOENT is the only error that means "not there".
+    // The lanes above pin down a file that exists and will not parse. These pin down a path
+    // that exists and will not open -- a directory nobody can list, a name that is not the
+    // kind of thing the reader expected, a mode bit that denies the read. Every one of them
+    // currently answers with the sentence reserved for absence, which is the answer that
+    // clears .needs-review, starts a fresh record over a damaged one, or reports a clean
+    // ratchet nobody established.
+    //
+    // Each lane states the answer the already-fixed parse path gives for the same artefact,
+    // because "an I/O failure is read the same way a parse failure is" is the whole contract
+    // and it makes every expectation below a quotation rather than an invention.
+    //
+    // Two fault forms per lane. EISDIR / ENOTDIR needs no privilege and means the same thing
+    // on every platform, so it carries the assertions and this file keeps its Windows
+    // coverage. chmod 000 is the form the review reproduced, and it only exists where this
+    // process can be denied a read; withPermissionDenied() says on stderr when it did not run
+    // rather than letting an unrun case be counted as a passing one.
+    // ---------------------------------------------------------------------
+
+    ['receipt verify: a receipts directory nobody can list is not a directory with no receipts in it', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unlistable-receipts');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'receipt dir fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const dirRel = '.claude/harness/receipts';
+        const dir = path.join(root, dirRel);
+
+        // Control, taken first while the path genuinely is not there. This is the answer the
+        // adoption grace exists for -- a repository that has never written a receipt -- and it
+        // is the answer both damaged cases below are currently indistinguishable from.
+        const absent = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([absent.code, absent.out.state, absent.out.note], [0, 'PASS', 'no-receipts'],
+          'control: no receipts directory at all is a genuine absence and verifies, which must '
+          + 'still be true after the fix: ' + JSON.stringify(absent.out));
+
+        const written = runIn(root, ['receipt', 'write'], '{"taskId":"good","reviewer":"selftest","verdict":"accept"}');
+        assert.deepEqual([written.code, written.out && written.out.taskId], [0, 'good'], written.err);
+        const bound = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([bound.code, bound.out.state], [0, 'PASS'],
+          'control: and with one intact receipt binding this diff it verifies too, so the results '
+          + 'below are the unlistable directory talking: ' + JSON.stringify(bound.out));
+
+        // Form one: the directory is there and the process is refused a listing of it. This is
+        // the case the review reproduced, and the receipt sitting inside it is the point -- the
+        // one artefact that would answer the question is the one that cannot be reached.
+        withPermissionDenied(root, 'unlistable-receipts', dir, () => {
+          const denied = runIn(root, ['receipt', 'verify']);
+          assert.deepEqual([denied.code, denied.out.state, denied.out.note], [4, 'STALE', 'receipt-unreadable'],
+            'a directory that will not list is every receipt inside it unreadable at once, and the '
+            + 'file-level check already fails closed on exactly one of those; answering PASS here '
+            + 'is what clears .claude/.needs-review and lets stop-gate release a tree in which '
+            + 'nobody could read a single receipt: ' + JSON.stringify(denied.out));
+          assert.ok((denied.out.unreadable || []).includes(dirRel),
+            'and it names the directory, repo-relative, because that is the thing to go look at: '
+            + JSON.stringify(denied.out));
+        });
+
+        // Form two: the path exists and is not a directory. Needs no privilege, means the same
+        // thing on win32, and is therefore where this lane's guarantee actually lives.
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.writeFileSync(dir, 'somebody dropped a file where the receipts directory belongs\n', 'utf8');
+        const notDir = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([notDir.code, notDir.out.state, notDir.out.note], [4, 'STALE', 'receipt-unreadable'],
+          'nor is a receipts path that turned out to be a file an empty receipts directory: the '
+          + 'engine cannot enumerate what it was asked to check, and the one answer it must not '
+          + 'give is the one that means there was nothing to check: ' + JSON.stringify(notDir.out));
+        assert.ok((notDir.out.unreadable || []).includes(dirRel),
+          'named the same way, so the report reads alike however the listing failed: '
+          + JSON.stringify(notDir.out));
+
+        const q = quarantineLines(root);
+        assert.ok(q.some(l => l && String(l.path) === dirRel),
+          'and the detection is written down, as the parse path already writes one down: a '
+          + 'command that noticed the receipts were unreachable and then exited is the only '
+          + 'record that anybody ever noticed: ' + JSON.stringify(q));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['receipt verify --task: a receipt that will not open is unreadable, and "receipt-missing" sends the reader to write one that is already there', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unopenable-receipt');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'receipt file fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+
+        // Control first, before anything has been damaged: no file of that name, so nothing is
+        // recorded and the advice to go write one is correct.
+        const ghost = runIn(root, ['receipt', 'verify', '--task', 'ghost']);
+        assert.deepEqual([ghost.code, ghost.out.state, ghost.out.note], [4, 'STALE', 'receipt-missing'],
+          'control: a receipt that was never written is missing, and stays missing after the fix: '
+          + JSON.stringify(ghost.out));
+        assert.deepEqual(quarantineLines(root), [],
+          'control: and an absence is not damage, so nothing is written to the quarantine ledger');
+
+        // The exit code is already 4 here, so this lane is not about being blocked -- it is
+        // about what the reader is told to do next. "receipt-missing" is an instruction to
+        // write a receipt that is sitting right there, and following it overwrites the file.
+        const dirRel = '.claude/harness/receipts/dirform.json';
+        const asDir = path.join(root, dirRel);
+        fs.mkdirSync(asDir, { recursive: true });
+        const one = runIn(root, ['receipt', 'verify', '--task', 'dirform']);
+        assert.deepEqual([one.code, one.out.state, one.out.note], [4, 'STALE', 'receipt-unreadable'],
+          'the file is there and will not open, which is the same situation as the file that is '
+          + 'there and will not parse -- already answered receipt-unreadable -- and a different '
+          + 'one from never having been written: ' + JSON.stringify(one.out));
+        assert.ok((one.out.unreadable || []).includes(dirRel),
+          'and it names the path, as the parse form does: ' + JSON.stringify(one.out));
+        const q = quarantineLines(root);
+        assert.ok(q.some(l => l && l.kind === 'receipt' && String(l.path) === dirRel),
+          'and leaves the same kind of line behind: a receipt that could not be opened may be the '
+          + 'tampered one, and the pile is where risk reads it out of: ' + JSON.stringify(q));
+
+        const permRel = '.claude/harness/receipts/permform.json';
+        const perm = writeUnder(root, permRel, '{"taskId":"permform","verdict":"accept"}');
+        withPermissionDenied(root, 'unopenable-receipt', perm, () => {
+          const denied = runIn(root, ['receipt', 'verify', '--task', 'permform']);
+          assert.deepEqual([denied.code, denied.out.state, denied.out.note], [4, 'STALE', 'receipt-unreadable'],
+            'and a mode bit denies the read of a receipt that is intact on disk, which is the '
+            + 'furthest thing from a receipt nobody wrote: ' + JSON.stringify(denied.out));
+          assert.ok(quarantineLines(root).some(l => l && l.kind === 'receipt' && String(l.path) === permRel),
+            'recorded under the same kind: ' + JSON.stringify(quarantineLines(root)));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['task: a task record that will not open is corrupt-state, and "no active task" is advice to write over it', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unopenable-task');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'task io fixture base');
+        writeSkippableCatalog(root);
+        const rel = '.claude/harness/state/task.json';
+        const abs = path.join(root, rel);
+
+        const absent = runIn(root, ['task', 'status']);
+        assert.deepEqual([absent.code, absent.out.note, absent.out.active], [0, 'no-task-record', false],
+          'control: a tree where nobody ever started a task answers no-task-record at exit 0, and '
+          + 'goes on doing exactly that after the fix: ' + JSON.stringify(absent.out));
+
+        // A record that exists and will not open. The parse form of this already answers
+        // corrupt-state at exit 3; nothing about a mode bit or a wrong file kind makes the
+        // record less present, and "no active task" is read as an invitation to start one --
+        // which writes straight over the damaged file, destroying what went wrong.
+        fs.mkdirSync(abs, { recursive: true });
+        const st = runIn(root, ['task', 'status']);
+        assert.deepEqual([st.code, st.out.error, st.out.path], [3, 'corrupt-state', rel],
+          'a record that cannot be opened is damaged, not absent, and the two need opposite next '
+          + 'moves -- one is "start one", the other is "find out who wrote this": '
+          + JSON.stringify(st.out));
+
+        const done = runIn(root, ['task', 'complete']);
+        assert.deepEqual([done.code, done.out.error], [3, 'corrupt-state'],
+          'and completing against it must not report "no active task" either, for the same reason '
+          + 'the parse form must not: ' + JSON.stringify(done.out));
+
+        assert.ok(quarantineLines(root).some(l => l && String(l.path) === rel),
+          'and the damage is recorded, as it is when the same file will not parse: '
+          + JSON.stringify(quarantineLines(root)));
+
+        fs.rmSync(abs, { recursive: true, force: true });
+        writeUnder(root, rel, '{ "id": "T-1", "state": "active", "goal": "g" }');
+        withPermissionDenied(root, 'unopenable-task', abs, () => {
+          const denied = runIn(root, ['task', 'status']);
+          assert.deepEqual([denied.code, denied.out.error], [3, 'corrupt-state'],
+            'including the case the review reproduced: a perfectly valid record this process is '
+            + 'not allowed to read: ' + JSON.stringify(denied.out));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['review: a session file that will not open is corrupt-state, not a missing session', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unopenable-review');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'review io fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const rel = '.claude/harness/state/review.json';
+        const abs = path.join(root, rel);
+
+        const absent = runIn(root, ['review', 'status']);
+        assert.deepEqual([absent.code, absent.out.note], [0, 'no-review-session'],
+          'control: no session file means no session, at exit 0, before and after the fix: '
+          + JSON.stringify(absent.out));
+
+        fs.mkdirSync(abs, { recursive: true });
+        const st = runIn(root, ['review', 'status']);
+        assert.deepEqual([st.code, st.out.error], [3, 'corrupt-state'],
+          'a session file that cannot be opened is not the absence of a review; the parse form of '
+          + 'this is already corrupt-state, and an unreadable file is no more absent than an '
+          + 'unparseable one: ' + JSON.stringify(st.out));
+        assert.ok(JSON.stringify(st.out).includes(rel),
+          'and it names the file, since that is the thing to go look at: ' + JSON.stringify(st.out));
+
+        const verdict = runIn(root, ['review', 'verdict']);
+        assert.ok(!verdict.out.missing,
+          'and no verb reports missing:true about a file that is sitting there -- that field is '
+          + 'what makes "open one with review start" look like the correct next move, and taking '
+          + 'it loses the review the file held: ' + JSON.stringify(verdict.out));
+
+        assert.ok(quarantineLines(root).some(l => l && String(l.path) === rel),
+          'and the damage is written down, as the parse form writes it down: '
+          + JSON.stringify(quarantineLines(root)));
+
+        fs.rmSync(abs, { recursive: true, force: true });
+        writeUnder(root, rel, '{ "version": 1, "diffHash": "D0" }');
+        withPermissionDenied(root, 'unopenable-review', abs, () => {
+          const denied = runIn(root, ['review', 'status']);
+          assert.deepEqual([denied.code, denied.out.error], [3, 'corrupt-state'],
+            'including a session file this process is merely not allowed to read: '
+            + JSON.stringify(denied.out));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['arch-trend: a history nobody can read is not a repository without a history, and the ratchet must not tell it to re-baseline', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unopenable-trend');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'trend io fixture base');
+        const rel = '.claude/harness/trend/arch-trend.jsonl';
+        const abs = path.join(root, rel);
+
+        const absent = runIn(root, ['arch-trend', '--gate']);
+        assert.deepEqual([absent.code, absent.out.ok, absent.out.records], [0, true, 0],
+          'control: a repository that has never recorded a snapshot has no debt to compare '
+          + 'against and passes the ratchet, which stays true after the fix: '
+          + JSON.stringify(absent.out));
+
+        // A history that exists and cannot be read. One unparseable line in it already stops the
+        // ratchet, on the grounds that the best recorded state cannot be established with a
+        // record missing -- and a file that will not open is every record missing at once.
+        fs.mkdirSync(abs, { recursive: true });
+        const gated = runIn(root, ['arch-trend', '--gate']);
+        assert.deepEqual(gated.code, 1,
+          'with the whole history unreadable the ratchet cannot tell new debt from debt nobody '
+          + 'could read, and 0 regressions is a pass nobody established -- the same reasoning '
+          + 'that already stops it on a single bad line: ' + JSON.stringify(gated.out));
+        const why = String((gated.out && (gated.out.reason || gated.out.note)) || '');
+        assert.ok(why.includes('trend-history-corrupt'),
+          'and it says so in the words the contract uses, so the next step is "repair the ledger": '
+          + why);
+        assert.ok(!JSON.stringify(gated.out).includes('no trend data'),
+          'and it does not say there is no trend data, which is the sentence that sends a reader '
+          + 'to record a fresh baseline straight over a history they were never shown: '
+          + JSON.stringify(gated.out));
+
+        assert.ok(quarantineLines(root).some(l => l && String(l.path) === rel),
+          'and the damage is recorded, as an unparseable line in the same file is recorded: '
+          + JSON.stringify(quarantineLines(root)));
+
+        fs.rmSync(abs, { recursive: true, force: true });
+        const snap = JSON.stringify({
+          at: '2020-01-01', headCommit: 'c1', undeclared: 1, forbidden: 0, cycles: 0, unused: 0,
+          unresolved: 0, undeclaredEdges: [], cycleKeys: [],
+        });
+        writeUnder(root, rel, snap + '\n');
+        withPermissionDenied(root, 'unopenable-trend', abs, () => {
+          const denied = runIn(root, ['arch-trend', '--gate']);
+          assert.deepEqual(denied.code, 1,
+            'including an intact history this process is not allowed to open: '
+            + JSON.stringify(denied.out));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['task start: the one verb that writes refuses a damaged record, as review start already does', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'task-start-clobber');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'task start fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const rel = '.claude/harness/state/task.json';
+        const abs = path.join(root, rel);
+        const envelope = JSON.stringify({
+          id: 'NEW', goal: 'g', scope: 'pay/**', outOfScope: 'N/A',
+          existingPattern: 'N/A', verification: 'unit', escalation: 'N/A',
+        });
+
+        const fresh = runIn(root, ['task', 'start'], envelope);
+        assert.deepEqual([fresh.code, fresh.out.ok, fresh.out.task.id], [0, true, 'NEW'],
+          'control: with no record in the way, starting a task is exactly what start is for, and '
+          + 'that must not change: ' + JSON.stringify(fresh.out));
+
+        // status and complete were taught to refuse a damaged record. They are the two verbs
+        // that only read it. start is the one that writes, so it is the only one that can
+        // actually destroy what went wrong -- and it never looks.
+        writeUnder(root, rel, '{ "id": "PRECIOUS", "state": "activ');
+        const before = createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
+        const over = runIn(root, ['task', 'start'], envelope);
+        assert.deepEqual([over.code, over.out && over.out.error], [3, 'corrupt-state'],
+          'a damaged record is the reason to stop, not the reason to open a new one; the two '
+          + 'readers of this file already answer corrupt-state and the writer does not look at '
+          + 'all: ' + JSON.stringify(over.out));
+        assert.deepEqual(createHash('sha256').update(fs.readFileSync(abs)).digest('hex'), before,
+          'and the refusal is judged by the file, not by the exit code: the damaged record is the '
+          + 'only copy of what happened, and the answer that reads "no active task" is an '
+          + 'instruction to write over it. On disk now: '
+          + JSON.stringify(fs.readFileSync(abs, 'utf8').slice(0, 120)));
+
+        // Contrast, and a regression guard: green before the fix as well. Of the three starts in
+        // this repository two already refuse, which is what makes the third one an oversight
+        // rather than a design.
+        const reviewRel = '.claude/harness/state/review.json';
+        const reviewAbs = writeUnder(root, reviewRel, '{ "version": 1, "diffHash": "D0", "requiredLen');
+        const rBefore = createHash('sha256').update(fs.readFileSync(reviewAbs)).digest('hex');
+        const rStart = runIn(root, ['review', 'start'], '{"lenses":["correctness"],"reviewer":"selftest"}');
+        assert.deepEqual([rStart.code, rStart.out && rStart.out.error], [3, 'corrupt-state'],
+          'reference: review start refuses the same shape of damage, and this lane exists to make '
+          + 'task start agree with it: ' + JSON.stringify(rStart.out));
+        assert.deepEqual(createHash('sha256').update(fs.readFileSync(reviewAbs)).digest('hex'), rBefore,
+          'reference: and leaves the damaged session file alone');
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['task complete: an unreadable receipt blocks the hard gate, not only the checker that reports on receipts', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'task-complete-receipts');
+        // Committed, so the catalog is not itself an untracked path in the change surface it
+        // is being used to measure.
+        const catalog = JSON.stringify({
+          version: 1,
+          modules: [{ id: 'pay', paths: ['pay/**'], riskTier: 'low', verification: ['unit'] }],
+          checks: { unit: { command: process.execPath + ' --version', class: 'quality' } },
+        }, null, 2) + '\n';
+        commitFiles(root, {
+          'pay/a.ts': 'export const a = 1;\n',
+          '.claude/harness/module-catalog.json': catalog,
+        }, 'task complete fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const envelope = JSON.stringify({
+          id: 'NEW', goal: 'g', scope: 'pay/**', outOfScope: 'N/A',
+          existingPattern: 'N/A', verification: 'unit', escalation: 'N/A',
+        });
+
+        // Every condition of the hard gate satisfied for real: an active task, a PASS gate that
+        // chose its own scope and bound this diff, an accepting receipt on the same diff, an
+        // intact ledger, a non-empty plan. Without this control the red below could be any one
+        // of those four conditions rather than the receipt pile.
+        assert.deepEqual(runIn(root, ['task', 'start'], envelope).code, 0, 'fixture: task start');
+        assert.deepEqual(runIn(root, ['gate']).code, 0, 'fixture: gate must pass');
+        assert.deepEqual(
+          runIn(root, ['receipt', 'write'], '{"taskId":"good","reviewer":"selftest","verdict":"accept"}').code, 0,
+          'fixture: receipt write');
+        const clean = runIn(root, ['task', 'complete']);
+        assert.deepEqual([clean.code, clean.out.ok, clean.out.blockers], [0, true, []],
+          'control: with an intact pile this task really does complete, so everything below is '
+          + 'the damaged receipt talking: ' + JSON.stringify(clean.out));
+
+        assert.deepEqual(runIn(root, ['task', 'start'], envelope).code, 0, 'fixture: re-open the task');
+        const badRel = '.claude/harness/receipts/broken.json';
+        writeUnder(root, badRel, '{ "taskId": "broken", "diffHash": "trunc');
+
+        // The same loader, read two ways. `receipt verify` treats an unreadable receipt as
+        // outranking every sibling that binds, because the file that would not parse may be the
+        // tampered one. `task complete` reads .receipts off the same call and drops .unreadable.
+        const checker = runIn(root, ['receipt', 'verify']);
+        assert.deepEqual([checker.code, checker.out.note], [4, 'receipt-unreadable'],
+          'fixture check: the receipt checker does refuse this tree: ' + JSON.stringify(checker.out));
+
+        const done = runIn(root, ['task', 'complete']);
+        assert.notDeepEqual(done.code, 0,
+          'and the gate documented as the hard one must not be the softer of the two: on this '
+          + 'exact tree receipt verify exits 4 and task complete declares the task finished, '
+          + 'which makes "a receipt nobody can read may be the tampered one" a rule that stops '
+          + 'the checker and not the thing the checker guards: ' + JSON.stringify(done.out));
+        assert.ok(JSON.stringify(done.out && done.out.blockers || []).includes('receipt-unreadable'),
+          'and it says which condition failed, by the name the rest of the engine uses for it, '
+          + 'because a blocker nobody can act on is a wall without a door: ' + JSON.stringify(done.out));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['spec: a corpus the budget cut short renders requirements as unverified, and says nothing about having been cut', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'spec-truncated');
+        commitFiles(root, {
+          'Product-Spec.md': specDoc(['- [REQ-PAY-001] pay: user clicks -> system charges -> receipt shows']),
+          'pay/a.ts': '// implements REQ-PAY-001\nexport const a = 1;\n',
+          'tests/pay.test.ts': '// covers REQ-PAY-001\n',
+        }, 'spec view fixture base');
+        // The catalogs live outside the repository: inside it they are untracked paths that no
+        // module claims, which degrades impact and would narrow nothing -- a second reason for
+        // the answer to change, on top of the one this lane is measuring.
+        const side = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-spec-cat-')));
+        roots.push(side);
+        const cat = (name, extra) => {
+          const p = path.join(side, name);
+          fs.writeFileSync(p, JSON.stringify({ version: 1, ...extra, modules: [{ id: 'pay', paths: ['pay/**'] }] }, null, 2) + '\n', 'utf8');
+          return p;
+        };
+        const full = cat('full.json', {});
+        // One tracked path is all this catalog will look at, and git lists Product-Spec.md first
+        // -- which the tracer skips as the document itself. So the file that cites the id is
+        // never read, for a reason that has nothing to do with the repository.
+        const capped = cat('capped.json', { maxTrackedPaths: 1 });
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+
+        const whole = runIn(root, ['spec', '--catalog', full]);
+        assert.deepEqual([whole.code, whole.out.narrowed, whole.out.selected], [0, true, ['REQ-PAY-001']],
+          'control: read whole, this change narrows to its one requirement: ' + JSON.stringify(whole.out));
+        assert.ok(whole.out.view.includes('_verified by: tests/pay.test.ts_'),
+          'control: and the view says which test verifies it: ' + JSON.stringify(whole.out.view));
+        assert.ok(!/truncat/i.test(whole.out.view),
+          'control: with nothing cut short there is nothing to report, so the word below cannot '
+          + 'be matched by accident: ' + JSON.stringify(whole.out.view));
+
+        const cut = runIn(root, ['spec', '--catalog', capped]);
+        assert.deepEqual([cut.code, cut.out.selected], [0, []],
+          'fixture check: the cap really did change the answer -- the requirement disappears from '
+          + 'the view a fresh instance is handed: ' + JSON.stringify(cut.out));
+        assert.ok(cut.out.reason.includes('no requirement id is cited'),
+          'fixture check: and the reason blames the repository for not citing the id, when the '
+          + 'file that cites it was never opened: ' + JSON.stringify(cut.out.reason));
+
+        assert.deepEqual(cut.out.truncated, true,
+          'this is the same corpus trace refuses to draw a conclusion from, rendered as a context '
+          + 'view instead: the requirements it drops are dropped because their evidence was not '
+          + 'read, and the answer carries no field saying so. Rendering less is allowed; saying '
+          + 'nothing about it is what turns a budget into a wrong measurement: '
+          + JSON.stringify({ code: cut.code, selected: cut.out.selected, truncated: cut.out.truncated }));
+        assert.ok(/truncat/i.test(cut.out.view),
+          'and the view carries it too, because the view is the product here -- an agent reading '
+          + '"0 of 1 requirement(s) selected" is told the repository failed to cite its ids, not '
+          + 'that the corpus was cut short: ' + JSON.stringify(cut.out.view));
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['risk: a quarantine ledger that cannot be read is the one silence this file exists to prevent', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unopenable-quarantine');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'quarantine io fixture base');
+        fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
+        const qRel = '.claude/harness/state/quarantine.jsonl';
+        const qAbs = path.join(root, qRel);
+
+        const clean = runIn(root, ['risk']);
+        assert.deepEqual(((clean.out && clean.out.findings) || []).filter(f => f.code === 'QUARANTINED_STATE'), [],
+          'control: nothing has been damaged in this tree yet, so there is no pile to report: '
+          + JSON.stringify(clean.out));
+
+        // Give the ledger a line to hold, so that "risk says nothing" below is a report going
+        // missing rather than a report with nothing to say.
+        writeUnder(root, '.claude/harness/receipts/broken.json', '{ "taskId": "broken", "diffHash": "trunc');
+        runIn(root, ['receipt', 'verify']);
+        const before = runIn(root, ['risk']);
+        assert.ok(((before.out && before.out.findings) || []).some(f => f.code === 'QUARANTINED_STATE'),
+          'control: with one detection recorded, risk reports the pile: ' + JSON.stringify(before.out));
+        assert.ok(fs.existsSync(qAbs), 'fixture check: the ledger is on disk');
+
+        // Now the ledger itself is unreachable. Everything it held is still true -- damaged
+        // artefacts are still sitting on disk being refused -- and the one command whose job is
+        // "what is quietly wrong here" now reports nothing at all.
+        fs.rmSync(qAbs);
+        fs.mkdirSync(qAbs, { recursive: true });
+        const blind = runIn(root, ['risk']);
+        assert.ok(((blind.out && blind.out.findings) || []).some(f => JSON.stringify(f).includes(qRel)),
+          'the ledger that exists so that damage is not silent does not get to be silent about '
+          + 'itself: unreadable, it reports the same nothing as a repository where nothing ever '
+          + 'went wrong, and the detections it holds stop reaching anybody. Findings now: '
+          + JSON.stringify((blind.out && blind.out.findings) || []));
+
+        fs.rmSync(qAbs, { recursive: true, force: true });
+        writeUnder(root, qRel, '{"ts":"2020-01-01T00:00:00.000Z","kind":"receipt","path":"x","reason":"y"}\n');
+        withPermissionDenied(root, 'unopenable-quarantine', qAbs, () => {
+          const denied = runIn(root, ['risk']);
+          assert.ok(((denied.out && denied.out.findings) || []).some(f => JSON.stringify(f).includes(qRel)),
+            'including a ledger that is intact and merely cannot be opened: '
+            + JSON.stringify((denied.out && denied.out.findings) || []));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
+    ['waiver: a waivers directory that cannot be listed is named, the way an unreadable waiver file already is', () => {
+      const roots = [];
+      try {
+        const root = newGitRepo(roots, 'unlistable-waivers');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'waiver dir fixture base');
+        writeSkippableCatalog(root);
+        const dirRel = '.claude/harness/waivers';
+        const dir = path.join(root, dirRel);
+
+        const absent = runIn(root, ['waiver', 'list']);
+        assert.deepEqual([absent.code, absent.out.ok, absent.out.waivers], [0, true, []],
+          'control: a repository nobody has ever filed a waiver in lists none, and keeps doing so: '
+          + JSON.stringify(absent.out));
+        assert.deepEqual(absent.out.corruptWaivers || [], [],
+          'control: and nothing is reported damaged, because nothing is: ' + JSON.stringify(absent.out));
+
+        fs.mkdirSync(path.dirname(dir), { recursive: true });
+        fs.writeFileSync(dir, 'somebody dropped a file where the waivers directory belongs\n', 'utf8');
+        const listed = runIn(root, ['waiver', 'list']);
+        assert.ok((listed.out.corruptWaivers || []).includes(dirRel),
+          'dropping what cannot be read is the strict direction and stays -- a waiver nobody can '
+          + 'read must not exempt anything -- but an empty list also reads as "nobody has waived '
+          + 'anything", and a directory that will not list is exactly the case where somebody may '
+          + 'have waived a great deal: ' + JSON.stringify(listed.out));
+
+        const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
+        assert.ok((ver.out.corruptWaivers || []).includes(dirRel),
+          'and the gate output carries the same list, since that is where a reviewer actually '
+          + 'looks: ' + JSON.stringify(ver.out));
+
+        fs.rmSync(dir, { force: true });
+        fs.mkdirSync(dir, { recursive: true });
+        writeUnder(root, dirRel + '/w.json', '{"version":1,"scope":"unit","expiry":"2099-01-01"}');
+        withPermissionDenied(root, 'unlistable-waivers', dir, () => {
+          const denied = runIn(root, ['waiver', 'list']);
+          assert.ok((denied.out.corruptWaivers || []).includes(dirRel),
+            'including a directory holding a perfectly good waiver that this process is not '
+            + 'allowed to list: ' + JSON.stringify(denied.out));
+        });
+      } finally {
+        for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
+      }
+    }],
+
     // The flag whitelist. Both halves are asserted in one pass per subcommand, because the
     // dangerous half is not the rejection: a row missing a flag the source really reads turns
     // a correct invocation into a usage error, and the first response to a checker that cries
@@ -3495,6 +4349,108 @@ function attrCatalog(overrides = {}) {
       'sec-audit': { command: 'node --version', class: 'security', attributes: ['security'] },
     },
   };
+}
+
+/**
+ * Run one harness subcommand against a fixture tree: the real engine, only the project root
+ * moves. `out` is null when stdout carried no JSON, which is itself an assertable fact -- a
+ * subcommand that dies before emitting is not the same as one that emitted a refusal.
+ */
+function runIn(root, argv, stdin) {
+  const r = spawnSync(process.execPath, [path.join(HARNESS_DIR, 'harness.mjs'), ...argv],
+    { cwd: root, input: stdin || '', encoding: 'utf8', env: { ...fixtureGitEnv(root), CLAUDE_PROJECT_DIR: root } });
+  assert.ok(!r.error, 'spawn failed: ' + (r.error && r.error.message));
+  let out = null;
+  try { out = JSON.parse(String(r.stdout || '').trim()); } catch (_e) { out = null; }
+  return { code: r.status, out, err: String(r.stderr || ''), raw: String(r.stdout || '') };
+}
+
+/**
+ * A catalog whose single check is the running interpreter by absolute path, so it resolves
+ * under the golden runner's pinned PATH and on Windows alike, and opts into the fast-mode
+ * skip. Written where the engine's own loader finds it.
+ */
+function writeSkippableCatalog(root) {
+  const dir = path.join(root, '.claude', 'harness');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'module-catalog.json'), JSON.stringify({
+    version: 1,
+    modules: [{ id: 'pay', paths: ['pay/**'], riskTier: 'low', verification: ['unit'] }],
+    checks: { unit: { command: process.execPath + ' --version', class: 'quality', allowFastSkip: true } },
+  }, null, 2) + '\n', 'utf8');
+}
+
+/** Open the fast-mode window (or damage it) without going through the shell switch. */
+function writeFastMode(root, body) {
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', '.fast-mode'),
+    body === undefined ? 'enabled_epoch=1\nexpires_epoch=4102444800\nhours=24\n' : body, 'utf8');
+}
+
+/** Write a file under a fixture root, creating its directory. Returns the absolute path. */
+function writeUnder(root, rel, body) {
+  const abs = path.join(root, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, body, 'utf8');
+  return abs;
+}
+
+/**
+ * Can a chmod 000 actually deny this process a read? Not as root, and not on Windows, where the
+ * mode bits do not carry that meaning. Every lane below builds its core case out of EISDIR /
+ * ENOTDIR instead -- a path that exists and is not a readable file, which needs no privilege and
+ * reads the same everywhere -- and uses this only to add a permission case where there is one.
+ * So there is no platform on which one of these lanes asserts nothing.
+ */
+function chmodCanDeny(root) {
+  const probe = path.join(root, '.chmod-capability-probe');
+  if (process.platform === 'win32') return false;
+  try {
+    fs.writeFileSync(probe, 'x', 'utf8');
+    fs.chmodSync(probe, 0o000);
+    try { fs.readFileSync(probe, 'utf8'); return false; } catch (_e) { return true; }
+  } catch (_e) {
+    return false;
+  } finally {
+    try { fs.chmodSync(probe, 0o600); fs.unlinkSync(probe); } catch (_e) { /* nothing to undo */ }
+  }
+}
+
+/** Run fn with `abs` chmod 000, restoring the mode afterwards whatever happens. */
+function whileUnreadable(abs, fn) {
+  const mode = fs.statSync(abs).mode & 0o777;
+  fs.chmodSync(abs, 0o000);
+  try { return fn(); } finally { try { fs.chmodSync(abs, mode); } catch (_e) { /* gone */ } }
+}
+
+/** Every line of the quarantine ledger, parsed; [] when nothing has been recorded yet. */
+function quarantineLines(root) {
+  const p = path.join(root, '.claude', 'harness', 'state', 'quarantine.jsonl');
+  if (!fs.existsSync(p)) return [];
+  return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map(l => {
+    try { return JSON.parse(l); } catch (_e) { return { unparseable: l }; }
+  });
+}
+
+/**
+ * Run `fn` with `abs` unreadable by mode, where mode bits can deny this process a read. Where
+ * they cannot -- win32, or running as root -- it says so on stderr and returns false instead
+ * of running nothing and letting the lane count a case it never exercised as a passing one.
+ * Every caller asserts its EISDIR / ENOTDIR case outside this guard, so the guarantee does not
+ * depend on the platform; this only adds the permission form where the platform has one.
+ */
+function withPermissionDenied(root, lane, abs, fn) {
+  if (!chmodCanDeny(root)) {
+    process.stderr.write('selftest [' + lane + ']: SKIPPED the chmod 000 case ('
+      + (process.platform === 'win32'
+        ? 'mode bits do not deny reads on win32'
+        : 'this process reads straight through mode 000, so it is almost certainly root')
+      + '); the case in the same lane that needs no privilege did run and is what this lane '
+      + 'asserted here\n');
+    return false;
+  }
+  whileUnreadable(abs, fn);
+  return true;
 }
 
 export { selftestCases, attrCatalog };

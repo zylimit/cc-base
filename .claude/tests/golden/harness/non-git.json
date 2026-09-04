@@ -84,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 268
+        "tests": 287
       },
       "stderr": []
     },
@@ -741,6 +741,7 @@
       "stdout": {
         "ok": true,
         "records": 0,
+        "corruptLines": 0,
         "note": "no trend data; run `arch-check --record` to establish a baseline"
       },
       "stderr": []
@@ -755,6 +756,7 @@
       "stdout": {
         "ok": true,
         "records": 0,
+        "corruptLines": 0,
         "note": "no trend data; run `arch-check --record` to establish a baseline"
       },
       "stderr": []

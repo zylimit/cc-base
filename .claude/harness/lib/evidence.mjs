@@ -34,7 +34,8 @@ import process from 'node:process';
 import {
   TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, normalizeTier, parseCsv, projectRoot,
-  repoRelative, sha256, withDirLock,
+  errDetail, quarantineFilePath, readTextFile, recordCorruptState, repoRelative, sha256,
+  withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -101,9 +102,31 @@ function readJsonFile(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_e) { return fallback; }
 }
 
-/** The active task record, or null. Lives here because task.json is state-dir state. */
+/**
+ * The active task record, and the reason there is not one. Lives here because task.json is
+ * state-dir state. A record that exists and cannot be read is not the same as no record:
+ * "no active task" is advice to start one, and starting one writes straight over the
+ * damaged file -- the single move that destroys what went wrong. A mode bit denying the
+ * read leaves the record exactly as present as a truncated line does, so both answer here.
+ * @returns {{task:Object|null,corrupt:{path:string,detail:string}|null}}
+ */
+function readTaskState() {
+  const fp = taskFilePath();
+  const read = readTextFile(fp);
+  if (read.absent) return { task: null, corrupt: null };
+  let detail = read.error ? errDetail(read.error) : null;
+  if (!detail) {
+    try { return { task: JSON.parse(read.text), corrupt: null }; } catch (e) {
+      detail = errDetail(e);
+    }
+  }
+  recordCorruptState({ kind: 'task', path: fp, reason: detail });
+  return { task: null, corrupt: { path: relFromRoot(fp), detail } };
+}
+
+/** The active task record, or null -- for readers that only report what is there. */
 function readTaskRecord() {
-  return readJsonFile(taskFilePath(), null);
+  return readTaskState().task;
 }
 
 // ---------------------------------------------------------------------------
@@ -549,6 +572,10 @@ function cmdGate(flags) {
   const attrBlocked = Array.isArray(run.attributeGaps) && run.attributeGaps.length > 0;
   const gate = (run.state === 'FAIL' || run.state === 'BLOCKED') ? run.state
     : attrBlocked ? 'BLOCKED_BY_ATTRIBUTES' : 'PASS';
+  // The record already writes "every-check-skipped" into its reason and then exits 0 beside
+  // it. The record being right does not help a caller that only reads the code, and reading
+  // 0 there is reading "verified" off a run that executed nothing. Same 3 as `verify`.
+  const everySkipped = run.checks.length > 0 && run.checks.every(c => c.state === 'SKIPPED');
   const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const record = {
     command: 'gate',
@@ -596,7 +623,7 @@ function cmdGate(flags) {
       gate === 'PASS' ? 3 : 2);
   }
   return emit({ ...record, ledger: { path: relFromRoot(ledgerFilePath()), chain: line.chain, error: null } },
-    gate === 'PASS' ? 0 : 2);
+    gate === 'PASS' ? (everySkipped ? 3 : 0) : 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -847,10 +874,13 @@ function readWaiverFiles() {
  * repository). Error severity closes the exit code; warnings are reported and do not.
  * @param {{ledgerEntries?:Array,ledgerUnreadable?:string|null,evidenceBreaks?:Array,
  *          catalog?:Object|null,waivers?:Array,task?:Object|null,
+ *          quarantine?:{count:number,files?:number,lastPath?:string|null,lastKind?:string|null,
+ *                       unreadable?:{path:string,detail:string}|null}|null,
  *          fastActive?:boolean,now?:number}} [input]
  */
 function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBreaks = [],
-  catalog = null, waivers = [], task = null, fastActive = false, now = Date.now() } = {}) {
+  catalog = null, waivers = [], task = null, quarantine = null,
+  fastActive = false, now = Date.now() } = {}) {
   const findings = [];
 
   if (ledgerUnreadable) {
@@ -880,6 +910,33 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
       message: 'the verification ledger chain is broken (' + chain.breaks.length
         + ' break(s), first at line ' + chain.breaks[0].line + ': ' + chain.breaks[0].reason
         + '); treat every recorded green as unproven and re-run the gates',
+    });
+  }
+
+  // Warning, not error: every one of these was already refused where it mattered, and an
+  // exit code here would only teach people to stop running risk. It still has to be visible
+  // -- a damaged artefact only the command that tripped over it ever saw reaches nobody, and
+  // one bad file and forty are different situations.
+  if (quarantine && quarantine.unreadable) {
+    findings.push({
+      severity: 'warning', code: 'QUARANTINE_UNREADABLE', path: quarantine.unreadable.path,
+      detail: quarantine.unreadable.detail,
+      message: quarantine.unreadable.path + ' exists and cannot be read (' + quarantine.unreadable.detail
+        + '), so however many damaged artefacts were recorded in it, none of them are being reported '
+        + 'here; read or repair that file before trusting a quiet risk report',
+    });
+  }
+  if (quarantine && quarantine.count > 0) {
+    findings.push({
+      severity: 'warning', code: 'QUARANTINED_STATE', count: quarantine.count,
+      files: quarantine.files, path: quarantine.lastPath || null,
+      // Detections, not files: the same damaged file is recorded again every time another
+      // command trips over it, and that repetition is the signal that nobody has fixed it.
+      // Both numbers go in, because "40 entries" and "40 broken files" are different news.
+      message: quarantine.count + ' corruption detection(s) across ' + quarantine.files
+        + ' file(s) are recorded in ' + relFromRoot(quarantineFilePath()) + ', most recently '
+        + (quarantine.lastKind ? quarantine.lastKind + ' ' : '') + (quarantine.lastPath || 'an unnamed file')
+        + '; each was refused where it mattered and left on disk as evidence -- read it, then repair or delete it',
     });
   }
 
@@ -989,19 +1046,58 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
   };
 }
 
+/**
+ * The quarantine ledger folded to a count and its most recent entry, or null when nothing
+ * has ever been recorded. A line that will not parse still counts, and a ledger that cannot
+ * be read at all is reported as itself: this is the file that exists to stop damage from
+ * being silent, and it does not get to be silent about itself -- unreadable, it would report
+ * the same nothing as a repository where nothing ever went wrong, while every detection it
+ * holds stops reaching anybody.
+ */
+function readQuarantine() {
+  const fp = quarantineFilePath();
+  const read = readTextFile(fp);
+  if (read.absent) return null;
+  if (read.error) {
+    return {
+      count: 0, files: 0, lastPath: null, lastKind: null,
+      unreadable: { path: relFromRoot(fp), detail: errDetail(read.error) },
+    };
+  }
+  const lines = read.text.split('\n').filter(Boolean);
+  if (!lines.length) return null;
+  const paths = new Set();
+  let lastPath = null;
+  let lastKind = null;
+  for (const l of lines) {
+    let o = null;
+    try { o = JSON.parse(l); } catch (_e) { continue; }
+    if (o && typeof o.path === 'string') { paths.add(o.path); lastPath = o.path; lastKind = o.kind || null; }
+  }
+  return { count: lines.length, files: paths.size, lastPath, lastKind };
+}
+
 /** `risk` subcommand: catalog optional; any error-severity finding exits 1. */
 function cmdRisk(flags) {
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
   const catalog = loaded.ok ? loaded.catalog : null;
   const state = readLedgerState();
+  const waivers = readWaiverFiles();
+  const task = readTaskRecord();
+  const fastActive = fastModeActive();
+  // Read last. The four calls above each read an artefact of their own and may have just
+  // recorded one as damaged; a count taken before them would be one run behind the report
+  // it is going into.
+  const quarantine = readQuarantine();
   const res = riskFindings({
     ledgerEntries: state.entries,
     ledgerUnreadable: state.unreadable,
     evidenceBreaks: state.unreadable ? [] : evidenceFindings(state.entries).breaks,
     catalog,
-    waivers: readWaiverFiles(),
-    task: readTaskRecord(),
-    fastActive: fastModeActive(),
+    waivers,
+    task,
+    quarantine,
+    fastActive,
   });
   if (!res.ok) {
     for (const f of res.findings.filter(x => x.severity === 'error')) {
@@ -1014,11 +1110,11 @@ function cmdRisk(flags) {
 export {
   GENESIS,
   stateDir, ledgerFilePath, ledgerLockPath, taskFilePath, evidenceDir, contextPackDir, relFromRoot,
-  writeAtomic, sha256Lf, readJsonFile, readTaskRecord,
+  writeAtomic, sha256Lf, readJsonFile, readTaskState, readTaskRecord,
   chainHash, ledgerLine, parseLedgerLines, readLedgerState, endsWithNewline, appendLedger,
   verifyLedgerChain, evidenceFindings, ledgerReport, cmdLedger,
   buildPlan, evidenceFilePath, runCheckWithEvidence, gateReason, suppressionOf, waiversApplied, cmdGate,
   auditGates, cmdGateAudit,
   planRetention, ledgerReferencedEvidence, listDirFiles, retentionRefusal, cmdRetention,
-  readWaiverFiles, riskFindings, cmdRisk,
+  readWaiverFiles, readQuarantine, riskFindings, cmdRisk,
 };

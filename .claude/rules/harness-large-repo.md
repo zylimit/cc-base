@@ -44,7 +44,7 @@ paths:
     - **catalog-lint**：按 schema 校验 catalog。无参 = 对当前仓 `git ls-files` 全量归类（NUL 分隔 + 截断警告）。
     - **impact**：反向依赖闭包——传变更路径，返 `affected`（直接 + 反向闭包）/ `direct` / `expansionReasons` / `verification`（每模块绑的 check）/ `degraded`。
     - **context-pack**：预算化打包——P1 任务信封 + Spec/Plan 指针 → P2 canonical diff（截断 maxDiffChars）→ P3 变更文件（每个截断 maxFileChars）→ P4-6 受影响模块 verification 路径串。DENY 路径永不入包（.git / node_modules / dist / build / .next / .venv / .env / *.pem|key|p12|pfx / id_rsa / .ssh|.aws|.azure|.gnupg|.kube / .claude/evidence|receipts|waivers 等；白名单 `.env.example|.sample|.template` 可入包）。产出 `packHash`（仅含 path+bytes 清单 + budgets + diffHash，对空白变动稳定）。
-    - **receipt write|verify**：diff-bound 审查回执。`write` 从 stdin 读 JSON 写 `.claude/harness/receipts/<taskId>.json`；`verify` 比对当前 diff 与回执绑定 diffHash。
+    - **receipt write|verify**：diff-bound 审查回执。`write` 从 stdin 读 JSON 写 `.claude/harness/receipts/<taskId>.json`；`verify` 比对当前 diff 与回执绑定 diffHash。**回执读不出来 = fail-closed**：目录里任一 `*.json` 解析不了就 rc 4 + `note:"receipt-unreadable"` + `unreadable[]` 点名（`--task <id>` 那条读不出来同样报它，不再报 `receipt-missing`——文件就在那儿，让人去写一份新的是错的下一步），旁边另有回执绑住当前 diff 也照拦：读不出来的那份可能正是被篡改的那份。**受损文件原地不动**（不删不改不挪，挪证据是人的决定），只按 S6 记一行留痕。
     - **verify**：质量门——对受影响模块跑各自 verification、四态聚合、应用 waiver，**并对受影响模块做五性覆盖判定**（`attributes` + `attributeGaps` + `gate` 字段；critical/high 属性缺证据 = 门不过，见 quality-attributes.md）。
     - **waiver list|check|create**：结构化豁免管理。
     - **attributes**：五性静态接线审计（不执行命令）——每模块声明的属性 × 档位 × 已接线的 claiming checks；blocking 档位（critical/high）声明了却无 check 认领 = 可见缺口 rc 1。
@@ -52,7 +52,7 @@ paths:
     - **fitness**：内置零依赖五性规则扫描（凭 `.claude/rules/quality-attributes.md` 细则）——密钥字面量(security) / 日志含个人数据(privacy) / 静默吞错(reliability) / 无界重试(resilience) / 高危模块未挂单的 TODO(safety，minimumTier=high)。默认扫变更文件，`--all` 扫全 tracked，`--paths a,b` 显式指定；`harness-fitness:ignore` 行内压制单条；`.claude/harness/fitness-rules.json` 可增补/替换规则集。error 级命中 rc 1。
     - **adapters list|add**：外部工具表（semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo，各自映射到五性属性）。`list` 报 available（PATH 上有没有）+ wired（catalog.checks 接没接）；`add <id>` 把 check 写进 catalog.checks——接线只是半步，模块 verification 列表引用它才会被选中。
     - **adr-check**：ADR 执法校验——没人盯的架构决策必然漂移。扫 `Architecture-Design.md` 的 `### ADR-xxx` 内联块 + `docs/adr/*.md` 独立文件（均可选，`--file`/`--dir` 可改；传绝对路径就按字面那个位置读——此前是拼到仓根底下，于是报告回声着调用方指的目录、看的却是另一个，仓外的 ADR 一条也扫不到还答「nothing to enforce」），每条**活跃** ADR 的「执法方式/Enforced-by」必须能解析出至少一个真实存在的执法点：catalog check id / fitness 规则 id / harness 能力名（arch-check / layers / forbiddenDependencies / fitness / verify / receipt…）/ 或显式人工标记（评审/人工/manual/review——诚实的"人守"放行但单列 `manualOnly`）。**幽灵引用比没有更糟**（读起来像被执法实际没有）：零可识别 token = fail；已废弃（superseded/deprecated/rejected/已废弃…）豁免；认识的 token 旁边搭车的未知词只上报 `unrecognized` 不拦。
-    - **arch-trend**：架构漂移棘轮——arch-check 对任何 undeclared 边都 rc 1，存量带债的老仓根本用不成闸。台账给出接入路径：`arch-check --record` 快照漂移指标与边身份，`arch-trend` 看趋势报告（基线/历史最优/最新/较上次 delta），`arch-trend --gate` 判回退时 rc 1——棘轮只朝一个方向转：旧债可以慢慢还，新债一分不许添。unresolved/unused 是上下文量不进棘轮。首条记录只立基线不比较。
+    - **arch-trend**：架构漂移棘轮——arch-check 对任何 undeclared 边都 rc 1，存量带债的老仓根本用不成闸。台账给出接入路径：`arch-check --record` 快照漂移指标与边身份，`arch-trend` 看趋势报告（基线/历史最优/最新/较上次 delta），`arch-trend --gate` 判回退时 rc 1——棘轮只朝一个方向转：旧债可以慢慢还，新债一分不许添。unresolved/unused 是上下文量不进棘轮。首条记录只立基线不比较。**台账有洞照数**：解析不了的行计入 `corruptLines`，报告态只报不判，`--gate` 时 `corruptLines>0` 即 rc 1 并在 `reason` 写 `trend-history-corrupt`——历史缺了一条就分不清新债与没人写下来的旧债，那种 0 是没人建立过的通过。
       · **per-edge 基线**：棘轮比的是**边的身份集合**，不是计数——计数制有个真漏洞，还掉一条旧债同时添一条新债计数不变即过，新债借旧债的额度混进来。历史最优的 per-edge 形态是各先验快照的**交集**：某条边在任一历史快照里缺席过，就是还清过，再回来和从没见过的新边一样算新债。回退时 `regressed[].newEdges` **点名是哪条边**，`basis` 记这条判决出自 `count` 还是 `edges`。旧债减少照样记 improved。
       · **count 棘轮保留作兜底**：老台账记录只有 count 没有边身份（本能力上线前写的），这类先验**不当成空集**——当空集会让当前所有边都算新债，一次误报就够让人把闸关掉。做法是该记录标 count-only、不参与交集，per-edge 对该指标降级为计数比较并在 `notes` / `edgeBasis` 里写明降级；两套判据同时跑，取更严的那个。
       · **forbidden 不进棘轮，零容忍**：任何快照 `forbidden > 0` → `--gate` rc 1，不比历史、不看基线，`forbiddenViolation` 点名边与理由。forbiddenDependencies 是 catalog 里**显式声明**的安全/隐私边界（analytics 永不许 import pii-store），不存在「第一天记基线时已有 2 条、此后 ≤2 就过闸」这种旧债慢慢还——那与「声明与禁令冲突时禁令赢」自相矛盾。undeclared / cycles 才是真能慢慢还的漂移债。报告态（无 `--gate`）照旧只报不判。
@@ -61,12 +61,12 @@ paths:
     - **ledger**：哈希链账本，防证据被静默改写。`contentHash=sha256(LF(JSON.stringify(record)))` / `chain=sha256(prev+NUL+contentHash)` / `prev`=上一行 chain（首行 64 个 0），落 `.claude/harness/state/ledger.jsonl`，append-only。子命令重算整条链，逐条报断裂：`unparseable-line` / `content-hash-mismatch` / `chain-predecessor-mismatch` / `chain-hash-mismatch`（行号 1 起），任一断裂 rc 1。**同时重算证据摘要**：账本引用的每个 `evidence` 日志重读一遍比对 `evidenceSha256`，对不上 = `evidence-tampered`、文件没了 = `evidence-missing`，一样 rc 1（写了不读的哈希等于没写）；账本大到重读嫌慢用 `--no-verify-evidence` 关掉——默认开，默认关掉的校验等于没有。**两个方向都 fail-closed**：链断 = 此前全部验证按未证明处理（`task complete` 阻断、`risk` 报 LEDGER_BROKEN）；文件在但读不出来 = rc 3 降级（读不出 ≠ 空账本，更不是链完好）。**没有也不会有「修复账本」的命令**——链本身就是证据，能改成自洽的工具就是伪造工具。链断也不是重跑门能解的（新记录只往断裂后面追加），诊断因此不推荐任何命令：要么人来决定把 `ledger.jsonl` 退役（同时作废它记过的全部证明）再重建，要么去查是谁改的。
     - **gate-audit**：扫账本，列出 catalog 里定义了但**从未 FAIL/BLOCKED 过**的 check（`neverIntervened`）与从未真正跑过的 check（`neverExecuted`）——没拦过任何东西的闸是成本 + 假安全。**被压制的单列 `suppressed[]`**（check / 次数 / 压制方 / 被压掉的原判决）：waiver 洗成 SKIPPED 的失败按原判决记账（算跑过、算拦过），不许和「从没接线」混进同一个数再一起配文案「genuinely stable」。报告态 rc 0（无 catalog / 账本读不出来 rc 3——没有历史就没有可审的东西，拿空清单去答会答成「每条 check 都没跑过」）。**与 `.claude/scripts/gate-audit.sh` 是两物**：那个审的是 **hook 闸**、读 `.claude/evidence/gate-block.log`；这个审的是 **catalog check**、读 harness 账本。两者不合并、不互相覆盖，合了「哪个闸没响过」就只剩一半答案。
     - **retention**：按龄（`--max-age-days` 默认 30）+ 数量（evidence `--max-evidence` 默认 400、context pack `--max-packs` 默认 60）修剪运行态。**账本引用到的 evidence 文件永不删**——删了新鲜回执就没法验证了。默认 dry-run 只报告，`--apply` 才真删；`--apply` 删不掉时 rc 1（删除失败是失败，不静默）。**先验链再决定删不删**：账本读不出来或链已断裂时两种模式都拒绝清扫（rc 3 + `refused:{reason,detail}`，`protectedByLedger:null`）——保护集算不出来 ≠ 保护集为空，把前者当后者正是这类命令最典型的丢数据方式；dry-run 也拦，因为算错的清单就是下一次 `--apply` 照着删的清单。五性把隐私定义成含「销毁合规」，自家运行态只积不销是自我不一致。
-    - **risk**：状态衰变扫描——`LEDGER_BROKEN`（链断）/ `LEDGER_UNREADABLE`（账本在但读不出来）/ `EVIDENCE_TAMPERED` / `EVIDENCE_MISSING`（证据日志被改写 / 没了）/ `EXPIRED_WAIVER`（过期 waiver 仍在）/ `UNWIRED_ATTRIBUTE`（blocking 档属性无 check 认领）/ `FAIL_STREAK`（同一 check 连败 ≥3 → 停止重跑转根因；被 waiver 压成 SKIPPED 的失败照样计数，否则连败一豁免就没人听得见）/ `SUPPRESSED_FAILURE`（waiver 压下去的失败次数，warning——签了字带过期带补偿的决定不该改退出码，但压制是一种状态、不是没事）/ `FAST_MODE_DEBT`（最新一次 gate 在 Fast Mode 下 SKIP 掉的证据尚未由完整 gate 偿还）/ `FAST_MODE_OPEN` / `STALE_TASK`（活跃 task 超 72h）。error 级 finding rc 1，warning 不改退出码。catalog 可无（无则只少 UNWIRED_ATTRIBUTE 一项）。
-    - **task start|status|complete**：六字段信封机器校验。`start` 从 stdin 读 JSON——`id` + `goal`/`scope`/`outOfScope`/`existingPattern`/`verification`/`escalation`，缺任一 rc 3 并**点名缺哪个**（不含糊成一句「信封不全」）；`id` 消毒为 `[A-Za-z0-9._-]` 并截到 120 字符；引擎补 `state:"active"`/`baseCommit`/`startedAt` 写 `.claude/harness/state/task.json`，一个工作树一个活跃 task。`status` 返回记录 + 当前 diffHash（始终 rc 0）。**`complete` 是硬闸**：全成立才 rc 0——① 有绑当前 diffHash 的 PASS gate 记录，且这条记录 ①a `scopeSource=computed`（调用方指定范围的 PASS 关不掉任务：`gate --changed <catalog 映射不到的路径>` 能拿到 PASS + `modules:[]`，而旁边的 diffHash 是真工作树指纹——签名是真的，被签的东西是假的）①b `planHash` 等于当前变更面重算出的计划 ①c 至少有一条 check 真跑过（全 SKIPPED 的 PASS 什么都没建立，证据是延后了不是拿到了）② 有绑同一 diffHash 的**新鲜且完整**的 accept 回执（verdict 认 `ACCEPT`/`pass`，被篡改的回执不算）③ 账本链完好 ④ 账本引用的证据日志仍与摘要相符 ⑤ 验证计划非空；否则 rc 2 + `blockers[]` 逐条列出缺哪项。**`complete` 自己也不收 `--changed`**（rc 3）——完成的范围永远不是调用方说了算，否则 ①a 从另一头又被绕开。非 git（rc 3 降级，同 `gate`/`verify`/`receipt verify`：`gitFingerprint()` 在任何非 git 树都是同一个常量，「绑定到这个 diff」对哪棵树都成立）、账本读不出来（rc 3）同样不给结论。
+    - **risk**：状态衰变扫描——`LEDGER_BROKEN`（链断）/ `LEDGER_UNREADABLE`（账本在但读不出来）/ `EVIDENCE_TAMPERED` / `EVIDENCE_MISSING`（证据日志被改写 / 没了）/ `EXPIRED_WAIVER`（过期 waiver 仍在）/ `UNWIRED_ATTRIBUTE`（blocking 档属性无 check 认领）/ `FAIL_STREAK`（同一 check 连败 ≥3 → 停止重跑转根因；被 waiver 压成 SKIPPED 的失败照样计数，否则连败一豁免就没人听得见）/ `SUPPRESSED_FAILURE`（waiver 压下去的失败次数，warning——签了字带过期带补偿的决定不该改退出码，但压制是一种状态、不是没事）/ `FAST_MODE_DEBT`（最新一次 gate 在 Fast Mode 下 SKIP 掉的证据尚未由完整 gate 偿还）/ `FAST_MODE_OPEN` / `STALE_TASK`（活跃 task 超 72h）/ `QUARANTINED_STATE`（`state/quarantine.jsonl` 里记着的受损运行态条数与最近一条路径，warning——每一条都已在它自己那处被拒，再改退出码只会让人不跑 risk，但只有踩到它的那条命令见过就等于没人见过）/ `QUARANTINE_UNREADABLE`（留痕台账自己读不出来，warning——它读不出来时报的「没事」和干净仓一字不差，这个文件不许对自己沉默）。error 级 finding rc 1，warning 不改退出码。catalog 可无（无则只少 UNWIRED_ATTRIBUTE 一项）。
+    - **task start|status|complete**：六字段信封机器校验。`start` 从 stdin 读 JSON——`id` + `goal`/`scope`/`outOfScope`/`existingPattern`/`verification`/`escalation`，缺任一 rc 3 并**点名缺哪个**（不含糊成一句「信封不全」）；`id` 消毒为 `[A-Za-z0-9._-]` 并截到 120 字符；引擎补 `state:"active"`/`baseCommit`/`startedAt` 写 `.claude/harness/state/task.json`，一个工作树一个活跃 task。`status` 返回记录 + 当前 diffHash（rc 0；task.json 在但读不出来 = rc 3 `corrupt-state`）。**`start` 写之前先读**：已有记录读不出来时 rc 3 拒绝、不落笔——status/complete 拒绝只是建议，真能毁掉现场的是这个写的动作（同 `review start`）；写盘本身失败（路径是目录 / 无权限）同样 rc 3 结构化作答，不裸抛栈。**`complete` 是硬闸**：全成立才 rc 0——① 有绑当前 diffHash 的 PASS gate 记录，且这条记录 ①a `scopeSource=computed`（调用方指定范围的 PASS 关不掉任务：`gate --changed <catalog 映射不到的路径>` 能拿到 PASS + `modules:[]`，而旁边的 diffHash 是真工作树指纹——签名是真的，被签的东西是假的）①b `planHash` 等于当前变更面重算出的计划 ①c 至少有一条 check 真跑过（全 SKIPPED 的 PASS 什么都没建立，证据是延后了不是拿到了）② 有绑同一 diffHash 的**新鲜且完整**的 accept 回执（verdict 认 `ACCEPT`/`pass`，被篡改的回执不算）③ 账本链完好 ④ 账本引用的证据日志仍与摘要相符 ⑤ 验证计划非空；否则 rc 2 + `blockers[]` 逐条列出缺哪项。**`complete` 自己也不收 `--changed`**（rc 3）——完成的范围永远不是调用方说了算，否则 ①a 从另一头又被绕开。非 git（rc 3 降级，同 `gate`/`verify`/`receipt verify`：`gitFingerprint()` 在任何非 git 树都是同一个常量，「绑定到这个 diff」对哪棵树都成立）、账本读不出来（rc 3）同样不给结论。
     - **budget**：爆炸半径信号——`maxChangedFiles`/`maxChangedLines`/`maxModulesTouched`/`maxNewFiles`，从 `catalog.budget` 读，缺省 30/1000/5/15（限额写 null 即只报数不判定）。超限 rc 1。**这是「拆分或升级」的信号，不是禁令**：广泛改动有时是对的，这个数只是让人停下想一秒；把它当禁令用，结果一定是整条关掉。
     - **spec-lint**：规格文档可判定性检查，**扫的是本仓 product-spec-builder 实际产出的形状，不是 EARS**。默认读仓根 `Product-Spec.md`，`--file` 可改。error：`MISSING_SECTION`/`EMPTY_SECTION`（产品概述 / 应用场景 / 功能需求 / 技术方向 四段缺失或只有标题没内容）、`PLACEHOLDER`（模板 `<...>` 未填 / TBD / TODO / 待定 / 待补，代码围栏与行内 code 不扫，`<br>` 这类真标签按白名单放行）、`NO_FLOW`（功能需求条目没有箭头，即说不清「用户做什么 → 系统做什么 → 得到什么」；一个箭头就够，模板自己的示例大多只有一个）、`DUPLICATE_ID`。warning：`AMBIGUOUS`（适当 / 合理 / 快速 / 友好 / 尽量 / 等等 / 若干 / 优化体验——**只扫功能需求条目**，产品概述和应用场景是宣传散文，在那儿抓「快速」只会训练所有人忽略整条检查）、`PARTIAL_ID`。error rc 1，无规格文档 rc 3。**照搬姊妹仓那套 `REQ-XXX-001`+`SHALL`+`WHEN` 会做出一个在本生态零命中、永远全绿的检查器——那比没有更糟，因为它读起来像规格被检查过了。**
-    - **trace**：需求编号 ↔ 测试引用覆盖。**编号是可选的，没有编号就明说追溯不可用**（rc 3 + 一句「本规格未声明需求编号；要启用请在功能需求条目前加 `[REQ-<模块>-<三位数>]`」），**不硬造锚点**——行号 / 标题 / 散文哈希做出来的链接下次编辑就断，却读起来像覆盖率。有编号则扫全仓 tracked 文件：测试文件（`**/test(s)/**`、`*.test.*`、`*.spec.*` 等，`--tests` 可覆盖）引用 = `verified`，其余代码引用 = `implemented`。未被任何测试引用 → `unverified` rc 1；**代码/测试里引用了规格没声明的编号 = `dangling` rc 1**（指向一条已经不存在的需求），**.md 散文里的同类引用只报 `danglingInDocs` 不判失败**（CHANGELOG 引用历史编号是正当的）。`--min-coverage` 默认 1。非 git rc 3。
-    - **spec**：按变更取相关需求的**预算化视图**——需求只增不减，唯一让它读得起的办法是不再整份读。`--paths a,b` 指定变更面、`--all` 全量、`--budget N` 字符预算（默认 6000，超预算**整条丢弃不截半句**）。收窄走的是质量门同一条路：impact 选模块 → trace 把编号映到模块 → 只渲染交集，并给每条标 `_verified by:`。**收窄需要编号 + catalog 同时具备**；缺任一则渲染整个功能需求段并把 `narrowed:false` 与原因同时写进 JSON 和渲染出的标题——**降级可以，闭口不谈不行**。始终 rc 0（无规格文档 rc 3）。
+    - **trace**：需求编号 ↔ 测试引用覆盖。**编号是可选的，没有编号就明说追溯不可用**（rc 3 + 一句「本规格未声明需求编号；要启用请在功能需求条目前加 `[REQ-<模块>-<三位数>]`」），**不硬造锚点**——行号 / 标题 / 散文哈希做出来的链接下次编辑就断，却读起来像覆盖率。有编号则扫全仓 tracked 文件：测试文件（`**/test(s)/**`、`*.test.*`、`*.spec.*` 等，`--tests` 可覆盖）引用 = `verified`，其余代码引用 = `implemented`。未被任何测试引用 → `unverified` rc 1；**代码/测试里引用了规格没声明的编号 = `dangling` rc 1**（指向一条已经不存在的需求），**.md 散文里的同类引用只报 `danglingInDocs` 不判失败**（CHANGELOG 引用历史编号是正当的）。`--min-coverage` 默认 1。非 git rc 3。**语料被预算截断 = 坏测量不是严测量**：`truncated:true` 时 rc 3 + `degraded:true`——本该证明某条需求的文件压根没读到，再报 `unverified` rc 1 是把诊断做错了方向。
+    - **spec**：按变更取相关需求的**预算化视图**——需求只增不减，唯一让它读得起的办法是不再整份读。`--paths a,b` 指定变更面、`--all` 全量、`--budget N` 字符预算（默认 6000，超预算**整条丢弃不截半句**）。收窄走的是质量门同一条路：impact 选模块 → trace 把编号映到模块 → 只渲染交集，并给每条标 `_verified by:`。**收窄需要编号 + catalog 同时具备**；缺任一则渲染整个功能需求段并把 `narrowed:false` 与原因同时写进 JSON 和渲染出的标题——**降级可以，闭口不谈不行**。同理语料被预算截断时 `truncated:true` 进 JSON、截断说明进渲染出的视图（`trace` 那半边已 rc 3，这边是给 agent 读的视图，rc 保持 0：不然「有测试的需求」会被渲染成没测试而无人知情）。始终 rc 0（无规格文档 rc 3）。
     - **dod**：Definition of Done——十四步静态治理一次跑完（catalog-lint / spec-lint / trace / attributes / arch-check / adr-check / fitness --all / ledger / arch-trend --gate / rules-audit / skills-lint / claude-md-lint 十二步阻断，risk / budget 两步只报信号不阻断）。宪法三步同其余阻断步一样只认退出码：rules-audit 只在有幽灵引用时 FAIL（U 多少不改退出码，那是给人的工作清单不是闸），skills-lint / claude-md-lint 各按自己的 finding 判，源不在（无规则文档 / 无 catalog）一律降级不阻断。每步以**子进程**跑，判据就是各子命令自己的退出码（0=PASS / 3=DEGRADED / 其余=FAIL），所以 dod 断言的是 hook 消费的同一份契约，不是另一套私有返回值。**降级不阻断**（没有 catalog 的仓不等于架构检查失败）；任一阻断步 FAIL → rc 2；**阻断步全部降级 = 什么都没建立 → rc 3 而不是 0**（同「空验证计划=不算绿」）。**只管静态治理**：过了不代表代码能跑，那半边归 `gate`，输出里的 `note` 就写着这句。
     - **review start|blue|lens <name>|verdict|backlog|status|team**：结构化分歧评审引擎。这一层不靠 catalog——评审是本领域唯一有实测效果的杠杆（一个 agentic review loop 把某模型在 SWE-bench Verified 上从 27.5% 拉到 56.9%，token 效率是重采样的 6.5 倍；另有研究报告三个结构化分歧的 agent 打得过五个共识型 agent），把它锁在大仓开关后面等于在最需要它的仓里废掉它，所以无 catalog 时按默认 profile 跑并在会话里记 `catalogPresent:false`。
       · **lens 团队**：九个 lens 各占一种失效模式，分三阶段——stage 1 `code`（correctness / architecture / maintainability）、stage 2 `functional`（testing / performance）、stage 3 `trust`（security / privacy / reliability / resilience）。召集顺序：`catalog.review.lenses` 显式清单最大，否则按 `catalog.review.profile`（personal / team / production / regulated，默认 team）定队，再**减去**受影响模块没声明到 low 以上的属性对应的 lens——属性只能减不能加（都声明成 high 就等于全员到齐，正是要防的那种噪声）；correctness 永不被减（stage 1 空掉会让阶段模型失效）。显式清单里的陌生 lens 名按 stage 1 处理，项目可以自带 lens。
@@ -109,8 +109,8 @@ paths:
     | impact | 正常 | — | — | 无 catalog / 非 git | — |
     | context-pack | 正常 | — | — | 非 git | — |
     | receipt write | 写入成功 | — | — | 参数错 / 子命令错 | — |
-    | receipt verify | PASS | — | — | 非 git | STALE |
-    | verify | PASS / 全 SKIPPED 且无属性缺口 | — | FAIL / BLOCKED / 属性缺口 | 无 catalog / 非 git | — |
+    | receipt verify | PASS | — | — | 非 git | STALE / 回执读不出来 |
+    | verify | PASS 且至少跑过一条 check | — | FAIL / BLOCKED / 属性缺口 | 无 catalog / 非 git / 全 SKIPPED（什么都没建立） | — |
     | waiver list | 总是 | — | — | — | — |
     | waiver check | valid | invalid | — | — | — |
     | waiver create | 写入成功 | 校验失败 | — | 子命令错 | — |
@@ -119,27 +119,27 @@ paths:
     | fitness | 无 error 级命中 | 有 error 级命中 | — | --all 且非 git | — |
     | adapters | list / add 成功 | add 未知 id | — | add 无 catalog / 子命令错 | — |
     | adr-check | 全部活跃 ADR 有真实执法（或无 ADR） | 有 ADR 缺执法 / 纯幽灵引用 | — | — | — |
-    | arch-trend | 报告态总是；--gate 无回退且无禁边 | --gate 有新边/指标超历史最优，或最新快照 forbidden > 0 | — | — | — |
+    | arch-trend | 报告态总是；--gate 无回退且无禁边 | --gate 有新边/指标超历史最优、最新快照 forbidden > 0，或台账有读不出的行 | — | — | — |
     | cochange | 报告态总是；--gate 无未声明共变 | --gate 有 undeclaredCoupling | — | 无 catalog / 非 git / 取不到历史 | — |
-    | gate | PASS | — | FAIL / BLOCKED / 属性缺口 | 无 catalog / 非 git / PASS 但账本追加失败 | — |
+    | gate | PASS 且至少跑过一条 check | — | FAIL / BLOCKED / 属性缺口 | 无 catalog / 非 git / PASS 但账本追加失败 / 全 SKIPPED | — |
     | ledger | 链完好且证据摘要相符 | 有断裂（链或证据） | — | 账本在但读不出来 | — |
     | gate-audit | 总是 | — | — | 无 catalog / 账本读不出来 | — |
     | retention | 报告或修剪完成 | --apply 有文件删不掉 | — | 链读不出或已断裂（拒绝清扫） | — |
     | risk | 无 error 级 finding | 有 error 级 finding | — | — | — |
-    | task start | 写入成功 | — | — | stdin 非 JSON / 信封缺字段 | — |
-    | task status | 总是 | — | — | — | — |
-    | task complete | 全部条件成立 | — | 有 blockers / 无活跃 task | 无 catalog / 非 git / 账本读不出来 / 传了 --changed | — |
+    | task start | 写入成功 | — | — | stdin 非 JSON / 信封缺字段 / task.json 在但读不出来 / 写盘失败 | — |
+    | task status | 总是 | — | — | task.json 在但读不出来（`corrupt-state`） | — |
+    | task complete | 全部条件成立 | — | 有 blockers / 无活跃 task | 无 catalog / 非 git / 账本读不出来 / task.json 读不出来 / 传了 --changed | — |
     | budget | 未超限 | 有指标超限 | — | 无 catalog / 非 git | — |
     | spec-lint | 无 error | 有 error | — | 无规格文档 / 读不出来 | — |
-    | trace | 覆盖达标且无悬空编号 | 有未追溯需求 / 悬空编号 | — | 无规格文档 / 未声明编号 / 非 git | — |
+    | trace | 覆盖达标且无悬空编号 | 有未追溯需求 / 悬空编号 | — | 无规格文档 / 未声明编号 / 非 git / 语料被截断 | — |
     | spec | 渲染完成（`narrowed` 字段说明收窄与否） | — | — | 无规格文档 | — |
     | dod | 阻断步无 FAIL 且至少一步有结论 | — | 有阻断步 FAIL | 阻断步全降级（什么都没建立） | — |
-    | review start | 开成功 | — | — | 非 git / 无变更 | — |
-    | review blue | 记下 | 主张缺证据 | — | stdin 非 JSON / 无会话 | 树已移动 |
-    | review lens | 记下 | finding 无定位 / severity 非法 / 未召集 / 阶段未过 | — | stdin 非 JSON / 无会话 / 缺 lens 名 | 树已移动 |
-    | review verdict | ACCEPT | 有 blockers（blue 未报 / 当前阶段缺报 / 作者自审挡 ACCEPT） | FIX_REQUIRED / NEEDS_MORE_EVIDENCE | 无会话 | 树已移动 |
-    | review backlog add | 记下 | 保护属性 / 缺字段 / 过期 | — | stdin 非 JSON / 无会话 | 树已移动 |
-    | review backlog list / status / team | 总是 | — | — | — | — |
+    | review start | 开成功 | — | — | 非 git / 无变更 / 会话读不出来（不许覆盖写） | — |
+    | review blue | 记下 | 主张缺证据 | — | stdin 非 JSON / 无会话 / 会话读不出来 | 树已移动 |
+    | review lens | 记下 | finding 无定位 / severity 非法 / 未召集 / 阶段未过 | — | stdin 非 JSON / 无会话 / 会话读不出来 / 缺 lens 名 | 树已移动 |
+    | review verdict | ACCEPT | 有 blockers（blue 未报 / 当前阶段缺报 / 作者自审挡 ACCEPT） | FIX_REQUIRED / NEEDS_MORE_EVIDENCE | 无会话 / 会话读不出来 | 树已移动 |
+    | review backlog add | 记下 | 保护属性 / 缺字段 / 过期 | — | stdin 非 JSON / 无会话 / 会话读不出来 | 树已移动 |
+    | review backlog list / status / team | 总是 | — | — | 会话读不出来（team 不读会话，总是 0） | — |
     | review-pack | 写出 | — | — | 非 git | — |
     | authorship record | 追加成功 | — | — | stdin 非 JSON / 缺 agentId 或 files / 追加失败 | — |
     | authorship show | 总是 | — | — | 非 git / 账本读不出来 | — |
@@ -157,8 +157,9 @@ paths:
 
     要点：
     - **未知 flag = rc 2 用法错，不是降级**：每个子命令有一张白名单表（`harness.mjs` 的 `SUBCOMMAND_FLAGS`，与 dispatch 挨着），它不读的 `--flag` 一律 rc 2、stderr 点名是哪个 flag 并列出该子命令认识哪些。此前是无条件收进 flags 后静默忽略——`impact --paths ...`（`--paths` 是 fitness 的，impact 认 `--changed`）照跑照出 JSON 照 rc 0，录基线时会录出一份看着正常实则什么都没测的假基线。加子命令须同步加表项（表项缺失 = 该子命令不收任何 flag），两个方向都由 selftest 钉住。`--flag=value` 从来不是这个 parser 认的拼法（会解析成 `changed=x` 这个键），现在整个 token 被原样点名，不再吞掉。
-    - `verify` FAIL/BLOCKED **或 critical/high 属性缺证据** = rc 2（commit 闸阻断）；无 catalog 或非 git = rc 3（降级，不阻断也不假绿）。输出里 `gate` 字段三态：PASS / FAIL|BLOCKED（check 层）/ BLOCKED_BY_ATTRIBUTES（属性层）。
-    - `receipt verify` STALE = rc 4（stop-gate 拦停强制重审）；非 git = rc 3（降级）。
+    - `verify` FAIL/BLOCKED **或 critical/high 属性缺证据** = rc 2（commit 闸阻断）；无 catalog 或非 git、**或 check 全 SKIPPED** = rc 3（降级，不阻断也不假绿——一条都没跑的运行什么都没建立，0 会被读成「验过了」）。输出里 `gate` 字段三态：PASS / FAIL|BLOCKED（check 层）/ BLOCKED_BY_ATTRIBUTES（属性层）。
+    - `receipt verify` STALE = rc 4（stop-gate 拦停强制重审）；非 git = rc 3（降级）。**回执读不出来也是 rc 4**：读不出来 ≠ 不存在，越过它就是把可能被篡改的那份读成了干净树。
+    - **读不出来一律不当作不存在**：受损的回执 / task.json / review.json / waiver / trend 行 / `.fast-mode`，各自在自己那处显式失败或显式点名；**只有 ENOENT 算「不存在」**，其余 errno（EACCES / EPERM / ENOTDIR / EISDIR…）一律算读不出来，**目录这一层同办**——receipts / waivers 目录列不出来 = 里面每一份一次全不可读，点名的是那个目录本身，绝不答成「一份都没有」（`corrupt-state` / `receipt-unreadable` / `corruptWaivers[]` / `corruptLines`），并往 `.claude/harness/state/quarantine.jsonl` 追加一行 `{ts,kind,path,reason}` 留痕；**只记录不搬动**受损文件（挪证据是人的决定，自动收拾会毁掉唯一一份现场），`risk` 读回这堆报 `QUARANTINED_STATE`。
     - 缺命令 / 二进制找不到 = `verify` 内部 BLOCKED（reason: `command-missing:<exe>`），**绝不假绿**。
 
 [接线点（hook 侧，catalog + node 双满足才启用，否则静默走原逻辑）]
@@ -208,7 +209,7 @@ paths:
     - `.claude/harness/state/review.json`：当前评审会话（绑 diffHash、召集的 lens、blue、各 lens 报告、backlog、lineage），**git 忽略**；一个工作树一份，`review start` 覆盖前会把上一次 FIX_REQUIRED 记进 lineage 供轮次上限用。
     - `.claude/harness/state/authorship.jsonl`：作者账本（append-only，跨进程锁），**git 忽略**。
     - `.claude/harness/state/context/`：`review-pack` 的证据包与 diff 溢出文件，**git 忽略**；与 context-pack 共用一个可回收目录，`retention --max-packs` 一起修剪——隐私含销毁合规，只积不销是自我不一致。
-    - `.claude/harness/state/`：证据层运行态，**git 忽略**——`ledger.jsonl`（`gate` 追加的哈希链账本，append-only，**不许手工编辑**：改了 `ledger` 就报断裂，而断裂 = 此前全部验证按未证明处理）+ `ledger.lock`（追加期间的跨进程互斥目录，超 60s 视为陈旧锁回收；并发 gate 靠它才不会各写各的 prev 把链写死）+ `task.json`（当前活跃 task 信封，一个工作树一份）。
+    - `.claude/harness/state/`：证据层运行态，**git 忽略**——`ledger.jsonl`（`gate` 追加的哈希链账本，append-only，**不许手工编辑**：改了 `ledger` 就报断裂，而断裂 = 此前全部验证按未证明处理）+ `ledger.lock`（追加期间的跨进程互斥目录，超 60s 视为陈旧锁回收；并发 gate 靠它才不会各写各的 prev 把链写死）+ `task.json`（当前活跃 task 信封，一个工作树一份）+ `quarantine.jsonl`（受损运行态留痕，append-only，`{ts,kind,path,reason}` 一行一条；**只记不搬**，受损文件本身留在原处等人处理，`risk` 读它报 `QUARANTINED_STATE`）。
     - `.claude/harness/evidence/*.log`：每条执行过的 check 的原始 stdout+stderr（`gate` 落盘，文件名 `<check>-<epoch>.log`），**git 忽略**；`retention` 按龄和数修剪，但**账本引用到的永不删**。
     - 上面两条与 receipts / waivers / trend 一样**排除出 diff 指纹**（跑引擎不会 stale 掉自己刚写的证据）、**排除出 context-pack**（运行态永不进交给 delegate 的包）。
     - `.claude/.runtime/supervisor/`：supervisor 进程守护运行态（state/pid/service 日志），**git 忽略**（见 dev-workflow-details 的本地运行阶段与 README「进程守护」）。

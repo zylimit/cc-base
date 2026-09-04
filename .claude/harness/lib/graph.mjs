@@ -8,7 +8,7 @@ import path from 'node:path';
 import {
   SOURCE_EXTS,
   changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot,
-  repoRelative, toPosixPath,
+  errDetail, readTextFile, recordCorruptState, repoRelative, toPosixPath,
 } from './core.mjs';
 import { classifyPath, loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 
@@ -399,14 +399,33 @@ function appendTrendRecord(snap) {
   return fp;
 }
 
+/**
+ * The trend ledger, how many of its lines would not parse, and whether the file itself could
+ * not be read. A history with a hole in it is not a shorter history: the ratchet judges the
+ * latest state against the best one on record, and a line nobody can read may be the one
+ * that held the best. A file nobody can read is every line missing at once, which is a
+ * different fact from a repository that has never recorded a snapshot.
+ * @returns {{records:Array,corruptLines:number,unreadable:(string|null)}}
+ */
 function loadTrend() {
-  let lines;
-  try { lines = fs.readFileSync(trendFilePath(), 'utf8').split('\n').filter(Boolean); } catch (_e) { return []; }
-  const out = [];
-  for (const l of lines) {
-    try { out.push(JSON.parse(l)); } catch (_e) { /* skip bad line */ }
+  const fp = trendFilePath();
+  const read = readTextFile(fp);
+  if (read.absent) return { records: [], corruptLines: 0, unreadable: null };
+  if (read.error) {
+    const detail = errDetail(read.error);
+    recordCorruptState({ kind: 'arch-trend', path: fp, reason: detail });
+    return { records: [], corruptLines: 0, unreadable: repoRelative(fp) };
   }
-  return out;
+  const lines = read.text.split('\n').filter(Boolean);
+  const records = [];
+  let corruptLines = 0;
+  for (const l of lines) {
+    try { records.push(JSON.parse(l)); } catch (_e) { corruptLines++; }
+  }
+  if (corruptLines) {
+    recordCorruptState({ kind: 'arch-trend', path: fp, reason: corruptLines + ' unparseable line(s)' });
+  }
+  return { records, corruptLines, unreadable: null };
 }
 
 /**
@@ -489,14 +508,36 @@ function compareRatchet(records) {
 }
 
 function cmdArchTrend(flags) {
-  const records = loadTrend();
+  const { records, corruptLines, unreadable } = loadTrend();
+  const gate = flags.gate === true;
+  // Reporting mode still reports -- the lines nobody could read are a number in the answer
+  // rather than an absence -- and only the ratchet refuses. With a record missing from the
+  // history it cannot tell new debt from debt somebody failed to write down, and a 0 there
+  // is a pass nobody established.
+  const damaged = corruptLines > 0 || !!unreadable;
+  const corruptGate = gate && damaged;
+  const corruptReason = unreadable
+    ? 'trend-history-corrupt: the trend ledger at ' + unreadable + ' exists and cannot be read, so the '
+      + 'best recorded state cannot be established; repair the ledger rather than re-baselining over it'
+    : corruptLines > 0
+      ? 'trend-history-corrupt: ' + corruptLines + ' line(s) of the trend ledger will not parse, so the '
+        + 'best recorded state cannot be established; repair the ledger rather than re-baselining over it'
+      : null;
   if (records.length === 0) {
-    return emit({ ok: true, records: 0, note: 'no trend data; run `arch-check --record` to establish a baseline' }, 0);
+    return emit({
+      ok: !corruptGate,
+      records: 0,
+      corruptLines,
+      ...(unreadable ? { unreadable } : {}),
+      ...(corruptReason ? { reason: corruptReason } : {}),
+      // Only when the history really is absent. A ledger that is there and unreadable must
+      // not be told to record a fresh baseline: that writes over a history nobody was shown.
+      ...(damaged ? {} : { note: 'no trend data; run `arch-check --record` to establish a baseline' }),
+    }, corruptGate ? 1 : 0);
   }
   const cmp = compareRatchet(records);
   const latest = records[records.length - 1];
-  const gate = flags.gate === true;
-  const ok = !gate || (cmp.regressed.length === 0 && !cmp.forbiddenViolation);
+  const ok = !gate || (!damaged && cmp.regressed.length === 0 && !cmp.forbiddenViolation);
   // Say out loud which metrics could not be compared edge by edge. A silent fallback to
   // counts reads exactly like a per-edge pass, and the two mean very different things.
   const notes = [];
@@ -512,6 +553,8 @@ function cmdArchTrend(flags) {
     ok,
     gate,
     records: records.length,
+    corruptLines,
+    ...(unreadable ? { unreadable } : {}),
     comparable: cmp.comparable,
     latestAt: latest.at || null,
     latestCommit: latest.headCommit || null,
@@ -522,6 +565,7 @@ function cmdArchTrend(flags) {
     forbiddenViolation: cmp.forbiddenViolation,
     edgeBasis: cmp.edgeBasis,
     notes,
+    ...(corruptReason ? { reason: corruptReason } : {}),
     note: cmp.forbiddenViolation
       ? 'forbidden dependency edges present (' + cmp.forbiddenViolation.count + '): declared boundaries are zero-tolerance and never ratchet'
         + (cmp.regressed.length ? '; drift ratchet violated as well' : '')

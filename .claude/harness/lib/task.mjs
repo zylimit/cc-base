@@ -34,7 +34,7 @@ import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { loadReceipts, receiptIntact, safeTaskId } from './quality.mjs';
 import {
-  buildPlan, evidenceFindings, readLedgerState, readTaskRecord, relFromRoot, taskFilePath,
+  buildPlan, evidenceFindings, readLedgerState, readTaskState, relFromRoot, taskFilePath,
   verifyLedgerChain, writeAtomic,
 } from './evidence.mjs';
 
@@ -107,11 +107,12 @@ function acceptingReceipt(receipts, diffHash) {
  * <path the catalog ignores>` produces PASS with an empty module list and a perfectly real
  * diffHash beside it, which is a true signature over a scope the caller chose.
  * @param {{latestGate?:Object|null,currentDiffHash?:string,currentPlanHash?:string|null,
- *          receipts?:Array,ledgerOk?:boolean,evidenceOk?:boolean,planEmpty?:boolean}} [input]
+ *          receipts?:Array,receiptsUnreadable?:string[],ledgerOk?:boolean,evidenceOk?:boolean,
+ *          planEmpty?:boolean}} [input]
  * @returns {string[]}
  */
 function completeBlockers({ latestGate = null, currentDiffHash = '', currentPlanHash = null,
-  receipts = [], ledgerOk = true, evidenceOk = true, planEmpty = true } = {}) {
+  receipts = [], receiptsUnreadable = [], ledgerOk = true, evidenceOk = true, planEmpty = true } = {}) {
   const blockers = [];
   const gateFresh = !!latestGate && latestGate.gate === 'PASS' && latestGate.diffHash === currentDiffHash;
   if (!gateFresh) {
@@ -136,6 +137,16 @@ function completeBlockers({ latestGate = null, currentDiffHash = '', currentPlan
       blockers.push('every check in that PASS gate was skipped (fast mode or a waiver), so it '
         + 'established nothing: the evidence was deferred, not obtained');
     }
+  }
+  // Ahead of the "no accepting receipt" test on purpose, and never folded into it: an
+  // unreadable receipt outranks every sibling that binds, because the file nobody can read
+  // may be the tampered one and a receipt that does bind says nothing about it. `receipt
+  // verify` already refuses this tree at exit 4; the gate documented as the hard one must
+  // not be the softer of the two.
+  if (receiptsUnreadable.length) {
+    blockers.push('receipt-unreadable: ' + receiptsUnreadable.length + ' receipt file(s) exist and '
+      + 'cannot be read (' + receiptsUnreadable.join(', ') + '), so the receipt pile cannot be judged '
+      + 'at all; read them, then repair or remove them by hand');
   }
   if (!acceptingReceipt(receipts, currentDiffHash)) {
     blockers.push('no fresh accepting review receipt bound to the current diffHash; '
@@ -166,9 +177,46 @@ function latestGateRecord(entries) {
 }
 
 /**
+ * The refusal both readers share. "no active task" is the answer for a tree where nobody
+ * started one; here somebody did and the record went bad, and the two need different next
+ * moves -- one is "start one", the other is "find out who wrote this".
+ */
+function corruptTask(sub, corrupt) {
+  process.stderr.write('task ' + sub + ': ' + corrupt.path + ' exists and cannot be read ('
+    + corrupt.detail + '); the record is damaged, not absent -- do not start a fresh one over it\n');
+  return emit({ ok: false, error: 'corrupt-state', path: corrupt.path, detail: corrupt.detail }, 3);
+}
+
+/**
+ * Write the record, or hand back why it could not be written. Nothing here is allowed to
+ * throw its way out: a rename onto a path that is a directory comes back EISDIR from
+ * writeAtomic, and an uncaught one prints a node stack carrying this machine's absolute
+ * paths while stdout stays empty -- the two things every other answer in this engine takes
+ * care not to do.
+ * @returns {{path:string,detail:string}|null} null when it landed
+ */
+function writeTaskRecord(record) {
+  const fp = taskFilePath();
+  try {
+    writeAtomic(fp, JSON.stringify(record, null, 2) + '\n');
+    return null;
+  } catch (e) {
+    return { path: relFromRoot(fp), detail: errDetail(e) };
+  }
+}
+
+/** The refusal both writes share. Nothing was recorded, so nothing may read as recorded. */
+function unwritableTask(sub, failed) {
+  process.stderr.write('task ' + sub + ': ' + failed.path + ' could not be written ('
+    + failed.detail + '); nothing was recorded\n');
+  return emit({ ok: false, error: 'corrupt-state', path: failed.path, detail: failed.detail }, 3);
+}
+
+/**
  * CLI: task start | status | complete.
- *   start     stdin JSON envelope -> writes state/task.json (exit 3 names missing fields)
- *   status    the record plus the current diffHash (always exit 0)
+ *   start     stdin JSON envelope -> writes state/task.json (exit 3 names missing fields,
+ *             and refuses outright when a record is already there and cannot be read)
+ *   status    the record plus the current diffHash (exit 0; 3 when the record is corrupt)
  *   complete  exit 0 only when all four conditions hold; otherwise exit 2 + blockers[]
  */
 function cmdTask(flags = {}, positional = []) {
@@ -186,13 +234,21 @@ function cmdTask(flags = {}, positional = []) {
         + (v.detail ? ' (' + v.detail + ')' : '') + '\n');
       return emit({ error: 'task-envelope-incomplete', missing: v.missing, detail: v.detail }, 3);
     }
+    // Look before writing. status and complete already refuse a damaged record; start is the
+    // one verb that writes over it, so a writer that never looks turns their refusal into
+    // advice nobody has to take -- and the damaged record is the only copy of what happened.
+    const prior = readTaskState();
+    if (prior.corrupt) return corruptTask('start', prior.corrupt);
     const record = buildTaskRecord(input, { now: new Date().toISOString(), baseCommit: headCommit() });
-    writeAtomic(taskFilePath(), JSON.stringify(record, null, 2) + '\n');
+    const failed = writeTaskRecord(record);
+    if (failed) return unwritableTask('start', failed);
     return emit({ ok: true, path: relFromRoot(taskFilePath()), task: record }, 0);
   }
 
   if (sub === 'status') {
-    const task = readTaskRecord();
+    const state = readTaskState();
+    if (state.corrupt) return corruptTask('status', state.corrupt);
+    const task = state.task;
     return emit({
       ok: !!task,
       active: !!(task && task.state === 'active'),
@@ -207,7 +263,9 @@ function cmdTask(flags = {}, positional = []) {
     if (!loaded.ok) {
       return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
     }
-    const task = readTaskRecord();
+    const state = readTaskState();
+    if (state.corrupt) return corruptTask('complete', state.corrupt);
+    const task = state.task;
     if (!task || task.state !== 'active') {
       return emit({
         ok: false, task: task ? task.id : null,
@@ -253,11 +311,13 @@ function cmdTask(flags = {}, positional = []) {
     const imp = analyzeImpact(changed, loaded.catalog, {});
     const plan = buildPlan(imp.affected, loaded.catalog);
     const currentDiffHash = gitFingerprint();
+    const receiptLedger = loadReceipts();
     const blockers = completeBlockers({
       latestGate: latestGateRecord(ledger.entries),
       currentDiffHash,
       currentPlanHash: plan.hash,
-      receipts: loadReceipts(),
+      receipts: receiptLedger.receipts,
+      receiptsUnreadable: receiptLedger.unreadable,
       ledgerOk: verifyLedgerChain(ledger.entries).ok,
       evidenceOk: evidenceFindings(ledger.entries).ok,
       planEmpty: plan.empty,
@@ -267,7 +327,8 @@ function cmdTask(flags = {}, positional = []) {
       return emit({ ok: false, task: task.id, diffHash: currentDiffHash, blockers }, 2);
     }
     const done = { ...task, state: 'complete', completedAt: new Date().toISOString() };
-    writeAtomic(taskFilePath(), JSON.stringify(done, null, 2) + '\n');
+    const failed = writeTaskRecord(done);
+    if (failed) return unwritableTask('complete', failed);
     return emit({ ok: true, task: done.id, diffHash: currentDiffHash, blockers: [] }, 0);
   }
 

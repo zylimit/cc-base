@@ -479,7 +479,16 @@ function cmdTrace(flags) {
   const r = traceReport(t.lint.ids, t.collected, Number.isFinite(min) ? min : 1);
   for (const id of r.unverified) process.stderr.write(' UNVERIFIED  ' + id + ' :: no test file references this id\n');
   for (const d of r.dangling) process.stderr.write(' DANGLING    ' + d.id + ' :: referenced in ' + d.file + ' but never declared\n');
-  return emit({ ...r, file: t.file, scanned: t.scanned, truncated: t.truncated }, r.ok ? 0 : 1);
+  // A corpus the budget cut short is a degraded measurement, not a smaller one: the files
+  // that would have verified a requirement were never read, so "unverified" here diagnoses
+  // the repository for something the cap did. Same 3 every other command uses to say that
+  // it could not measure, rather than the 1 that says it measured and found a gap.
+  if (t.truncated) {
+    process.stderr.write('trace read ' + t.scanned + ' file(s) before the tracked-path cap ended the listing; '
+      + 'the coverage below describes that fragment, not this repository\n');
+  }
+  return emit({ ...r, file: t.file, scanned: t.scanned, truncated: t.truncated, degraded: !!t.truncated },
+    t.truncated ? 3 : (r.ok ? 0 : 1));
 }
 
 // ===========================================================================
@@ -536,12 +545,17 @@ function cmdSpec(flags) {
   let narrowed = false;
   let reason = '';
   let affected = [];
+  // Whether the corpus the verification marks were drawn from was cut short by the
+  // tracked-path cap. Only set on the route that reads one, so --all carries no such claim.
+  let truncated = false;
+  let scanned = 0;
   const verification = new Map();
 
   if (all) {
     reason = '--all requested; the whole requirement section is in scope';
   } else {
     const t = loadTrace(flags);
+    if (t.ok) { truncated = !!t.truncated; scanned = t.scanned; }
     if (!t.ok) {
       reason = 'cannot narrow (' + t.error + '); rendering every requirement instead. ' + t.note;
     } else if (!t.catalog) {
@@ -568,12 +582,24 @@ function cmdSpec(flags) {
     }
   }
 
+  // The view is the product here, so the truncation goes into it and not only into the JSON:
+  // an agent handed "0 of 1 requirement(s) selected" reads that the repository failed to cite
+  // its ids, when the file that cites them was never opened. Rendering less is allowed;
+  // saying nothing about it is what turns a budget into a wrong measurement. Only when it
+  // happened -- a line that is always there is a line nobody reads.
+  const truncationNote = truncated
+    ? '> The corpus this view was drawn from was truncated at the tracked-path cap after '
+      + scanned + ' file(s) were read, so a requirement may appear here unverified, or not appear '
+      + 'at all, because the file that would have cited it was never opened.\n\n'
+    : '';
   const header = '# Requirements in scope' + (narrowed ? ' for [' + affected.join(', ') + ']' : ' (all)') + '\n\n'
-    + selected.length + ' of ' + items.length + ' requirement(s) selected; ' + reason + '.\n\n';
+    + selected.length + ' of ' + items.length + ' requirement(s) selected; ' + reason + '.\n\n'
+    + truncationNote;
   const rendered = renderSpecView(selected, verification, { budget, header });
   return emit({
     ok: true, file: src.file, total: items.length, narrowed, reason,
     affected, selected: selected.map(it => it.id || ('line:' + it.line)),
+    ...(truncated ? { truncated: true, scanned } : {}),
     budget, chars: rendered.chars, rendered: rendered.rendered, omitted: rendered.omitted,
     view: rendered.view,
   }, 0);

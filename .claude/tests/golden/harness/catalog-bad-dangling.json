@@ -84,7 +84,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 268
+        "tests": 287
       },
       "stderr": []
     },
@@ -921,6 +921,7 @@
         "ok": true,
         "gate": false,
         "records": 2,
+        "corruptLines": 0,
         "comparable": true,
         "latestAt": "<TS>",
         "latestCommit": "<SHA>",
@@ -988,6 +989,7 @@
         "ok": true,
         "gate": true,
         "records": 2,
+        "corruptLines": 0,
         "comparable": true,
         "latestAt": "<TS>",
         "latestCommit": "<SHA>",
@@ -1536,7 +1538,8 @@
         ],
         "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
         "scanned": 21,
-        "truncated": false
+        "truncated": false,
+        "degraded": false
       },
       "stderr": [
         " UNVERIFIED  REQ-IMPORT-001 :: no test file references this id",

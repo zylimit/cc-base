@@ -14,7 +14,7 @@
 //   node supervisor.mjs status [--id web]
 //   node supervisor.mjs logs --id web [--lines 80]
 //
-// exit codes: 0 ok / 1 error / 3 usage.
+// exit codes: 0 ok / 1 error (including a state.json that will not parse) / 3 usage.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -58,9 +58,23 @@ function parseArgs(argv) {
   return { flags, positional, command };
 }
 
+function statePath(id) {
+  return path.join(idDir(id), 'state.json');
+}
+// Three answers, and only two of them used to exist. No file at all means nothing was ever
+// started under this id; a file that parses is what is running; a file that exists and will
+// not parse is neither, and answering it like the first makes `status` report a service that
+// is very possibly alive as dead, `start` launch a second supervisor over a live one, and
+// `stop` say there is nothing here to stop.
+function readStateResult(id) {
+  const fp = statePath(id);
+  let raw;
+  try { raw = fs.readFileSync(fp, 'utf8'); } catch (_e) { return { state: null, corrupt: null }; }
+  try { return { state: JSON.parse(raw), corrupt: null }; }
+  catch (e) { return { state: null, corrupt: { path: fp, detail: String((e && e.message) || e) } }; }
+}
 function readState(id) {
-  try { return JSON.parse(fs.readFileSync(path.join(idDir(id), 'state.json'), 'utf8')); }
-  catch (_e) { return null; }
+  return readStateResult(id).state;
 }
 // Atomic write: a half-written state file would make every later status read lie.
 function writeState(id, state) {
@@ -68,7 +82,7 @@ function writeState(id, state) {
   fs.mkdirSync(dir, { recursive: true });
   const tmp = path.join(dir, 'state.json.' + process.pid + '.tmp');
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', 'utf8');
-  fs.renameSync(tmp, path.join(dir, 'state.json'));
+  fs.renameSync(tmp, statePath(id));
 }
 function pidAlive(pid) {
   if (!pid) return false;
@@ -244,7 +258,13 @@ function cmdStart(flags, command) {
   const id = safeId(flags.id);
   if (!id) return die('start requires --id <name> (A-Za-z0-9._-)', 3);
   if (!command.length) return die('start requires "-- <command ...>" after the flags', 3);
-  const existing = readState(id);
+  const found = readStateResult(id);
+  if (found.corrupt) {
+    return die('id "' + id + '": ' + rel(found.corrupt.path) + ' will not parse (' + found.corrupt.detail
+      + '); refusing to start a second supervisor behind a state.json nobody could read -- one may still be '
+      + 'running against it. Check with ps, then repair or remove that file by hand', 1);
+  }
+  const existing = found.state;
   if (existing && existing.status === 'running' && pidAlive(existing.supervisorPid)) {
     return die('id "' + id + '" is already running (supervisor pid ' + existing.supervisorPid + '); stop it first', 1);
   }
@@ -277,7 +297,13 @@ function cmdStart(flags, command) {
 function cmdStop(flags) {
   const id = safeId(flags.id);
   if (!id) return die('stop requires --id <name>', 3);
-  const st = readState(id);
+  const found = readStateResult(id);
+  if (found.corrupt) {
+    return die('id "' + id + '": ' + rel(found.corrupt.path) + ' is corrupt (' + found.corrupt.detail
+      + '); the file is there and unreadable, which is not the same as no such service -- the pids it '
+      + 'recorded cannot be read back, so look for a live supervisor by hand before removing it', 1);
+  }
+  const st = found.state;
   if (!st) return die('no state for id "' + id + '"', 1);
   fs.writeFileSync(path.join(idDir(id), 'stop.flag'), new Date().toISOString() + '\n', 'utf8');
   const supAlive = !!(st.supervisorPid && pidAlive(st.supervisorPid));
@@ -323,10 +349,35 @@ function cmdStatus(flags) {
   const one = typeof flags.id === 'string' ? safeId(flags.id) : null;
   let ids = [];
   try { ids = fs.readdirSync(baseDir()).filter(n => fs.existsSync(path.join(baseDir(), n, 'state.json'))); }
-  catch (_e) { ids = []; }
+  catch (e) {
+    // ENOENT is the only one that means "nobody has ever started a service here". Anything
+    // else -- a mode bit, a file standing where the directory belongs -- leaves every state
+    // file inside unreachable, and "services":[] is the same answer a clean machine gives.
+    // Read off that, "is everything stopped?" gets a yes nobody checked.
+    if (!e || e.code !== 'ENOENT') {
+      const detail = String((e && e.message) || e);
+      process.stderr.write('status: ' + rel(baseDir()) + ' cannot be listed (' + detail
+        + '); the services recorded in it are unknown, not absent\n');
+      emit({ ok: false, error: 'state-dir-unreadable', path: rel(baseDir()), detail });
+      process.exitCode = 1;
+      return;
+    }
+    ids = [];
+  }
   if (one) ids = ids.filter(n => n === one);
+  let corrupt = 0;
   const services = ids.map(n => {
-    const st = readState(n) || {};
+    const found = readStateResult(n);
+    if (found.corrupt) {
+      // "dead" is a claim about a process, read out of a state file. Here the file is what
+      // failed, so there is nothing to read the claim out of, and reporting one anyway is a
+      // guess wearing the clothes of a reading.
+      corrupt++;
+      process.stderr.write('status: ' + rel(found.corrupt.path) + ' will not parse (' + found.corrupt.detail
+        + '); this service\'s liveness is unknown, not dead\n');
+      return { id: n, status: 'corrupt', statePath: rel(found.corrupt.path), detail: found.corrupt.detail, log: rel(logPath(n)) };
+    }
+    const st = found.state || {};
     const supAlive = pidAlive(st.supervisorPid);
     const childAlive = pidAlive(st.childPid);
     // Recorded state can outlive the processes (power loss, kill -9): report liveness
@@ -340,7 +391,8 @@ function cmdStatus(flags) {
       lastExit: st.lastExit || null, updatedAt: st.updatedAt || null, log: rel(logPath(n)),
     };
   });
-  emit({ ok: true, services });
+  emit({ ok: corrupt === 0, services });
+  if (corrupt) process.exitCode = 1;
 }
 
 function cmdLogs(flags) {

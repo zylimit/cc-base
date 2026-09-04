@@ -475,6 +475,90 @@ function loadHarnessConfig() {
   return { contextPack, catalogPresent: true };
 }
 
+// ---------------------------------------------------------------------------
+// reading state  (ENOENT is the only error that means "there is nothing here")
+// ---------------------------------------------------------------------------
+/**
+ * Read a file as text, keeping "nobody ever wrote one" apart from "this one cannot be read".
+ * ENOENT is the only absence. Every other errno -- a mode bit that denies the read, a
+ * directory standing where a file belongs, a name that is not the kind of thing the reader
+ * expected -- leaves the artefact on disk with its contents unknown, which is the situation
+ * a damaged file is in and not the situation an unwritten one is in. The two get opposite
+ * next moves, and one catch answering both is what makes "start a fresh record" the reply
+ * to a record somebody needs to go and read.
+ * @returns {{text:(string|null),absent:boolean,error:(Error|null)}}
+ */
+function readTextFile(file) {
+  try { return { text: fs.readFileSync(file, 'utf8'), absent: false, error: null }; } catch (e) {
+    if (e && e.code === 'ENOENT') return { text: null, absent: true, error: null };
+    return { text: null, absent: false, error: e };
+  }
+}
+
+/**
+ * List a directory, the same distinction one level out. A directory nobody can list is
+ * every file inside it unreadable at once, and an empty listing answers "there is nothing
+ * in here" about a place nobody was able to look into.
+ * @returns {{names:(string[]|null),absent:boolean,error:(Error|null)}}
+ */
+function readDirNames(dir) {
+  try { return { names: fs.readdirSync(dir), absent: false, error: null }; } catch (e) {
+    if (e && e.code === 'ENOENT') return { names: null, absent: true, error: null };
+    return { names: null, absent: false, error: e };
+  }
+}
+
+/**
+ * The message of a failed read or write, with this checkout's own path folded back to the
+ * repo-relative one. Node puts the path it was handed into every errno message, and these
+ * details go on stdout and into the quarantine ledger, both of which get pasted into reports
+ * read on other machines -- the same reason nothing else here prints anything but
+ * repoRelative(). Best effort by construction: a message that does not contain the root
+ * comes back unchanged, which is no worse than not looking.
+ */
+function errDetail(e) {
+  const msg = String((e && e.message) || e);
+  const root = projectRoot();
+  if (!root) return msg;
+  return msg.split(root + path.sep).join('').split(root).join('.');
+}
+
+// ---------------------------------------------------------------------------
+// quarantine  (a damaged artefact is recorded, never moved and never repaired)
+// ---------------------------------------------------------------------------
+/** Where corruption detections are appended; state-dir state, git-ignored like its siblings. */
+function quarantineFilePath() {
+  return path.join(projectRoot(), '.claude', 'harness', 'state', 'quarantine.jsonl');
+}
+
+/**
+ * Note that an artefact was found damaged: one JSON line, append-only, and nothing else.
+ * The file itself is not moved, renamed or rewritten -- relocating evidence is a decision for
+ * a person, and a checker that tidies up destroys the only copy of what went wrong.
+ * What the line buys is counting. A command that noticed a damaged file and then exited is
+ * the only record that it ever noticed: the next run starts from the same nothing, and one
+ * bad file and forty read exactly alike. `risk` reads the pile back.
+ * Never throws and never changes the caller's answer: this runs beside a path that is
+ * already reporting a failure, and a write error here must not replace the report.
+ * @param {{kind:string,path:string,reason:string}} entry
+ */
+function recordCorruptState({ kind, path: file, reason }) {
+  const rel = repoRelative(file);
+  const fp = quarantineFilePath();
+  try {
+    fs.mkdirSync(path.dirname(fp), { recursive: true });
+    fs.appendFileSync(fp, JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: String(kind),
+      path: rel,
+      reason: String(reason).slice(0, 500),
+    }) + '\n', 'utf8');
+  } catch (e) {
+    process.stderr.write('could not record the damaged state of ' + rel + ': '
+      + String((e && e.message) || e) + '\n');
+  }
+}
+
 // ===========================================================================
 // S* shared vocabulary  (defined once here because two or more sections read it)
 // ===========================================================================
@@ -565,6 +649,7 @@ export {
   git, isGitRepo, headCommit, isStateExcluded, splitNul, changedPaths, canonicalDiff, gitFingerprint,
   globToRegExp, matchAny, specificity,
   DEFAULTS, projectRoot, catalogFilePath, repoRelative, loadHarnessConfig,
+  readTextFile, readDirNames, errDetail, quarantineFilePath, recordCorruptState,
   parseCsv,
   ATTRIBUTES, TIERS, TIER_ENFORCEMENT, TIER_RANK, normalizeTier,
   isDenied, SOURCE_EXTS, whichCmd,

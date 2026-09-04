@@ -211,7 +211,10 @@ else
 fi
 rm -rf "$TMPNG"
 
-# ⑤f verify 全 SKIPPED（Fast Mode 端到端）-> rc 0：写 .fast-mode flag + allowFastSkip 真 SKIP 路径
+# ⑤f verify 全 SKIPPED（Fast Mode 端到端）-> rc 3：写 .fast-mode flag + allowFastSkip 真 SKIP 路径。
+#     全跳过 = 一条 check 都没跑成，什么都没建立，与 dod / release 的「什么都没确立 = 3」同口径；
+#     rc 3 在 pre-commit-check.sh 里落在 harness_rc_in_contract 0 3 的放行分支，所以「不阻断」
+#     这个意图没变，变的只是它不再冒充「验过了」。
 TMPV="$(mktemp -d)"; mkdir -p "$TMPV/.claude/harness"
 node -e 'const fs=require("fs"); fs.writeFileSync(process.argv[1], "expires_epoch=" + Math.floor(new Date("2099-01-01").getTime()/1000) + "\n");' "$TMPV/.claude/.fast-mode"
 node -e '
@@ -228,10 +231,14 @@ node -e '
   && echo "changed" >> core/a.ts ) >/dev/null 2>&1
 RC=0
 OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"fastActive":true'; then
-  pass "verify 全 SKIPPED (Fast Mode) -> rc 0"
+# RC -ne 2 是刻意的冗余合取（3 本就不是 2）：它把「不阻断」这个意图写进条件里，
+# 将来契约若被改成 rc 2，红的会是这条点名「阻断」的断言，而不是一句光秃秃的数字不符。
+if [ "$RC" -eq 3 ] && [ "$RC" -ne 2 ] \
+   && printf '%s' "$OUT" | grep -q '"fastActive":true' \
+   && printf '%s' "$OUT" | grep -q '"note":"every-check-skipped"'; then
+  pass "verify 全 SKIPPED (Fast Mode) -> rc 3 降级、不阻断"
 else
-  fail "verify Fast Mode SKIPPED 应 rc 0（exit $RC，输出：$OUT）"
+  fail "verify Fast Mode 全 SKIPPED：一条 check 都没跑成，什么都没建立，应降级 rc 3（并带 fastActive:true + note:every-check-skipped），不是 rc 0 冒充「验过了」、也不是 rc 2 阻断（exit $RC，输出：$OUT）"
 fi
 rm -rf "$TMPV"
 

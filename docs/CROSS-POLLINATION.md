@@ -44,7 +44,7 @@ deepseek-base 的 `docs/CROSS-POLLINATION.md:40-58` 把 cc-base 定性为「a de
 | waiver 前置声明 `waivePlan`（跑之前解析，命中即 SKIPPED 不执行；受保护 check 照跑并计 `waiversBlocked`） | `quality.mjs:221-240` | 即 #20b | **吸收（排期）** | 独立批，含 golden 重录 |
 | 跨仓借鉴台账（absorbed / adapted / rejected / watching 四态，拒绝也留痕） | `docs/CROSS-POLLINATION.md` | 无，结论散在 progress.md | **吸收（本轮）** | 本文件 |
 | 运行时表跨表契约测试（指纹排除表 ↔ pack 拒绝表穷举双向迭代） | `tests/table-consistency.test.mjs` | 四份排除表已有 `test-setup.sh ⑥` 表范围比对 + 行为锁 | 拒绝：等价物已有，形态不同 | — |
-| `url-userinfo` 密钥模式（`https://user:pass@host`） | `audit/scan-secrets.mjs:30` | 15 条模式里没这条 | **吸收（本轮）** | `scan-secrets.mjs` 加一条 + 一对正反用例 |
+| `url-userinfo` 密钥模式（`http(s)://user:pass@host`） | `audit/scan-secrets.mjs:30` | 15 条模式里没这条 | **吸收（本轮）** | `scan-secrets.mjs` 加一条 + 一对正反用例 |
 | `run-tests.mjs` 版本安全启动器、零文件 exit 3 | `audit/run-tests.mjs` | CI 矩阵 22/24 无 Node 20 | 拒绝：不需要；「零文件 = 什么都没证明」语义本仓 run-all 已有 | — |
 | 强制 PowerShell 7（`#requires -Version 7.0`） | `setup.ps1:1-16` | Pinned 明写兼容 5.1，28 条 ps1 行为断言锁 5.1 语义 | 拒绝：与 Pinned 冲突；#30 记着 5.1 无机器可验，是承认缺口不是放弃兼容 | — |
 | macOS CI 格 / actions v7 / gitleaks+semgrep 独立 job / 覆盖率 advisory 格 | `.github/workflows/gate.yml` | Decisions 2026-09-03 明确不做 macOS 格与 SHA pin | 拒绝 macOS 与 pin；gitleaks / semgrep 观察（本仓 adapters 表已能按属性接外部扫描器，CI 侧加不加看 gate-audit 数据） | — |
@@ -75,7 +75,7 @@ deepseek-base 的 `docs/CROSS-POLLINATION.md:40-58` 把 cc-base 定性为「a de
 
 | 批 | 内容 | commit |
 |---|---|---|
-| 0 | 审查清单挂账 #31 `.runtime` pathspec 裸奔 / #32 软链路径 / #33 DENY 注释 | 待填 |
+| 0 | 审查清单挂账 #31 `.runtime` pathspec 裸奔 / #32 软链路径 / #33 DENY 注释（连同本台账首版、feedback 索引重建） | `f3cd449` |
 | 1 | 「读不出来 ≠ 不存在」：`quarantine()` 原语、receipt 不可读 fail-closed、supervisor 坏 state fail-visible、arch-trend 坏行判红、verify all-SKIPPED → rc 3、trace 截断 → rc 3 | 待填 |
 | 2 | golden `--mutate` + `MUTANTS.json` | 待填 |
 | 3 | 发版与证据绑定：release `gate-fresh` 项 + 信任边界字段、receipt 绑 `engineHash`、治理面改动 risk 自动升档 | 待填 |
