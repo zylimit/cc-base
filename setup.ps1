@@ -112,6 +112,9 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   if ($relSlash -match '^harness/(receipts|state|waivers|trend|evidence)/') { return }
   # supervisor process-guard runtime (supervisor.mjs itself is still distributed)
   if ($relSlash -match '^\.runtime/') { return }
+  # Claude Code sub-agent worktree isolation: a whole copy of the repo under .claude/worktrees/<agent>/,
+  # with its own .claude/ inside - someone else's repo, not framework files
+  if ($relSlash -match '^worktrees/') { return }
   # installer leftovers + editor swap files (same arms as the other three tables / .claude/.gitignore)
   if ($relSlash -match '\.(bak|framework-new|swp)$') { return }
   $dest = Join-Path $targetClaude $rel

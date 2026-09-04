@@ -274,6 +274,8 @@ function checkDod() {
 // section (6) compares the arms of all four literally. Junk files that .claude/.gitignore
 // excludes (.DS_Store / Thumbs.db / *.swp) belong here too: unexcluded they get registered as
 // framework files and installed into other people's projects.
+// So does .claude/worktrees/, where Claude Code isolates a sub-agent by checking out a whole
+// copy of the repo -- file for file the same names as the framework's own, one .claude/ deeper.
 
 const MANIFEST_FILE = 'FRAMEWORK-MANIFEST.txt';
 
@@ -302,6 +304,7 @@ const MANIFEST_RULES = [
   { pattern: 'harness/trend/*', keep: false },
   { pattern: 'harness/evidence/*', keep: false },
   { pattern: '.runtime/*', keep: false },
+  { pattern: 'worktrees/*', keep: false },
   { pattern: '*.bak', keep: false },
   { pattern: '*.framework-new', keep: false },
   { pattern: '.DS_Store', keep: false },

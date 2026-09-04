@@ -22,6 +22,9 @@ harness/evidence/
 # supervisor 进程守护运行态（pid / state / service 日志，永不入库；supervisor.mjs 本体照常分发）
 .runtime/
 
+# Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，是别人的仓不是框架文件，永不入库）
+worktrees/
+
 # 系统垃圾
 .DS_Store
 Thumbs.db

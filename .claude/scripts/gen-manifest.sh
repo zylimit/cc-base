@@ -49,6 +49,7 @@ while IFS= read -r -d '' src; do
     harness/trend/*) continue ;;                                 # 架构漂移趋势台账（arch-check --record 快照）
     harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
     .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
+    worktrees/*) continue ;;                                     # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
     *.bak|*.framework-new) continue ;;                           # 安装器产物
     .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.gitignore 同条）
     Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.gitignore 同条）

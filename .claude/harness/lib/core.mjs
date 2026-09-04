@@ -227,6 +227,9 @@ function headCommit() {
 // .precompact-block-epoch, .async-verify-last, settings.local.json) are deliberately NOT here:
 // this list is what the fingerprint ignores, and quietly ignoring more files than necessary is
 // how a real change stops being noticed.
+// .claude/worktrees/ is the one entry that is not runtime state: Claude Code isolates a sub-agent
+// by checking out a whole copy of the repo there, so those paths are another repo's files that
+// happen to sit under this one -- not this repo's, and never this repo's diff.
 const STATE_EXCLUDE = [
   ':(exclude).claude/.needs-review',
   ':(exclude).claude/.needs-review.lock',
@@ -238,6 +241,7 @@ const STATE_EXCLUDE = [
   ':(exclude).claude/harness/trend/**',
   ':(exclude).claude/harness/state/**',
   ':(exclude).claude/harness/evidence/**',
+  ':(exclude).claude/worktrees/**',
 ];
 const STATE_EXCLUDE_PATHS = [
   '.claude/.needs-review',
@@ -252,6 +256,7 @@ const STATE_EXCLUDE_PREFIXES = [
   '.claude/harness/trend/',
   '.claude/harness/state/',
   '.claude/harness/evidence/',
+  '.claude/worktrees/',
 ];
 function isStateExcluded(p) {
   const n = toPosixPath(p);
@@ -604,7 +609,7 @@ function normalizeTier(req) {
 // around without anyone noticing it did.
 const DENY = [
   /(^|\/)\.git\//, /(^|\/)node_modules\//, /(^|\/)(dist|build|out|\.next|\.venv)\//,
-  /(^|\/)\.claude\/(\.runtime|evidence|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,
+  /(^|\/)\.claude\/(\.runtime|evidence|worktrees|harness\/receipts|harness\/waivers|harness\/trend|harness\/state|harness\/evidence)\//,
   /(^|\/)\.env(\.|$)/,
   /\.(pem|key|p12|pfx)$/, /(^|\/)id_rsa/, /(^|\/)\.(ssh|aws|azure|gnupg|kube)\//,
 ];
