@@ -142,6 +142,16 @@
             "timeout": 300
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/record-authorship.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PreCompact": [
