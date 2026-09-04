@@ -1,0 +1,93 @@
+[
+  {
+    "name": "core-catalog-path-loses-a-segment",
+    "file": ".claude/harness/lib/core.mjs",
+    "find": "return path.join(projectRoot(), '.claude', 'harness', 'module-catalog.json');",
+    "replace": "return path.join(projectRoot(), 'harness', 'module-catalog.json');",
+    "why": "catalogFilePath() is where the engine decides whether the large-repo layer is on at all. Losing a path segment makes every catalog scenario answer as if no catalog existed, and the baseline has to see catalogPresent and every catalog-driven command move together."
+  },
+  {
+    "name": "catalog-lint-exit-code-inverted",
+    "file": ".claude/harness/lib/catalog.mjs",
+    "find": "return emit(result, result.ok ? 0 : 1);",
+    "replace": "return emit(result, result.ok ? 1 : 0);",
+    "why": "catalog-lint's exit code is the contract CI and the commit hooks read: 0 means the catalog is coherent. A baseline that cannot see 0 and 1 swap cannot see a gate invert."
+  },
+  {
+    "name": "impact-exit-code-inverted",
+    "file": ".claude/harness/lib/graph.mjs",
+    "find": "return emit(result, nonGit ? 3 : 0);",
+    "replace": "return emit(result, nonGit ? 0 : 3);",
+    "why": "rc 3 means degraded and rc 0 means answered. Swapping them makes a real impact analysis read as 'could not tell' and a degraded one read as authoritative -- the exact confusion the rc 3 convention exists to prevent."
+  },
+  {
+    "name": "verify-blocked-state-not-aggregated",
+    "file": ".claude/harness/lib/quality.mjs",
+    "find": "  if (states.some(s => s === 'BLOCKED')) return 'BLOCKED';",
+    "replace": "  if (states.every(s => s === 'BLOCKED')) return 'BLOCKED';",
+    "why": "one blocked check has to block the whole run. Demanding that every check be blocked first turns 'the security scanner is not installed' into a pass, which is the failure mode BLOCKED was invented for."
+  },
+  {
+    "name": "fitness-rule-severity-raised",
+    "file": ".claude/harness/lib/scan.mjs",
+    "find": "id: 'no-unreferenced-deferral', attributes: ['safety'], severity: 'warning', minimumTier: 'high',",
+    "replace": "id: 'no-unreferenced-deferral', attributes: ['safety'], severity: 'error', minimumTier: 'high',",
+    "why": "severity is what turns a fitness finding into a blocker: it drives the counts, the ok flag and the exit code. A ruler that cannot see a rule's severity move cannot tell a warning from a red gate."
+  },
+  {
+    "name": "context-pack-diff-budget-inverted",
+    "file": ".claude/harness/lib/context.mjs",
+    "find": "const entry = { path: '<canonical-diff>', bytes: Math.min(diffChars, maxDiffChars), reason: 'diff' };",
+    "replace": "const entry = { path: '<canonical-diff>', bytes: Math.max(diffChars, maxDiffChars), reason: 'diff' };",
+    "why": "the diff is charged min(actual, cap) against the pack budget; max() bills a two-line diff for the whole cap and crowds real files out. It also moves packHash, the digest this baseline deliberately refuses to mask."
+  },
+  {
+    "name": "gate-blocked-stops-blocking",
+    "file": ".claude/harness/lib/evidence.mjs",
+    "find": "  const gate = (run.state === 'FAIL' || run.state === 'BLOCKED') ? run.state",
+    "replace": "  const gate = (run.state === 'FAIL') ? run.state",
+    "why": "gate rc 2 is what pre-commit-check reads to stop a commit. A BLOCKED run that stops producing a blocking gate is the most expensive silent regression in the engine: everything still looks like it ran."
+  },
+  {
+    "name": "task-envelope-drops-escalation",
+    "file": ".claude/harness/lib/task.mjs",
+    "find": "const TASK_REQUIRED_FIELDS = ['id', 'goal', 'scope', 'outOfScope', 'existingPattern', 'verification', 'escalation'];",
+    "replace": "const TASK_REQUIRED_FIELDS = ['id', 'goal', 'scope', 'outOfScope', 'existingPattern', 'verification'];",
+    "why": "the envelope's required fields are the dispatch contract. A field quietly leaving the list shows up nowhere except a shorter `missing` array, which is precisely what a field-by-field baseline is for."
+  },
+  {
+    "name": "trace-min-coverage-defaults-to-zero",
+    "file": ".claude/harness/lib/spec.mjs",
+    "find": "const min = typeof flags['min-coverage'] === 'string' ? Number(flags['min-coverage']) : 1;",
+    "replace": "const min = typeof flags['min-coverage'] === 'string' ? Number(flags['min-coverage']) : 0;",
+    "why": "trace demands full coverage unless told otherwise. Defaulting to 0 lets any set of unverified requirements pass, and the only witnesses are the echoed minCoverage field and the exit code."
+  },
+  {
+    "name": "review-max-rounds-off-by-one",
+    "file": ".claude/harness/lib/review.mjs",
+    "find": "const DEFAULT_MAX_ROUNDS = 3;",
+    "replace": "const DEFAULT_MAX_ROUNDS = 4;",
+    "why": "maxRounds decides when a repeatedly rejected change escalates instead of looping. It is echoed into every verdict, so a baseline blind to it is blind to the escalation rule moving."
+  },
+  {
+    "name": "memory-view-drops-tail-reserve",
+    "file": ".claude/harness/lib/memory.mjs",
+    "find": "  const room = Math.max(0, budget - header.length - TAIL_RESERVE);",
+    "replace": "  const room = Math.max(0, budget - header.length);",
+    "why": "the tail reserve is what keeps the 'N item(s) omitted' line inside the budget the caller asked for. Without it a budgeted view overruns the budget exactly when it has bad news to deliver."
+  },
+  {
+    "name": "release-worktree-always-clean",
+    "file": ".claude/harness/lib/release.mjs",
+    "find": "  if (dirty.length === 0) {",
+    "replace": "  if (dirty.length >= 0) {",
+    "why": "the worktree check is the one that says what would ship is what was tested. Always answering PASS makes the readiness report lie in the direction nobody re-checks by hand."
+  },
+  {
+    "name": "claude-md-lint-scope-drops-high-risk",
+    "file": ".claude/harness/lib/rules.mjs",
+    "find": "const SCOPED_RISK_TIERS = ['high', 'critical'];",
+    "replace": "const SCOPED_RISK_TIERS = ['critical'];",
+    "why": "this list decides which modules owe a per-module CLAUDE.md. Narrowing it silently drops high-risk modules out of scope, and the lint then reports a clean run over a smaller set than anyone agreed to."
+  }
+]

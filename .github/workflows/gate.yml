@@ -128,6 +128,36 @@ jobs:
             exit 1
           fi
 
+      # 上一步答的是「引擎有没有被改坏」，这一步答的是「那把尺子还咬不咬得住」——golden 全绿也可能
+      # 是因为它对这处改动本来就瞎。--mutate 按 .claude/tests/golden/MUTANTS.json 往 lib/*.mjs 逐条
+      # 注入真改动（退出码翻转、聚合取反、路径少一段…）再整轮重放：killed = 基线看得见，
+      # survived = 那一块是盲区，得补断言或换突变。
+      # 只在每周 schedule 那趟跑：一条突变要整轮重放一次矩阵（实测单条 2 分钟），13 条约半小时，
+      # 挂每次 push 上没人受得了。
+      # 而它照的是尺子的腐烂（新加的子命令没进基线、遮罩遮过头），本来就是周级节奏的事。
+      # ubuntu-only，与上一步同因：沙箱夹具树和录进 git 的基线都是 POSIX-only。
+      # rc 契约：0=全 killed / 1=有 survived（盲区）/ 2=清单坏了或目标文件脏（没测成）/ 3=SKIPPED。
+      - name: golden --mutate --strict（仅每周 schedule，ubuntu）
+        id: mutate
+        if: github.event_name == 'schedule' && runner.os != 'Windows'
+        continue-on-error: true
+        run: |
+          set -u
+          LOG="${RUNNER_TEMP:-.}/golden-mutate.log"
+          RC=0
+          node .claude/tests/harness-golden.mjs --mutate --strict > "$LOG" 2>&1 || RC=$?
+          tail -40 "$LOG"
+          echo "mutate rc=$RC"
+          if [ "$RC" -eq 0 ]; then
+            exit 0
+          elif [ "$RC" -eq 1 ]; then
+            echo "::error::有突变活了下来（survived）：golden 基线看不见那处改动，是尺子的盲区，不是引擎的 bug。完整日志见 artifact。"
+            exit 1
+          else
+            echo "::error::mutate rc=$RC（2=清单对不上源码或目标文件脏，3=整体 SKIPPED；两种都是没测成，不是通过）"
+            exit 1
+          fi
+
       # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
       # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
       # **显式 SKIPPED** 而不是悄悄没跑或判失败：一个跳过的段如果不出声，就是假绿。
@@ -190,8 +220,8 @@ jobs:
           BAD=""
           for kv in "selftest=${{ steps.selftest.outcome }}" "secrets=${{ steps.secrets.outcome }}" \
                     "instructions=${{ steps.instructions.outcome }}" "syntax=${{ steps.syntax.outcome }}" \
-                    "golden=${{ steps.golden.outcome }}" "runall=${{ steps.runall.outcome }}" \
-                    "catalog=${{ steps.catalog.outcome }}"; do
+                    "golden=${{ steps.golden.outcome }}" "mutate=${{ steps.mutate.outcome }}" \
+                    "runall=${{ steps.runall.outcome }}" "catalog=${{ steps.catalog.outcome }}"; do
             n="${kv%%=*}"; o="${kv#*=}"
             echo "  $n: $o"
             [ "$o" = "failure" ] && BAD="$BAD $n"
@@ -216,6 +246,17 @@ jobs:
         with:
           name: runall-${{ matrix.os }}-node${{ matrix.node }}
           path: ${{ runner.temp }}/runall.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # 同理，而且更需要：--mutate 一周才跑一趟，红的时候人早在别的事上了，
+      # 日志不留成 artifact 就只能等下周再红一次才看得见。
+      - name: 失败时上传 golden --mutate 日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-mutate-${{ matrix.os }}-node${{ matrix.node }}
+          path: ${{ runner.temp }}/golden-mutate.log
           if-no-files-found: ignore
           retention-days: 14
 

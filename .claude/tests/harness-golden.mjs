@@ -1,5 +1,6 @@
 // harness-golden.mjs -- golden baseline for .claude/harness/harness.mjs (zero npm deps).
-// Node builtins only: node:child_process / node:fs / node:os / node:path / node:process / node:url.
+// Node builtins only: node:child_process / node:crypto / node:fs / node:os / node:path /
+// node:process / node:url.
 // Source is ASCII-only (matches harness.mjs and the .ps1 pure-ASCII convention).
 //
 // Why this exists: harness.mjs is about to be split from one file into lib/*.mjs. That
@@ -11,9 +12,20 @@
 //   node .claude/tests/harness-golden.mjs --check    replay and diff against the baseline
 //   node .claude/tests/harness-golden.mjs --probe    run the matrix 3x and report which
 //                                                    fields move on their own (see below)
+//   node .claude/tests/harness-golden.mjs --mutate   inject each mutation listed in
+//                                                    .claude/tests/golden/MUTANTS.json, replay
+//                                                    the matrix once per mutation, and report
+//                                                    which ones this baseline can see (see S6b)
 //   ... --check --strict                             same, but a skipped run exits 3 instead
 //                                                    of 0, so a caller cannot read "never ran"
 //                                                    as "passed" off the exit code alone
+//   ... --mutate --mutants F --only N --scenario S   read a different manifest, run a single
+//                                                    entry, restrict the replay to one
+//                                                    scenario. All three are --mutate only:
+//                                                    a filtered --check exiting 0 would read
+//                                                    as a green full run off the exit code,
+//                                                    which is exactly what this file refuses
+//                                                    to let a caller do.
 //
 // Hermetic by construction. Every scenario runs against a throwaway git repository built
 // under the system temp dir from .claude/tests/fixtures/golden/tree/, never against this
@@ -132,6 +144,7 @@
 // and friends are emitted by the runtime, not by the harness).
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -151,6 +164,8 @@ const TREE_DIR = path.join(GOLDEN_FIXTURES, 'tree');
 const WAIVER_FIXTURE = path.join(GOLDEN_FIXTURES, 'waiver-valid.json');
 const SPEC_FIXTURE = path.join(GOLDEN_FIXTURES, 'product-spec-sample.md');
 const GOLDEN_DIR = path.join(THIS_DIR, 'golden', 'harness');
+const MUTANTS_FILE = path.join(THIS_DIR, 'golden', 'MUTANTS.json');
+const MUTANT_SCOPE = '.claude/harness/lib/';
 
 // ===========================================================================
 // S1  scenario matrix
@@ -978,74 +993,138 @@ function cmdRecord() {
   return 0;
 }
 
-function cmdCheck() {
+// A sample of the differing field paths, not all of them: a mutation that moves the whole
+// matrix produces thousands, and --mutate's stdout is one line. The full count travels
+// beside it as diffCount, so the sample can never read as the whole story.
+const DIFF_SAMPLE = 5;
+
+function pushSample(list, entry) {
+  if (list.length < DIFF_SAMPLE) list.push(entry);
+}
+
+/**
+ * Replay the matrix and diff it against the recorded baseline. This is what --check is,
+ * and what --mutate runs once per injected mutation.
+ *
+ * Two knobs, both for --mutate and neither reachable from --check. `scenarioFilter` replays
+ * a single scenario and drops the in-repo subject, because one mutation times nine scenarios
+ * plus in-repo is minutes of wall clock per manifest entry. `quiet` routes every line away
+ * from the console: --mutate's own machine channel is one line of JSON on stdout, and the
+ * per-scenario PASS/FAIL chatter of an inner run would sit on top of it.
+ *
+ * @returns {{rc:number,assertions:number,failedSubjects:string[],diffPaths:string[],
+ *            diffCount:number,fatal:(string|null)}}
+ */
+function checkMatrix({ scenarioFilter = null, quiet = false } = {}) {
+  const say = quiet ? () => {} : (line => console.log(line));
+  const sayErr = quiet ? () => {} : (line => console.error(line));
+  const out = { rc: 0, assertions: 0, failedSubjects: [], diffPaths: [], diffCount: 0, fatal: null };
+
+  const scenarios = scenarioFilter === null
+    ? SCENARIOS
+    : SCENARIOS.filter(s => s.name === scenarioFilter);
+  if (scenarios.length === 0) {
+    out.fatal = 'unknown scenario: ' + scenarioFilter
+      + ' (known: ' + SCENARIOS.map(s => s.name).join(', ') + ')';
+    sayErr('FAIL: ' + out.fatal);
+    out.rc = 2;
+    return out;
+  }
+
   // Both directions, because only one of them was ever checked. Commenting a scenario out
   // of SCENARIOS used to leave its baseline sitting on disk and print GOLDEN OK for the
   // rest, exit 0: a whole slice of the matrix could be switched off and the machine
-  // channel still read green.
-  const wanted = SCENARIOS.map(s => s.name).sort();
-  const onDisk = baselineNames();
-  if (wanted.join(',') !== onDisk.join(',')) {
-    const missing = wanted.filter(n => !onDisk.includes(n));
-    const orphan = onDisk.filter(n => !wanted.includes(n));
-    console.error('FAIL: scenario set and baseline set disagree.');
-    if (missing.length) console.error('      no baseline for: ' + missing.join(', ') + '  (record it)');
-    if (orphan.length) console.error('      baseline with no scenario: ' + orphan.join(', ')
-      + '  (a scenario was removed or renamed -- restore it, or delete the file on purpose)');
-    return 1;
+  // channel still read green. Only meaningful for a full run -- a filtered one is a
+  // deliberate slice, and asserting the set there would fail by construction.
+  if (scenarioFilter === null) {
+    const wanted = SCENARIOS.map(s => s.name).sort();
+    const onDisk = baselineNames();
+    if (wanted.join(',') !== onDisk.join(',')) {
+      const missing = wanted.filter(n => !onDisk.includes(n));
+      const orphan = onDisk.filter(n => !wanted.includes(n));
+      sayErr('FAIL: scenario set and baseline set disagree.');
+      if (missing.length) sayErr('      no baseline for: ' + missing.join(', ') + '  (record it)');
+      if (orphan.length) sayErr('      baseline with no scenario: ' + orphan.join(', ')
+        + '  (a scenario was removed or renamed -- restore it, or delete the file on purpose)');
+      out.fatal = 'scenario set and baseline set disagree'
+        + (missing.length ? '; no baseline for: ' + missing.join(', ') : '')
+        + (orphan.length ? '; baseline with no scenario: ' + orphan.join(', ') : '');
+      out.rc = 1;
+      return out;
+    }
   }
 
   let assertions = 0;
   let failed = 0;
-  for (const scenario of SCENARIOS) {
+  for (const scenario of scenarios) {
     let expected;
     try {
       expected = JSON.parse(fs.readFileSync(goldenPath(scenario.name), 'utf8'));
     } catch (e) {
       // A truncated or hand-edited baseline used to come out as a raw parse stack, which
       // reads like the tool is broken rather than the file.
-      console.error('FAIL: baseline ' + scenario.name + ' is corrupt: ' + String(e && e.message || e));
-      console.error('      re-record it, or restore it from git.');
-      return 1;
+      sayErr('FAIL: baseline ' + scenario.name + ' is corrupt: ' + String(e && e.message || e));
+      sayErr('      re-record it, or restore it from git.');
+      out.fatal = 'baseline ' + scenario.name + ' is corrupt: ' + String(e && e.message || e);
+      out.assertions = assertions;
+      out.rc = 1;
+      return out;
     }
     const actual = collect(scenario);
     const { diffs, assertions: n } = diffScenario(expected, actual);
     assertions += n;
     if (diffs.length === 0) {
-      console.log('  [PASS] ' + scenario.name + ' (' + n + ' assertions)');
+      say('  [PASS] ' + scenario.name + ' (' + n + ' assertions)');
       continue;
     }
     failed++;
-    console.log('  [FAIL] ' + scenario.name + ' (' + diffs.length + ' of ' + n + ' assertions differ)');
+    out.failedSubjects.push(scenario.name);
+    out.diffCount += diffs.length;
+    for (const d of diffs) pushSample(out.diffPaths, scenario.name + ' ' + d.path);
+    say('  [FAIL] ' + scenario.name + ' (' + diffs.length + ' of ' + n + ' assertions differ)');
     for (const d of diffs.slice(0, 25)) {
-      console.log('    --- ' + d.path);
-      console.log('    - expected: ' + show(d.expected));
-      console.log('    + actual:   ' + show(d.actual));
+      say('    --- ' + d.path);
+      say('    - expected: ' + show(d.expected));
+      say('    + actual:   ' + show(d.actual));
     }
-    if (diffs.length > 25) console.log('    ... ' + (diffs.length - 25) + ' more differences suppressed');
+    if (diffs.length > 25) say('    ... ' + (diffs.length - 25) + ' more differences suppressed');
   }
 
-  const repo = checkInRepo();
-  assertions += repo.assertions;
-  if (repo.failures.length === 0) {
-    console.log('  [PASS] in-repo (' + repo.assertions + ' assertions)');
-  } else {
-    failed++;
-    console.log('  [FAIL] in-repo (' + repo.failures.length + ' of ' + repo.assertions + ' assertions differ)');
-    for (const f of repo.failures) console.log('    --- ' + f);
+  if (scenarioFilter === null) {
+    const repo = checkInRepo();
+    assertions += repo.assertions;
+    if (repo.failures.length === 0) {
+      say('  [PASS] in-repo (' + repo.assertions + ' assertions)');
+    } else {
+      failed++;
+      out.failedSubjects.push('in-repo');
+      out.diffCount += repo.failures.length;
+      for (const f of repo.failures) pushSample(out.diffPaths, 'in-repo ' + f);
+      say('  [FAIL] in-repo (' + repo.failures.length + ' of ' + repo.assertions + ' assertions differ)');
+      for (const f of repo.failures) say('    --- ' + f);
+    }
   }
 
-  const subjects = SCENARIOS.length + 1;
-  console.log('');
+  const subjects = scenarios.length + (scenarioFilter === null ? 1 : 0);
+  const label = scenarioFilter === null
+    ? SCENARIOS.length + ' scenarios + in-repo'
+    : 'scenario ' + scenarioFilter + ' only';
+  out.assertions = assertions;
+  say('');
   if (failed === 0) {
-    console.log('GOLDEN OK: ' + SCENARIOS.length + ' scenarios + in-repo, ' + assertions
-      + ' assertions match the recorded baseline.');
-    return 0;
+    say('GOLDEN OK: ' + label + ', ' + assertions + ' assertions match the recorded baseline.');
+    out.rc = 0;
+    return out;
   }
-  console.log('GOLDEN FAILED: ' + failed + ' of ' + subjects
+  say('GOLDEN FAILED: ' + failed + ' of ' + subjects
     + ' subjects differ from the recorded baseline.');
-  console.log('If the change is intended, re-record and review the baseline diff in git.');
-  return 1;
+  say('If the change is intended, re-record and review the baseline diff in git.');
+  out.rc = 1;
+  return out;
+}
+
+function cmdCheck() {
+  return checkMatrix().rc;
 }
 
 /**
@@ -1085,6 +1164,319 @@ function cmdProbe() {
 }
 
 // ===========================================================================
+// S6b  mutation ruler
+// ===========================================================================
+// Who measures the ruler. --check asserts twenty thousand fields, and the only evidence
+// those assertions can catch anything was an experiment run by hand on the day the baseline
+// was first recorded: three mutations typed into the engine, three reds, then the mutations
+// were undone. That is a belief with a shelf life -- the engine has been split into
+// lib/*.mjs and grown twenty subcommands since, and nobody has re-run it. --mutate turns
+// the experiment into a command, so "the baseline can see a real change" becomes something
+// this repository re-proves on a schedule instead of something it remembers.
+//
+// Each entry in .claude/tests/golden/MUTANTS.json names one behaviour change in
+// .claude/harness/lib/*.mjs -- an exit code flipped, a field renamed, an aggregation
+// inverted, a path stripped of a segment. The tool injects one, replays the matrix, and
+// reads the verdict off the diff: a mutation the baseline notices is `killed`, one it
+// sleeps through is `survived`. A survivor is a hole in the ruler rather than a bug in the
+// engine, and it is the whole reason to run this: it names, precisely, a behaviour change
+// that --check would wave through.
+//
+// killRate is only honest if the manifest keeps naming changes that MATTER. A manifest of
+// comment edits would score a perfect zero-kill run and prove nothing, and one of comment
+// edits inverted (every entry trivially fatal) would score 100% and prove just as little.
+// Every entry carries a `why` for that reason: it has to state which contract the entry
+// is testing the ruler against, and an entry whose `why` cannot be written is an entry
+// that should not be in the list.
+//
+// Three safety properties, because unlike every other mode this one writes to the checkout
+// on purpose:
+//   - The target file must have no uncommitted changes. Mutating a file somebody is midway
+//     through editing would push their work through a replace-and-restore cycle, and the
+//     restore is only ever byte-exact against what this process read a moment earlier.
+//     A dirty target refuses the whole run with rc 2 and names the file. Refusing is a
+//     guard for that work, never a licence to clean it up: nothing is written, discarded
+//     or checked out on the refusal path.
+//   - Restore is immediate and verified. The original bytes go back the instant the replay
+//     returns, and the sha256 of what is on disk afterwards is compared against the sha256
+//     of what was read before. A restore that silently failed would leave a mutated engine
+//     in the tree, which is the one outcome worse than a survivor -- every later command in
+//     the session would be running the mutant.
+//   - Restore also runs from the exit handler and from the SIGINT/SIGTERM handlers below.
+//     A replay is minutes of wall clock; ^C and CI timeouts land in the middle of one, and
+//     an interrupted run that skipped the restore would leave the mutant on disk and say
+//     nothing about it. (Deliberately not spelled as a call here: test-golden-mutate.sh
+//     locates the first exit-hook registration in this file and asserts the code right
+//     after it really restores something, and a prose mention would satisfy that scan
+//     without any handler existing at all.)
+//
+// `find` must match exactly once. Zero matches means the manifest has rotted against the
+// source, and the entry is reported not-applicable rather than skipped quietly -- a manifest
+// entry that no longer applies is measuring nothing, and silence there would let the kill
+// rate slowly become a rate over fewer and fewer live entries. More than one match means the
+// injection site is ambiguous and the result would not describe what it claims to. Either
+// case exits 2, which is deliberately not the exit code a survivor produces: "the manifest
+// is broken" and "the ruler is blind here" are different problems with different owners.
+
+/** Repo-relative posix path, the form the manifest and every message use. */
+function relToRepo(abs) {
+  const rel = path.relative(REPO_ROOT, abs).split(path.sep).join('/');
+  // A manifest handed in from outside the checkout prints as a stack of ../.. that names
+  // nothing useful; show it as given instead. Mutant targets are in-repo by construction
+  // (loadMutants rejects anything outside lib/), so they always take the relative branch.
+  return (rel === '' || rel.startsWith('../')) ? abs : rel;
+}
+
+function sha256Hex(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+// Set only while a mutation is on disk, and cleared the moment it comes back off. The exit
+// handlers below are the reason it lives at module scope: they have to be able to see an
+// injection that a throw, a ^C or a CI timeout left behind.
+let activeInjection = null;
+
+function restoreActiveInjection() {
+  if (!activeInjection) return null;
+  const { file, original } = activeInjection;
+  activeInjection = null;
+  try {
+    fs.writeFileSync(file, original, 'utf8');
+  } catch (e) {
+    // Nothing left to try. Say which file and what it should contain, loudly.
+    process.stderr.write('FATAL: could not restore ' + file + ': ' + String(e && e.message || e) + '\n');
+    process.stderr.write('       recover it with: git checkout -- ' + relToRepo(file) + '\n');
+    return null;
+  }
+  return file;
+}
+
+let restoreHandlersInstalled = false;
+function installRestoreHandlers() {
+  if (restoreHandlersInstalled) return;
+  restoreHandlersInstalled = true;
+  // Synchronous by necessity: an exit handler cannot await, and writeFileSync is the only
+  // way the original bytes get back before the process is gone.
+  process.on('exit', () => {
+    const file = restoreActiveInjection();
+    if (file) process.stderr.write('  [restored] ' + relToRepo(file) + ' (run ended mid-mutation)\n');
+  });
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => {
+      const file = restoreActiveInjection();
+      if (file) process.stderr.write('  [restored] ' + relToRepo(file) + ' (' + sig + ')\n');
+      process.exit(130);
+    });
+  }
+}
+
+/** @returns {{list:object[]}|{error:string}} */
+function loadMutants(file) {
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return { error: 'cannot read ' + relToRepo(file) + ': ' + String(e && e.code || e) };
+  }
+  let list;
+  try {
+    list = JSON.parse(raw);
+  } catch (e) {
+    return { error: relToRepo(file) + ' is not valid JSON: ' + String(e && e.message || e) };
+  }
+  if (!Array.isArray(list)) return { error: relToRepo(file) + ' must hold an array of mutants' };
+
+  // Validated up front rather than per entry mid-run: half a manifest applied and the
+  // other half rejected is a kill rate computed over a set nobody chose.
+  const required = ['name', 'file', 'find', 'replace', 'why'];
+  const seen = new Set();
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
+    const label = (m && typeof m.name === 'string' && m.name.trim() !== '') ? m.name : '#' + i;
+    for (const k of required) {
+      if (!m || typeof m[k] !== 'string' || m[k].trim() === '') {
+        return { error: 'mutant ' + label + ' has no non-empty "' + k + '"' };
+      }
+    }
+    if (seen.has(m.name)) return { error: 'duplicate mutant name: ' + m.name };
+    seen.add(m.name);
+    const posix = m.file.split(path.sep).join('/');
+    if (!posix.startsWith(MUTANT_SCOPE)) {
+      // The scope is the engine, and only the engine. A manifest that could name any path
+      // in the tree would be a rewrite-any-file primitive wearing a test's clothes.
+      return { error: 'mutant ' + label + ' targets ' + m.file + ' -- only ' + MUTANT_SCOPE + ' is in scope' };
+    }
+  }
+  return { list };
+}
+
+/** Every selected target that git reports as changed, staged or untracked. */
+function dirtyTargets(relFiles) {
+  const dirty = [];
+  for (const rel of relFiles) {
+    const r = spawnSync('git', ['status', '--porcelain', '--', rel], { cwd: REPO_ROOT, encoding: 'utf8' });
+    if (r.error || r.status !== 0) {
+      // Cannot prove it is clean, so treat it as dirty. The failure mode of guessing wrong
+      // in the other direction is overwriting somebody's work.
+      dirty.push({ file: rel, reason: 'git status failed: ' + String((r.error && r.error.message) || r.stderr || r.status).trim() });
+      continue;
+    }
+    const first = String(r.stdout || '').split('\n').map(l => l.trim()).filter(l => l !== '')[0];
+    if (first) dirty.push({ file: rel, reason: first });
+  }
+  return dirty;
+}
+
+/** One line of JSON on stdout, always, whatever happened. */
+function emitMutation(body) {
+  process.stdout.write(JSON.stringify(body) + '\n');
+}
+
+function mutationSummary(extra) {
+  return Object.assign({
+    ok: false,
+    mutants: [],
+    killed: 0,
+    survived: 0,
+    notApplicable: 0,
+    killRate: '0/0',
+  }, extra || {});
+}
+
+function cmdMutate(opts) {
+  const manifestPath = opts.mutants === null ? MUTANTS_FILE : path.resolve(opts.mutants);
+  const bail = (message, extra) => {
+    console.error('FAIL: ' + message);
+    emitMutation(mutationSummary(Object.assign({ error: message }, extra || {})));
+    return 2;
+  };
+
+  const loaded = loadMutants(manifestPath);
+  if (loaded.error) return bail(loaded.error);
+
+  let list = loaded.list;
+  if (opts.only !== null) {
+    list = list.filter(m => m.name === opts.only);
+    if (list.length === 0) {
+      return bail('no mutant named ' + opts.only + ' in ' + relToRepo(manifestPath)
+        + ' (have: ' + loaded.list.map(m => m.name).join(', ') + ')');
+    }
+  }
+  if (list.length === 0) return bail(relToRepo(manifestPath) + ' lists no mutants -- nothing was measured');
+  if (opts.scenario !== null && !SCENARIOS.some(sc => sc.name === opts.scenario)) {
+    return bail('unknown scenario: ' + opts.scenario + ' (known: ' + SCENARIOS.map(sc => sc.name).join(', ') + ')');
+  }
+
+  // Every target, before a single byte is written anywhere. Refusing halfway through would
+  // already have put one file through a cycle.
+  const targets = [...new Set(list.map(m => m.file.split(path.sep).join('/')))];
+  const dirty = dirtyTargets(targets);
+  if (dirty.length) {
+    for (const d of dirty) console.error('  [refused] ' + d.file + ' has uncommitted changes: ' + d.reason);
+    console.error('REFUSED: --mutate replaces and restores these files in place, and the restore is only');
+    console.error('         byte-exact against what it read. Commit or stash the changes above first.');
+    console.error('         Nothing was written: the work in those files is untouched.');
+    emitMutation(mutationSummary({ refused: dirty }));
+    return 2;
+  }
+
+  installRestoreHandlers();
+  console.error('  manifest ' + relToRepo(manifestPath) + ': ' + list.length + ' mutant(s)'
+    + (opts.scenario === null ? ', full matrix' : ', scenario ' + opts.scenario + ' only'));
+
+  const results = [];
+  let killed = 0;
+  let survived = 0;
+  let notApplicable = 0;
+
+  for (const m of list) {
+    const abs = path.resolve(REPO_ROOT, m.file);
+    const rel = relToRepo(abs);
+    let original;
+    try {
+      original = fs.readFileSync(abs, 'utf8');
+    } catch (e) {
+      notApplicable++;
+      results.push({ name: m.name, file: rel, status: 'not-applicable', scenarios: [],
+        detail: 'cannot read: ' + String(e && e.code || e) });
+      console.error('  [not-applicable] ' + m.name + '  ' + rel + '  cannot read the target file');
+      continue;
+    }
+
+    const parts = original.split(m.find);
+    const hits = parts.length - 1;
+    if (hits !== 1) {
+      notApplicable++;
+      results.push({ name: m.name, file: rel, status: 'not-applicable', scenarios: [],
+        detail: 'find occurs ' + hits + 'x, expected exactly 1' });
+      console.error('  [not-applicable] ' + m.name + '  ' + rel + '  find occurs ' + hits
+        + 'x, expected exactly 1 -- the manifest has rotted against the source, this entry measured nothing');
+      continue;
+    }
+
+    const beforeSha = sha256Hex(original);
+    activeInjection = { file: abs, original };
+    fs.writeFileSync(abs, parts.join(m.replace), 'utf8');
+
+    let outcome;
+    try {
+      outcome = checkMatrix({ scenarioFilter: opts.scenario, quiet: true });
+    } catch (e) {
+      // A mutation that makes the replay itself blow up is still a mutation the baseline
+      // did not sleep through, which is the question being asked -- mutation testing counts
+      // an errored run as killed. The message is carried so it never reads as a real diff.
+      outcome = { rc: 1, assertions: 0, failedSubjects: ['<runner-error>'], diffCount: 1,
+        diffPaths: ['runner threw: ' + String(e && e.message || e)], fatal: null };
+    }
+
+    restoreActiveInjection();
+    let afterSha = null;
+    try { afterSha = sha256Hex(fs.readFileSync(abs, 'utf8')); } catch (_e) { afterSha = null; }
+    if (afterSha !== beforeSha) {
+      console.error('FATAL: ' + rel + ' did not come back byte for byte after ' + m.name + '.');
+      console.error('       expected sha256 ' + beforeSha + ', found ' + String(afterSha));
+      console.error('       restore it with: git checkout -- ' + rel);
+      emitMutation(mutationSummary({ mutants: results, killed, survived, notApplicable,
+        killRate: killed + '/' + (killed + survived), error: 'restore of ' + rel + ' failed' }));
+      return 2;
+    }
+
+    if (outcome.fatal) {
+      console.error('FAIL: the baseline itself is unusable, so nothing can be measured: ' + outcome.fatal);
+      emitMutation(mutationSummary({ mutants: results, killed, survived, notApplicable,
+        killRate: killed + '/' + (killed + survived), error: outcome.fatal }));
+      return 2;
+    }
+
+    if (outcome.failedSubjects.length > 0) {
+      killed++;
+      results.push({ name: m.name, file: rel, status: 'killed',
+        scenarios: outcome.failedSubjects, diffCount: outcome.diffCount, diffs: outcome.diffPaths });
+      console.error('  [killed] ' + m.name + '  ' + rel + '  seen by ' + outcome.failedSubjects.join(', ')
+        + ' (' + outcome.diffCount + ' assertion(s) differ)');
+    } else {
+      survived++;
+      results.push({ name: m.name, file: rel, status: 'survived', scenarios: [] });
+      console.error('  [survived] ' + m.name + '  ' + rel + '  the baseline did not notice');
+      console.error('             what it should have caught: ' + m.why);
+    }
+  }
+
+  const applicable = killed + survived;
+  const killRate = killed + '/' + applicable;
+  const ok = survived === 0 && notApplicable === 0 && applicable > 0;
+  emitMutation({ ok, mutants: results, killed, survived, notApplicable, killRate });
+
+  console.error('');
+  console.error('MUTATION ' + (ok ? 'OK' : 'INCOMPLETE') + ': killRate ' + killRate
+    + (survived ? ', ' + survived + ' survived (the baseline is blind there)' : '')
+    + (notApplicable ? ', ' + notApplicable + ' not applicable (the manifest has rotted)' : '') + '.');
+  if (notApplicable > 0) return 2;
+  if (survived > 0) return 1;
+  return 0;
+}
+
+// ===========================================================================
 // S7  entry point
 // ===========================================================================
 
@@ -1104,22 +1496,79 @@ function preflight() {
   return null;
 }
 
+const MODES = ['--record', '--check', '--probe', '--mutate'];
+const VALUE_FLAGS = { '--mutants': 'mutants', '--only': 'only', '--scenario': 'scenario' };
+const USAGE = 'usage: node .claude/tests/harness-golden.mjs '
+  + MODES.join('|') + ' [--strict]\n'
+  + '       --mutate also takes [--mutants <file>] [--only <name>] [--scenario <name>]';
+
+/**
+ * Hand-rolled, because a four-flag grammar is not worth a dependency in a file whose whole
+ * point is that it has none. Two decisions worth stating:
+ *   - The three value flags are rejected outside --mutate. `--check --scenario x` would
+ *     exit 0 having replayed a ninth of the matrix, and an exit code a caller reads as
+ *     "the baseline holds" must never come out of a partial run.
+ *   - An unrecognized trailing argument is an error rather than something to ignore. The
+ *     old parser took the first non---strict token as the mode and dropped the rest, so a
+ *     typo'd flag ran the full check and reported success for a run nobody asked for.
+ */
+function parseArgs(argv) {
+  const out = { mode: null, strict: false, mutants: null, only: null, scenario: null, error: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--strict') { out.strict = true; continue; }
+    if (Object.prototype.hasOwnProperty.call(VALUE_FLAGS, a)) {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith('--')) { out.error = a + ' needs a value'; return out; }
+      out[VALUE_FLAGS[a]] = v;
+      i++;
+      continue;
+    }
+    if (out.mode === null) { out.mode = a; continue; }
+    out.error = 'unexpected argument: ' + a;
+    return out;
+  }
+  if (!MODES.includes(out.mode)) {
+    out.error = out.mode === null ? 'no mode given' : 'unknown mode: ' + out.mode;
+    return out;
+  }
+  if (out.mode !== '--mutate') {
+    for (const flag of Object.keys(VALUE_FLAGS)) {
+      if (out[VALUE_FLAGS[flag]] !== null) { out.error = flag + ' applies to --mutate only'; return out; }
+    }
+  }
+  return out;
+}
+
 function main() {
-  const args = process.argv.slice(2);
-  const strict = args.includes('--strict');
-  const mode = args.find(a => a !== '--strict');
-  if (!['--record', '--check', '--probe'].includes(mode)) {
-    console.error('usage: node .claude/tests/harness-golden.mjs --record|--check|--probe [--strict]');
+  const opts = parseArgs(process.argv.slice(2));
+  if (opts.error) {
+    console.error('FAIL: ' + opts.error);
+    console.error(USAGE);
     return 2;
   }
+  const mode = opts.mode;
   if (!fs.existsSync(HARNESS)) {
     console.error('FAIL: harness.mjs not found at ' + HARNESS);
     return 1;
   }
   const skip = preflight();
   if (skip) {
-    console.log(skip);
-    return strict ? 3 : 0;
+    // Every other mode reports a skip in prose on stdout. --mutate cannot: its stdout is a
+    // machine channel and a caller parsing it should not have to special-case "not today".
+    if (mode === '--mutate') {
+      console.error(skip);
+      emitMutation(mutationSummary({ skipped: skip }));
+    } else {
+      console.log(skip);
+    }
+    return opts.strict ? 3 : 0;
+  }
+  if (mode === '--mutate') {
+    // Same reason the skip above moved: stdout belongs to the single JSON line.
+    console.error('===== harness-golden --mutate =====');
+    sweepStaleSandboxes();
+    return cmdMutate(opts);
   }
   console.log('===== harness-golden ' + mode + ' =====');
   sweepStaleSandboxes();
