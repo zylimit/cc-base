@@ -473,12 +473,14 @@ function gateReason(gate, run) {
  * runner produced is the fact; the state the record carries may be a rewrite of it, and the
  * two have to stay distinguishable or "a waiver suppressed this failure" and "this check
  * never ran" collapse into the same number.
- * A waiver rewrites an executed verdict, so `from` carries the verdict it replaced. Fast
- * mode skips before the command runs, so there is no earlier verdict to name -- that is
- * deferral, not suppression of a result, and reporting a state there would invent one.
+ * `from` names an earlier verdict when one exists, and nothing produces one any more: a
+ * waiver is resolved before the check runs, so an excused check has no verdict to replace,
+ * the same as a fast-mode skip. It stays in the shape because ledger records written while
+ * waivers still rewrote executed results carry it, and the readers below have to keep
+ * counting those correctly -- an old suppressed FAIL really did run and really did fail.
  * Pure.
- * @param {Object} recorded   the check result as verifyPlan returned it (waivers applied)
- * @param {Object} raw        the same check as the runner returned it, before waivers
+ * @param {Object} recorded   the check result as verifyPlan returned it
+ * @param {Object|null} raw   an earlier verdict for the same check, or null when none exists
  * @returns {{by:string,scope:string|null,from:string|null}|null}
  */
 function suppressionOf(recorded, raw) {
@@ -555,19 +557,11 @@ function cmdGate(flags) {
   const fastActive = fastModeActive();
   const imp = analyzeImpact(changed, catalog, { nonGit });
   const plan = buildPlan(imp.affected, catalog);
-  // verifyPlan hands back the results after the waiver layer has rewritten them; the raw
-  // verdicts are captured on the way through, in call order, because checks are pushed one
-  // per run() call and waivers are applied with a .map that preserves that order.
-  const rawRun = [];
-  const run = verifyPlan(changed, catalog, {
-    fastActive,
-    nonGit,
-    runCheckFn: (spec, opts) => {
-      const res = runCheckWithEvidence(spec, opts);
-      rawRun.push(res);
-      return res;
-    },
-  });
+  // What verifyPlan hands back is what the runner produced: waivers are resolved before a
+  // command starts, so no result here is a rewrite of an earlier one and there is no second
+  // set of verdicts to carry alongside these. An excused check never reached the runner at
+  // all, which is why its record has no exit code, no duration and no evidence file.
+  const run = verifyPlan(changed, catalog, { fastActive, nonGit, runCheckFn: runCheckWithEvidence });
 
   const attrBlocked = Array.isArray(run.attributeGaps) && run.attributeGaps.length > 0;
   const gate = (run.state === 'FAIL' || run.state === 'BLOCKED') ? run.state
@@ -591,7 +585,7 @@ function cmdGate(flags) {
     degraded: !!run.degraded,
     fastActive,
     skippedByFastMode: run.checks.filter(c => c.reason === 'fast-mode').map(c => c.id),
-    results: run.checks.map((c, i) => ({
+    results: run.checks.map(c => ({
       id: c.id,
       module: c.module === undefined ? null : c.module,
       state: c.state,
@@ -600,7 +594,7 @@ function cmdGate(flags) {
       durationMs: c.durationMs === undefined ? null : c.durationMs,
       evidence: c.evidence === undefined ? null : c.evidence,
       evidenceSha256: c.evidenceSha256 === undefined ? null : c.evidenceSha256,
-      suppressed: suppressionOf(c, rawRun[i]),
+      suppressed: suppressionOf(c, null),
     })),
     attributeCoverage: run.attributes,
     attributeGaps: run.attributeGaps,
@@ -637,10 +631,13 @@ function cmdGate(flags) {
 
 /**
  * Pure: fold a ledger into per-check execution/intervention history.
- * A check whose failure a waiver rewrote to SKIPPED is counted by what it actually did, not
- * by what the record was rewritten to say -- it ran, and it caught something. Counting it as
- * never-executed puts a suppressed failure in the same bucket as a check nobody ever wired
- * up, and then tells the reader both are probably "genuinely stable".
+ * A record carrying `suppressed.from` was written while waivers still rewrote executed
+ * verdicts: that check ran and caught something, and it is counted by what it did rather
+ * than by what the record was rewritten to say. Records written since carry no `from`,
+ * because the waiver stopped the check from running at all -- so it genuinely never
+ * executed and says so. Either way it lands in suppressed[] as well, which is what keeps
+ * an excused check out of the same bucket as one nobody ever wired up before the advice
+ * tells the reader both are probably "genuinely stable".
  */
 function auditGates(entries, catalog) {
   const declared = Object.keys((catalog && catalog.checks) || {});
@@ -1002,9 +999,11 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
 
   // Consecutive failures per check over the recent ledger. A PASS resets the streak; a
   // BLOCKED or SKIPPED result establishes nothing either way and leaves it alone. A failure
-  // a waiver rewrote to SKIPPED still counts: the check failed, the waiver decided to carry
-  // it, and a streak that stops being counted the moment it is waived is a streak that can
-  // run forever without anyone hearing about it.
+  // an older record shows a waiver rewriting to SKIPPED still counts: the check failed, the
+  // waiver decided to carry it, and a streak that stops being counted the moment it is
+  // waived is a streak that can run forever without anyone hearing about it. A waiver now
+  // stops the check before it runs, so it produces no failures to count -- and the silence
+  // that leaves behind is exactly what SUPPRESSED_FAILURE below is there to break.
   const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   const streak = new Map();
   const suppressedFails = new Map();
@@ -1015,8 +1014,15 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
       const state = (supp && supp.from) ? supp.from : r.state;
       if (state === 'FAIL') streak.set(r.id, (streak.get(r.id) || 0) + 1);
       else if (state === 'PASS') streak.set(r.id, 0);
-      if (supp && (supp.from === 'FAIL' || supp.from === 'BLOCKED')) {
-        suppressedFails.set(r.id, (suppressedFails.get(r.id) || 0) + 1);
+      // Every waiver hit, not only the ones that replaced a verdict. Keying this on `from`
+      // was keying it on the rewrite, and once the rewrite is gone that reads every waiver
+      // in the tree as nothing happening -- the finding would go quiet exactly when the
+      // waivers are working.
+      if (supp && supp.by === 'waiver') {
+        const b = suppressedFails.get(r.id) || { occurrences: 0, executed: 0 };
+        b.occurrences++;
+        if (supp.from === 'FAIL' || supp.from === 'BLOCKED') b.executed++;
+        suppressedFails.set(r.id, b);
       }
     }
   }
@@ -1033,11 +1039,14 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
   // fail the exit code would only teach people to stop filing them. It still has to be
   // visible -- suppression is a state, not the absence of one.
   for (const id of [...suppressedFails.keys()].sort(cmp)) {
-    const n = suppressedFails.get(id);
+    const b = suppressedFails.get(id);
     findings.push({
-      severity: 'warning', code: 'SUPPRESSED_FAILURE', check: id, occurrences: n,
-      message: 'check "' + id + '" failed or blocked ' + n + ' time(s) in the recent ledger and a waiver '
-        + 'rewrote each one to SKIPPED; that failure is deferred, not absent, and the waiver expires',
+      severity: 'warning', code: 'SUPPRESSED_FAILURE', check: id, occurrences: b.occurrences,
+      message: b.executed > 0
+        ? 'check "' + id + '" failed or blocked ' + b.executed + ' time(s) in the recent ledger and a waiver '
+          + 'rewrote each one to SKIPPED; that failure is deferred, not absent, and the waiver expires'
+        : 'check "' + id + '" was excused by a waiver ' + b.occurrences + ' time(s) in the recent ledger and '
+          + 'never ran; nobody knows whether it would pass, and the waiver expires',
     });
   }
 

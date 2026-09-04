@@ -394,6 +394,33 @@ function spawnCmd(command, { pathPrefix = null } = {}) {
 }
 
 /**
+ * The three classes no exemption path may excuse -- fast-mode skips them, waivers do not
+ * reach them. One definition rather than the same triple spelled out at each gate, because
+ * two copies of "what is protected" is one copy away from a class that is protected in one
+ * place and waivable in the other.
+ * @param {string|undefined} cls
+ * @returns {boolean}
+ */
+function isProtectedClass(cls) {
+  return cls === 'security' || cls === 'safety' || cls === 'privacy';
+}
+
+/**
+ * How a check names itself in every result, whether it ran or not. The waiver plan has to
+ * key on exactly the id runCheck would report, or a waiver would match the check the plan
+ * looked up and miss the one the runner named. Pure.
+ * @param {{id?:string,command?:string,class?:string}} check
+ * @returns {{id:string,class:string|undefined,cmd:string|undefined}}
+ */
+function checkIdentity(check) {
+  return {
+    id: check && check.id ? check.id : (check && check.command) || 'check',
+    class: check && check.class,
+    cmd: check && check.command,
+  };
+}
+
+/**
  * Evaluate one check to a four-state result. Never fakes green: a binary that is neither on
  * PATH nor in a shim directory is BLOCKED. A binary found in a shim directory runs with that
  * directory in front of the child's PATH and the result names where it came from, so a green
@@ -407,9 +434,8 @@ function spawnCmd(command, { pathPrefix = null } = {}) {
  * @returns {CheckResult}
  */
 function runCheck(check, { fastActive = false, capture = false } = {}) {
-  const id = check && check.id ? check.id : (check && check.command) || 'check';
-  const cls = check && check.class;
-  const base = { id, class: cls, cmd: check && check.command };
+  const base = checkIdentity(check);
+  const cls = base.class;
   if (!check || !check.command) return { ...base, state: 'BLOCKED', reason: 'no-command' };
   const exe = String(check.command).trim().split(/\s+/)[0];
   let shim = null;
@@ -417,7 +443,7 @@ function runCheck(check, { fastActive = false, capture = false } = {}) {
     shim = findShim(exe);
     if (!shim) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
   }
-  if (fastActive && cls !== 'security' && cls !== 'safety' && cls !== 'privacy' && check.allowFastSkip) {
+  if (fastActive && !isProtectedClass(cls) && check.allowFastSkip) {
     return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
   }
   const r = spawnCmd(check.command, { pathPrefix: shim });
@@ -474,7 +500,7 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runC
   const run = typeof runCheckFn === 'function' ? runCheckFn : runCheck;
   const imp = analyzeImpact(changed, catalog, { nonGit });
   const byId = new Map((catalog.modules || []).map(m => [m.id, m]));
-  const checks = [];
+  const entries = [];
   const seen = new Set();
   for (const id of imp.affected) {
     const m = byId.get(id);
@@ -485,37 +511,44 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runC
       const key = id + '::' + (spec.id || spec.command || JSON.stringify(ref));
       if (seen.has(key)) continue;
       seen.add(key);
-      const res = run(spec, { fastActive });
-      checks.push({ module: id, ...res });
+      entries.push({ module: id, spec });
     }
   }
-  // S10: apply structured waivers at the orchestration layer (not inside runCheck).
-  // Non-security/safety FAIL/BLOCKED with a matching valid waiver become SKIPPED
-  // (reason waiver:<scope>). Security/safety classes are never rewritten. Fast-mode
-  // SKIPPED stays orthogonal.
+  // S10: waivers are resolved here, before the first command starts, and never again after.
+  // An excused check is not run at all; a check that ran keeps the verdict it produced.
   const waiverState = loadWaiverState();
   const waivers = waiverState.waivers;
-  const waived = checks.map(c => {
-    const next = applyWaiver(c, waivers);
-    // preserve module field if present
-    if (c.module !== undefined && next.module === undefined) return { ...next, module: c.module };
-    return next;
-  });
+  const { plan, waiversBlocked } = waivePlan(entries, waivers);
+  const checks = [];
+  for (const p of plan) {
+    if (p.waiver) {
+      checks.push({
+        module: p.module, ...checkIdentity(p.spec),
+        state: 'SKIPPED', reason: 'waiver:' + p.waiver.scope,
+      });
+      continue;
+    }
+    checks.push({ module: p.module, ...run(p.spec, { fastActive }) });
+  }
   // S11: attribute coverage over the executed results. Blocking gaps (critical/high
   // declared, no passing claiming check, no attribute waiver) close the gate alongside
   // FAIL/BLOCKED so "all checks green but nothing evidenced security" stops reading as done.
-  const attrs = assessAttributes(imp.affected, catalog, waived, waivers);
+  // A waived check is SKIPPED here, which neither covers an attribute nor contradicts one:
+  // excusing the check buys the exemption at the price of its evidence, and a critical or
+  // high attribute left with none closes the gate through the attribute layer instead.
+  const attrs = assessAttributes(imp.affected, catalog, checks, waivers);
   // Empty verification plan while modules ARE affected is a configuration failure, not a
   // green: nothing ran, so nothing was established. BLOCKED (never fake green), same class
   // as command-missing. No affected modules (no changes) still aggregates to PASS.
-  const emptyPlan = imp.affected.length > 0 && waived.length === 0;
+  const emptyPlan = imp.affected.length > 0 && checks.length === 0;
   return {
-    state: emptyPlan ? 'BLOCKED' : aggregateStates(waived.map(c => c.state)),
-    checks: waived, affected: imp.affected, degraded: imp.degraded,
+    state: emptyPlan ? 'BLOCKED' : aggregateStates(checks.map(c => c.state)),
+    checks, affected: imp.affected, degraded: imp.degraded,
     emptyPlan,
     attributes: attrs.attributes, attributeGaps: attrs.blockingGaps,
     // Only when there are any: the gate output is where a reviewer actually looks, and a
     // field that is always there is a field nobody reads.
+    ...(waiversBlocked.length ? { waiversBlocked } : {}),
     ...(waiverState.corrupt.length ? { corruptWaivers: waiverState.corrupt } : {}),
   };
 }
@@ -685,10 +718,53 @@ function findWaiverForCheck(checkId, waivers) {
 }
 
 /**
+ * Decide which checks a waiver excuses BEFORE any of them runs. The order is the whole
+ * point. Deciding afterwards means a check ran, produced FAIL, and the record then said
+ * SKIPPED -- and "this failed and somebody signed for it" is not a fact a record is allowed
+ * to lose, because everything downstream reads SKIPPED as "no verdict here": the aggregate
+ * stops seeing a FAIL, the gate goes green, and the failure survives only as a state nobody
+ * queries. Excusing the check up front says the honest thing instead -- nobody looked --
+ * and it says it in the one place where it is still true, before the command exists.
+ *
+ * A waiver over a protected-class check excuses nothing: it is recorded in waiversBlocked
+ * and the check runs for real. That is the same rule as before, moved earlier; a waiver
+ * file claiming a security id could never rewrite that verdict, and now it cannot stop it
+ * from being produced either.
+ *
+ * Pure + injectable (waivers array passed in) so selftest stays fs-free.
+ * @param {Array<{module?:string,spec:Object}>} entries  resolved checks, in run order
+ * @param {Array<Waiver>} waivers
+ * @returns {{plan:Array<{module:string|undefined,spec:Object,waiver:Waiver|null}>,
+ *            waiversBlocked:Array<{check:string,module:string|null,class:string,scope:string}>}}
+ */
+function waivePlan(entries, waivers) {
+  const plan = [];
+  const waiversBlocked = [];
+  for (const e of (Array.isArray(entries) ? entries : [])) {
+    const spec = (e && e.spec) || {};
+    const { id } = checkIdentity(spec);
+    const hit = findWaiverForCheck(id, waivers);
+    if (hit && isProtectedClass(spec.class)) {
+      waiversBlocked.push({
+        check: id, module: (e && e.module !== undefined) ? e.module : null,
+        class: spec.class, scope: hit.scope,
+      });
+      plan.push({ module: e && e.module, spec, waiver: null });
+      continue;
+    }
+    plan.push({ module: e && e.module, spec, waiver: hit || null });
+  }
+  return { plan, waiversBlocked };
+}
+
+/**
  * If result is FAIL|BLOCKED, class is not security/safety, and a waiver matches scope==id,
  * rewrite to SKIPPED with reason waiver:<scope>. Otherwise return result unchanged.
  * Safety-class checks sit beside security: a failing functional-safety gate must never be
  * waived into green, for the same reason a security gate must not.
+ * No longer on any execution path -- waivePlan decides before the runner is reached, and an
+ * executed verdict is final wherever it came from. Kept because the unit lanes still pin
+ * what it did; a caller that reintroduces it reintroduces the rewrite.
  * Pure + injectable (waivers array passed in) so selftest stays fs-free.
  * @param {CheckResult} result
  * @param {Array<Waiver>} waivers
@@ -698,7 +774,7 @@ function applyWaiver(result, waivers) {
   if (!result || typeof result !== 'object') return result;
   const state = result.state;
   if (state !== 'FAIL' && state !== 'BLOCKED') return result;
-  if (result.class === 'security' || result.class === 'safety' || result.class === 'privacy') return result;
+  if (isProtectedClass(result.class)) return result;
   const hit = findWaiverForCheck(result.id, waivers);
   if (!hit) return result;
   return { ...result, state: 'SKIPPED', reason: 'waiver:' + hit.scope };
@@ -885,8 +961,9 @@ export {
   receiptsDir, safeTaskId, contentHash, engineFiles, engineHash, hasCodeChange, writeReceipt,
   receiptIntact, matchReceipts, loadReceipts, verifyReceipt, cmdReceipt, cmdVerify,
   shimDirs, findShim, pathPrefixedEnv,
+  isProtectedClass, checkIdentity,
   runCheck, aggregateStates, requiredChecks, resolveCheck, verifyPlan, fastModeActive, verifyPlanCmd,
   WAIVER_FORBIDDEN_RE, waiversDir, validateWaiver, loadWaiverState, loadWaivers, findWaiverForCheck,
-  applyWaiver, cmdWaiver,
+  waivePlan, applyWaiver, cmdWaiver,
   claimingChecks, assessAttributes, cmdAttributes,
 };

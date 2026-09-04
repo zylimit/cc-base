@@ -336,7 +336,6 @@
             "class": "test",
             "cmd": "false",
             "state": "SKIPPED",
-            "exit": 1,
             "reason": "waiver:always-fail"
           }
         ],
@@ -1544,14 +1543,14 @@
             "module": "db",
             "state": "SKIPPED",
             "reason": "waiver:always-fail",
-            "exit": 1,
-            "durationMs": "<MS>",
-            "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>",
+            "exit": null,
+            "durationMs": null,
+            "evidence": null,
+            "evidenceSha256": null,
             "suppressed": {
               "by": "waiver",
               "scope": "always-fail",
-              "from": "FAIL"
+              "from": null
             }
           }
         ],
@@ -1734,14 +1733,14 @@
             "module": "db",
             "state": "SKIPPED",
             "reason": "waiver:always-fail",
-            "exit": 1,
-            "durationMs": "<MS>",
-            "evidence": "<EVIDENCE>",
-            "evidenceSha256": "<HASH>",
+            "exit": null,
+            "durationMs": null,
+            "evidence": null,
+            "evidenceSha256": null,
             "suppressed": {
               "by": "waiver",
               "scope": "always-fail",
-              "from": "FAIL"
+              "from": null
             }
           }
         ],
@@ -1851,7 +1850,7 @@
         "head": "<HASH>",
         "unreadable": null,
         "evidence": {
-          "checked": 10,
+          "checked": 8,
           "breaks": []
         },
         "path": ".claude/harness/state/ledger.jsonl"
@@ -1870,10 +1869,12 @@
         "gateRuns": 2,
         "declaredChecks": 3,
         "neverIntervened": [
+          "always-fail",
           "always-pass"
         ],
         "neverExecuted": [
-          "absent-binary"
+          "absent-binary",
+          "always-fail"
         ],
         "suppressed": [
           {
@@ -1882,9 +1883,7 @@
             "by": [
               "waiver"
             ],
-            "suppressedStates": [
-              "FAIL"
-            ]
+            "suppressedStates": []
           }
         ],
         "advice": "These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence. Separately, 1 check(s) were suppressed rather than silent: see suppressed[]."
@@ -1903,7 +1902,7 @@
         "refused": null,
         "candidates": 0,
         "removed": 0,
-        "protectedByLedger": 10,
+        "protectedByLedger": 8,
         "limits": {
           "maxAgeDays": 30,
           "maxEvidence": 400,
@@ -2084,7 +2083,7 @@
             "code": "SUPPRESSED_FAILURE",
             "check": "always-fail",
             "occurrences": 2,
-            "message": "check \"always-fail\" failed or blocked 2 time(s) in the recent ledger and a waiver rewrote each one to SKIPPED; that failure is deferred, not absent, and the waiver expires"
+            "message": "check \"always-fail\" was excused by a waiver 2 time(s) in the recent ledger and never ran; nobody knows whether it would pass, and the waiver expires"
           }
         ],
         "counts": {

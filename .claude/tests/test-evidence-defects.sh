@@ -554,11 +554,22 @@ chk "$([ "$E7_WAIVER_RC" -eq 0 ] && echo 0 || echo 1)" \
     "waiver create rc=0" \
     "rc=$E7_WAIVER_RC 最后一次 gate rc=$E7_GATE_RC（waiver 把 FAIL 洗成 SKIPPED 后 gate 变 PASS）"
 
-case "$E7_NEVEREXEC" in *'"probe"'*) r=1 ;; *) r=0 ;; esac
+# waiver 改成事前声明之后，被豁免的 check 是**真的一次都没跑**，把它算进 neverExecuted 是唯一不撒谎的
+# 答案——旧断言「不许算进 neverExecuted」编码的是事后改写模型（先跑、失败、再被洗成 SKIPPED）的前提。
+# 但该段要防的东西没变：被豁免压住的，不许和「从没接线过」在读者眼里长成同一个数。所以判据换成更强的
+# 蕴含式——只要它出现在 neverExecuted 里，就必须同时被独立的「被压制」桶点名（那个桶由 E7b 守着）。
+case "$E7_NEVEREXEC" in
+    *'"probe"'*)
+        case "$E7_AUDIT" in
+            *'"suppressed"'*'probe'*|*'suppressed'*'"probe"'*) r=0 ;;
+            *) r=1 ;;
+        esac ;;
+    *) r=0 ;;
+esac
 chk "$r" \
-    "E7a 被 waiver 压制的 check 真跑过也真失败过，不许被算进 neverExecuted" \
-    "neverExecuted 不含 probe" \
-    "neverExecuted=$E7_NEVEREXEC neverIntervened=$E7_NEVERINT"
+    "E7a 被 waiver 压制的 check 若算进 neverExecuted，必须同时被「被压制」桶点名（不许与从没接线的混成一个数）" \
+    "probe 要么不在 neverExecuted，要么同时出现在 suppressed 桶里" \
+    "neverExecuted=$E7_NEVEREXEC neverIntervened=$E7_NEVERINT suppressed点名probe=$(case "$E7_AUDIT" in *suppressed*probe*) echo yes ;; *) echo no ;; esac)"
 
 E7_BUCKET=$(printf '%s' "$E7_AUDIT" | node -e '
     let s = "";
