@@ -13,7 +13,8 @@ DEFAULT_HOURS=24
 expiry() {
   [ -f "$FLAG" ] || return 0
   local exp
-  exp=$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "$FLAG" 2>/dev/null | head -1)
+  # 同 lib-fast-mode.sh：先剥 \r，CRLF 版开关文件不许在这里读成「没这行」
+  exp=$(tr -d '\r' < "$FLAG" 2>/dev/null | sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' | head -1)
   [ -n "$exp" ] && echo "$exp"
 }
 

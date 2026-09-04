@@ -15,7 +15,9 @@ fast_mode_active() {
   local flag exp now
   flag=$(fast_mode_flag) || return 1
   [ -f "$flag" ] || return 1
-  exp=$(sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' "$flag" 2>/dev/null | head -1)
+  # 先剥 \r 再匹配：fast-mode.ps1 在 Windows 上写的是 CRLF，sed 的 $ 不认 \r 会读成「没这行」，
+  # 而引擎侧的 JS 把 \r 当行终止符照样读到——同一个开关一边开一边关，比两边都关更糟。
+  exp=$(tr -d '\r' < "$flag" 2>/dev/null | sed -n 's/^expires_epoch=\([0-9]\{1,\}\)$/\1/p' | head -1)
   case "$exp" in
     ''|*[!0-9]*) return 1 ;;
   esac

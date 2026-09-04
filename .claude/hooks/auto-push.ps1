@@ -11,7 +11,11 @@ try { . (Join-Path $PSScriptRoot 'lib-fast-mode.ps1'); if (Test-FastModeActive) 
 $raw = [Console]::In.ReadToEnd()
 try { $cmd = ($raw | ConvertFrom-Json).tool_input.command } catch { exit 0 }
 if (-not $cmd) { exit 0 }
-if ($cmd -notmatch 'git\s+commit') { exit 0 }
+# Global options may sit between git and commit (git -c user.name=x commit / git -C dir commit);
+# the old two-word pattern did not fire on those, so the commit went unpushed. A line start or a
+# separator must precede git, which keeps a quoted "git commit" inside another command out, and the
+# whitespace-or-end after commit keeps commit-tree and log --grep=commit out.
+if ($cmd -notmatch '(^|[\s;&|(){}])git(\s+-\S+(\s+\S+)?)*\s+commit(\s|$)') { exit 0 }
 
 # Null guard: missing CLAUDE_PROJECT_DIR exits (avoid pushing an unrelated repo under cwd)
 if (-not $env:CLAUDE_PROJECT_DIR) { exit 0 }

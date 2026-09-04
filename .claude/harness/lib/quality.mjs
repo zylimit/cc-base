@@ -525,7 +525,11 @@ function fastModeActive() {
   const flag = path.join(projectRoot(), '.claude', '.fast-mode');
   let raw;
   try { raw = fs.readFileSync(flag, 'utf8'); } catch (_e) { return false; }
-  const m = raw.match(/^expires_epoch=(\d+)$/m);
+  // CRLF is stripped before matching rather than tolerated inside the pattern: fast-mode.ps1 wrote
+  // this file with Windows line endings, and the two readers then disagreed about it -- JS counts a
+  // lone \r as a line terminator so this matched, while the sed in lib-fast-mode.sh did not. A switch
+  // that reads open to the engine and closed to every bash hook is worse than either answer alone.
+  const m = raw.replace(/\r\n/g, '\n').match(/^expires_epoch=(\d+)$/m);
   if (!m) {
     // Closed is the answer either way, and it is the right one -- lib-fast-mode.sh fails
     // closed on the same input, and a switch nobody can read must never open the window.

@@ -32,11 +32,11 @@ switch ($Action) {
         $h = [int64]$Hours
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $expires = $now + ($h * 3600)
-        @(
-            "enabled_epoch=$now"
-            "expires_epoch=$expires"
-            "hours=$h"
-        ) | Set-Content -LiteralPath $flag -Encoding ascii
+        # LF, not the CRLF Set-Content writes on Windows: lib-fast-mode.sh reads this same file with
+        # sed, whose $ does not match across a trailing \r, so a CRLF flag reads on to the engine and
+        # off to every bash hook.
+        $body = "enabled_epoch=$now`nexpires_epoch=$expires`nhours=$h`n"
+        [System.IO.File]::WriteAllText($flag, $body, [System.Text.UTF8Encoding]::new($false))
         Write-Output "fast-mode: on ($flag created/renewed, auto-expires in ${h}h; run off to restore strict mode when done)"
     }
     'off' {

@@ -84,11 +84,16 @@ const SECRET_PATTERNS = [
   // sits between the scheme and the host. It leaks the same way a token does and
   // is the shape a connection string arrives in, which is why the format table
   // needs it explicitly -- none of the prefix rules above sees it.
+  // The scheme is any scheme, not http(s): the credential-bearing URL that reaches
+  // a repository is far more often postgres://, mongodb://, redis:// or amqp://
+  // than it is a web address, and a rule spelled `https?` reads clean on every one
+  // of them. An explicit scheme is still required, so the SSH form git@host:path
+  // and the protocol-relative //user:pass@host stay out of this rule's reach.
   // The user part excludes ':' and the password part excludes '/', so a plain
   // host, a host with a user and no password, and a port followed by a path
   // holding an at-sign all stay quiet; the lazy \S+:\S+@ spelling reports the
   // port form as a credential and gets switched off within a week.
-  { id: 'url-userinfo', confident: true, re: /\bhttps?:\/\/[^/\s@:"]+:[^/\s@"]+@/i },
+  { id: 'url-userinfo', confident: true, re: /\b[a-z][a-z0-9+.-]*:\/\/[^/\s@:"]+:[^/\s@"]+@/i },
   {
     id: 'generic-assignment',
     confident: false,

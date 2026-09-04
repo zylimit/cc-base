@@ -241,7 +241,9 @@ function fastModeState() {
   let remainingHours = null;
   try {
     const raw = fs.readFileSync(path.join(projectRoot(), '.claude', '.fast-mode'), 'utf8');
-    const m = raw.match(/^expires_epoch=(\d+)$/m);
+    // Same CRLF normalisation as fastModeActive -- active:true beside remainingHours:null would be
+    // this one file answering two ways.
+    const m = raw.replace(/\r\n/g, '\n').match(/^expires_epoch=(\d+)$/m);
     if (m) remainingHours = Math.max(0, Math.round((Number(m[1]) * 1000 - Date.now()) / 360000) / 10);
   } catch (_e) { /* absent flag is the normal case */ }
   return { active, remainingHours: active ? remainingHours : null };

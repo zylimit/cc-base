@@ -11,7 +11,10 @@ if [ -f "$_FM_LIB" ]; then . "$_FM_LIB"; if fast_mode_active; then exit 0; fi; f
 # 脚本内自判触发命令：非 git commit 输入直接退出（替代失效的 if = Bash(git commit*)）
 HOOK_INPUT=$(cat)
 CMD=$(echo "$HOOK_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
-echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
+# git 与 commit 之间允许夹全局选项（`git -c user.name=x commit` / `git -C dir commit`）——只认
+# 紧邻两个词的旧写法对这类形式不触发，提交完不推。前置限行首或分隔符，`echo "git commit"` 里
+# 的字样不算提交；commit 后要空白或行尾，挡掉 commit-tree 与 log --grep=commit。
+echo "$CMD" | grep -qE '(^|[[:space:];&|(){}])git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit([[:space:]]|$)' || exit 0
 
 # 空值兜底：cd "" 是 no-op 不会失败，会误推 cwd 所在的无关 repo，必须显式拦截
 [ -z "$CLAUDE_PROJECT_DIR" ] && exit 0
