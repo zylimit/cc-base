@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  TIER_ENFORCEMENT,
+  HARNESS_DIR, TIER_ENFORCEMENT,
   changedPaths, emit, gitFingerprint, headCommit, isGitRepo, isStateExcluded, normalizeTier,
   errDetail, parseCsv, projectRoot, readDirNames, readStdin, readTextFile, recordCorruptState,
   repoRelative,
@@ -45,6 +45,37 @@ function contentHash(r) {
   return sha256(stableJson({ ...r, contentHash: undefined }));
 }
 
+/** harness.mjs plus every lib/*.mjs beside it, named relative to HARNESS_DIR, sorted. */
+function engineFiles() {
+  let names = [];
+  try {
+    names = fs.readdirSync(path.join(HARNESS_DIR, 'lib')).filter(f => f.endsWith('.mjs'));
+  } catch (_e) { names = []; }
+  return ['harness.mjs'].concat(names.map(f => 'lib/' + f)).sort();
+}
+
+/**
+ * Digest of the engine that is running right now: each engine file's sha256, concatenated in
+ * name order and hashed again. The directory comes from this module's own URL (HARNESS_DIR),
+ * never from the project root, so an engine run against somebody else's tree hashes itself
+ * rather than whatever engine that tree happens to ship.
+ *
+ * It is a fact about content, not about location. The same bytes in two directories are the
+ * same engine; one comment line added to one lib file is a different one. That is the
+ * property a receipt needs, because "this verdict was produced by an engine that no longer
+ * exists here" is exactly the case where the verdict has stopped meaning what it said -- the
+ * rules that produced it are not the rules in force.
+ *
+ * A read error is not swallowed. An engine that cannot read its own source cannot say which
+ * engine it is, and answering anything there would be an invention; the caller turns the
+ * throw into a visible refusal (receipt write exits 3).
+ * @returns {string}
+ */
+function engineHash() {
+  const digests = engineFiles().map(rel => sha256(fs.readFileSync(path.join(HARNESS_DIR, ...rel.split('/')))));
+  return sha256(digests.join(''));
+}
+
 /** True if the working tree carries code changes vs HEAD (state files excluded). */
 function hasCodeChange() {
   const cp = changedPaths();
@@ -67,6 +98,7 @@ function writeReceipt(input, { timestamp } = {}) {
     taskId,
     baseCommit: headCommit(),
     diffHash: gitFingerprint(),
+    engineHash: engineHash(),
     reviewer: typeof input0.reviewer === 'string' ? input0.reviewer : 'unknown',
     verdict: typeof input0.verdict === 'string' ? input0.verdict : 'pass',
     scope: input0.scope === undefined ? null : input0.scope,
@@ -86,15 +118,21 @@ function receiptIntact(r) {
 }
 
 /**
- * Pure matcher (fs-free, injectable): does any intact receipt bind to diffHash D?
+ * Pure matcher (fs-free, injectable): does any intact receipt bind to diffHash D, and to the
+ * engine asking? `engine` is optional -- called without it the engine binding is not
+ * consulted at all, which keeps the unit tests about diff binding about diff binding. A
+ * receipt carrying no engineHash predates that binding and still matches.
  * @param {Receipt[]} receipts
  * @param {string} D  current gitFingerprint()
+ * @param {string|null} [engine]  current engineHash()
  * @returns {{matched:string|null,hadReceipts:boolean}}
  */
-function matchReceipts(receipts, D) {
+function matchReceipts(receipts, D, engine = null) {
   const list = Array.isArray(receipts) ? receipts : [];
   for (const r of list) {
-    if (receiptIntact(r) && r.diffHash === D) return { matched: r.taskId || true, hadReceipts: true };
+    if (!receiptIntact(r) || r.diffHash !== D) continue;
+    if (engine && typeof r.engineHash === 'string' && r.engineHash !== engine) continue;
+    return { matched: r.taskId || true, hadReceipts: true };
   }
   return { matched: null, hadReceipts: list.length > 0 };
 }
@@ -132,7 +170,8 @@ function loadReceipts() {
 /**
  * Diff-centric verification. Semantics (no active-task concept):
  *  - non-git            -> DEGRADED, exit 3 (cannot compute a trustworthy diff; do not block).
- *  - --task <id>        -> that receipt must exist + be intact + bind to current diff, else exit 4.
+ *  - --task <id>        -> that receipt must be readable + intact + written by this engine +
+ *                          bind to current diff, else exit 4.
  *  - no --task (stop-gate default):
  *      * any receipt unreadable    -> STALE exit 4, note:"receipt-unreadable" (fail closed).
  *      * no code change            -> PASS exit 0 (nothing to review).
@@ -175,8 +214,27 @@ function verifyReceipt(flags = {}) {
     if (!receiptIntact(receipt)) {
       return { result: { state: 'STALE', note: 'tampered', task: flags.task, diffHash: D }, code: 4 };
     }
+    // The engine is checked before the diff, because the diffHash the receipt carries was
+    // computed by that engine: if the engine is no longer this one, the two fingerprints
+    // beside each other were produced by two different rulers. A receipt with no engineHash
+    // was written before this binding existed and is let through -- an upgrade that bricked
+    // every receipt already on disk would be paid for by re-reviewing work nobody touched.
+    // It is checked after unreadable and after tampered, because a receipt nobody can read
+    // and a receipt somebody edited are both worse news than a ruler that moved, and the
+    // three send the reader somewhere different: open the file, investigate, re-run.
+    const engineNow = engineHash();
+    const boundEngine = typeof receipt.engineHash === 'string' ? receipt.engineHash : null;
+    if (boundEngine && boundEngine !== engineNow) {
+      return {
+        result: {
+          state: 'STALE', note: 'engine-moved', task: flags.task, diffHash: D,
+          engineHash: boundEngine, currentEngineHash: engineNow,
+        },
+        code: 4,
+      };
+    }
     if (receipt.diffHash === D) {
-      return { result: { state: 'PASS', matched: receipt.taskId, diffHash: D }, code: 0 };
+      return { result: { state: 'PASS', matched: receipt.taskId, diffHash: D, engineHash: boundEngine }, code: 0 };
     }
     return { result: { state: 'STALE', note: 'diff-moved', task: flags.task, diffHash: D, receiptDiffHash: receipt.diffHash }, code: 4 };
   }
@@ -197,11 +255,20 @@ function verifyReceipt(flags = {}) {
   if (loaded.receipts.length === 0) {
     return { result: { state: 'PASS', note: 'no-receipts', diffHash: D }, code: 0 };
   }
-  const m = matchReceipts(loaded.receipts, D);
+  const engineNow = engineHash();
+  const m = matchReceipts(loaded.receipts, D, engineNow);
   if (m.matched) {
     return { result: { state: 'PASS', matched: m.matched, diffHash: D }, code: 0 };
   }
-  return { result: { state: 'STALE', note: 'no-matching-receipt', diffHash: D }, code: 4 };
+  // A receipt that binds this exact diff but was written by another engine is a different
+  // miss from "code moved past every review", and the note has to say which: one is
+  // re-review the change, the other is re-run the review under the engine that ships.
+  const engineMoved = loaded.receipts.some(r => receiptIntact(r) && r.diffHash === D
+    && typeof r.engineHash === 'string' && r.engineHash !== engineNow);
+  return {
+    result: { state: 'STALE', note: engineMoved ? 'engine-moved' : 'no-matching-receipt', diffHash: D },
+    code: 4,
+  };
 }
 
 function cmdReceipt(flags, positional = []) {
@@ -238,19 +305,87 @@ function cmdVerify(flags) {
 // opts in, but security/safety/privacy checks always run for real. Aggregation: any FAIL ->
 // FAIL; else any BLOCKED -> BLOCKED; else PASS (SKIPPED counts toward the report but does
 // not block). An empty plan with affected modules is BLOCKED (config failure, not green).
+// Shim discovery: the tool is installed, just not on this process's PATH. Windows package
+// managers install into a shim directory that an interactive shell picks up and a git hook,
+// a service or an editor-spawned process frequently does not, so the same machine reports
+// BLOCKED command-missing for a binary the developer runs by hand two seconds later. That
+// reads as "the harness is broken", and a gate people believe is broken is a gate people
+// switch off.
+// The fallback is a scan, never a pass: a command that is in none of these directories stays
+// BLOCKED. CC_HARNESS_SHIM_DIRS overrides the defaults on any platform (path.delimiter
+// separated), which is also the only way this is testable anywhere but Windows.
+const WIN_SHIM_DIRS = [
+  ['LOCALAPPDATA', ['Microsoft', 'WinGet', 'Links']],
+  ['USERPROFILE', ['scoop', 'shims']],
+  ['ChocolateyInstall', ['bin']],
+];
+
+/** Directories to scan once PATH has no answer. An explicit override wins on every platform. */
+function shimDirs() {
+  const override = String(process.env.CC_HARNESS_SHIM_DIRS || '').trim();
+  if (override) return override.split(path.delimiter).map(d => d.trim()).filter(Boolean);
+  if (process.platform !== 'win32') return [];
+  const out = [];
+  for (const [envVar, parts] of WIN_SHIM_DIRS) {
+    const base = process.env[envVar];
+    if (base) out.push(path.join(base, ...parts));
+  }
+  return out;
+}
+
+/**
+ * Which shim directory holds `exe`, or null. Name resolution is whichCmd's (PATHEXT on
+ * win32, the bare name elsewhere), so a hit here means what a PATH hit means.
+ * @param {string} exe
+ * @returns {string|null}
+ */
+function findShim(exe) {
+  if (!exe || exe.includes('/') || exe.includes('\\')) return null;
+  const exts = process.platform === 'win32'
+    ? String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim()).filter(Boolean)
+    : [];
+  for (const dir of shimDirs()) {
+    for (const name of [exe].concat(exts.map(e => exe + e))) {
+      try {
+        if (fs.statSync(path.join(dir, name)).isFile()) return dir;
+      } catch (_e) { /* not this one */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * process.env with one directory prepended to PATH. The key is looked up case-insensitively
+ * because Windows spells it Path: adding a second 'PATH' beside an existing 'Path' hands the
+ * child two of them, and which one it reads is not something to leave to chance.
+ * @param {string} dir
+ * @returns {Object}
+ */
+function pathPrefixedEnv(dir) {
+  const env = { ...process.env };
+  const key = Object.keys(env).find(k => k.toUpperCase() === 'PATH') || 'PATH';
+  env[key] = dir + path.delimiter + (env[key] || '');
+  return env;
+}
+
 /**
  * Run one shell command, returning its exit code. win32 uses cmd /c with
  * windowsVerbatimArguments so nested quotes in the command survive to the child
  * (plain cmd /c mangles e.g. node -e "process.exit(3)" into a 0 exit -- a false green).
  * Both streams are returned alongside the code; spawnSync captures them either way, and
  * S17 gate needs them to write the evidence log. runCheck ignores them unless asked.
+ * `pathPrefix` puts one directory in front of the child's PATH, which is how a command found
+ * in a shim directory becomes runnable in the child without this process editing its own
+ * environment -- a mutation that would then apply to every later check too.
  * @param {string} command
+ * @param {{pathPrefix?:string|null}} [opts]
  * @returns {{code:number,stdout:string,stderr:string}}
  */
-function spawnCmd(command) {
+function spawnCmd(command, { pathPrefix = null } = {}) {
+  const extra = pathPrefix ? { env: pathPrefixedEnv(pathPrefix) } : {};
   const r = process.platform === 'win32'
-    ? spawnSync('cmd', ['/c', command], { maxBuffer: 1 << 28, windowsVerbatimArguments: true })
-    : spawnSync('sh', ['-c', command], { maxBuffer: 1 << 28 });
+    ? spawnSync('cmd', ['/c', command], { maxBuffer: 1 << 28, windowsVerbatimArguments: true, ...extra })
+    : spawnSync('sh', ['-c', command], { maxBuffer: 1 << 28, ...extra });
   return {
     code: r.status,
     stdout: r.stdout ? r.stdout.toString('utf8') : '',
@@ -259,7 +394,10 @@ function spawnCmd(command) {
 }
 
 /**
- * Evaluate one check to a four-state result. Never fakes green: an absent binary is BLOCKED.
+ * Evaluate one check to a four-state result. Never fakes green: a binary that is neither on
+ * PATH nor in a shim directory is BLOCKED. A binary found in a shim directory runs with that
+ * directory in front of the child's PATH and the result names where it came from, so a green
+ * can be traced back to which copy of the tool produced it.
  * Security checks ignore fast-mode entirely (always run). Non-security opt-in checks may SKIP
  * under fast-mode.
  * `capture` adds the command's stdout/stderr to the result; it is off by default so the
@@ -274,12 +412,19 @@ function runCheck(check, { fastActive = false, capture = false } = {}) {
   const base = { id, class: cls, cmd: check && check.command };
   if (!check || !check.command) return { ...base, state: 'BLOCKED', reason: 'no-command' };
   const exe = String(check.command).trim().split(/\s+/)[0];
-  if (!whichCmd(exe)) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
+  let shim = null;
+  if (!whichCmd(exe)) {
+    shim = findShim(exe);
+    if (!shim) return { ...base, state: 'BLOCKED', reason: 'command-missing:' + exe };
+  }
   if (fastActive && cls !== 'security' && cls !== 'safety' && cls !== 'privacy' && check.allowFastSkip) {
     return { ...base, state: 'SKIPPED', reason: 'fast-mode' };
   }
-  const r = spawnCmd(check.command);
-  const res = r.code === 0 ? { ...base, state: 'PASS', exit: 0 } : { ...base, state: 'FAIL', exit: r.code };
+  const r = spawnCmd(check.command, { pathPrefix: shim });
+  const found = shim ? { shim: repoRelative(shim) } : {};
+  const res = r.code === 0
+    ? { ...base, ...found, state: 'PASS', exit: 0 }
+    : { ...base, ...found, state: 'FAIL', exit: r.code };
   return capture ? { ...res, stdout: r.stdout, stderr: r.stderr } : res;
 }
 
@@ -733,8 +878,9 @@ function cmdAttributes(flags) {
 }
 
 export {
-  receiptsDir, safeTaskId, contentHash, hasCodeChange, writeReceipt, receiptIntact,
-  matchReceipts, loadReceipts, verifyReceipt, cmdReceipt, cmdVerify,
+  receiptsDir, safeTaskId, contentHash, engineFiles, engineHash, hasCodeChange, writeReceipt,
+  receiptIntact, matchReceipts, loadReceipts, verifyReceipt, cmdReceipt, cmdVerify,
+  shimDirs, findShim, pathPrefixedEnv,
   runCheck, aggregateStates, requiredChecks, resolveCheck, verifyPlan, fastModeActive, verifyPlanCmd,
   WAIVER_FORBIDDEN_RE, waiversDir, validateWaiver, loadWaiverState, loadWaivers, findWaiverForCheck,
   applyWaiver, cmdWaiver,

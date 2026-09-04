@@ -33,9 +33,9 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   TIER_ENFORCEMENT,
-  changedPaths, emit, gitFingerprint, headCommit, normalizeTier, parseCsv, projectRoot,
-  errDetail, quarantineFilePath, readTextFile, recordCorruptState, repoRelative, sha256,
-  withDirLock,
+  changedPaths, emit, errDetail, gitFingerprint, headCommit, isStateExcluded, normalizeTier,
+  parseCsv, projectRoot, quarantineFilePath, readTextFile, recordCorruptState, repoRelative,
+  sha256, toPosixPath, withDirLock,
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
@@ -869,17 +869,51 @@ function readWaiverFiles() {
   return out;
 }
 
+// The governance surface: the files that decide how everything else gets judged. A change to
+// a hook, a skill, an agent, the harness itself, the rules or CI is a change to the judge
+// rather than to the code, and it is the one class of change the gates cannot catch, because
+// the thing being edited is the thing doing the catching. Naming it is not a verdict -- it is
+// a warning that this diff wants the strictest review the repository has, which is a call for
+// a person to make.
+const GOVERNANCE_PREFIXES = [
+  '.claude/hooks/', '.claude/harness/', '.claude/skills/', '.claude/agents/', '.claude/rules/',
+  '.github/',
+];
+const GOVERNANCE_FILES = ['.claude/CLAUDE.md'];
+// Findings are named, not summarised, but a warning that prints two hundred paths is a wall
+// nobody reads. The count beside the list is never capped.
+const GOVERNANCE_LIST_CAP = 20;
+
+/**
+ * Which changed paths are governance surface. Runtime state is dropped first: the gate writes
+ * its own ledger and evidence logs under .claude/harness/, and changedPaths() does not filter
+ * those (the filtering lives on the fingerprint side, in canonicalDiff / isStateExcluded), so
+ * without this line the warning would light up permanently the moment anybody ran a gate --
+ * and a warning that is always on is a warning nobody reads twice. Pure.
+ * @param {string[]} changed
+ * @returns {string[]}
+ */
+function governanceSurface(changed) {
+  const out = [];
+  for (const p of (changed || [])) {
+    const rel = toPosixPath(p);
+    if (isStateExcluded(rel)) continue;
+    if (GOVERNANCE_FILES.includes(rel) || GOVERNANCE_PREFIXES.some(pre => rel.startsWith(pre))) out.push(rel);
+  }
+  return out.sort();
+}
+
 /**
  * Decay scan over injected state (pure, so selftest can construct each finding without a
  * repository). Error severity closes the exit code; warnings are reported and do not.
  * @param {{ledgerEntries?:Array,ledgerUnreadable?:string|null,evidenceBreaks?:Array,
- *          catalog?:Object|null,waivers?:Array,task?:Object|null,
+ *          catalog?:Object|null,waivers?:Array,task?:Object|null,changed?:string[],
  *          quarantine?:{count:number,files?:number,lastPath?:string|null,lastKind?:string|null,
  *                       unreadable?:{path:string,detail:string}|null}|null,
  *          fastActive?:boolean,now?:number}} [input]
  */
 function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBreaks = [],
-  catalog = null, waivers = [], task = null, quarantine = null,
+  catalog = null, waivers = [], task = null, changed = [], quarantine = null,
   fastActive = false, now = Date.now() } = {}) {
   const findings = [];
 
@@ -1024,6 +1058,18 @@ function riskFindings({ ledgerEntries = [], ledgerUnreadable = null, evidenceBre
     });
   }
 
+  const governance = governanceSurface(changed);
+  if (governance.length) {
+    findings.push({
+      severity: 'warning', code: 'GOVERNANCE_SURFACE_CHANGED', count: governance.length,
+      files: governance.slice(0, GOVERNANCE_LIST_CAP),
+      message: 'this change edits ' + governance.length + ' file(s) of the governance surface '
+        + '(hooks, harness, skills, agents, rules, CLAUDE.md, CI) -- the judge rather than the '
+        + 'judged; review it at the strictest tier this repository has, because a gate cannot '
+        + 'catch a change to itself',
+    });
+  }
+
   if (task && task.state === 'active') {
     const startedMs = Date.parse(task.startedAt);
     if (!Number.isNaN(startedMs)) {
@@ -1082,6 +1128,7 @@ function cmdRisk(flags) {
   const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
   const catalog = loaded.ok ? loaded.catalog : null;
   const state = readLedgerState();
+  const cp = changedPaths();
   const waivers = readWaiverFiles();
   const task = readTaskRecord();
   const fastActive = fastModeActive();
@@ -1096,6 +1143,7 @@ function cmdRisk(flags) {
     catalog,
     waivers,
     task,
+    changed: Array.isArray(cp) ? cp : cp.paths,
     quarantine,
     fastActive,
   });
@@ -1116,5 +1164,5 @@ export {
   buildPlan, evidenceFilePath, runCheckWithEvidence, gateReason, suppressionOf, waiversApplied, cmdGate,
   auditGates, cmdGateAudit,
   planRetention, ledgerReferencedEvidence, listDirFiles, retentionRefusal, cmdRetention,
-  readWaiverFiles, readQuarantine, riskFindings, cmdRisk,
+  readWaiverFiles, readQuarantine, governanceSurface, riskFindings, cmdRisk,
 };

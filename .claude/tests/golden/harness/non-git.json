@@ -235,6 +235,7 @@
         "taskId": "golden-task",
         "baseCommit": null,
         "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
+        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41",
         "reviewer": "golden-baseline",
         "verdict": "pass",
         "scope": "sandbox fixture tree",
@@ -1404,10 +1405,17 @@
         "checks": [],
         "blockers": [],
         "established": 0,
+        "trustBoundary": {
+          "producerIdentityAuthenticated": false,
+          "ciProvenanceVerified": false,
+          "externalSignatureVerified": false,
+          "releaseAuthorized": false
+        },
         "note": "assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision"
       },
       "stderr": [
-        "Release readiness: cannot be assessed (not a git repository)"
+        "Release readiness: cannot be assessed (not a git repository)",
+        "Trust boundary: this is a release candidate attestation, not a release authorization -- producer identity, CI provenance and external signatures are all unverified here"
       ]
     },
     {
@@ -2251,7 +2259,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },
@@ -2293,7 +2301,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },

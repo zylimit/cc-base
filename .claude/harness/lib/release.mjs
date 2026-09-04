@@ -16,7 +16,7 @@
 // whether a commit is shippable, once, in one place, and laying them out as a list somebody
 // can check rather than a feeling somebody has.
 //
-// Seven checks, all of them blocking, all of them able to degrade. Degrading is not passing
+// Eight checks, all of them blocking, all of them able to degrade. Degrading is not passing
 // and it is not failing: it means the question could not be answered here, it is reported as
 // unknown in both channels, and it does not move the exit code. That asymmetry is the whole
 // design of the CI check in particular -- see below.
@@ -28,6 +28,7 @@
 //   review-queue  .claude/.needs-review still holding files
 //   fast-mode     an open window means this batch skipped the review and test gates
 //   ci            the CI conclusion for this exact HEAD
+//   gate-fresh    a passing gate record bound to this exact working tree
 //
 // Two of them are here because of specific incidents in this repository.
 //
@@ -43,9 +44,19 @@
 // the output says CI status is UNKNOWN and that unknown is not a pass. Answering "green"
 // because the question could not be asked is exactly the failure this check is named after.
 //
-// Depends on core / spec (dodStatus, so the three states are mapped in one place rather than
-// two) / memory (fast-mode and review-queue state, same semantics the stop gate and
-// `invariants` already use). Nothing imports it except harness.mjs and selftest.
+// The output also carries a trustBoundary block whose four fields are hardcoded false, and
+// they are hardcoded rather than computed because nothing in this process can ever make them
+// true. This command does not authenticate who produced the artifact, does not establish that
+// a CI system rather than somebody's laptop built it, verifies no external signature, and
+// authorizes nothing. An absent field reads as "not applicable"; false reads as "asked, and
+// no". A green readiness report is precisely the artifact a hurried reader downstream would
+// otherwise quote as though it were a release approval, so the boundary travels inside the
+// output where it cannot be left behind -- structure rather than a sentence in a README.
+//
+// Depends on core / catalog and evidence (the ledger gate-fresh reads) / spec (dodStatus, so
+// the three states are mapped in one place rather than two) / memory (fast-mode and
+// review-queue state, same semantics the stop gate and `invariants` already use). Nothing
+// imports it except harness.mjs and selftest.
 //
 // Source is ASCII-only like the rest of the runtime.
 
@@ -54,9 +65,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import {
-  HARNESS_DIR, changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded,
+  HARNESS_DIR, changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   projectRoot, sha256, toPosixPath, whichCmd,
 } from './core.mjs';
+import { loadCatalog } from './catalog.mjs';
+import { readLedgerState } from './evidence.mjs';
 import { dodStatus } from './spec.mjs';
 import { fastModeState, pendingReviewCount } from './memory.mjs';
 
@@ -542,11 +555,89 @@ function checkCi() {
 }
 
 // ===========================================================================
-// S27.8 verdict and entry point
+// S27.8 check 8 -- gate-fresh
+// ===========================================================================
+// Every other check reads a fact about the tree; this one asks whether the tree was ever
+// verified at all. Without it, `release` can report seven greens over a working tree no gate
+// has ever seen: `dod` covers the static governance checks and says so in its own note, and
+// nothing else in the list runs a single project check. "Ready to ship" would then mean "the
+// paperwork is in order".
+//
+// The binding is the diff fingerprint, the same one receipts use. A gate record establishes
+// something about the tree it ran against and nothing about any other, so one edit after the
+// gate and the record describes a tree that no longer exists.
+//
+// Two shapes of PASS are refused, because both established nothing. A Fast Mode run where
+// every check was skipped aggregates to gate:'PASS' with exit 0 -- inherited semantics, not a
+// bug -- so without this one empty Fast Mode run would feed the release gate forever. And a
+// run whose scope the caller chose (`gate --changed ...`) carries a real tree fingerprint
+// beside a scope somebody picked, which is the same forgery `task complete` refuses for the
+// same reason: the signature is genuine, the thing signed is not.
+//
+// A run that affected no module is accepted. Nothing needed checking, and since `release`
+// already blocks on a dirty worktree, that is the honest shape of a gate run at release time
+// -- refusing it would leave this check unsatisfiable at exactly the moment it is consulted.
+//
+// No catalog means there is no gate for the tree to be fresh against: DEGRADED, reported as
+// UNKNOWN, and not a blocker. cc-base itself is such a tree, and a check that stopped it from
+// releasing would be deleted inside a week.
+
+const GATE_STEP = 'node .claude/harness/harness.mjs gate';
+
+/** Did this gate record establish anything about the tree it is bound to? Pure. */
+function gateEstablished(rec) {
+  if (!rec || rec.reason === 'every-check-skipped') return false;
+  if (rec.scopeSource === 'caller') return false;
+  const results = Array.isArray(rec.results) ? rec.results : [];
+  if (results.length === 0) return true;                 // no affected module: nothing to run
+  return results.some(r => r && r.state !== 'SKIPPED');
+}
+
+function checkGateFresh() {
+  if (!isGitRepo()) {
+    return result('gate-fresh', 'DEGRADED',
+      'not a git repository, so there is no working tree for a gate to be bound to', null, null);
+  }
+  const loaded = loadCatalog();
+  if (!loaded.ok) {
+    return result('gate-fresh', 'DEGRADED',
+      'no module catalog, so there is no verification gate for this tree to be fresh against',
+      { catalog: loaded.error }, null);
+  }
+  const state = readLedgerState();
+  if (state.unreadable) {
+    return result('gate-fresh', 'FAIL',
+      'the verification ledger exists but could not be read (' + state.unreadable
+        + '), so whether this tree was ever gated cannot be established',
+      { detail: state.unreadable }, GATE_STEP);
+  }
+  const diffHash = gitFingerprint();
+  const gates = state.entries.filter(e => e && !e.corrupt && e.command === 'gate');
+  const bound = gates.filter(e => e.diffHash === diffHash && e.gate === 'PASS');
+  const established = bound.filter(gateEstablished);
+  if (established.length) {
+    const latest = established[established.length - 1];
+    return result('gate-fresh', 'PASS', 'a passing gate ran against this exact working tree',
+      { diffHash, planHash: latest.planHash || null, gateRecords: gates.length }, null);
+  }
+  if (bound.length) {
+    return result('gate-fresh', 'FAIL',
+      bound.length + ' passing gate record(s) bind this tree, but none of them ran a check: '
+        + 'a skipped or caller-scoped pass established nothing',
+      { diffHash, boundToThisTree: bound.length, gateRecords: gates.length }, GATE_STEP);
+  }
+  return result('gate-fresh', 'FAIL',
+    'no passing gate record is bound to this working tree, so what would ship was never verified',
+    { diffHash, gateRecords: gates.length }, GATE_STEP);
+}
+
+// ===========================================================================
+// S27.9 verdict and entry point
 // ===========================================================================
 
 const RELEASE_CHECKS = [
   checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkFastMode, checkCi,
+  checkGateFresh,
 ];
 
 /**
@@ -566,10 +657,27 @@ function releaseVerdict(checks) {
 
 const NOTE = 'assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision';
 
+// Hardcoded false, on purpose and permanently: see the module header. These are the four
+// things a local assembly cannot establish, stated as answers rather than omitted, so that
+// nobody downstream has to infer them from what the output does not say.
+const TRUST_BOUNDARY = {
+  producerIdentityAuthenticated: false,
+  ciProvenanceVerified: false,
+  externalSignatureVerified: false,
+  releaseAuthorized: false,
+};
+
+const TRUST_NOTE = 'Trust boundary: this is a release candidate attestation, not a release '
+  + 'authorization -- producer identity, CI provenance and external signatures are all unverified here';
+
 function cmdRelease() {
   if (!isGitRepo()) {
     process.stderr.write('Release readiness: cannot be assessed (not a git repository)\n');
-    return emit({ ok: false, degraded: true, error: 'non-git', checks: [], blockers: [], established: 0, note: NOTE }, 3);
+    process.stderr.write(TRUST_NOTE + '\n');
+    return emit({
+      ok: false, degraded: true, error: 'non-git', checks: [], blockers: [], established: 0,
+      trustBoundary: { ...TRUST_BOUNDARY }, note: NOTE,
+    }, 3);
   }
   const checks = RELEASE_CHECKS.map(fn => fn());
   for (const c of checks) {
@@ -586,6 +694,7 @@ function cmdRelease() {
   } else {
     process.stderr.write('Release readiness: nothing could be established (every check is UNKNOWN)\n');
   }
+  process.stderr.write(TRUST_NOTE + '\n');
   return emit({
     ok: verdict.ok,
     ...(verdict.degraded ? { degraded: true } : {}),
@@ -593,14 +702,16 @@ function cmdRelease() {
     blockers: verdict.blockers,
     degradedChecks: degraded,
     established: verdict.established,
+    trustBoundary: { ...TRUST_BOUNDARY },
     note: NOTE,
   }, verdict.exit);
 }
 
 export {
-  MANIFEST_RULES, RELEASE_CHECKS, NOTE,
+  MANIFEST_RULES, RELEASE_CHECKS, NOTE, TRUST_BOUNDARY, TRUST_NOTE,
   caseGlobToRegExp, manifestIncludes, normalizedSha, parseManifest, manifestFindings,
   ciBuckets, releaseVerdict, result, capped,
   checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkFastMode, checkCi,
+  gateEstablished, checkGateFresh,
   cmdRelease,
 };

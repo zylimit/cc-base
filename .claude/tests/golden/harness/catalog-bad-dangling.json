@@ -267,6 +267,7 @@
         "taskId": "golden-task",
         "baseCommit": "<SHA>",
         "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41",
         "reviewer": "golden-baseline",
         "verdict": "pass",
         "scope": "sandbox fixture tree",
@@ -287,7 +288,8 @@
       "stdout": {
         "state": "PASS",
         "matched": "golden-task",
-        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c"
+        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+        "engineHash": "adb8183a4cf9a511930b79f1effda8760fc759caf2c46779bca298e13ca89d41"
       },
       "stderr": []
     },
@@ -1882,6 +1884,17 @@
               "head": "4818a1bd49a03b4f609ae27d81b54ad56374997b"
             },
             "nextStep": null
+          },
+          {
+            "id": "gate-fresh",
+            "status": "FAIL",
+            "blocking": true,
+            "summary": "no passing gate record is bound to this working tree, so what would ship was never verified",
+            "evidence": {
+              "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
+              "gateRecords": 2
+            },
+            "nextStep": "node .claude/harness/harness.mjs gate"
           }
         ],
         "blockers": [
@@ -1894,6 +1907,11 @@
             "id": "dod",
             "why": "blocking step(s) failed: catalog-lint, adr-check, fitness, claude-md-lint",
             "nextStep": "node .claude/harness/harness.mjs dod --only catalog-lint,adr-check,fitness,claude-md-lint"
+          },
+          {
+            "id": "gate-fresh",
+            "why": "no passing gate record is bound to this working tree, so what would ship was never verified",
+            "nextStep": "node .claude/harness/harness.mjs gate"
           }
         ],
         "degradedChecks": [
@@ -1901,7 +1919,13 @@
           "manifest",
           "ci"
         ],
-        "established": 4,
+        "established": 5,
+        "trustBoundary": {
+          "producerIdentityAuthenticated": false,
+          "ciProvenanceVerified": false,
+          "externalSignatureVerified": false,
+          "releaseAuthorized": false
+        },
         "note": "assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision"
       },
       "stderr": [
@@ -1912,9 +1936,12 @@
         " PASS     review-queue  nothing waiting for review",
         " PASS     fast-mode     closed; the review and test gates were in force",
         " DEGRADED ci            no origin remote, so CI status is UNKNOWN -- unknown is not a pass",
-        "Release readiness: NOT ready (worktree, dod)",
+        " FAIL     gate-fresh    no passing gate record is bound to this working tree, so what would ship was never verified",
+        "Release readiness: NOT ready (worktree, dod, gate-fresh)",
         "   worktree -> git status --porcelain",
-        "   dod -> node .claude/harness/harness.mjs dod --only catalog-lint,adr-check,fitness,claude-md-lint"
+        "   dod -> node .claude/harness/harness.mjs dod --only catalog-lint,adr-check,fitness,claude-md-lint",
+        "   gate-fresh -> node .claude/harness/harness.mjs gate",
+        "Trust boundary: this is a release candidate attestation, not a release authorization -- producer identity, CI provenance and external signatures are all unverified here"
       ]
     },
     {
@@ -3063,7 +3090,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },
@@ -3105,7 +3132,7 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
         "planned (not-implemented):"
       ]
     },

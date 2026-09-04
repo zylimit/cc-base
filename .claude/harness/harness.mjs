@@ -32,8 +32,8 @@
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
 // quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
 // catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
-// rules -> core, catalog; init -> core, catalog, graph, evidence; release -> core, spec,
-// memory; selftest -> all of the above; this file -> all of the above. No cycles.
+// rules -> core, catalog; init -> core, catalog, graph, evidence; release -> core, catalog,
+// evidence, spec, memory; selftest -> all of the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -275,7 +275,7 @@ function usage(cmd) {
     '  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification\n' +
     '  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one\n' +
     '  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports\n' +
-    '  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI, assembled and never acted on\n' +
+    '  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

@@ -5,7 +5,6 @@
 #   FEEDBACK-INDEX.md，无顶层私有 *.md，守 setup.sh #5）；③ 幂等性（装两次产物 SHA256 一致）。
 # 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（各自表内比，含臂序与 drop/keep 处置）
 #   + ⑥b 系统垃圾不入装不入清单（行为）+ ⑦ Claude Code 的 .claude/worktrees/ 不入装不入清单不入库。
-#   + ⑥b 系统垃圾不入装不入清单（行为）。
 # ⑦–⑩ 验的是安装过程本身扛不扛得住事故：⑦ --dry-run 零写入 + 打计划、⑧ 独占锁、
 #   ⑨ 维护标记（doctor 与 SessionStart 横幅两个消费方）、⑩ validate_target 逐段路径边界。
 #   这四段用 pass/fail 逐条计数、末尾汇总，不像前六段撞见第一条就 exit——四项互相独立，

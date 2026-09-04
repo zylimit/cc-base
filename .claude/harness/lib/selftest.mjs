@@ -3133,7 +3133,9 @@ function selftestCases() {
         // No origin is answered before gh is ever looked for, so this lane reads the same on a
         // machine with gh installed and on one without. That is what keeps the golden baseline
         // reproducible, and it is asserted here rather than assumed.
-        assert.deepEqual(clean.out.degradedChecks, ['remote', 'manifest', 'ci']);
+        // gate-fresh joins them: this fixture ships no catalog, so there is no verification
+        // gate for the tree to be fresh against, and an unanswerable question degrades.
+        assert.deepEqual(clean.out.degradedChecks, ['remote', 'manifest', 'ci', 'gate-fresh']);
         for (const id of ['remote', 'ci']) {
           const c = clean.out.checks.find(x => x.id === id);
           assert.deepEqual(c.status, 'DEGRADED');
