@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # setup.sh — 把 cc-base 框架资产注入式安装到 target 项目（Mac/Linux）。
-# 用法：./setup.sh [target_dir]    不给 target 默认当前目录 "."
-# 流程：复制 .claude 框架文件（跳过运行时产物）→ chmod hooks → settings.json 合并（有 jq 自动 merge；
-#   无 jq 降级：新 target 直接复制，已有 settings 备份 .bak + 打印手工合并指引，不静默覆盖）→ 备份 .bak。
+# 用法：./setup.sh [--dry-run] [target_dir]    不给 target 默认当前目录 "."
+# 流程：逐段校验 target 路径 → 上独占锁 + 落维护标记 → 复制 .claude 框架文件（跳过运行时产物）→
+#   chmod hooks → settings.json 合并（有 jq 自动 merge；无 jq 降级：新 target 直接复制，已有
+#   settings 备份 .bak + 打印手工合并指引，不静默覆盖）→ 备份 .bak → 清标记与锁。
+# --dry-run：一个字节都不写，只把 create / update / conflict / skip 四类计划打到 stdout。
 set -u
 
 die() {
@@ -14,11 +16,182 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少必需命令：$1"
 }
 
+# --- target 路径逐段校验 ---
+# 只挡 `..` 是不够的：一条路径里还有一堆段能把安装砸出打不开的目录——控制字符、Windows 三类
+# 禁忌（非法字符 <>:"|?* / 保留设备名 / 段尾的点与空格）、超长段、深到离谱的嵌套。这些在 Linux
+# 上建得出来，同一棵树搬到 Windows 就废了，装完才发现比装不上贵。
+# 必须跑在任何 mkdir 之前——「拒绝了但目录已经建了一半」不叫拒绝。
+WIN_BAD_CHARS='<>:"|?*'
+WIN_RESERVED='con prn aux nul com1 com2 com3 com4 com5 com6 com7 com8 com9 lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9'
+MAX_SEG_BYTES=255
+MAX_SEGS=64
 validate_target() {
-  local target=$1
-  case "$target" in
-    *..*) die "不安全的 target 目录：$target" ;;
+  local target=$1 rest oldifs seg lower ch i n count first
+  [ -n "$target" ] || die "target 目录不能是空串"
+  # 前导 ./ 和单独的 . 是文档写死的默认形态（不给参数就是 "."），先摘掉再逐段查；
+  # 照字面拒绝所有 . 段的话，最常用的两种写法当场被砖掉。
+  rest=$target
+  case "$rest" in
+    .) return 0 ;;
+    ./*) rest=${rest#./} ;;
   esac
+  # 按 / 切段后立刻把 IFS 和 glob 还原，后面的检查在干净环境里跑。set -f 是必需的：
+  # 段里可能有 * ?，不关 glob 的话切分那一下会拿它们去匹配当前目录。
+  oldifs=$IFS
+  set -f
+  IFS='/'
+  # shellcheck disable=SC2086  # 这里就是要 word splitting
+  set -- $rest
+  IFS=$oldifs
+  set +f
+  count=0
+  for seg in "$@"; do
+    [ -n "$seg" ] && count=$((count + 1))
+  done
+  [ "$count" -le "$MAX_SEGS" ] \
+    || die "target 路径段数过多：$count 段，上限 $MAX_SEGS 段（嵌套这么深多半是路径拼错了）：$target"
+  first=1
+  for seg in "$@"; do
+    [ -n "$seg" ] || continue
+    # Windows 盘符（C: 这一段）只在开头合法，放行后面的按普通段查
+    if [ "$first" = "1" ]; then
+      first=0
+      case "$seg" in [A-Za-z]:) continue ;; esac
+    fi
+    case "$seg" in
+      ..) die "target 路径不安全：段 '..' 会把文件写到目标之外（$target）" ;;
+      .) die "target 路径不合法：路径中间出现 '.' 段（$target）；相对路径只允许开头的 ./" ;;
+    esac
+    if [ -n "$(printf '%s' "$seg" | LC_ALL=C tr -dc '\001-\037\177')" ]; then
+      die "target 路径段含控制字符（control char）：段 [$seg]（$target）"
+    fi
+    i=0
+    n=${#WIN_BAD_CHARS}
+    while [ "$i" -lt "$n" ]; do
+      ch=${WIN_BAD_CHARS:$i:1}
+      case "$seg" in
+        *"$ch"*) die "target 路径段含非法字符 [$ch]（Windows 文件名不许带 $WIN_BAD_CHARS）：段 [$seg]（$target）" ;;
+      esac
+      i=$((i + 1))
+    done
+    lower=$(printf '%s' "$seg" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    case " $WIN_RESERVED " in
+      *" $lower "*) die "target 路径段是 Windows 保留设备名 [$seg]（con/prn/aux/nul/com1-9/lpt1-9，不分大小写）：$target" ;;
+    esac
+    case "$seg" in
+      *.) die "target 路径段以点结尾（trailing dot，Windows 会把它悄悄吃掉）：段 [$seg]（$target）" ;;
+      *' ') die "target 路径段以空格结尾（trailing space，同上）：段 [$seg]（$target）" ;;
+    esac
+    if [ "$(printf '%s' "$seg" | wc -c | tr -d ' ')" -gt "$MAX_SEG_BYTES" ]; then
+      die "target 路径单段超长：超过 $MAX_SEG_BYTES 字节（多数文件系统的单段上限）：段 [$seg]（$target）"
+    fi
+  done
+}
+
+# --- 安装事务：dry-run 计划 / 独占锁 / 维护标记 ---
+# 锁：同一个目标被两个 setup 同时写，装出来的树谁也说不清。锁里记 pid——pid 还活着就拒绝，
+#   pid 已死是上次崩溃的残留（陈旧锁），接管并在 stderr 说一句，不让自己的残留把目标锁死。
+# 标记：安装期间 status=active，正常收尾删掉；中途挂了由 EXIT trap 翻成 interrupted 并附已写
+#   文件清单（重装要知道上次写到哪）。doctor.sh 和 SessionStart 横幅都看这个文件。
+# 两者都住在 .claude/.runtime/（排除表已挡，不入装），装完连空目录一起清掉。
+DRY_RUN=0
+TARGET_ROOT=""
+RUNTIME_DIR=""
+LOCK_FILE=""
+MARKER_FILE=""
+INSTALL_DONE=0
+WRITE_COUNT=0
+WRITTEN_LIST=""
+STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+PLAN_CREATE=0
+PLAN_UPDATE=0
+PLAN_CONFLICT=0
+PLAN_SKIP=0
+
+plan_note() {
+  case "$1" in
+    create) PLAN_CREATE=$((PLAN_CREATE + 1)) ;;
+    update) PLAN_UPDATE=$((PLAN_UPDATE + 1)) ;;
+    conflict) PLAN_CONFLICT=$((PLAN_CONFLICT + 1)) ;;
+    skip) PLAN_SKIP=$((PLAN_SKIP + 1)) ;;
+  esac
+  # 计划打 stdout：stderr 是给人看的告警，计划是给人核对的产物
+  [ "$DRY_RUN" = "1" ] && printf '  %-8s %s\n' "$1" "$2"
+  return 0
+}
+
+# 目标已有该文件时按内容分 update/skip，没有就是 create（settings.json 走 merge、MANIFEST、
+# feedback INDEX 这三个不归 copy_claude_tree 管，dry-run 里不能凭空少报）。
+plan_pair() {
+  if [ ! -e "$2" ]; then
+    plan_note create "$3"
+  elif cmp -s "$1" "$2"; then
+    plan_note skip "$3"
+  else
+    plan_note update "$3"
+  fi
+}
+
+# 每写一个文件记一笔（中断留痕用）。CC_SETUP_FAIL_AFTER=N 是测试用的故障注入口：第 N 次写入后
+# 强制失败，用来验中断留痕；没设这个变量时整段不生效。
+note_write() {
+  WRITE_COUNT=$((WRITE_COUNT + 1))
+  WRITTEN_LIST="${WRITTEN_LIST}${1#"$TARGET_ROOT"/}
+"
+  case "${CC_SETUP_FAIL_AFTER:-}" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$WRITE_COUNT" -lt "$CC_SETUP_FAIL_AFTER" ] \
+    || die "CC_SETUP_FAIL_AFTER=$CC_SETUP_FAIL_AFTER 故障注入生效：写完第 $WRITE_COUNT 个文件后强制中止"
+}
+
+write_marker() {
+  local files
+  [ -n "$MARKER_FILE" ] || return 0
+  files=$(printf '%s' "$WRITTEN_LIST" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/",/' | tr -d '\n')
+  printf '{"status": "%s", "pid": %s, "startedAt": "%s", "written": [%s]}\n' \
+    "$1" "$$" "$STARTED_AT" "${files%,}" >"$MARKER_FILE" 2>/dev/null || true
+}
+
+# die / 故障注入 / 意外退出都会走到这里：标记翻 interrupted 留在原地，锁一律释放（持锁的是本
+# 进程，本进程都要没了）。不调 exit，免得把原来的退出码顶掉。
+on_exit() {
+  [ -n "$MARKER_FILE" ] || return 0
+  [ "$INSTALL_DONE" = "1" ] || write_marker interrupted
+  [ -z "$LOCK_FILE" ] || rm -f "$LOCK_FILE"
+}
+trap on_exit EXIT
+
+acquire_lock() {
+  local lock="$RUNTIME_DIR/install.lock" pid
+  mkdir -p "$RUNTIME_DIR" || die "无法创建运行态目录：$RUNTIME_DIR"
+  if [ -f "$lock" ]; then
+    pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lock" | head -1)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      die "另一个 setup 正在写这个目标：锁 $lock 的持有者 pid=$pid 还活着；等它跑完，或确认那个进程已经没了再删锁重试"
+    fi
+    printf 'setup: 陈旧锁（stale）%s：持有者 pid=%s 已不存在，接管；上一次安装多半是崩在半路的。\n' \
+      "$lock" "${pid:-未知}" >&2
+  fi
+  printf '{"pid": %s, "startedAt": "%s"}\n' "$$" "$STARTED_AT" >"$lock" || die "无法写入锁文件：$lock"
+  LOCK_FILE=$lock
+}
+
+start_marker() {
+  MARKER_FILE="$RUNTIME_DIR/install.marker"
+  write_marker active
+  [ -f "$MARKER_FILE" ] || die "无法写入维护标记：$MARKER_FILE"
+}
+
+# 正常收尾：标记和锁都删掉，连空的 .runtime 一起清（tests/test-setup.sh ⑤ 按 -e 判目录，
+# 留个空壳会让「运行态目录不入装」那条当场红）。目录里还有别的运行态文件时 rmdir 自然失败，不强删。
+finish_install() {
+  INSTALL_DONE=1
+  [ -z "$MARKER_FILE" ] || rm -f "$MARKER_FILE"
+  MARKER_FILE=""
+  [ -z "$LOCK_FILE" ] || rm -f "$LOCK_FILE"
+  LOCK_FILE=""
+  [ -z "$RUNTIME_DIR" ] || rmdir "$RUNTIME_DIR" 2>/dev/null || true
 }
 
 copy_file() {
@@ -30,6 +203,7 @@ copy_file() {
   fi
   cp -p "$src" "$dest" || die "无法复制 $src → $dest"
   [ -n "$mode" ] && chmod "$mode" "$dest"
+  note_write "$dest"
 }
 
 # --- 框架核心层 vs 项目私有层（FRAMEWORK-MANIFEST.txt）---
@@ -95,16 +269,24 @@ copy_claude_tree() {
     if [ -e "$dest" ] && ! cmp -s "$src" "$dest"; then
       old_sha=$(manifest_sha_of "$rel")
       if [ -n "$old_sha" ] && [ "$(norm_sha "$dest")" = "$old_sha" ]; then
-        : # 目标 == 旧框架版本，安全覆盖升级（copy_file 仍留 .bak）
+        plan_note update ".claude/$rel"  # 目标 == 旧框架版本，安全覆盖升级（copy_file 仍留 .bak）
       else
         # 用户改过（SHA 与旧 MANIFEST 不符）或目标无 MANIFEST（老版本装的）→ 不覆盖
+        plan_note conflict ".claude/$rel"
+        [ "$DRY_RUN" = "1" ] && continue
         cp -p "$src" "$dest.framework-new" || die "无法写入 $dest.framework-new"
         [ -n "$mode" ] && chmod "$mode" "$dest.framework-new"
         FRAMEWORK_NEW_LIST="${FRAMEWORK_NEW_LIST}${rel}
 "
+        note_write "$dest.framework-new"
         continue
       fi
+    elif [ -e "$dest" ]; then
+      plan_note skip ".claude/$rel"
+    else
+      plan_note create ".claude/$rel"
     fi
+    [ "$DRY_RUN" = "1" ] && continue
     copy_file "$src" "$dest" "$mode"
   done < <(find "$src_dir" -type f -print0)
 }
@@ -159,6 +341,7 @@ merge_settings() {
     | if (has("statusLine") | not) and ($source | has("statusLine")) then .statusLine = $source.statusLine else . end
   ' "$dest" "$src" >"$tmp" || { rm -f "$tmp"; die "无法合并 settings.json"; }
   mv "$tmp" "$dest" || { rm -f "$tmp"; die "无法更新 settings.json"; }
+  note_write "$dest"
 }
 
 main() {
@@ -170,6 +353,7 @@ main() {
       -win) platform="win" ;;
       -mac) platform="mac" ;;
       -ubt) platform="ubt" ;;
+      --dry-run) DRY_RUN=1 ;;
       *) target="$1" ;;
     esac
     shift
@@ -181,15 +365,20 @@ main() {
     *) platform="ubt" ;;
   esac
   if [ "$platform" = "win" ]; then
-    local sd
+    local sd ps
     sd=$(cd "$(dirname "$0")" && pwd) || die "无法定位脚本目录"
     if command -v pwsh >/dev/null 2>&1; then
-      exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
+      ps=pwsh
     elif command -v powershell.exe >/dev/null 2>&1; then
-      exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
+      ps=powershell.exe
     else
       die "Windows 平台需 pwsh 或 powershell.exe；请在 Windows 跑 setup.sh -win，或本机装 pwsh"
     fi
+    # --dry-run 转交时要跟着过去，否则 Windows 侧会真装（开关名不同：ps1 侧是 -DryRun）
+    if [ "$DRY_RUN" = "1" ]; then
+      exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target" -DryRun
+    fi
+    exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
   fi
   # jq 可选：有则 settings.json 自动合并；无则降级（新 target 直接复制，已有 settings 备份 .bak + 手工合并指引）
   command -v jq >/dev/null 2>&1 || printf 'setup: 未检测到 jq，settings.json 走无 jq 降级路径。\n' >&2
@@ -200,10 +389,35 @@ main() {
   script_dir=$(cd "$(dirname "$0")" && pwd) || die "无法定位脚本目录"
   source_dir=$script_dir
   [ -d "$source_dir/.claude" ] || die "脚本目录下无 .claude（请在 cc-base 仓库根运行）"
-  mkdir -p "$target" || die "无法创建 target：$target"
-  [ -w "$target" ] || die "target 不可写：$target"
+  TARGET_ROOT=$target
+  RUNTIME_DIR="$target/.claude/.runtime"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'dry-run: 只算不写，%s 一个字节都不动\n' "$target"
+  else
+    mkdir -p "$target" || die "无法创建 target：$target"
+    [ -w "$target" ] || die "target 不可写：$target"
+    acquire_lock
+    start_marker
+  fi
 
   copy_claude_tree "$source_dir/.claude" "$target/.claude"
+
+  # dry-run 到此为止：把 copy_claude_tree 没管的三个文件补进计划，打计数，退出
+  if [ "$DRY_RUN" = "1" ]; then
+    plan_pair "$source_dir/.claude/settings.json" "$target/.claude/settings.json" ".claude/settings.json"
+    if [ -f "$source_dir/.claude/FRAMEWORK-MANIFEST.txt" ]; then
+      plan_pair "$source_dir/.claude/FRAMEWORK-MANIFEST.txt" "$target/.claude/FRAMEWORK-MANIFEST.txt" \
+        ".claude/FRAMEWORK-MANIFEST.txt"
+    fi
+    if [ -f "$source_dir/.claude/feedback/templates/feedback-index-template.md" ]; then
+      plan_pair "$source_dir/.claude/feedback/templates/feedback-index-template.md" \
+        "$target/.claude/feedback/FEEDBACK-INDEX.md" ".claude/feedback/FEEDBACK-INDEX.md"
+    fi
+    printf 'dry-run: create=%s update=%s conflict=%s skip=%s（conflict 真装时会落 <文件>.framework-new）\n' \
+      "$PLAN_CREATE" "$PLAN_UPDATE" "$PLAN_CONFLICT" "$PLAN_SKIP"
+    return 0
+  fi
+
   merge_settings "$source_dir/.claude/settings.json" "$target/.claude/settings.json"
 
   # 装完把新 MANIFEST 复制进目标（下次升级据此区分「框架旧版可覆盖」vs「用户改过不可覆盖」）
@@ -231,6 +445,7 @@ main() {
     printf 'setup: 跑 fix-platform.sh 清理异平台残留 + chmod...\n' >&2
     ( cd "$target" && CLAUDE_PROJECT_DIR="$target" bash "$target/.claude/scripts/fix-platform.sh" ) >&2 || true
   fi
+  finish_install
   printf 'installed: hooks=%s skills=%s target=%s\n' "$hooks_count" "$skills_count" "$target"
   printf '完成。Claude Code 会从 %s/.claude/settings.json 加载 hooks（.sh，需 Git Bash 环境）。\n' "$target"
   printf 'Windows 纯 PowerShell 环境改用： pwsh -File setup.ps1 -Target %s\n' "$target"

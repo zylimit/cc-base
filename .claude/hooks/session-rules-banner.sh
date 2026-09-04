@@ -2,6 +2,12 @@
 # SessionStart hook：输出 CC 框架核心铁律横幅（source=compact/resume 时静默）
 set -euo pipefail
 
+# 上次 setup 挂在半路会留下 .claude/.runtime/install.marker——在半装的框架上开工全是坑，
+# 先把它顶到脸上（正常装完这文件不存在，不会天天吓人）。
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR}/.claude/.runtime/install.marker" ]; then
+  echo "⚠️ 上次安装未完成（.claude/.runtime/install.marker）：重跑 setup.sh 补装完再干活。"
+fi
+
 # fast-mode 总闸播报版：其余 hook 静默，本横幅反向醒目告警，防开关忘关；
 # 过期（expires_epoch 已过 / 缺行 / 非法）则提示已自动失效并继续正常横幅（严格模式已恢复）。
 # 判定走共享库 lib-fast-mode.sh；库缺失时按未生效处理（不播报、正常横幅）。

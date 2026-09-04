@@ -3,6 +3,12 @@
 # Print the CC framework core-rules banner (silent when source=compact/resume).
 $ErrorActionPreference = 'Stop'
 
+# A setup that died halfway leaves .claude/.runtime/install.marker behind - working on a
+# half-installed framework is all trap, so say it first (a clean install has no such file).
+if ($env:CLAUDE_PROJECT_DIR -and (Test-Path (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/.runtime/install.marker'))) {
+  Write-Output '[!] Last install did not finish (.claude/.runtime/install.marker): re-run setup before working here.'
+}
+
 # Fast-mode master switch, announce edition: the other hooks go silent, this banner must
 # instead warn loudly so a forgotten switch cannot hide. Expired flag (expires_epoch in the
 # past, or a missing/invalid line) -> note the auto-expiry and fall through to the normal

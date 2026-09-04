@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
-# Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force]    without -Target, defaults to the current directory ".".
+# Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force] [-DryRun]    without -Target, defaults to the current directory ".".
+#      -DryRun writes nothing and prints the plan (create / update / conflict / skip) instead.
 # Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
 #      and rewrite each hook command to: <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
 #      Interpreter: prefer pwsh 7 (absolute path, quoted - it lives under "Program Files") because powershell.exe 5.1
@@ -15,17 +16,109 @@
 [CmdletBinding()]
 param(
   [string]$Target = '.',
-  [switch]$Force
+  [switch]$Force,
+  [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
+
+# Install transaction state (mirrors setup.sh): an exclusive lock so two installs cannot write the
+# same target at once, a maintenance marker that says "this tree was left half installed", and the
+# dry-run plan counters. Both files live under .claude/.runtime/ (already excluded from the copy),
+# and a normal finish takes the whole directory with it.
+$script:startedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$script:lockPath = ''
+$script:markerPath = ''
+$script:installDone = $false
+$script:writeCount = 0
+$script:written = @()
+$script:plan = @{ create = 0; update = 0; conflict = 0; skip = 0 }
+
+function Write-InstallMarker([string]$status) {
+  if (-not $script:markerPath) { return }
+  $items = @()
+  foreach ($f in $script:written) { $items += ('"' + ($f -replace '\\', '/' -replace '"', '\"') + '"') }
+  $json = '{"status": "' + $status + '", "pid": ' + $PID + ', "startedAt": "' + $script:startedAt +
+    '", "written": [' + ($items -join ',') + ']}'
+  try { [System.IO.File]::WriteAllText($script:markerPath, $json) } catch { }
+}
+
+# Anything that throws lands here: the marker flips to interrupted and stays put (doctor.sh and the
+# SessionStart banner both read it), the lock goes because the process holding it is leaving.
+trap {
+  if (-not $script:installDone) { Write-InstallMarker 'interrupted' }
+  if ($script:lockPath) { Remove-Item $script:lockPath -Force -ErrorAction SilentlyContinue }
+  Write-Host ('setup: ' + $_.Exception.Message) -ForegroundColor Red
+  exit 1
+}
+
+# Count each written file (the interrupted marker carries the list) and honour the fault-injection
+# hook: CC_SETUP_FAIL_AFTER=N fails right after the Nth write. Unset, none of this does anything.
+function Register-Write([string]$rel) {
+  $script:writeCount++
+  $script:written += ($rel -replace '\\', '/')
+  if ($env:CC_SETUP_FAIL_AFTER -match '^\d+$' -and $script:writeCount -ge [int]$env:CC_SETUP_FAIL_AFTER) {
+    throw ("CC_SETUP_FAIL_AFTER=$($env:CC_SETUP_FAIL_AFTER) fault injection: aborting after writing " +
+      "$($script:writeCount) file(s)")
+  }
+}
+
+function Add-Plan([string]$kind, [string]$rel) {
+  $script:plan[$kind] = $script:plan[$kind] + 1
+  if ($DryRun) { Write-Output ('  {0,-8} .claude/{1}' -f $kind, $rel) }
+}
+
+# Per-segment target validation, same table as setup.sh validate_target. It runs before the first
+# New-Item on purpose - "rejected, but half the directories are already there" is not a rejection.
+$WinBadChars = '<>:"|?*'
+$WinReserved = @('con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9')
+function Test-TargetPath([string]$path) {
+  if (-not $path) { throw 'target directory must not be empty' }
+  if ($path -eq '.') { return }
+  $rest = $path
+  # A leading ./ (or .\) is the documented relative form; rejecting every "." segment literally
+  # would brick the two most common ways of calling this script.
+  if ($rest.StartsWith('./') -or $rest.StartsWith('.\')) { $rest = $rest.Substring(2) }
+  $segs = @($rest -split '[\\/]+' | Where-Object { $_ -ne '' })
+  if ($segs.Count -gt 64) {
+    throw "target path has too many segments: $($segs.Count), the cap is 64 (that much nesting is usually a typo): $path"
+  }
+  $first = $true
+  foreach ($seg in $segs) {
+    if ($first) {
+      $first = $false
+      # A drive letter (the "C:" segment) is only legal at the front; everything after it is a normal segment.
+      if ($seg -match '^[A-Za-z]:$') { continue }
+    }
+    if ($seg -eq '..') { throw "unsafe target path: a '..' segment writes outside the target ($path)" }
+    if ($seg -eq '.') { throw "invalid target path: a '.' segment in the middle ($path); only a leading ./ is allowed" }
+    if ($seg -match '[\x00-\x1f\x7f]') { throw "target path segment holds a control char: [$seg] ($path)" }
+    foreach ($ch in $WinBadChars.ToCharArray()) {
+      if ($seg.IndexOf($ch) -ge 0) {
+        throw "target path segment holds the illegal char [$ch] (Windows file names cannot carry $WinBadChars): [$seg] ($path)"
+      }
+    }
+    if ($WinReserved -contains $seg.ToLower()) {
+      throw "target path segment is a Windows reserved device name [$seg] (con/prn/aux/nul/com1-9/lpt1-9, case-insensitive): $path"
+    }
+    if ($seg.EndsWith('.')) { throw "target path segment ends with a dot (Windows silently eats it): [$seg] ($path)" }
+    if ($seg.EndsWith(' ')) { throw "target path segment ends with a space (same as above): [$seg] ($path)" }
+    if ([System.Text.Encoding]::UTF8.GetByteCount($seg) -gt 255) {
+      throw "target path segment is too long: over 255 bytes: [$seg] ($path)"
+    }
+  }
+}
 
 $root = $PSScriptRoot
 $srcClaude = Join-Path $root '.claude'
 if (-not (Test-Path $srcClaude)) { throw "No .claude under the script directory (run from the cc-base repo root): $srcClaude" }
 
 # target/.claude
-if (-not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target -Force | Out-Null }
+Test-TargetPath $Target
+if (-not $DryRun -and -not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target -Force | Out-Null }
 $targetClaude = Join-Path $Target '.claude'
+$runtimeDir = Join-Path $targetClaude '.runtime'
 
 Write-Host '=== cc-base setup (Windows/.ps1) ===' -ForegroundColor Cyan
 
@@ -65,6 +158,31 @@ if (Test-Path $oldManifestPath) {
   }
 }
 $script:frameworkNewList = @()
+
+# Take the lock and drop the marker before the first byte is written. A lock whose pid is still
+# alive means someone else is writing this target: refuse. A dead pid is the leftover of a crash
+# (stale lock): say so on the way past and take it over, so a crash cannot lock the target forever.
+if ($DryRun) {
+  Write-Host "dry-run: planning only, not a byte is written to $Target"
+} else {
+  if (-not (Test-Path $runtimeDir)) { New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null }
+  $lockFile = Join-Path $runtimeDir 'install.lock'
+  if (Test-Path $lockFile) {
+    $holder = 0
+    try {
+      $lockText = Get-Content $lockFile -Raw
+      if ($lockText -match '"pid"\s*:\s*(\d+)') { $holder = [int]$Matches[1] }
+    } catch { $holder = 0 }
+    if ($holder -gt 0 -and (Get-Process -Id $holder -ErrorAction SilentlyContinue)) {
+      throw "another setup is writing this target: install.lock $lockFile is held by live pid=$holder; wait for it to finish, or delete the lock once you are sure that process is gone"
+    }
+    Write-Host "setup: stale install.lock $lockFile (holder pid=$holder is gone), taking over; the last install probably died halfway" -ForegroundColor Yellow
+  }
+  [System.IO.File]::WriteAllText($lockFile, ('{"pid": ' + $PID + ', "startedAt": "' + $script:startedAt + '"}'))
+  $script:lockPath = $lockFile
+  $script:markerPath = Join-Path $runtimeDir 'install.marker'
+  Write-InstallMarker 'active'
+}
 
 function Copy-WithBackup($src, $dest) {
   $destDir = Split-Path $dest -Parent
@@ -124,13 +242,35 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
     $oldSha = $oldManifest[$relSlash]
     if (-not ($oldSha -and (Get-NormalizedSha $dest) -eq $oldSha)) {
       # user-modified (SHA differs from old manifest) or no old manifest (legacy install)
-      Copy-Item $_.FullName "$dest.framework-new" -Force
-      $script:frameworkNewList += $relSlash
+      Add-Plan 'conflict' $relSlash
+      if (-not $DryRun) {
+        Copy-Item $_.FullName "$dest.framework-new" -Force
+        $script:frameworkNewList += $relSlash
+        Register-Write ($relSlash + '.framework-new')
+      }
       return
     }
     # else: target == old framework version, fall through to safe overwrite (with .bak)
+    Add-Plan 'update' $relSlash
+  } elseif (Test-Path $dest) {
+    Add-Plan 'skip' $relSlash
+  } else {
+    Add-Plan 'create' $relSlash
   }
+  if ($DryRun) { return }
   Copy-WithBackup $_.FullName $dest
+  Register-Write $relSlash
+}
+
+# -DryRun stops here. The three files the copy loop does not own get planned too: settings.json is
+# rewritten hook by hook so an existing one always counts as an update, the other two are plain copies.
+if ($DryRun) {
+  foreach ($rel in @('settings.json', 'FRAMEWORK-MANIFEST.txt', 'feedback/FEEDBACK-INDEX.md')) {
+    if (Test-Path (Join-Path $targetClaude $rel)) { Add-Plan 'update' $rel } else { Add-Plan 'create' $rel }
+  }
+  Write-Output ('dry-run: create={0} update={1} conflict={2} skip={3} (conflict would land <file>.framework-new)' -f `
+      $script:plan['create'], $script:plan['update'], $script:plan['conflict'], $script:plan['skip'])
+  exit 0
 }
 
 # 3. Rewrite each hook command: .sh -> <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
@@ -244,6 +384,7 @@ if ((Test-Path $targetSettings) -and -not $Force) {
   Copy-Item $targetSettings "$targetSettings.bak" -Force
   Write-Host "backup: $targetSettings.bak"
   $tgt | ConvertTo-Json -Depth 20 | Set-Content $targetSettings -Encoding UTF8
+  Register-Write 'settings.json'
 } else {
   if ((Test-Path $targetSettings) -and $Force) {
     Copy-Item $targetSettings "$targetSettings.bak" -Force
@@ -252,12 +393,14 @@ if ((Test-Path $targetSettings) -and -not $Force) {
   $targetDir = Split-Path $targetSettings -Parent
   if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
   $src | ConvertTo-Json -Depth 20 | Set-Content $targetSettings -Encoding UTF8
+  Register-Write 'settings.json'
 }
 
 # Reset feedback INDEX to a clean template (same source as make-release.sh; private entries were skipped above)
 $fbTpl = Join-Path $srcClaude 'feedback/templates/feedback-index-template.md'
 if (Test-Path $fbTpl) {
   Copy-WithBackup $fbTpl (Join-Path $targetClaude 'feedback/FEEDBACK-INDEX.md')
+  Register-Write 'feedback/FEEDBACK-INDEX.md'
 }
 
 # Install the new manifest into the target (next upgrade uses it to tell
@@ -265,6 +408,7 @@ if (Test-Path $fbTpl) {
 $srcManifest = Join-Path $srcClaude 'FRAMEWORK-MANIFEST.txt'
 if (Test-Path $srcManifest) {
   Copy-WithBackup $srcManifest (Join-Path $targetClaude 'FRAMEWORK-MANIFEST.txt')
+  Register-Write 'FRAMEWORK-MANIFEST.txt'
 }
 
 # Summary of user-modified files that were NOT overwritten (new versions at *.framework-new)
@@ -273,6 +417,13 @@ if ($script:frameworkNewList.Count -gt 0) {
   Write-Host 'setup: new versions were written next to them as <file>.framework-new for manual merge:' -ForegroundColor Yellow
   foreach ($f in $script:frameworkNewList) { Write-Host "setup:   - .claude/$f" -ForegroundColor Yellow }
 }
+
+# Normal finish: marker and lock both go, and the empty .runtime goes with them - an empty shell left
+# behind turns "runtime dirs are not installed" red in tests/test-setup.sh (5), which reads unrelated.
+$script:installDone = $true
+if ($script:markerPath -and (Test-Path $script:markerPath)) { Remove-Item $script:markerPath -Force }
+if ($script:lockPath -and (Test-Path $script:lockPath)) { Remove-Item $script:lockPath -Force }
+if ((Test-Path $runtimeDir) -and -not (Get-ChildItem $runtimeDir -Force)) { Remove-Item $runtimeDir -Force }
 
 $hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count
 Write-Host "installed: ps1_hooks=$hooksCount target=$Target" -ForegroundColor Green

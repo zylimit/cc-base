@@ -46,6 +46,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 ```bash
 ./setup.sh ~/code/your-project     # 装到指定项目
 ./setup.sh                         # 不带参数 = 装到当前目录
+./setup.sh --dry-run ~/code/proj   # 只算不写：打出 create / update / conflict / skip 的清单与计数
 ```
 
 需要 `jq`（用于 settings.json 合并）；**没有 jq 也能装**：target 尚无 `.claude/settings.json` 时直接复制框架的，已有时备份 `.bak` 并打印手工合并指引（不静默覆盖）。hooks 走 `.sh`，依赖 Git Bash / bash 环境展开 `$CLAUDE_PROJECT_DIR`。
@@ -56,6 +57,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 pwsh -File setup.ps1 -Target C:\path\to\project    # 装到指定项目
 pwsh -File setup.ps1                               # 不带参数 = 装到当前目录
 pwsh -File setup.ps1 -Target C:\path -Force        # 覆盖已有 settings.json（先备份 .bak）
+pwsh -File setup.ps1 -Target C:\path -DryRun       # 只算不写，同 --dry-run
 ```
 
 ### 升级

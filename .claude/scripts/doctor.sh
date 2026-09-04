@@ -15,6 +15,16 @@ ok()   { printf '✓ %s\n' "$1"; }
 bad()  { printf '✗ %s\n' "$1" >&2; fail=1; }
 note() { printf '! %s\n' "$1" >&2; warn=1; }
 
+# 上次安装装完了没：setup 中途挂了会把 .claude/.runtime/install.marker 的 status 翻成 interrupted。
+# 放在最前面报——半装状态下下面那一串缺失多半都是它带出来的，先重跑 setup 再看别的。
+if [ -f .claude/.runtime/install.marker ]; then
+  if grep -q 'interrupted' .claude/.runtime/install.marker 2>/dev/null; then
+    bad "上次安装未完成（.claude/.runtime/install.marker 记着 interrupted）：重跑 setup 补装"
+  else
+    note "存在 .claude/.runtime/install.marker（有个 setup 正在装？装完它会自己消失）"
+  fi
+fi
+
 # 主控文件
 [ -f .claude/CLAUDE.md ] && ok ".claude/CLAUDE.md 存在" || bad ".claude/CLAUDE.md 缺失"
 
