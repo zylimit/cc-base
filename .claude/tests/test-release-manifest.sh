@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # test-release-manifest.sh — release 的 manifest 项对「被排除文件」的排除规则回归（只需 node + git + sha256sum）。
-# 锁的是 release.mjs MANIFEST_RULES：运行态产物与系统垃圾（.DS_Store / Thumbs.db / *.swp）在场时
-#   manifest 项仍须 PASS、unlisted 恒为 0。
+# 锁的是 release.mjs MANIFEST_RULES：运行态产物、系统垃圾（.DS_Store / Thumbs.db / *.swp）与
+#   Claude Code sub-agent 的 worktree 副本（.claude/worktrees/，⑦）在场时，manifest 项仍须 PASS、
+#   unlisted 恒为 0。
 #   这批规则此前没有任何测试守着——删掉它们，selftest 与 golden 都照样全绿，本机和 CI 都不会红。
 # 造真文件不做字符串匹配：规则还在但 caseGlobToRegExp / manifestIncludes 被改坏，字符串匹配看不出来。
 # 逐类单独跑一遍 release（每类 ~1.4s），所以删掉哪一条规则就红哪一条，报错直接点名到 pattern。
@@ -243,6 +244,7 @@ harness/waivers/w-001.json|.claude/harness/waivers/|STATE_EXCLUDE_PREFIXES
 harness/trend/arch-trend.jsonl|.claude/harness/trend/|STATE_EXCLUDE_PREFIXES
 harness/state/nested/task.json|.claude/harness/state/|STATE_EXCLUDE_PREFIXES
 harness/evidence/static-check.stdout|.claude/harness/evidence/|STATE_EXCLUDE_PREFIXES
+worktrees/agent-x/foo.txt|.claude/worktrees/|STATE_EXCLUDE_PREFIXES
 "
 
 # ④a 逐条造 untracked 文件，指纹都不许动
@@ -390,7 +392,7 @@ fi
 CORE_FILE="$(cd "$(dirname "$ENTRY")" && pwd)/lib/core.mjs"
 EXP_EXCLUDE=10
 EXP_PATHS=3
-EXP_PREFIXES=7
+EXP_PREFIXES=8
 
 # 从被测那份 core.mjs 里把数组字面量的字符串成员抠出来（单引号用 charCode 拼，避开 shell 引号地狱）
 dump_table() {
@@ -437,6 +439,86 @@ MINE_PREFIXES=$(printf '%s\n' "$UNTRACKED_CASES" | sed '/^$/d' | awk -F'|' '$3==
 cmp_table STATE_EXCLUDE          "$EXP_EXCLUDE"  "$MINE_EXCLUDE"  "TRACKED_CASES"
 cmp_table STATE_EXCLUDE_PATHS    "$EXP_PATHS"    "$MINE_PATHS"    "UNTRACKED_CASES(PATHS)"
 cmp_table STATE_EXCLUDE_PREFIXES "$EXP_PREFIXES" "$MINE_PREFIXES" "UNTRACKED_CASES(PREFIXES)"
+
+# ---- ⑦ Claude Code 的 .claude/worktrees/ 不是框架文件 ----
+# sub-agent 的 worktree 隔离会在 .claude/worktrees/<agent>/ 下建一整棵仓副本——里面有它自己的
+#   .claude/harness/harness.mjs、自己的 README.md，文件名与框架文件一模一样。六份排除表里
+#   **一份都没有** worktrees/，所以四个 worktree 在场时它们整棵被当成框架文件：进清单、被
+#   release 判 unlisted、扰动 diff 指纹。上面 ①~⑥ 全绿也照样漏，因为那几张表压根没这一条。
+# 契约：`.claude/worktrees/` 整目录按**根锚定**排除（任意层级下的 worktrees/ 只认 .claude/ 那份），
+#   本段管其中三面：生成器不收、release 不判 unlisted、untracked 指纹不计入。
+#   ④a 已按 STATE_EXCLUDE_PREFIXES 的表成员单独锁了平铺形态（worktrees/agent-x/foo.txt），
+#   这里补的是真实形态——副本里**还有一层 .claude/**，naive 的 `*/.claude/**` 类规则会在这里翻车。
+# 前置还原：⑤d 往 hooks/demo.sh 追加过内容，不还原的话 manifest 项会因 digestChanged 而 FAIL，
+#   ⑦b 的红就会记到错的账上。
+printf 'echo hi\n' > "$ROOT/.claude/hooks/demo.sh"
+cp "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"
+release_manifest
+if [ "$M_STATUS" = "PASS" ] && [ "$M_UNLISTED" = "0" ]; then
+  pass "⑦ 脚手架：造 worktrees 之前 manifest=PASS unlisted=0（⑦b 的红只能由 worktrees 造成）"
+else
+  fail "⑦ 脚手架：造 worktrees 之前就不干净，EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
+fi
+
+WT_DEEP="worktrees/agent-x/.claude/harness/harness.mjs"
+WT_TOP="worktrees/agent-x/README.md"
+mkdir -p "$ROOT/.claude/worktrees/agent-x/.claude/harness"
+printf 'export const wt = 1;\n' > "$ROOT/.claude/worktrees/agent-x/.claude/harness/harness.mjs"
+printf '# worktree 副本的 README\n'  > "$ROOT/.claude/worktrees/agent-x/README.md"
+
+# ⑦a 生成器：清单里不许出现 worktrees/ 开头的条目
+bash "$ROOT/.claude/scripts/gen-manifest.sh" >/dev/null
+WT_IN_MANIFEST=$(grep -c '^worktrees/' "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" || true)
+if [ "$WT_IN_MANIFEST" = "0" ]; then
+  pass "⑦a gen-manifest.sh 不把 .claude/worktrees/ 下的文件收进清单"
+else
+  fail "⑦a gen-manifest.sh 把 worktree 副本当框架文件登记进清单（缺 worktrees/* 臂）：$(grep '^worktrees/' "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" | cut -f1 | tr '\n' ' ')"
+fi
+# ⑦a2 与干净清单逐字节一致——比「不含 worktrees/」更严：条目内容、条数、排序都不许被搅动
+if cmp -s "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"; then
+  pass "⑦a2 worktree 副本在场时 gen-manifest 产物与干净时逐字节一致"
+else
+  fail "⑦a2 worktree 副本改变了 gen-manifest 产物：$(diff "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" | head -5 | tr '\n' ' ')"
+fi
+
+# ⑦b release 的 manifest 项：worktree 副本不许被判成 unlisted
+# 必须先把清单还原成干净版——生成器现在正把这两个文件收进清单，不还原就是拿被审者的漂移
+#   给审计者开后门，⑦b 会假绿。
+cp "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"
+release_manifest
+if [ "$M_STATUS" = "PASS" ] && [ "$M_UNLISTED" = "0" ]; then
+  pass "⑦b worktree 副本在场：release 的 manifest 项 PASS unlisted=0（MANIFEST_RULES 有 worktrees/* 且 keep:false）"
+else
+  fail "⑦b worktree 副本被 release 判成 unlisted——MANIFEST_RULES 缺 worktrees/*：EXPECT PASS/0，GOT $M_STATUS/$M_UNLISTED · $M_SUMMARY · 点名 [$M_NAMES]"
+fi
+rm -rf "$ROOT/.claude/worktrees"
+
+# ⑦c diff 指纹：untracked 的 worktree 副本不许扰动 gitFingerprint
+# 走的是 hashUntracked() → isStateExcluded()，即 STATE_EXCLUDE_PREFIXES 那张表（④ 那条同表）。
+# 沙箱仓已在 ⑤c 提交过，这里新建的两份都是 untracked。
+cp "$BASE_MANIFEST" "$ROOT/.claude/FRAMEWORK-MANIFEST.txt"
+W_BASE=$(diff_hash)
+mkdir -p "$ROOT/.claude/worktrees/agent-x/.claude/hooks"
+printf 'echo wt\n'  > "$ROOT/.claude/worktrees/agent-x/.claude/hooks/notify.sh"
+printf '# 副本\n'    > "$ROOT/.claude/worktrees/agent-x/README.md"
+W_AFTER=$(diff_hash)
+if [ -n "$W_BASE" ] && [ "$W_BASE" = "$W_AFTER" ]; then
+  pass "⑦c 未跟踪的 .claude/worktrees/agent-x/**（含内层 .claude/）不改 diff 指纹"
+else
+  fail "⑦c worktree 副本扰动了 diff 指纹——STATE_EXCLUDE_PREFIXES 缺 '.claude/worktrees/'：base=$W_BASE after=$W_AFTER"
+fi
+rm -rf "$ROOT/.claude/worktrees"
+
+# ⑦d 非退化对照：普通未跟踪文件必须让指纹变，否则 ⑦c 的相等只是 hashUntracked 整体失明
+printf 'echo wt-probe\n' > "$ROOT/.claude/hooks/wt-probe.sh"
+W_CTRL=$(diff_hash)
+if [ -n "$W_CTRL" ] && [ "$W_CTRL" != "$W_BASE" ]; then
+  pass "⑦d 对照：未跟踪的 hooks/wt-probe.sh 改变 diff 指纹（⑦c 不是空转）"
+else
+  fail "⑦d 对照：未跟踪的 hooks/wt-probe.sh 没改变 diff 指纹，⑦c 是空转：base=$W_BASE after=$W_CTRL"
+fi
+rm -f "$ROOT/.claude/hooks/wt-probe.sh"
+
 echo ""
 echo "==== test-release-manifest：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]

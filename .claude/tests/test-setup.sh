@@ -4,7 +4,7 @@
 #   settings.json 合法 JSON）；② 私有 feedback 已排除（target 只剩 templates/ + 重置的
 #   FEEDBACK-INDEX.md，无顶层私有 *.md，守 setup.sh #5）；③ 幂等性（装两次产物 SHA256 一致）。
 # 另有 ④ 框架分层 / ⑤ 运行态隔离 / ⑥ 四份排除表逐臂对照（各自表内比，含臂序与 drop/keep 处置）
-#   + ⑥b 系统垃圾不入装不入清单（行为）。
+#   + ⑥b 系统垃圾不入装不入清单（行为）+ ⑦ Claude Code 的 .claude/worktrees/ 不入装不入清单不入库。
 # 无依赖 claude CLI，纳入 cases/run-all.sh 在 selftest 之后跑。装完清理临时目录。
 set -eu
 
@@ -257,7 +257,7 @@ sed -n '/^const MANIFEST_RULES = \[/,/^\];/p' "$RELEASE_MJS" \
 
 # 抽取自检：条数写死。抽取正则半坏（只抽到一部分）时当场红，别让后面的逐臂比对空转——
 # 下限式的 -ge 挡不住半坏。四份表增删臂时同步改这个数。
-EXPECTED_ARMS=34
+EXPECTED_ARMS=35
 arm_count=$(grep -c . "$TMP/tbl.gen" || true)
 [ "$arm_count" = "$EXPECTED_ARMS" ] \
   || fail "排除表口径：从 gen-manifest.sh 抽出 $arm_count 条臂，应为 $EXPECTED_ARMS（改过排除表就同步改这个数；数字对不上而表没动 = 抽取正则坏了，断言会空转）。release.mjs 相对它多出的臂：$(grep -vxF -f "$TMP/tbl.gen" "$TMP/tbl.release" | tr '\n' ' ' || true)"
@@ -295,6 +295,7 @@ ps1_token_for() {
     'harness/receipts/*'|'harness/state/*'|'harness/waivers/*'|'harness/trend/*'|'harness/evidence/*')
                        printf '%s' '^harness/(receipts|state|waivers|trend|evidence)/' ;;
     '.runtime/*')      printf '%s' '^\.runtime/' ;;
+    'worktrees/*')     printf '%s' '^worktrees/' ;;                      # Claude Code sub-agent 的 worktree 副本
     '*.bak'|'*.framework-new'|'*.swp')
                        printf '%s' '\.(bak|framework-new|swp)$' ;;
     # keep 臂：ps1 只排顶层 feedback/*.md，模板与子目录天然保留，语义等价
@@ -389,3 +390,65 @@ grep -q '^feedback/templates/feedback-index-template.md	' "$MINI_MANIFEST" \
   || fail "⑥b：排除表过宽，feedback/templates/ 下的模板不在 MANIFEST（垃圾臂排到了 keep 臂之后？）"
 
 echo "test-setup: ⑥b 系统垃圾隔离校验通过（$(printf '%s' "$JUNK" | wc -w | tr -d ' ') 份垃圾不入装 / 不入清单，框架文件照常）"
+
+# ---- ⑦ Claude Code 的 .claude/worktrees/ 不是框架文件 ----
+# sub-agent 的 worktree 隔离会在 .claude/worktrees/<agent>/ 下建一整棵仓副本，里面有它自己的
+# .claude/（含 harness/harness.mjs、hooks/、agents/…），文件名与框架文件逐个同名。六份排除表
+# （生成器 / 两个安装器 / release / core 的两张 STATE_EXCLUDE / .claude/.gitignore）里一份都没有
+# worktrees/，所以有 worktree 在场时开发机上跑一次安装，别人的项目里就会多出一整棵别人的仓副本。
+# 契约：.claude/worktrees/ 整目录按根锚定排除。本段管安装侧 + 清单侧 + 入库侧三面，
+# 字面口径（四份表逐臂）由 ⑥ 兜——那边 EXPECTED_ARMS 已按新增 worktrees/* 臂加到 35。
+MINI_WT="$TMP/mini-wt-src"
+mkdir -p "$MINI_WT/.claude/hooks" "$MINI_WT/.claude/scripts" "$MINI_WT/.claude/skills/demo" \
+         "$MINI_WT/.claude/feedback/templates"
+cp -p "$ROOT/setup.sh" "$MINI_WT/setup.sh"
+cp -p "$GEN_SH" "$MINI_WT/.claude/scripts/gen-manifest.sh"
+printf '# mini 主控\n'  >"$MINI_WT/.claude/CLAUDE.md"
+printf '{}\n'           >"$MINI_WT/.claude/settings.json"
+printf 'echo hi\n'      >"$MINI_WT/.claude/hooks/demo.sh"
+printf '# demo\n'       >"$MINI_WT/.claude/skills/demo/SKILL.md"
+printf '# 模板\n'       >"$MINI_WT/.claude/feedback/templates/feedback-index-template.md"
+# 真实形态：副本里还有一层 .claude/，且里面的文件名与框架文件同名（naive 的按 leaf 名匹配会漏）
+mkdir -p "$MINI_WT/.claude/worktrees/agent-x/.claude/harness" "$MINI_WT/.claude/worktrees/agent-x/.claude/hooks"
+printf 'export const wt = 1;\n' >"$MINI_WT/.claude/worktrees/agent-x/.claude/harness/harness.mjs"
+printf 'echo wt\n'              >"$MINI_WT/.claude/worktrees/agent-x/.claude/hooks/notify.sh"
+printf '# worktree 副本\n'      >"$MINI_WT/.claude/worktrees/agent-x/README.md"
+
+WT_TARGET="$TMP/mini-wt-target"
+bash "$MINI_WT/setup.sh" -mac "$WT_TARGET" >"$TMP/setup-wt.log" 2>&1 \
+  || { cat "$TMP/setup-wt.log" >&2; fail "⑦：带 worktree 副本的源码树安装失败"; }
+[ ! -e "$WT_TARGET/.claude/worktrees" ] \
+  || fail "⑦：setup.sh 把 worktree 副本装进了别人项目（copy_claude_tree 缺 worktrees/* 臂），泄漏：$(
+       find "$WT_TARGET/.claude/worktrees" -type f | sed "s|$WT_TARGET/.claude/||" | tr '\n' ' ')"
+# 反向：排除表不许过宽，正常框架文件照装
+[ -f "$WT_TARGET/.claude/CLAUDE.md" ]        || fail "⑦：排除表过宽，CLAUDE.md 未安装"
+[ -f "$WT_TARGET/.claude/hooks/demo.sh" ]    || fail "⑦：排除表过宽，hooks/demo.sh 未安装"
+
+# 清单侧：worktree 副本不许被登记成框架文件
+bash "$MINI_WT/.claude/scripts/gen-manifest.sh" >/dev/null 2>&1 || fail "⑦：迷你源码树上 gen-manifest.sh 跑失败"
+WT_MANIFEST="$MINI_WT/.claude/FRAMEWORK-MANIFEST.txt"
+if grep -q '^worktrees/' "$WT_MANIFEST"; then
+  fail "⑦：worktree 副本被登记进 MANIFEST（gen-manifest.sh 缺 worktrees/* 臂）：$(
+    grep '^worktrees/' "$WT_MANIFEST" | cut -f1 | tr '\n' ' ')"
+fi
+grep -q '^CLAUDE.md	' "$WT_MANIFEST" || fail "⑦：排除表过宽，CLAUDE.md 不在 MANIFEST"
+
+# 入库侧：.claude/.gitignore 必须挡住 worktrees/——沙箱 sub-agent 一开工整棵副本就冒出来，
+# 不挡的话它会被 git 当未跟踪文件报进 status，也会被 force-add 类操作误收进库。
+[ -f "$ROOT/.claude/.gitignore" ] || fail "⑦：找不到 $ROOT/.claude/.gitignore"
+grep -qx 'worktrees/' "$ROOT/.claude/.gitignore" \
+  || fail "⑦：.claude/.gitignore 缺 worktrees/ 一行（六份排除表里的入库那份）"
+# 行为面：真起个仓验 git 确实认这条（有 git 才跑；无 git 只剩上面的字面断言）
+if command -v git >/dev/null 2>&1; then
+  WT_IGN="$TMP/wt-ignore-probe"
+  mkdir -p "$WT_IGN/.claude/worktrees/agent-x"
+  cp -p "$ROOT/.claude/.gitignore" "$WT_IGN/.claude/.gitignore"
+  printf 'x\n' >"$WT_IGN/.claude/worktrees/agent-x/foo.txt"
+  ( cd "$WT_IGN" && git init -q . ) >/dev/null 2>&1 || fail "⑦：ignore 探针仓 git init 失败"
+  ( cd "$WT_IGN" && git check-ignore -q .claude/worktrees/agent-x/foo.txt ) \
+    || fail "⑦：.claude/.gitignore 里的 worktrees/ 没真挡住 .claude/worktrees/agent-x/foo.txt（写法不对？）"
+  ( cd "$WT_IGN" && git check-ignore -q .claude/hooks/demo.sh ) \
+    && fail "⑦：ignore 探针退化——.claude/hooks/demo.sh 也被忽略了，上面那条断言不作数"
+fi
+
+echo "test-setup: ⑦ worktrees 隔离校验通过（不入装 / 不入清单 / .claude/.gitignore 挡住，框架文件照常）"
