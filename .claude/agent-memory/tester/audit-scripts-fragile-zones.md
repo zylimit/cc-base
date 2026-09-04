@@ -16,3 +16,4 @@ metadata:
 - **`--paths` 三个脚本各不相同**：`scan-instructions` / `check-syntax` 支持，`scan-secrets` 不支持（未知参数 rc 2）。且 `--paths` 的 rc 分三档——全部路径不存在=用法错 rc 2、部分不存在=降级 rc 3（`path-not-found`）、悬空/空值=rc 2。断言写「不支持所以 rc 2」会变成描述与实际不符的潜伏谎言：rc 对了，理由是假的。
 - **写「机制该更严」的红锁前先查该能力是不是已存在但可选**：踩过一次——派单说「现按单行 sha256 绑定，绑不住上下文」，实查发现 `context` 窗口绑定早已实现、只是可选，README 还把这条明写成已知边界。红锁因此要瞄「绑定改为**强制**」（无 context 的条目不得生效），瞄「实现窗口绑定」会当场变绿、推翻整个 TODO 前提。
 - 相关：[[cc-base-testing-infra]]
+- **给 scan-secrets 加新规则的红锁，交付前一定要拿候选修复扫一遍全仓**：新规则会连带打红存量文件，而那正是「本仓自举」断言和 git hook 会拦的东西。实测加 `url-userinfo` 后除我自己的测试文件（头注释里写了字面量形态，已改）外，还打红两处存量：`.claude/harness/audit/scan-instructions.mjs:127` 的 `HTTPS_PROXY=` 注释样例、`docs/CROSS-POLLINATION.md:47` 那条描述这条规则本身的台账行。这两处得配 `scan-secrets:ignore`，否则规则一落地 implementer 自己都 commit 不进去——红锁回执里要把这份名单交出去。
