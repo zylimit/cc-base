@@ -28,6 +28,10 @@ $stateFile = Join-Path $root '.claude/.needs-review'
 # the project root (e.g. one-off scripts under %TEMP%) are not project code: ignore, never
 # register -- while a project file must never be misjudged as outside (that would skip review).
 if (-not [System.IO.Path]::IsPathRooted($filePath)) { $filePath = Join-Path $root $filePath }
+# Keep the pre-collapse forms: a path that started under the root but escaped through ../
+# earns one stderr line (parity with the .sh); a path that was outside all along stays silent.
+$preJoin = $filePath -replace '\\', '/'
+$rawRoot = ($root -replace '\\', '/').TrimEnd('/')
 # Both sides through the same GetFullPath: it also expands 8.3 short names (TEMP is often
 # C:\Users\ABC123~1\...), so comparing a canonicalized file against a raw root would misjudge
 # project files as outside. Symmetric canonicalization keeps the compare honest.
@@ -37,7 +41,12 @@ try {
 } catch { exit 0 }
 $normRoot = ($root -replace '\\', '/').TrimEnd('/')
 $normFile = $filePath -replace '\\', '/'
-if (-not $normFile.StartsWith("$normRoot/", [System.StringComparison]::OrdinalIgnoreCase)) { exit 0 }
+if (-not $normFile.StartsWith("$normRoot/", [System.StringComparison]::OrdinalIgnoreCase)) {
+  if ($preJoin.StartsWith("$rawRoot/", [System.StringComparison]::OrdinalIgnoreCase)) {
+    [Console]::Error.WriteLine("[mark-review-needed] not registered: $preJoin lands outside the project root once ./.. is collapsed; such an entry could never be cleared")
+  }
+  exit 0
+}
 $rel = $normFile.Substring($normRoot.Length).TrimStart('/')
 
 # Exemption 1: infrastructure / framework itself (top-level anchored)
