@@ -82,3 +82,4 @@ deepseek-base 的 `docs/CROSS-POLLINATION.md:40-58` 把 cc-base 定性为「a de
 | 4 | 小修：doctor 清单全量比对、`url-userinfo` 密钥模式、static-check 补 `node --check`（shim 与 validate_target 分别并入批 3 / 批 5） | `c60ea14` |
 | 5 | 安装器事务化最小切片（dry-run + 锁 + marker + 路径边界，.sh/.ps1 成对） | `c60ea14` |
 | 6 | `.claude/worktrees/` 进六份排除表——本轮并行时发现 Claude Code 隔离副本会被当框架文件登记与安装 | `c60ea14` |
+| 收口 | golden 掩码 `engineHash`、doctor 目标项目可用、setup 未知选项拒绝、豁免重绑、擦开发者路径；**v1.13.0 发版** | `2380d28` |
