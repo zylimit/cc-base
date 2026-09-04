@@ -613,6 +613,218 @@ chk "$ok" "⑧-6 装完删锁" \
   "安装成功返回后 .claude/.runtime/install.lock 不存在" \
   "锁仍在=$([ -e "$LOCKF" ] && echo yes || echo no)"
 
+# ---- ⑧-7~⑧-11 锁的创建必须是原子的（TODO #41）----
+# 上面六条验的是「锁已经在那儿时认不认」，这五条验的是「锁是怎么建出来的」。当前 acquire_lock
+# 走「先 [ -f "$lock" ] 判存在、再 printf >"$lock" 写入」两步，中间没有任何互斥：两个 setup
+# 同时起，都能通过存在性判断、各写一次锁，双双以为自己拿到了锁继续往下装。
+# 契约：锁的创建必须原子（mkdir 目录形态 / set -o noclobber 配 : > lock / 等价手段），无论两个
+# 进程的时序怎么交错，同一时刻只有一个能拿到锁，另一个必须拒绝（rc 非 0 + 点名锁文件）。
+# 陈旧锁接管与装完清锁是 ⑧-4/⑧-5/⑧-6 的事，这里不重复。
+#
+# 判据取「恰好一个 rc 0，且被拒的那个点名 install.lock」这条合取，不是光看「双双 rc 0」。
+# 实测注入版 20 轮：一半是双双装成功（都以为自己持锁），另一半是其中一个死在 copy_claude_tree
+# 的 `cp: cannot create regular file ... File exists`——GNU cp 对不存在的 dest 用
+# O_CREAT|O_EXCL，两个进程同时 stat 到 ENOENT 就撞。后者 rc 确实非 0，可它报的是「无法复制」，
+# 跟锁毫无关系，只断言 rc 会被这半边冒充成绿。两半合取今天 0/20 全违规，修好后两半都该成立。
+b8_verdict() {  # b8_verdict <rc1> <rc2> <log1> <log2> → OK / BOTH0 / BOTHFAIL / NOLOCK
+  local r1=$1 r2=$2 loser
+  if [ "$r1" = "0" ] && [ "$r2" = "0" ]; then echo BOTH0; return 0; fi
+  if [ "$r1" != "0" ] && [ "$r2" != "0" ]; then echo BOTHFAIL; return 0; fi
+  loser=$4; [ "$r1" = "0" ] || loser=$3
+  if grep -q 'install\.lock' "$loser"; then echo OK; else echo NOLOCK; fi
+}
+
+# 并发跑两个 setup 到同一个 target，各自取 rc。pid 记进 B8_PIDS，两个都 wait 完立刻清空——
+# 清理 trap 只杀「还没 wait 过」的，wait 过的 pid 可能已被系统回收再分配，盲杀会误伤别人。
+B8_PIDS=""
+B8_R1=0; B8_R2=0; B8_LA=""; B8_LB=""
+b8_reap() { local p; for p in $B8_PIDS; do kill -9 "$p" 2>/dev/null || true; done; }
+trap 'b8_reap; rm -rf "$TMP"' EXIT
+
+b8_race() {  # b8_race <setup路径> <target> <rendezvous 文件；空=用发令枪> <日志前缀>
+  local S=$1 T=$2 RV=$3 LP=$4 p1 p2 GO RDY n
+  B8_LA="$LP.a"; B8_LB="$LP.b"; B8_R1=0; B8_R2=0
+  if [ -n "$RV" ]; then
+    : >"$RV"
+    CC_RACE_RV="$RV" bash "$S" -ubt "$T" >"$B8_LA" 2>&1 & p1=$!
+    CC_RACE_RV="$RV" bash "$S" -ubt "$T" >"$B8_LB" 2>&1 & p2=$!
+  else
+    # 裸 `bash x & bash x &` 起两个进程，第一个天然领先几毫秒，本机实测 36 轮零命中——竞态窗口
+    # 只有「判存在→写入」那几微秒，起跑差稍大就整个错过，那样这条断言就是块永久绿的橡皮图章。
+    # 发令枪：两个 worker 先起好、各报一次到、都到齐了再放 flag，几乎同一瞬间 exec 进 setup.sh。
+    # 实测命中率回到 4~7%/轮，与派单里 code-reviewer 报的 ~8%（36 轮 3 次）同量级。
+    GO="$LP.go"; RDY="$LP.rdy"; rm -f "$GO"; : >"$RDY"
+    ( printf r >>"$RDY"; while [ ! -e "$GO" ]; do :; done; exec bash "$S" -ubt "$T" ) >"$B8_LA" 2>&1 & p1=$!
+    ( printf r >>"$RDY"; while [ ! -e "$GO" ]; do :; done; exec bash "$S" -ubt "$T" ) >"$B8_LB" 2>&1 & p2=$!
+    B8_PIDS="$p1 $p2"
+    n=0
+    while [ "$(wc -c <"$RDY" 2>/dev/null | tr -d ' ')" -lt 2 ] && [ "$n" -lt 300 ]; do
+      n=$((n + 1)); sleep 0.01
+    done
+    : >"$GO"
+  fi
+  B8_PIDS="$p1 $p2"
+  wait "$p1" || B8_R1=$?
+  wait "$p2" || B8_R2=$?
+  B8_PIDS=""
+}
+
+# 迷你源码树：并发轮数多，5 个文件的树每趟省 1.6 秒。竞态窗口在 copy_claude_tree 之前，
+# 与源码树规模无关（⑩ 同样的理由用了同样的招）。setup.sh 是 cp -p 过来的**逐字节原版**，
+# 下面 ⑧-8 的脚手架自证会拿 sha256 对着仓里那份核一遍，别让「原版」变成一句自称。
+B8SRC="$TMP/b8-src"
+mkdir -p "$B8SRC/.claude/hooks" "$B8SRC/.claude/skills/demo" "$B8SRC/.claude/feedback/templates"
+cp -p "$ROOT/setup.sh" "$B8SRC/setup.sh"
+printf '# b8 主控\n' >"$B8SRC/.claude/CLAUDE.md"
+printf '{}\n'        >"$B8SRC/.claude/settings.json"
+printf 'echo hi\n'   >"$B8SRC/.claude/hooks/demo.sh"
+printf '# demo\n'    >"$B8SRC/.claude/skills/demo/SKILL.md"
+printf '# 模板\n'    >"$B8SRC/.claude/feedback/templates/feedback-index-template.md"
+bash "$B8SRC/setup.sh" -ubt "$TMP/b8-warm" >"$TMP/b8-warm.log" 2>&1 \
+  || { cat "$TMP/b8-warm.log" >&2; fail "⑧ 脚手架：迷你源码树装不进去，后面的并发用例全无意义"; }
+[ -f "$TMP/b8-warm/.claude/CLAUDE.md" ] || fail "⑧ 脚手架：迷你源码树装完没有 CLAUDE.md"
+# 判据关键词自证：正常装完的输出里不许出现 install.lock，否则 b8_verdict 的 OK 会被自己冒充
+if grep -q 'install\.lock' "$TMP/b8-warm.log"; then
+  fail "⑧ 脚手架：正常安装输出里就有 install.lock，b8_verdict 的「被拒方点名锁」失去判别力"
+fi
+
+# ---- ⑧-7 主断言：把「判存在」和「写锁」之间撑开，两个进程必须只有一个拿到锁 ----
+# 注入点从 acquire_lock 函数体里现找：存在性判断行（[ -f/-e "$lock" ]）与其后第一条重定向到
+# **锁本身**的写入行（>"$lock"，闭引号紧跟，"$lock/xxx" 这种目录形态不算）之间插一行。
+# 插的不是 sleep：本机实测 sleep 1 / sleep 2 都只有 9/10 命中（机器忙时起跑差能超过 2 秒），
+# 固定睡眠换不来确定性。改插一个**会合点**——两个进程各报一次到、都到齐了才继续，于是「都通过
+# 了存在性判断」从碰运气变成同步事实，实测 20/20 全部命中。会合有 3 秒上限，只有一个进程走到
+# 这里时不会把测试挂死。CC_RACE_RV 没设时整行是空操作，注入版单跑照常。
+# 锁逻辑改成原子创建后这两个锚点会消失（mkdir 目录形态没有 >"$lock" 行），那时注入失败，
+# 本条以「注入点已不存在」判过并打印说明——修好之后它不会变成假红。
+B8_INJ_NOTE=""
+B8_INJ_OK=0
+B8_LKS=$(grep -n '^acquire_lock()' "$ROOT/setup.sh" | head -1 | cut -d: -f1 || true)
+if [ -z "$B8_LKS" ]; then
+  B8_INJ_NOTE="setup.sh 里找不到顶格的 acquire_lock() 定义，注入点无从谈起"
+else
+  B8_LKE=$(awk -v s="$B8_LKS" 'NR>s && /^}/ {print NR; exit}' "$ROOT/setup.sh")
+  B8_CHK=$(awk -v s="$B8_LKS" -v e="$B8_LKE" \
+    'NR>=s && NR<=e && /\[[[:space:]]+-[fe][[:space:]]+"\$lock"[[:space:]]+\]/ {print NR; exit}' "$ROOT/setup.sh")
+  B8_WRT=""
+  [ -z "$B8_CHK" ] || B8_WRT=$(awk -v s="$B8_CHK" -v e="$B8_LKE" \
+    'NR>s && NR<=e && />[[:space:]]*"\$lock"/ {print NR; exit}' "$ROOT/setup.sh")
+  if [ -z "$B8_CHK" ] || [ -z "$B8_WRT" ]; then
+    B8_INJ_NOTE="acquire_lock 里已经没有「先 [ -f \"\$lock\" ] 判存在、后 >\"\$lock\" 写入」这一对锚点（锁创建多半已原子化）"
+  else
+    B8_INJ_OK=1
+  fi
+fi
+
+if [ "$B8_INJ_OK" = "1" ]; then
+  B8RV='  { [ -z "${CC_RACE_RV:-}" ] || { printf x >>"$CC_RACE_RV"; __rv=0; while [ "$(wc -c <"$CC_RACE_RV" 2>/dev/null | tr -d " " || echo 9)" -lt 2 ] && [ "$__rv" -lt 300 ]; do __rv=$((__rv + 1)); sleep 0.01; done; }; }'
+  B8INJSRC="$TMP/b8-inj-src"
+  mkdir -p "$B8INJSRC"
+  ( cd "$B8SRC" && tar -cf - . ) | ( cd "$B8INJSRC" && tar -xf - )
+  awk -v n="$B8_WRT" -v inj="$B8RV" 'NR==n { print inj } { print }' "$ROOT/setup.sh" >"$B8INJSRC/setup.sh"
+  if ! bash -n "$B8INJSRC/setup.sh" 2>"$TMP/b8-inj-syntax.err"; then
+    B8_INJ_OK=0
+    B8_INJ_NOTE="锚点找到了（判存在 L$B8_CHK / 写锁 L$B8_WRT），但插完 bash -n 不过：$(b5_head "$TMP/b8-inj-syntax.err")"
+  fi
+fi
+
+if [ "$B8_INJ_OK" = "1" ]; then
+  B8_VS=""; B8_BAD=0
+  for i in 1 2 3; do
+    b8_race "$B8INJSRC/setup.sh" "$(mktemp -d "$TMP/b8-inj-t-XXXXXX")" "$TMP/b8-rv.$i" "$TMP/b8-inj.$i"
+    v=$(b8_verdict "$B8_R1" "$B8_R2" "$B8_LA" "$B8_LB")
+    B8_VS="$B8_VS $i=$v(rc=$B8_R1/$B8_R2)"
+    if [ "$v" != "OK" ]; then B8_BAD=$((B8_BAD + 1)); fi
+  done
+  ok=0; [ "$B8_BAD" = "0" ] || ok=1
+  chk "$ok" "⑧-7 判存在与写锁之间被撑开时，两个并发 setup 仍必须只有一个拿到锁" \
+    "3 轮全部 OK＝恰好一个 rc 0、另一个 rc 非 0 且输出点名 install.lock（BOTH0＝两边都以为自己持锁；NOLOCK＝被拒方报的不是锁而是 copy 撞车）" \
+    "轮次判定：${B8_VS# }；末轮 a=[$(b5_head "$B8_LA")] b=[$(b5_head "$B8_LB")]"
+else
+  chk 0 "⑧-7 判存在与写锁之间被撑开时，两个并发 setup 仍必须只有一个拿到锁（**本轮没验到**，注入点不在了）" \
+    "两步式锚点还在时把它撑开验原子性；锚点没了说明锁创建已不是「先判后写」，这条只能弃权" \
+    "注入未生效：$B8_INJ_NOTE ——注意这个 PASS 是「没扫」不是「扫过没问题」，此时原子性只剩 ⑧-8 那条概率信号在守；换成 mkdir 目录形态的锁请回来给这段补一条对应形态的确定性红"
+fi
+
+# ---- ⑧-8 统计辅助：仓内原版 setup.sh 并发多轮，一次违规都不许有 ----
+# 这条是**概率信号，不是判据**——⑧-7 才是判据。今天每轮约 4~7% 命中，24 轮约 6 成会红；
+# 它绿不代表锁是原子的，只代表这 24 轮没掷中。反过来它红就一定是真的。
+# 修好之后它变成守在**真正出货的那份 setup.sh** 上的回归位（⑧-7 跑的是注入过的副本）。
+ok=0
+[ "$(sha256sum "$B8SRC/setup.sh" | awk '{print $1}')" = "$(sha256sum "$ROOT/setup.sh" | awk '{print $1}')" ] || ok=1
+chk "$ok" "⑧-8a 脚手架自证：并发跑的确实是仓内原版 setup.sh（逐字节）" \
+  "$B8SRC/setup.sh 与 $ROOT/setup.sh 的 sha256 相同" \
+  "副本=$(sha256sum "$B8SRC/setup.sh" | awk '{print $1}' | cut -c1-16) 仓内=$(sha256sum "$ROOT/setup.sh" | awk '{print $1}' | cut -c1-16)"
+
+B8_N=24; B8_BAD2=0; B8_HIT=""
+i=0
+while [ "$i" -lt "$B8_N" ]; do
+  i=$((i + 1))
+  b8_race "$B8SRC/setup.sh" "$(mktemp -d "$TMP/b8-orig-t-XXXXXX")" "" "$TMP/b8-orig.$i"
+  v=$(b8_verdict "$B8_R1" "$B8_R2" "$B8_LA" "$B8_LB")
+  if [ "$v" != "OK" ]; then
+    B8_BAD2=$((B8_BAD2 + 1))
+    B8_LOSER=$B8_LB; [ "$B8_R1" = "0" ] || B8_LOSER=$B8_LA
+    B8_HIT="$B8_HIT 轮$i=$v(rc=$B8_R1/$B8_R2 败方=[$(b5_head "$B8_LOSER")])"
+  fi
+done
+ok=0; [ "$B8_BAD2" = "0" ] || ok=1
+chk "$ok" "⑧-8 原版 setup.sh 并发 $B8_N 轮，零次「锁没挡住」（概率信号，判据是 ⑧-7）" \
+  "$B8_N 轮每轮都是 OK；红了必是真竞态，绿了只说明没掷中——别拿这条单独下结论" \
+  "违规 $B8_BAD2/$B8_N：${B8_HIT# }"
+
+# ---- ⑧-9 对照：单个 setup 正常跑完，装完不留锁（防砖）----
+B8SOLO="$TMP/b8-solo"
+S9RC=0
+bash "$B8SRC/setup.sh" -ubt "$B8SOLO" >"$TMP/b8-solo.log" 2>&1 || S9RC=$?
+ok=0
+[ "$S9RC" = "0" ] || ok=1
+[ -f "$B8SOLO/.claude/CLAUDE.md" ] || ok=1
+[ ! -e "$B8SOLO/.claude/.runtime/install.lock" ] || ok=1
+chk "$ok" "⑧-9 对照：没人抢的时候单个 setup 照常装完、装完不留锁（防砖）" \
+  "rc=0 且装出 CLAUDE.md 且 .claude/.runtime/install.lock 不存在（-e 判，文件形态和 mkdir 目录形态都盖）" \
+  "rc=$S9RC 装出=$([ -f "$B8SOLO/.claude/CLAUDE.md" ] && echo yes || echo no) 锁残留=$([ -e "$B8SOLO/.claude/.runtime/install.lock" ] && echo yes || echo no) 输出=[$(b5_head "$TMP/b8-solo.log")]"
+
+# ---- ⑧-10 对照：已有活锁时第二个 setup 拒绝（锁由实现自己建，不手工造）----
+# ⑧-1/⑧-2 用的是手工写的**文件**锁；实现要是改成 mkdir 目录形态，手工那份就不再被认。
+# 这条让持锁方是一个真的 setup 进程，锁长什么样由实现自己决定，只 poll 路径存不存在（-e）。
+# 用全仓源码树是有意的：迷你树 0.15 秒就装完，抓不住持锁窗口。
+B8HOLD="$TMP/b8-holder"
+bash "$ROOT/setup.sh" -ubt "$B8HOLD" >"$TMP/b8-hold.log" 2>&1 & B8HPID=$!
+B8_PIDS="$B8HPID"
+B8HLOCK="$B8HOLD/.claude/.runtime/install.lock"
+n=0
+while [ ! -e "$B8HLOCK" ] && [ "$n" -lt 600 ]; do n=$((n + 1)); sleep 0.005; done
+B8_SAW=no; [ ! -e "$B8HLOCK" ] || B8_SAW=yes
+B8_ALIVE=no; if kill -0 "$B8HPID" 2>/dev/null; then B8_ALIVE=yes; fi
+SEC=0
+bash "$ROOT/setup.sh" -ubt "$B8HOLD" >"$TMP/b8-second.log" 2>&1 || SEC=$?
+HRC=0
+wait "$B8HPID" || HRC=$?
+B8_PIDS=""
+if [ "$B8_SAW" = "yes" ] && [ "$B8_ALIVE" = "yes" ]; then
+  ok=0
+  [ "$SEC" != "0" ] || ok=1
+  grep -q 'install\.lock' "$TMP/b8-second.log" || ok=1
+  [ "$HRC" = "0" ] || ok=1
+  chk "$ok" "⑧-10 对照：持锁方是真 setup 进程时，第二个必须被拒且持锁方照常装完（防砖）" \
+    "第二个 rc 非 0 且输出点名 install.lock；持锁方 rc=0（拒绝不许把持锁方一起搞挂）" \
+    "第二个 rc=$SEC 点名锁=$(grep -c 'install\.lock' "$TMP/b8-second.log" || true) 持锁方 rc=$HRC 第二个输出=[$(b5_head "$TMP/b8-second.log")]"
+else
+  chk 0 "⑧-10 对照：持锁方是真 setup 进程时，第二个必须被拒（这轮没抓到持锁窗口，判过）" \
+    "poll 到锁出现且持锁进程仍活着，才有判别力" \
+    "看到锁=$B8_SAW 持锁进程还活着=$B8_ALIVE 持锁方 rc=$HRC（窗口没抓到就不判，免得机器忙时假红）"
+fi
+
+# ---- ⑧-11 测试自身卫生：并发用例不许把后台进程漏在外面 ----
+# 这几条一轮起两个 setup，漏一个在后台就会继续往 /tmp 写（本仓有过 /tmp 被写满的事故）。
+# 判据取 bash 自己的作业表，不拿 kill -0 查记下来的 pid——wait 过的 pid 可能已被回收再分配。
+B8_LEFT=$(jobs -r -p 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+ok=0; [ -z "$B8_LEFT" ] || ok=1
+chk "$ok" "⑧-11 并发用例跑完，后台作业表清空（测试自身卫生）" \
+  "jobs -r -p 为空——每个起过的 setup 都 wait 过了" \
+  "还在跑的作业=[$B8_LEFT]"
+
 # ---- ⑨ 维护标记：中途失败留痕，doctor 与 SessionStart 横幅都要看得见 ----
 # 目标先完整装一遍再打断，是为了让 doctor 的判据有判别力：装了一半的空目录 doctor 本来就报一堆
 # 缺失、rc 恒 1，那条「未完成」断言会永远偶然绿。仓根的 make-release.sh 是 doctor 的必查项、

@@ -162,12 +162,33 @@ $script:frameworkNewList = @()
 # Take the lock and drop the marker before the first byte is written. A lock whose pid is still
 # alive means someone else is writing this target: refuse. A dead pid is the leftover of a crash
 # (stale lock): say so on the way past and take it over, so a crash cannot lock the target forever.
+# Creating the lock has to be atomic (mirrors setup.sh, which uses `set -o noclobber`): the old
+# "Test-Path then WriteAllText" was two steps, so two setups racing could both pass the existence
+# test, both write a lock and both believe they hold it. CreateNew is the O_EXCL of .NET - it
+# throws when the file is already there, which folds check and write into one call. The lock stays
+# one regular file at the same path, so the stale-pid reader and the cleanup that removes it are
+# unchanged.
 if ($DryRun) {
   Write-Host "dry-run: planning only, not a byte is written to $Target"
 } else {
   if (-not (Test-Path $runtimeDir)) { New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null }
   $lockFile = Join-Path $runtimeDir 'install.lock'
-  if (Test-Path $lockFile) {
+  $lockTry = 0
+  while ($true) {
+    $lockTry++
+    $lockStream = $null
+    try { $lockStream = [System.IO.File]::Open($lockFile, 'CreateNew', 'Write') } catch { $lockStream = $null }
+    if ($lockStream) {
+      try {
+        $lockBytes = [System.Text.Encoding]::UTF8.GetBytes('{"pid": ' + $PID + ', "startedAt": "' + $script:startedAt + '"}')
+        $lockStream.Write($lockBytes, 0, $lockBytes.Length)
+      } finally { $lockStream.Dispose() }
+      break
+    }
+    # Losing the race has two causes: the lock is already there (normal contention), or the file
+    # cannot be created at all (permissions / disk). The latter leaves no lock behind - do not
+    # report it as "somebody else holds it".
+    if (-not (Test-Path $lockFile)) { throw "cannot create the install lock $lockFile" }
     $holder = 0
     try {
       $lockText = Get-Content $lockFile -Raw
@@ -177,8 +198,14 @@ if ($DryRun) {
       throw "another setup is writing this target: install.lock $lockFile is held by live pid=$holder; wait for it to finish, or delete the lock once you are sure that process is gone"
     }
     Write-Host "setup: stale install.lock $lockFile (holder pid=$holder is gone), taking over; the last install probably died halfway" -ForegroundColor Yellow
+    # Taking over a stale lock deletes and re-races instead of overwriting: overwriting would be
+    # two steps again. If somebody grabs it in between, the next pass re-reads the pid and checks
+    # whether it is alive, so nobody ends up holding a lock they did not create.
+    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    # Bounded retry: cleared a stale lock and still lost it a few times in a row means someone is
+    # taking it over and over - fail loudly rather than spin here forever.
+    if ($lockTry -ge 3) { throw "cannot win the install lock ${lockFile}: cleared a stale lock $lockTry times and it was taken again each time; make sure no other setup is running, then retry" }
   }
-  [System.IO.File]::WriteAllText($lockFile, ('{"pid": ' + $PID + ', "startedAt": "' + $script:startedAt + '"}'))
   $script:lockPath = $lockFile
   $script:markerPath = Join-Path $runtimeDir 'install.marker'
   Write-InstallMarker 'active'

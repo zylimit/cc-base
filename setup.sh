@@ -172,19 +172,38 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# 锁的创建必须是原子的：旧写法「先 [ -f ] 判存在、再 printf > 写入」是两步，两个 setup
+# 同时起就能双双通过存在性判断、各写一次锁，双双以为自己持锁往下装（实测约 8% 命中）。
+# 改用 set -o noclobber：开着它时 `>` 对已存在的文件直接失败（底下是 O_CREAT|O_EXCL），
+# 判存在与写入合成一次系统调用，抢不到的那个当场就知道自己没拿到。
+# 选 noclobber 而不是 mkdir 目录形态：锁还是同一个路径上的一个普通文件——陈旧锁读 pid、
+# 装完 rm -f、doctor 与 tests 里那些按文件形态判的地方全都不用跟着改，改动面只落在这个函数里。
 acquire_lock() {
-  local lock="$RUNTIME_DIR/install.lock" pid
+  local lock="$RUNTIME_DIR/install.lock" pid try=0
   mkdir -p "$RUNTIME_DIR" || die "无法创建运行态目录：$RUNTIME_DIR"
-  if [ -f "$lock" ]; then
-    pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lock" | head -1)
+  while :; do
+    try=$((try + 1))
+    # noclobber 只开在子 shell 里：不把这个选项漏给后面的复制流程（那边 > 覆盖是正常操作）。
+    if (set -o noclobber; printf '{"pid": %s, "startedAt": "%s"}\n' "$$" "$STARTED_AT" >"$lock") 2>/dev/null; then
+      LOCK_FILE=$lock
+      return 0
+    fi
+    # 没抢到有两种可能：锁已经在那儿（正常竞争），或者压根写不进去（权限 / 磁盘满）。
+    # 后者路径上不会有锁，别把写不进去误报成「别人持锁」。
+    [ -e "$lock" ] || die "无法写入锁文件：$lock"
+    pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lock" 2>/dev/null | head -1)
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       die "另一个 setup 正在写这个目标：锁 $lock 的持有者 pid=$pid 还活着；等它跑完，或确认那个进程已经没了再删锁重试"
     fi
     printf 'setup: 陈旧锁（stale）%s：持有者 pid=%s 已不存在，接管；上一次安装多半是崩在半路的。\n' \
       "$lock" "${pid:-未知}" >&2
-  fi
-  printf '{"pid": %s, "startedAt": "%s"}\n' "$$" "$STARTED_AT" >"$lock" || die "无法写入锁文件：$lock"
-  LOCK_FILE=$lock
+    # 接管陈旧锁是「删掉重抢」而不是「直接覆盖」：覆盖就又变回两步。删完到重抢之间锁被
+    # 别人先建走时，下一圈会重新读 pid 判活，不会误以为自己持锁。
+    rm -f "$lock" || die "无法清除陈旧锁：$lock"
+    # 重抢有上限：清了又被抢走、连着几回都拿不到，说明旁边有人持续抢占，
+    # 报错退出好过在这儿无界空转。
+    [ "$try" -lt 3 ] || die "反复抢不到安装锁：$lock 已清除陈旧锁 $try 次仍被抢占；确认没有别的 setup 在跑再重试"
+  done
 }
 
 start_marker() {
