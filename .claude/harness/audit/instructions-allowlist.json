@@ -15,7 +15,7 @@
       "line": 62,
       "rule": "gate-disable-instruction",
       "sha256": "0b6184ed756c4424acbeb46a95c530c8dab47217b61246cbc3e4db23420610c6",
-      "context": "93ce89e779a9db40cccb33eaf4ab19f647ed8aeb0026aec26b9f19a60898cbc4",
+      "context": "fa2fb3cea77c8868590654743ec8a614af06a8b6642921f39c2bb37b5ab2a86c",
       "reason": "--no-verify-evidence is a real ledger flag, and the sentence naming it argues against using it in the same breath -- on by default, and a check that is off by default is no check. Documenting where a switch stops being safe is not telling anyone to flip it."
     }
   ]
