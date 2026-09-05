@@ -36,6 +36,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 HOOKS="$ROOT/.claude/hooks"
 LIBDIR="$HOOKS/lib"
 HARNESS="$ROOT/.claude/harness/harness.mjs"
+PROFILE_FIX="$ROOT/.claude/tests/fixtures/tier/profile-base.json"
 
 echo "===== test-hooks-node ====="
 
@@ -197,6 +198,33 @@ mkfast() {
         expired:*)   printf 'enabled_epoch=1000\nexpires_epoch=2000\nhours=1\n' > "$flag" ;;
         bad:*)       printf 'enabled_epoch=1000\nexpires_epoch=notanumber\nhours=1\n' > "$flag" ;;
         nokey:*)     printf 'enabled_epoch=1000\nhours=1\n' > "$flag" ;;
+    esac
+}
+
+# mkprofile_tr <沙箱> [变异表达式] —— 装 Phase A 档位表（A.1 基线，可对对象 p 做一处变异）。
+#   hook 侧 tier.mjs 从 <项目根>/.claude/harness/profile.json 读表，所以档位夹具落沙箱不落本仓。
+mkprofile_tr() {
+    local d="$1" mut="${2:-}"
+    mkdir -p "$d/.claude/harness"
+    node -e '
+const fs = require("node:fs");
+const [src, dest, mut] = process.argv.slice(1);
+const p = JSON.parse(fs.readFileSync(src, "utf8"));
+if (mut) { eval(mut); }
+fs.writeFileSync(dest, JSON.stringify(p, null, 2) + "\n");
+' "$PROFILE_FIX" "$d/.claude/harness/profile.json" "$mut"
+}
+
+# mktier <沙箱> <fast|standard|strict> [live|expired] —— 造运行态档位覆盖 .claude/.runtime/tier.json。
+mktier() {
+    local d="$1" t="$2" st="${3:-live}" now exp f
+    mkdir -p "$d/.claude/.runtime"
+    f="$d/.claude/.runtime/tier.json"
+    now=$(date +%s)
+    exp=$((now + 3600))
+    case "$st" in
+        live)    printf '{"tier":"%s","reason":"t","by":"user","set_epoch":%s,"expires_epoch":%s}\n' "$t" "$now" "$exp" > "$f" ;;
+        expired) printf '{"tier":"%s","reason":"t","by":"user","set_epoch":1000,"expires_epoch":2000}\n' "$t" > "$f" ;;
     esac
 }
 
@@ -518,11 +546,13 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "DP-6 损坏输入 → fail-open 静默 exit 0（无解析能力时不误伤正常命令）" \
     "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
-SB=$(newsb dp-fast); mkfast "$SB" active
+# DP-7（A.1 口径）：本闸进 floor，任何档都改不了。fast 的两种开关形态一起摆上——
+#   旧的 .fast-mode 与新的 .runtime/tier.json——读到哪一个都不许静默：放水不放危险命令。
+SB=$(newsb dp-fast); mkfast "$SB" active; mkprofile_tr "$SB"; mktier "$SB" fast
 run_hook dangerous-pkill-guard "$SB" '{"tool_input":{"command":"pkill -f node"}}'
-chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
-    "DP-7 fast-mode 生效 → 静默放行（本闸吃 fast-mode）" \
-    "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "DP-7 fast 档照拦 exit 2（A.1 起本闸在 floor 里；D 期它吃 fast-mode 是过渡态）" \
+    "rc=2 且 stderr 非空、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -1373,10 +1403,14 @@ chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ -z "$(probe "$SB")" ] && echo 0 || 
     "RA-12 损坏输入 → rc 0、无 stdout、不记账" "rc=0、stdout 空、无 payload" \
     "rc=$RC out=[$(show "$OUT")] payload=[$(show "$(probe "$SB")")]"
 
-SB=$(newsb ra-fast git catalog engine:rec); mkfast "$SB" active
+# RA-13（A.1 口径）：record-authorship 三档全 on（关 #50）。作者账本一断，review 的自审
+#   判定就失明——「谁写的」这件事在 fast 档同样要记，它不拦任何东西，省不出什么。
+#   两种开关形态一起摆上，读到哪个都得记。
+SB=$(newsb ra-fast git catalog engine:rec); mkfast "$SB" active; mkprofile_tr "$SB"; mktier "$SB" fast
 run_hook record-authorship "$SB" '{"tool_input":{"file_path":"src/a.ts"},"agent_type":"implementer"}'
-chk "$([ "$RC" -eq 0 ] && [ -z "$(probe "$SB")" ] && echo 0 || echo 1)" \
-    "RA-13 fast-mode 生效 → 静默放行、不调引擎" "rc=0 且无 payload" "rc=$RC payload=[$(show "$(probe "$SB")")]"
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$(probe "$SB")" 'JSON.stringify(d.files)')" = '["src/a.ts"]' ] && echo 0 || echo 1)" \
+    "RA-13 fast 档照记（A.1：本闸三档全 on）" \
+    'rc=0 且 payload.files == ["src/a.ts"]' "rc=$RC payload=[$(show "$(probe "$SB")")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -1991,6 +2025,142 @@ printf 'module.exports = 2;\n' >> "$SB/src/a.cjs"
 run_hook three-file-sync-gate "$SB" ''
 chk "$(blocked "$OUT" && echo 0 || echo 1)" \
     "TF-18 只改已跟踪的 src/a.cjs、progress.md 没动 → block（.cjs 单臂，与 TF-17 各自独立夹具，谁也顶不了谁）" \
+    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- TR 三档矩阵（Phase A：profile.json + .runtime/tier.json 决定每个闸怎么跑）---"
+# 档位落地前整组必红：hook 侧还在读 .fast-mode，tier.json 对它们没有意义。
+# advise 的输出载体这里锁 systemMessage——Stop 事件的非阻断消息通道就是它，
+# hookSpecificOutput.additionalContext 在 Stop 上不在文档化的输出形状里。
+
+SB=$(newsb tr-sg-fast); mkprofile_tr "$SB"; mktier "$SB" fast
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+TR_SG="$OUT"
+chk "$(blocked "$TR_SG" && echo 1 || echo 0)" \
+    "TR-1 stop-gate + fast(advise)：有待审文件也不 block（fast 档人是操作员，框架只提醒）" \
+    'stdout 不含 "decision":"block"' "rc=$RC out=[$(show "$TR_SG")]"
+chk "$(hasq 'systemMessage' "$TR_SG" && echo 0 || echo 1)" \
+    "TR-2 advise 仍要出提醒：stdout 带 systemMessage（不 block ≠ 不吭声，欠账得看得见）" \
+    "stdout 含 systemMessage" "out=[$(show "$TR_SG")]"
+chk "$(! blocked "$TR_SG" && gatelogged "$SB" stop-gate && echo 0 || echo 1)" \
+    "TR-3 advise 照记 gate-block.log（gate-audit 要统计「fast 开着跳过了什么」，不记就统计不出来）" \
+    "没 block 且账本含 stop-gate（两条一起判：block 本来就会记账，不带前半条这断言在 block 分支下恒真）" \
+    "block=$(blocked "$TR_SG" && echo 是 || echo 否) 账本=[$(show "$(cat "$SB/.claude/evidence/gate-block.log" 2>/dev/null || true)")]"
+
+SB=$(newsb tr-sg-std); mkprofile_tr "$SB"; mktier "$SB" standard
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TR-4 stop-gate + standard：照 block（现行默认档，行为不许因为引入档位而变）" \
+    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(newsb tr-sg-strict); mkprofile_tr "$SB"; mktier "$SB" strict
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TR-5 stop-gate + strict：照 block" 'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+TDIN='{"tool_input":{"command":"claude agent implementer write code"}}'
+
+SB=$(newsb tr-td-fast); mkprofile_tr "$SB"; mktier "$SB" fast
+run_hook tdd-gate "$SB" "$TDIN"
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "TR-6 tdd-gate + fast(off)：无输出 exit 0" "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-td-std); mkprofile_tr "$SB"; mktier "$SB" standard
+run_hook tdd-gate "$SB" "$TDIN"
+chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "TR-7 tdd-gate + standard(advise)：stderr 提醒但 exit 0（建议性，不硬拦）" \
+    "rc=0 且 stderr 非空、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-td-strict); mkprofile_tr "$SB"; mktier "$SB" strict
+run_hook tdd-gate "$SB" "$TDIN"
+chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
+    "TR-8 tdd-gate + strict(block)：exit 2 真拦（strict 档人是审批者，没验红不许派编码）" \
+    "rc=2 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-mr-fast); mkprofile_tr "$SB"; mktier "$SB" fast
+run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
+chk "$([ "$RC" -eq 0 ] && [ ! -f "$SB/.claude/.needs-review" ] && echo 0 || echo 1)" \
+    "TR-9 mark-review-needed + fast(off)：不登记（fast 不派 reviewer，登了也没人清）" \
+    "rc=0 且无清单" "rc=$RC 清单=[$(nrlist "$SB")]"
+
+SB=$(newsb tr-mr-std); mkprofile_tr "$SB"; mktier "$SB" standard
+run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
+chk "$([ "$RC" -eq 0 ] && grep -qxF 'src/app.ts' "$SB/.claude/.needs-review" 2>/dev/null && echo 0 || echo 1)" \
+    "TR-10 mark-review-needed + standard(on)：照登记" "清单含 src/app.ts" \
+    "rc=$RC 清单=[$(nrlist "$SB")]"
+
+SB=$(newsb tr-mr-strict); mkprofile_tr "$SB"; mktier "$SB" strict
+run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
+chk "$([ "$RC" -eq 0 ] && grep -qxF 'src/app.ts' "$SB/.claude/.needs-review" 2>/dev/null && echo 0 || echo 1)" \
+    "TR-11 mark-review-needed + strict(on)：照登记" "清单含 src/app.ts" \
+    "rc=$RC 清单=[$(nrlist "$SB")]"
+
+SB=$(newsb tr-se-fast); mkprofile_tr "$SB"; mktier "$SB" fast
+run_hook secret-exfil-guard "$SB" "{\"tool_input\":{\"command\":\"cat $DOTENV\"}}"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "TR-12 secret-exfil-guard + fast：照拦 exit 2（地板，profile 碰不到它）" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-se-std); mkprofile_tr "$SB"; mktier "$SB" standard
+run_hook secret-exfil-guard "$SB" "{\"tool_input\":{\"command\":\"cat $DOTENV\"}}"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "TR-13 对照：secret-exfil-guard + standard 也拦（证明 TR-12 判的是地板，不是「这闸恒拦」以外的什么）" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-ra-fast git catalog engine:rec); mkprofile_tr "$SB"; mktier "$SB" fast
+run_hook record-authorship "$SB" '{"tool_input":{"file_path":"src/a.ts"},"agent_type":"implementer"}'
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$(probe "$SB")" 'JSON.stringify(d.files)')" = '["src/a.ts"]' ] && echo 0 || echo 1)" \
+    "TR-14 record-authorship + fast(on)：照记（A.1 把它从「吃 fast-mode」改成三档全 on）" \
+    'payload.files == ["src/a.ts"]' "rc=$RC payload=[$(show "$(probe "$SB")")]"
+
+SB=$(newsb tr-ra-std git catalog engine:rec); mkprofile_tr "$SB"; mktier "$SB" standard
+run_hook record-authorship "$SB" '{"tool_input":{"file_path":"src/a.ts"},"agent_type":"implementer"}'
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$(probe "$SB")" 'JSON.stringify(d.files)')" = '["src/a.ts"]' ] && echo 0 || echo 1)" \
+    "TR-15 对照：record-authorship + standard 照记" 'payload.files == ["src/a.ts"]' \
+    "rc=$RC payload=[$(show "$(probe "$SB")")]"
+
+SB=$(newsb tr-av-fast catalog engine:2); mkprofile_tr "$SB"; mktier "$SB" fast
+run_hook harness-async-verify "$SB" '{"tool_input":{"file_path":"src/a.ts"}}'
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "TR-16 harness-async-verify + fast(off)：静默 exit 0，连引擎都不调" \
+    "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-av-std catalog engine:2); mkprofile_tr "$SB"; mktier "$SB" standard
+run_hook harness-async-verify "$SB" '{"tool_input":{"file_path":"src/a.ts"}}'
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "TR-17 对照：harness-async-verify + standard(block) 仍 exit 2 唤醒" "rc=2" \
+    "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-expired); mkprofile_tr "$SB"; mktier "$SB" fast expired
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TR-18 过期的 tier.json → 回 default(standard)，stop-gate 照 block（过期自动失效，hook 侧与引擎侧同一口径）" \
+    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(newsb tr-override); mkprofile_tr "$SB" 'p.overrides = { "tdd-gate": "off" };'; mktier "$SB" standard
+run_hook tdd-gate "$SB" "$TDIN"
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "TR-19 overrides.tdd-gate=off 在 standard 档生效 → 静默（项目级覆盖是用户的最终话语权）" \
+    "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-raise git); mkprofile_tr "$SB"
+mkdir -p "$SB/.claude/hooks"
+printf '// touched\n' >> "$SB/.claude/hooks/x.mjs"
+run_hook tdd-gate "$SB" "$TDIN"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "TR-20 工作树改了 .claude/hooks/** → 自动抬 strict，tdd-gate 变硬拦（治理面升档不需要人点头）" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb tr-legacyflag); mkprofile_tr "$SB"; mkfast "$SB" active
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TR-21 只有旧 .fast-mode、没有 tier.json → 照 block（A.1：旧开关不再被读，留着的老文件不许悄悄放水）" \
     'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
 
 # ---------------------------------------------------------------------------
