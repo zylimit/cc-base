@@ -120,6 +120,23 @@ hooks/lib/harness.mjs        // 语义 = lib-harness.sh
 | 文档 | `ARCHITECTURE.md:143-173,201`、`README.md:31,88,93-131,147`、`rules/file-structure.md:20`、`rules/harness-large-repo.md:10,81,82,169-173`、`rules/dev-workflow-details.md:127`、`CLAUDE.md:42,59,66,268`、`skills/code-review/SKILL.md:62`、`githooks/README.md:114,116` | 文件名 `.sh` → `.mjs`，删「双写 / 成对」段，`README` 双写机制节改成「单运行时」三行 |
 | `progress.md` Pinned | `:7,8,13,16,18` | 措辞收窄到剩余 `.ps1`（D-3 落账时主 Agent 改） |
 
+### D.7 落地记录（2026-09-06）
+
+| 批 | commit | 结果 |
+|---|---|---|
+| D-T | `b976a08` | 红锁 239 + 18 = 257，控制组证明红非夹具错 |
+| D-1 | `6aa8ea1` | lib 四件 + 12 hook，13 组 108/0 |
+| D-2 | `bc9a279` | 8 个守卫 hook，21 组全绿（三实例并发写同一批文件的事故见 progress Notes 09-06） |
+| D-3a | `7e4950f` | stop-gate / three-file-sync-gate / statusline，整份首次 239/0 |
+| D-3d | `429f6bb` | 文档与 Pinned 改口径 |
+| D-3b | `6841958` | settings 切 exec form、安装器、删 52 个 `.sh/.ps1`；两个安装器真装产物逐文件一致 |
+| D-3c | `87b45a6` | 既有测试改造、run-all 挂载、gate.yml；主 Agent 亲跑 run-all RC=0 |
+| D-R | `9660673` | reviewer PASS，P1 0 / P2 3 / P3 6（`/tmp/review-phase-d.md`） |
+| D-R 修 | `15ff08f` → `471b6f5` | 红锁 5 条 → 修三条 P2 + 四条 P3，248/0 |
+| D-R2 | `931a257` → `37a4e8a` | 复核七条通过；反向突变抓出 TF-17 单臂免检 → 拆两条 + PG-11/12 → 251/0 |
+
+实际与底本的差异：hook 是 22 对不是 25；`dangerous-pkill-guard` D 期保「吃 fast-mode」现行为，A 期进地板；`record-authorship` D 期照现 `.sh` 吃 fast-mode；`pre-commit-check` 新增 `.mjs/.cjs/.js` 走 `node --check`；`kill-dev-ports` 认 `CC_DEV_PORTS`；`three-file-sync-gate` / `precompact-gate` 扩展名表补 `mjs|cjs`。未验证面：Windows 真机（CI windows 格在 PR 上跑；本地 pwsh 只验了安装器与脚本）。
+
 ### D.5 已知必踩的坑（含盘点「最容易漏的 10 处」）
 
 - `gate-audit.sh:27-29` 与 `test-gate-audit.sh:29-33` 从 `hooks/*.sh` 现算注册清单——不改会**静默空转不报错**。
