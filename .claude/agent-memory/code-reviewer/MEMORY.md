@@ -10,3 +10,4 @@
 - [审「stdout 路径一律仓库相对」契约的五条攻法](pattern_path-naming-contract.md) — 软链降级 / 相对入参方向搞反 / 断言同义反复 / 命名修了读取没修
 - [判跨平台覆盖看 CI step 的 if:，不看测试放哪](pattern_cross-platform-coverage-claims.md) — selftest 无 if 双 OS 跑 / run-all Windows 不跑 / golden POSIX-only；win32 语义在 Linux 上可直接实跑
 - [审安装器 / 自检工具的六条攻法](pattern_installer-and-selfcheck-attacks.md) — 分母缩水报绿 / 装完自检恒红 / 锁 test-then-write 并发实测 / trap 标记扛不住 SIGKILL
+- [审 .sh/.ps1 → .mjs 单运行时移植的六条攻法](pattern_shell-to-node-hook-port.md) — 红锁钉得住退出码，漏的在并发锁 / 降级量级 / 夹具真杀宿主进程
