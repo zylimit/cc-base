@@ -8,7 +8,7 @@
 // 摘要预算：只回 gate + 失败/受阻 check 前 5 条 + 属性缺口计数，不贴全量 JSON。
 import fs from 'node:fs';
 import path from 'node:path';
-import { readStdinRaw, readTextFile, say, runFailOpen } from './lib/io.mjs';
+import { readStdinRaw, readTextFile, say, errText } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
@@ -49,7 +49,7 @@ function summarize(stdout) {
   return lines.join('\n');
 }
 
-runFailOpen(async () => {
+async function main() {
   if (await fastOff('harness-async-verify')) return;
 
   // 消费 stdin（file_path 不用——verify 自己从 git 工作树算 changed 集）
@@ -84,4 +84,12 @@ runFailOpen(async () => {
   say(summarize(r.stdout));
   say('commit 前会被 pre-commit-check 硬拦，建议现在就修或派 bug-fixer。');
   gateLog('harness-async-verify', '后台 verify 未过（早警，非硬拦）');
+}
+
+// 闸自身崩了（stdin 读不了、防抖文件读写抛错、判定中途出岔）不许静默 exit 0——那等于把
+// 「早警根本没跑」伪装成「跑过了、没问题」。本 hook 没有 decision 通道，fail-closed 在这里
+// 的形态是唤醒：一行诊断 + exit 2，主 Agent 至少知道这轮没人验过。
+main().catch((e) => {
+  process.exitCode = 2;
+  say(`[harness-async-verify] 早警自身异常，按唤醒处理（本轮未验）：${errText(e)}`);
 });

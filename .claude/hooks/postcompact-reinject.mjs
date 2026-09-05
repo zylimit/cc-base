@@ -17,8 +17,8 @@ import { harnessEntry, harnessRun, rcInContract } from './lib/harness.mjs';
 
 // 降级说明用固定常量串输出——这条路径上引擎可能根本跑不起来，
 // 而含变量的手拼文案一旦引号没转义就是坏 JSON（坏 JSON 会被记成 hook error，等于白注）。
+// 没有 no-node 一档：本 hook 自己就是 node 起的，跑到这行说明 node 在。
 const DEGRADE = {
-  'no-node': 'PostCompact: node not found on PATH, so the invariants could not be re-derived after this compaction. The non-negotiable rules and the live state were NOT re-injected -- run `node .claude/harness/harness.mjs invariants` yourself, or read .claude/CLAUDE.md and progress.md before acting on anything the summary implies.',
   'no-harness': 'PostCompact: .claude/harness/harness.mjs is missing, so the invariants could not be re-derived after this compaction. The non-negotiable rules and the live state were NOT re-injected -- read .claude/CLAUDE.md and progress.md before acting on anything the summary implies.',
   engine: 'PostCompact: the harness failed while re-deriving the invariants after this compaction (see the debug log for its exit code and stderr). The non-negotiable rules and the live state were NOT re-injected -- fix the engine, or read .claude/CLAUDE.md and progress.md before acting on anything the summary implies.',
 };
