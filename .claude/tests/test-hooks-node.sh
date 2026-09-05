@@ -774,23 +774,26 @@ run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev"}}'
 chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "KD-5 fast-mode 生效 → 静默放行" "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
 
-# KD-6（P2-3 红锁的另一半）：CC_DEV_PORTS 指到别处后，默认端口表一个都不许碰。
-#   4173（默认表里的 Vite preview 口）上放一个靶子，覆盖成 47321 再喂同一条命令——4173 得活着。
-#   这条红 = hook 仍按写死的默认表杀宿主机上的进程，回归套件本身成了破坏源。
+# KD-6（KD-2 的对照组）：CC_DEV_PORTS 没点名的端口，一个都不许清。
+#   靶子放 47322——既不在默认表 3000/3001/4173/5173/8080 里，也不是被点名的 47321。
+#   原先放 4173 是为了顺带锁住「默认表没被合并进来」，但那意味着 CC_DEV_PORTS 一旦回归失效，
+#   这条自己就会去杀宿主机 4173 上的 dev server——回归套件不能是破坏源，这一档让给 KD-2 去挡。
+#   与 KD-2 共用同一套靶子/探活夹具：一条断言「点名的死」、一条断言「没点名的活」，
+#   两条都用同一个探活判据，KD-2 的红才排除得掉「夹具自己把靶子弄死了」。
 if [ "$KD_CANKILL" = yes ]; then
-    SB=$(newsb kd-default)
+    SB=$(newsb kd-spared)
     KD_READY2="$TMP/kd-b.ready"; rm -f "$KD_READY2"
-    kd_target 4173 "$KD_READY2"; KD_PID2=$!
+    kd_target 47322 "$KD_READY2"; KD_PID2=$!
     waitfile "$KD_READY2" 5000 || true
-    KD_UP2=no; kd_listening 4173 && KD_UP2=yes
+    KD_UP2=no; kd_listening 47322 && KD_UP2=yes
     export CC_DEV_PORTS=47321
     run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev"}}'
     unset CC_DEV_PORTS
-    KD_ALIVE2=no; kd_listening 4173 && KD_ALIVE2=yes
+    KD_ALIVE2=no; kd_listening 47322 && KD_ALIVE2=yes
     kill "$KD_PID2" 2>/dev/null || true; wait "$KD_PID2" 2>/dev/null || true
     chk "$([ "$RC" -eq 0 ] && [ "$KD_UP2" = yes ] && [ "$KD_ALIVE2" = yes ] && echo 0 || echo 1)" \
-        "KD-6 CC_DEV_PORTS 指到别处时，默认表 3000/3001/4173/5173/8080 一个都不清（跑测试这台机器上的 dev server 不该被回归套件杀掉）" \
-        "4173 上的靶子跑前跑后都在听、rc=0" \
+        "KD-6 CC_DEV_PORTS=47321 时，没被点名的 47322 上的靶子跑前跑后都在听（对照绿：证明探活判据不是恒「死」）" \
+        "47322 上的靶子跑前跑后都在听、rc=0" \
         "rc=$RC 跑前在听=$KD_UP2 跑后仍在听=$KD_ALIVE2 out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 else
     skip "KD-6 无 lsof——POSIX 侧 hook 清不掉任何端口，没有可观测面（未执行 != 通过）"
@@ -1238,6 +1241,30 @@ SB=$(newsb pg-fast); printf 'src/app.ts\n' > "$SB/.claude/.needs-review"; mkfast
 run_hook precompact-gate "$SB" '{"trigger":"auto"}'
 chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "PG-10 fast-mode 生效 → 静默放行" "rc=0 stdout 空" "rc=$RC out=[$(show "$OUT")]"
+
+# PG-11（D-R2 P3-1 红锁）：precompact 的代码扩展名表同样缺 mjs/cjs。
+#   这一支没有 .claude/ 那档兜底可言——C2 判的就是「项目里的代码改了没记 progress」，
+#   目标项目的 server.mjs 落在表外，压缩前不会为它拦一次，未落盘的决策照样蒸发。
+#   夹具不建 .needs-review，C1 走不到，block 只可能出自 C2 → 红了只会是扩展名表的事。
+SB=$(pg_repo pg-mjs)
+mkdir -p "$SB/src"
+printf 'export const a = 1;\n' > "$SB/src/a.mjs"
+( cd "$SB" && git add -A && git commit -qm addmjs ) >/dev/null 2>&1
+printf 'export const b = 2;\n' >> "$SB/src/a.mjs"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
+    "PG-11 只改已跟踪的 src/a.mjs、progress.md 没动 → block（node 生态的源码扩展名，闸随框架分发到目标项目）" \
+    'rc=0 且含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(pg_repo pg-cjs)
+mkdir -p "$SB/src"
+printf 'module.exports = 1;\n' > "$SB/src/a.cjs"
+( cd "$SB" && git add -A && git commit -qm addcjs ) >/dev/null 2>&1
+printf 'module.exports = 2;\n' >> "$SB/src/a.cjs"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
+    "PG-12 只改已跟踪的 src/a.cjs、progress.md 没动 → block（.cjs 单臂，与 PG-11 各自独立沙箱，谁也顶不了谁）" \
+    'rc=0 且含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -1945,15 +1972,25 @@ run_hook three-file-sync-gate "$SB" ''
 chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "TF-16 fast-mode 生效 → 静默放行" "rc=0 stdout 空" "rc=$RC out=[$(show "$OUT")]"
 
+# TF-17 / TF-18 一条扩展名一个沙箱：两个扩展名塞进同一份改动集，判据就成了析取——
+#   正则里删掉 mjs 那一臂，.cjs 照样把 block 顶出来，断言仍绿，等于 .mjs 那臂根本没锁住。
+#   拆开之后每条只剩一个可能的触发源，单臂突变必须红一条、绿一条。
 SB=$(tf_repo tf-mjs)
 printf 'export const a = 1;\n' > "$SB/src/a.mjs"
-printf 'module.exports = 1;\n' > "$SB/src/a.cjs"
 ( cd "$SB" && git add -A && git commit -qm addmjs ) >/dev/null 2>&1
 printf 'export const b = 2;\n' >> "$SB/src/a.mjs"
+run_hook three-file-sync-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TF-17 只改已跟踪的 src/a.mjs、progress.md 没动 → block（闸随框架分发到目标项目，那边的 server.mjs 没有 .claude/ 那一支兜底）" \
+    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(tf_repo tf-cjs)
+printf 'module.exports = 1;\n' > "$SB/src/a.cjs"
+( cd "$SB" && git add -A && git commit -qm addcjs ) >/dev/null 2>&1
 printf 'module.exports = 2;\n' >> "$SB/src/a.cjs"
 run_hook three-file-sync-gate "$SB" ''
 chk "$(blocked "$OUT" && echo 0 || echo 1)" \
-    "TF-17 已跟踪的 src/a.mjs / src/a.cjs 改了而 progress.md 没动 → block（node 生态的源码扩展名，闸随框架分发到目标项目，那里的 server.mjs 没有 .claude/ 那一支兜底）" \
+    "TF-18 只改已跟踪的 src/a.cjs、progress.md 没动 → block（.cjs 单臂，与 TF-17 各自独立夹具，谁也顶不了谁）" \
     'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
 
 # ---------------------------------------------------------------------------

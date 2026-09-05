@@ -33,6 +33,14 @@ metadata:
    支兜住，**目标项目的 `server.mjs` 不兜**。攻法：沙箱里改已跟踪文件（改未跟踪文件会被 git 折成
    目录名 `src/`，测不出扩展名分支）。
 
+**复核轮（D-R2）的固定动作：每条修复各来一次突变，专找「修了但没锁」。** 2026-09-06 七条修复逐条
+复现全过，突变却查出三处裸奔：TF-17 给 `.mjs` 那一臂免检（见 [[pattern_duplicated-rule-tables]] 11）、
+待审清单 trim 归一零锁（去掉 trim 套件 248/0 全绿）、`projectDir()` 统一零锁（退回 `env || cwd` 也全绿——
+测试夹具每次都注入 `CLAUDE_PROJECT_DIR`，两级与三级兜底在测试里根本不可区分）。查检：拿修复前那版
+（`git archive <修复前 commit>` 整棵拉出来）跑同一夹具对拍，能证明「修的是真行为」；再把修复反着突变一次，
+才知道有没有锁。突变别在真仓做——`cp -a` 出 playground（含 .git）改副本，真仓 `git status` 全程为空，
+比「改完再还原」更硬。
+
 已守住、攻不破的（别重复攻）：`gate.yml` 与 `test-ps1-behavior.ps1` 的 `.ps1` 递归扫描都带 `-Force`
 并加了「扫到的少于点名清单即判失败」的空转防线；`Atomics.wait` 在 node 主线程真能睡（实测 1001ms），
 不是可移植性问题。相关：[[pattern_installer-and-selfcheck-attacks]]、[[pattern_duplicated-rule-tables]]、

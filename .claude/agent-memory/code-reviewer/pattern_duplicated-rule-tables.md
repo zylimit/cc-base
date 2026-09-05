@@ -57,4 +57,8 @@ CI 干净 checkout 上删同样的排除项全绿——闸只在不需要它的�
     从被测源码里正则抠出数组字面量成员，与测试自己的用例表 `comm -23 / -13` 双向比，抽取失败要
     单独 fail（防「正则半坏 → 空转全绿」）。验它用两次突变：加第 11 条（④/⑤ 全程沉默、只有对拍闸响）
     与条数不变改名（差集报出 core 独有 / 本文件独有）。
+11. **行为面的红锁也会给单臂免检——夹具把两条臂塞进同一次跑，断言只是个 `||`**。2026-09-06 D-R2：
+    `three-file-sync-gate` 的扩展名表补了 `mjs|cjs`，TF-17 的夹具同时改 `src/a.mjs` 与 `src/a.cjs`，
+    只删 `mjs` 那一臂套件 **248/0 全绿**（`cjs` 顶上了），两臂同删才红。这不是 grep 匹配的锅，是夹具
+    一次改多条臂。查检：每条臂单独一个夹具（一个仓只放一种扩展名），或至少对每条臂各做一次删除突变。
 相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_golden-baseline-rulers]]、[[pattern_path-naming-contract]]
