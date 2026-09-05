@@ -111,7 +111,7 @@ CCBASE_PREPUSH_FULL=0 git push
 
 ### 为什么 `3`（降级）只告警不阻断
 
-`check-syntax` 在没装 pwsh 的机器上恒 rc 3（26 个 `.ps1` 一整类压根没验）。拿这个拦住每一次 commit，人第一天就会 `--no-verify`，闸直接废掉。
+`check-syntax` 在没装 pwsh 的机器上恒 rc 3（安装器与脚本那几个 `.ps1` 一整类压根没验）。拿这个拦住每一次 commit，人第一天就会 `--no-verify`，闸直接废掉。
 
 但**降级不是通过**——每一条降级都在 stderr 留一行，汇总里单独列成「降级项（该跑没跑成）」。真要把 `.ps1` 验成，靠的是 CI 的 windows-latest 那格（runner 自带 pwsh）。
 

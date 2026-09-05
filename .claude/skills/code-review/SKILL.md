@@ -59,7 +59,7 @@ argument-hint: "[审查范围（可选，默认本轮改动）]"
     --- Stage 0: 静态闸（机器先说话）---
     语义审查前先跑机械化静态检查。单模型审查（同模型、盲区重合）天生弱，靠模型无关的客观工具补偿——
     把 linter 能抓的问题挡在语义审查之前，别让审查者/人去挑机器该挑的。
-        执行： bash .claude/hooks/static-check.sh .   （识栈跑 shellcheck / ruff|py_compile / tsc）
+        执行： node .claude/hooks/static-check.mjs .   （识栈跑 shellcheck / ruff|py_compile / tsc / node --check）
         - exit 0（全绿）→ 进 Stage 1
         - exit 1（有静态错）→ 停在 Stage 0，报告列出静态错误，主 Agent 派 bug-fixer 修绿后从 Stage 0 重审
         - 无对应栈/工具未装 → 跳过该栈（绝不因缺工具卡死）；项目有自带静态命令（如 lint:static）则优先用项目的

@@ -87,7 +87,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         - SQL 一律参数化查询，禁止字符串拼接（防注入）；DB 访问集中在 db 层
         - 不裸 except；按异常类型处理，向上抛或转成明确的 HTTP 错误
         - 遵循已有代码库风格，不强推个人偏好；不做无关重构；YAGNI
-        - 编译/质量门禁：commit 前 pre-commit-check 按栈分发——装了 ruff 跑 ruff check，否则降级 python3 -m py_compile 语法检查（见 .claude/hooks/pre-commit-check.sh）
+        - 编译/质量门禁：commit 前 pre-commit-check 按栈分发——装了 ruff 跑 ruff check，否则降级 python3 -m py_compile 语法检查（见 .claude/hooks/pre-commit-check.mjs）
 
     [项目结构规范]
         项目代码放在以项目名命名的子文件夹里，不平铺在根目录。根目录只放规划文档、设计资源和 .claude/ 框架。

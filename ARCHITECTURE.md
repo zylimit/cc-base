@@ -142,35 +142,37 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 ## 7. Hook 闸门（`.claude/hooks/`）
 
-settings.json 实际注册 19 个 hook（每个均 `.sh` + `.ps1` 双平台）：
+settings.json 实际注册 21 个 hook（每个一份 `.mjs`，node 单运行时，三个平台同一条命令）：
 
 | Hook | 触发 | 作用 |
 |------|------|------|
-| `detect-feedback-signal.sh` | UserPromptSubmit | 检测用户修正信号 → 提示派 feedback-observer |
-| `check-evolution.sh` | SessionStart | 报告待处理 feedback 数 |
-| `session-rules-banner.sh` | SessionStart | 会话开始打印框架核心铁律横幅 |
-| `recap-on-dirty.sh` | SessionStart | 工作树有未提交改动时注入提醒：先 /recap 校准 progress.md 再继续（防上个 session 中断/压缩致状态漂移） |
-| `pre-commit-check.sh` | PreToolUse(Bash) | git commit 前按技术栈编译/语法门禁（tsc / ruff / py_compile） |
-| `kill-dev-ports.sh` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
-| `dangerous-pkill-guard.sh` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
-| `secret-exfil-guard.sh` | PreToolUse(Bash) | 拦截密钥文件读/拷/网络外传（.env/id_rsa/*.pem/credentials），带 sudo/timeout/bash -c 套壳剥离再判；Fast Mode 不豁免 |
-| `tdd-gate.sh` | PreToolUse(Bash) | 测试相关命令前提示 TDD 工作流（red-locks-the-bug） |
-| `no-direct-code-guard.sh` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer |
-| `mark-review-needed.sh` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
-| `auto-push.sh` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
-| `harness-async-verify.sh` | PostToolUse(Edit/Write，asyncRewake 后台) | 大仓启用时编辑期后台跑 verify，FAIL/BLOCKED 唤醒主 Agent 早警（不硬拦，commit 硬门仍是 pre-commit-check；180s 防抖） |
-| `release-gate.sh` | UserPromptExpansion(release-builder) | /release-builder 展开前查待审清单——未清则拦，干净则注入发布卡点提醒（测试卡点/三件套验收） |
-| `precompact-gate.sh` | PreCompact | 压缩前守门：待审未清或 progress.md 未同步则拦一次压缩，提示先 /record 固化（10 分钟冷却窗防砖，出错 fail-open） |
-| `notify.sh` | Notification(agent_needs_input/agent_completed/permission_prompt) | 后台 subagent 完成/需输入/待审批时发终端桌面通知（OSC 777+BEL，经 terminalSequence 官方通道） |
-| `stop-gate.sh` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
-| `three-file-sync-gate.sh` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
-| `subagent-acceptance-reminder.sh` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
+| `detect-feedback-signal.mjs` | UserPromptSubmit | 检测用户修正信号 → 提示派 feedback-observer |
+| `check-evolution.mjs` | SessionStart | 报告待处理 feedback 数 |
+| `session-rules-banner.mjs` | SessionStart | 会话开始打印框架核心铁律横幅 |
+| `recap-on-dirty.mjs` | SessionStart | 工作树有未提交改动时注入提醒：先 /recap 校准 progress.md 再继续（防上个 session 中断/压缩致状态漂移） |
+| `pre-commit-check.mjs` | PreToolUse(Bash) | git commit 前按技术栈编译/语法门禁（tsc / ruff / py_compile） |
+| `kill-dev-ports.mjs` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
+| `dangerous-pkill-guard.mjs` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
+| `secret-exfil-guard.mjs` | PreToolUse(Bash) | 拦截密钥文件读/拷/网络外传（.env/id_rsa/*.pem/credentials），带 sudo/timeout/bash -c 套壳剥离再判；Fast Mode 不豁免 |
+| `tdd-gate.mjs` | PreToolUse(Bash) | 测试相关命令前提示 TDD 工作流（red-locks-the-bug） |
+| `no-direct-code-guard.mjs` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer |
+| `mark-review-needed.mjs` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
+| `auto-push.mjs` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
+| `harness-async-verify.mjs` | PostToolUse(Edit/Write，asyncRewake 后台) | 大仓启用时编辑期后台跑 verify，FAIL/BLOCKED 唤醒主 Agent 早警（不硬拦，commit 硬门仍是 pre-commit-check；180s 防抖） |
+| `release-gate.mjs` | UserPromptExpansion(release-builder) | /release-builder 展开前查待审清单——未清则拦，干净则注入发布卡点提醒（测试卡点/三件套验收） |
+| `precompact-gate.mjs` | PreCompact | 压缩前守门：待审未清或 progress.md 未同步则拦一次压缩，提示先 /record 固化（10 分钟冷却窗防砖，出错 fail-open） |
+| `notify.mjs` | Notification(agent_needs_input/agent_completed/permission_prompt) | 后台 subagent 完成/需输入/待审批时发终端桌面通知（OSC 777+BEL，经 terminalSequence 官方通道） |
+| `stop-gate.mjs` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
+| `three-file-sync-gate.mjs` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
+| `record-authorship.mjs` | PostToolUse(Edit\|Write\|NotebookEdit) | 大仓启用时把「哪个 agent 写了哪个文件」喂给引擎作者台账，`review verdict` 据此拒自审（无 catalog 完全 no-op） |
+| `postcompact-reinject.mjs` | PostCompact | 压缩完成后跑 `invariants`，把铁律与活跃状态从文件重新派生注回（治 Governance Decay） |
+| `subagent-acceptance-reminder.mjs` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
 
-> `hooks/static-check.sh` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc），同放此目录仅为聚拢。
+> `hooks/static-check.mjs` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc / `node --check`），同放此目录仅为聚拢。
 
-**设计要点**：所有 hook 在 jq 缺失时优雅降级；review 闸门按文件登记（非全局布尔）+ flock 防并发 + 优先级反转（clean 与待审混存时正确 block）。hook 本就 provider 无关，与 ccb-base 逐字节相同。
+**设计要点**：hook 不依赖 jq / python3，只要 node；共用逻辑在 `hooks/lib/`，hook 不 import 引擎（进程级隔离，引擎坏了 hook 判出「引擎跑不成」而不是假绿）；review 闸门按文件登记（非全局布尔）+ 独占创建锁防并发 + 优先级反转（clean 与待审混存时正确 block）。
 
-settings.json 同时带三层原生配置（hook 之外的机器执法）：**permissions deny/ask**——密钥文件 Read deny（连带挡 Edit/Write 与 Bash 内 cat/head/sed），`git push`/`gh release`/`npm publish`/`docker push` ask（bypassPermissions 下 ask 规则照样弹审批，HIGH 档机器化）；**statusLine**——`.claude/scripts/statusline.sh|.ps1` 常驻显示模型/context%/成本/Fast Mode 剩余/待审数/harness 开关；**env**——`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`（Stop 闸原生 8 次强制放行上限提额；stop-gate 自身三振熔断先触发，此为兜底边界）。
+settings.json 同时带三层原生配置（hook 之外的机器执法）：**permissions deny/ask**——密钥文件 Read deny（连带挡 Edit/Write 与 Bash 内 cat/head/sed），`git push`/`gh release`/`npm publish`/`docker push` ask（bypassPermissions 下 ask 规则照样弹审批，HIGH 档机器化）；**statusLine**——`.claude/scripts/statusline.mjs` 常驻显示模型/context%/成本/Fast Mode 剩余/待审数/harness 开关；**env**——`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`（Stop 闸原生 8 次强制放行上限提额；stop-gate 自身三振熔断先触发，此为兜底边界）。
 
 ---
 
@@ -198,7 +200,7 @@ project/
     ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
     ├── agents/                           # 7 个专职 Sub-Agent
     ├── skills/                           # 17 个 Skill
-    ├── hooks/                            # 19 个注册闸门 + static-check 工具
+    ├── hooks/                            # 21 个注册闸门（.mjs）+ static-check 工具 + lib/
     ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
     ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）

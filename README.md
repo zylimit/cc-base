@@ -85,45 +85,31 @@ target/
 框架 settings.json 在 hooks 之外带三层 Claude Code 原生配置：
 
 - **permissions deny/ask（密钥红线 + HIGH 档机器化）**：`Read(**/.env)`、`Read(**/id_rsa*)`、`Read(secrets/**)` 等 deny 规则让密钥文件对任何工具不可读（同路径 Edit/Write 连带被挡，Bash 里的 cat/head/sed 也认；任意子进程绕读由 secret-exfil-guard hook 补拦）；`Bash(git push*)`、`Bash(gh release *)`、`Bash(npm publish*)`、`Bash(docker push*)` ask 规则把「发布/push 必停等审批」做成机器强制——**bypassPermissions 模式下 ask 规则照样弹审批**（官方语义），与审批三档的 HIGH 档一致。
-- **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.sh|.ps1` 显示 `[模型] | ctx N% | $成本 | FAST-MODE 剩余h | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
+- **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.mjs` 显示 `[模型] | ctx N% | $成本 | FAST-MODE 剩余h | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
 - **env**：`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`——Claude Code 对 Stop 闸有「连拦 8 次强制放行」的原生上限，提额到 25 作兜底（stop-gate 自身三振熔断先触发）。
 
 可选进阶（默认不开，按需自取）：`/sandbox` 开原生 OS 级沙箱（文件系统/网络域名白名单/凭据 mask；Linux/WSL2 需 `apt install bubblewrap socat`，原生 Windows 不支持）；`CLAUDE_CODE_TOOL_MEMORY_LIMIT` 给 Bash 命令加 cgroup 内存上限防跑飞 build 拖死会话（Linux，取值格式见官方 env 文档）；权限模式想要「不打扰 + 分类器兜底」可把 `defaultMode` 改 `"auto"`。五性视角的定位见 `.claude/rules/quality-attributes.md`「Claude Code 原生安全层」节。
 
-## .sh / .ps1 双写机制
+## hook 单运行时（node）
 
-每个 hook 同时提供 `.sh`（Mac/Linux）和 `.ps1`（Windows）两份等价实现，同名不同扩展放在 `.claude/hooks/`。两套逻辑严格行为等价：相同输入 → 相同 exit code（0=放行 / 2=拦截）。
+每个 hook 只有一份 `.claude/hooks/<name>.mjs`，settings.json 里用 exec form 注册：`"command": "node"`、`"args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.mjs"]`——不经 shell，占位符按纯字符串代入，Mac / Linux / Windows 是逐字相同的一条命令。Windows 只要 `node.exe` 在 PATH 上；不再有 `.sh`/`.ps1` 两份实现，也不再有 Git Bash 与 PowerShell 的取舍。共用逻辑在 `.claude/hooks/lib/`（stdin/输出、gate log、fast-mode、引擎子进程），hook 不 import 引擎——引擎坏了 hook 照样起得来，并按退出码契约判出「引擎跑不成」而不是假绿。
 
-**Windows 为何走 .ps1（不复用 .sh）**：Claude Code 只加载固定名 `.claude/settings.json` 这一个文件。`setup.ps1` 安装时直接把该文件里的 hook command 改写为 PowerShell 形式：
+仓里剩下的 `.ps1` 只有安装器与脚本（`setup.ps1` / `fix-platform.ps1` / `fast-mode.ps1` / `install-githooks.ps1`）。statusLine 没有 exec form，仍是 shell form（`node "$CLAUDE_PROJECT_DIR/.claude/scripts/statusline.mjs"`，Windows 经 Git Bash 跑）；纯 PowerShell 环境由 `setup.ps1` 只把这一条改写成 `$env:` 形式。
 
-```
-"C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -ExecutionPolicy Bypass -Command "& '$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1'"
-```
+## 从老版本升级
 
-`-Command + $env:` 让 pwsh 自己展开环境变量，不依赖外层 shell。解释器优先探测 pwsh 7（powershell.exe 5.1 会继承被 Git Bash 污染的 PATH，部分机器上 hook 卡死），探测不到才回退 powershell.exe。之所以不让 Windows 用户走 Git Bash 跑 `.sh`：Claude Code 的 Git Bash 自动检测有已知 bug（#22700），不可靠——直接走 `.ps1` 最稳。
-
-## 跨平台搬迁
-
-`.claude/settings.json` 里的 hook command 是**平台绑定**的：Mac/Linux 装出 `.sh` 形态，Windows 装出 `.ps1` 形态。把项目整目录从一平台搬到另一平台时，旧平台 command 会残留——新平台跑不了（`.ps1` 形态搬到 Linux 报 `powershell.exe: not found`；`.sh` 形态搬到纯 PowerShell 的 Windows 跑不了）。
-
-**搬到目标平台后跑一次 `fix-platform` 把 settings.json 归一为本平台形态**（删异平台 hook command、补本平台 command、Linux/Mac 侧补 `chmod 0755 hooks/*.sh` 执行位）：
+v1.14.0 及之前装出来的项目，`.claude/hooks/` 下有 `.sh`/`.ps1` 两套 hook，settings.json 里的 command 是平台绑定的。重跑对应平台的 `setup.sh` / `setup.ps1` 即可：安装器会清掉旧 hook 文件、把 settings 切成 exec form、statusLine 归一为 `.mjs`。不想重装可单独跑 `fix-platform`（幂等，只动框架自己的 hook 与 statusLine，不碰你的自定义 hook）：
 
 ```bash
-# Mac / Linux（搬到 Linux/Mac 后；用 python3，不依赖 jq）
 bash .claude/scripts/fix-platform.sh
 ```
 ```powershell
-# Windows（搬到 Windows 后）
 pwsh -File .claude/scripts/fix-platform.ps1
 ```
 
-`fix-platform` 独立工作——不依赖 cc-base 仓库在场、不依赖 jq（`.sh` 用 python3，`.ps1` 用 pwsh 内置），保守只清框架 hook command 残留、不动你的自定义 hook，幂等可重复跑。statusLine 的 command 同样被归一（框架 statusline 路径才动，用户自定义状态行不碰）。
-
-也可直接重跑对应平台的 `setup.sh` / `setup.ps1`：setup 的 settings 合并会先清异平台残留再追加本平台 command（需 jq；无 jq 时 setup 走降级不清，用 `fix-platform` 兜底）。
-
 ## Claude Code 之外的强制层（git hooks + CI）
 
-`.claude/hooks/` 那 19 个闸**只在 Claude Code 会话内生效**。用户自己手敲 `git commit`、用别的编辑器提交、脚本或别的 Agent 提交——全都绕得过去。补这个缺口的是另外两层：
+`.claude/hooks/` 那 21 个闸**只在 Claude Code 会话内生效**。用户自己手敲 `git commit`、用别的编辑器提交、脚本或别的 Agent 提交——全都绕得过去。补这个缺口的是另外两层：
 
 | 层 | 位置 | 管到哪 |
 |---|---|---|
@@ -144,7 +130,7 @@ pwsh .claude/scripts/install-githooks.ps1 on|off|status
 
 退出码分档处理，**降级和没跑成一律出声不假绿**：`1`/`2` 阻断，`3` 降级只告警（`check-syntax` 在没装 pwsh 的机器上恒 rc 3，拿它拦住每次 commit 只会让人第一天就 `--no-verify`），工具跑不起来打 SKIPPED 并写明「未执行 != 通过」。`--no-verify` 绕过是 HIGH 档行为，要向人交代。
 
-CI 那格是唯一能真验 26 个 `.ps1` 的地方（Windows runner 自带 pwsh），矩阵 ubuntu + windows × node 22/24，并断言 run-all 第三段的真触发 case 是**显式 SKIPPED** 而非静默跳过。
+CI 的 windows 格在真机跑 22 个 node hook 的行为测试，并解析剩余的安装器与脚本 `.ps1`，矩阵 ubuntu + windows × node 22/24，并断言 run-all 第三段的真触发 case 是**显式 SKIPPED** 而非静默跳过。
 
 分工、每个 hook 跑什么、退出码怎么读、为什么降级不阻断，全在 `.claude/githooks/README.md`。
 

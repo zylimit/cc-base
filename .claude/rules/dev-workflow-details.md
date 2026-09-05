@@ -124,7 +124,7 @@
                 ↓
             派发 code-reviewer 三阶段审查
                 ↓
-            Stage 0 静态闸（static-check.sh 识栈跑 linter）结果：
+            Stage 0 静态闸（static-check.mjs 识栈跑 linter）结果：
                 → 全绿 → 进入 Stage 1
                 → 有静态错 → 停在 Stage 0，派发 bug-fixer 修绿 → 从 Stage 0 重审
                 ↓
