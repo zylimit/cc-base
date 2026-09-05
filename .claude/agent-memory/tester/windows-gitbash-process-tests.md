@@ -15,4 +15,5 @@ cc-base 的 gate 跑 `windows-latest` + `shell: bash`（= Git for Windows 的 Gi
 - **CI 的 windows 格自 bbbae36 起不跑 run-all 了**（双形态分发，Windows 用户手上没有 .sh）。后果：**所有 .sh 测试里的 win32 分支，垫片是唯一防线**，不再有「等 CI 兜底」这一说；写这类断言时按「没有第二道闸」来要求自己。
 - **测 .mjs 的 win32 分支，光换 `process.platform` 不够，必须连信号语义一起重放**：`Object.defineProperty(process,'platform',{value:'win32'})`（该属性 configurable，可改）只让代码走进分支；但 Linux 的 SIGTERM 是优雅的，于是「把分支删掉、退回发信号」在本机照样收敛成功——正向断言就成了恒真的空断言。补一层 `process.kill` 包装：signal 0 原样透传（探活，Windows 上也是探活），其余终止信号一律转 `SIGKILL` 并记日志。实测：只装 platform 那版，变异后仍全绿；两层都装，变异后立刻红成 CI 原样。
 - **只伪装客户端、不伪装被测服务**：把 `stop` 客户端 import 前打垫片逼上 win32，supervisor 本体仍作普通 Linux 进程跑——被测的是「客户端这条分支对不对」，服务端照常才谈得上语义等价。手法：垫片 .mjs 改完 `process.argv` 再 `await import(pathToFileURL(实现))`，退出码原样透传。
+- **判「进程被杀掉没有」别看 pid，看端口**：给 kill-dev-ports 这类清端口的 hook 写红锁，靶子存活判据用 `net.connect(port)` 探活（连上=还在听 / ECONNREFUSED=没了）——Git Bash 里 `$!` 是 msys pid，被 `taskkill /F` 掉的原生进程 `kill -0` 未必如实，而「端口空没空」本来就是这个 hook 的可观测面，两个平台同一份断言。POSIX 侧还要守 `command -v lsof`：lsof 不在时 hook 什么都杀不掉，该 SKIP 不该红。
 - 相关：[[cc-base-testing-infra]]、[[red-lock-test-writing]]

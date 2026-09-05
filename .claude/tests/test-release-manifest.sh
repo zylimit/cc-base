@@ -468,9 +468,9 @@ fi
 
 WT_DEEP="worktrees/agent-x/.claude/harness/harness.mjs"
 WT_TOP="worktrees/agent-x/README.md"
-mkdir -p "$ROOT/.claude/worktrees/agent-x/.claude/harness"
-printf 'export const wt = 1;\n' > "$ROOT/.claude/worktrees/agent-x/.claude/harness/harness.mjs"
-printf '# worktree 副本的 README\n'  > "$ROOT/.claude/worktrees/agent-x/README.md"
+mkdir -p "$(dirname "$ROOT/.claude/$WT_DEEP")"
+printf 'export const wt = 1;\n' > "$ROOT/.claude/$WT_DEEP"
+printf '# worktree 副本的 README\n'  > "$ROOT/.claude/$WT_TOP"
 
 # ⑦a 生成器：清单里不许出现 worktrees/ 开头的条目
 bash "$ROOT/.claude/scripts/gen-manifest.sh" >/dev/null

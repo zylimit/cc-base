@@ -207,7 +207,7 @@ A_M0NAME=$P_M0NAME; A_M0FILE=$P_M0FILE; A_M0STATUS=$P_M0STATUS; A_M0SCEN=$P_M0SC
                         || fail "①c stdout JSON 里没有 killRate。EXPECT=有 GOT=$A_HASKR；$(got)"
 case "$A_KR" in
   [0-9]*/[0-9]*) pass "①d killRate 形如 k/n（实得 $A_KR）" ;;
-  *)             fail "①d killRate 不是 k/n 形态。EXPECT=k/n GOT=$A_KR；$(got)" ;;
+  *)             fail "①d killRate 不是 k/n 形态。EXPECT=k/n GOT=$A_KR（n=$A_N）；$(got)" ;;
 esac
 if grep -qF -- '--mutate' "$GOLDEN"; then
   pass "①e harness-golden.mjs 源码里列出了 --mutate（usage / 文件头文档位）"

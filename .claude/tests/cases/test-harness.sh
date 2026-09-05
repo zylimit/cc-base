@@ -1153,10 +1153,10 @@ cat > "$ADRROOT/arch/AD.md" <<'EOF'
 - **状态**：accepted
 - **执法方式**：fitness 规则 no-silent-failure
 EOF
-# 回填 ADR_RC / ADR_RECORDS / ADR_SOURCES / ADR_NOTE / ADR_RAW（node 本段已确保存在）
+# 回填 ADR_RECORDS / ADR_SOURCES / ADR_NOTE / ADR_RAW（node 本段已确保存在）。
+# 退出码不入判据（判的是读到几条、source 叫什么名字），adr-check 非零时照样往下解析 stdout。
 adr_probe() {
-  ADR_RC=0
-  ADR_RAW=$(cd "$ADRROOT" && CLAUDE_PROJECT_DIR="$ADRROOT" node "$HARNESS" adr-check "$@") || ADR_RC=$?
+  ADR_RAW=$(cd "$ADRROOT" && CLAUDE_PROJECT_DIR="$ADRROOT" node "$HARNESS" adr-check "$@") || true
   ADR_RECORDS=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write(String(d.records))')
   ADR_SOURCES=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write((d.details||[]).map(r=>r.source).sort().join(","))')
   ADR_NOTE=$(ADRJSON="$ADR_RAW" node -e 'const d=JSON.parse(process.env.ADRJSON);process.stdout.write(d.note||"")')

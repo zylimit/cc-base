@@ -222,6 +222,21 @@ process.stdin.on("end", () => {
 # gate 账本里是否有某个 hook 的记录
 gatelogged() { grep -q "$2" "$1/.claude/evidence/gate-block.log" 2>/dev/null; }
 
+# waitfile <文件> [超时毫秒] —— 等后台夹具进程写出「就绪」文件再往下走。
+#   用 node 轮询不用 sleep：小数秒 sleep 在 Git Bash 上不保证有，node 本来就是硬依赖。
+waitfile() {
+    node -e '
+const fs = require("node:fs");
+const [f, ms] = process.argv.slice(1);
+const deadline = Date.now() + Number(ms);
+(function poll() {
+  if (fs.existsSync(f)) process.exit(0);
+  if (Date.now() > deadline) process.exit(1);
+  setTimeout(poll, 25);
+})();
+' "$1" "${2:-5000}"
+}
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- EX 存在性（这条红 = 迁移还没做；下面所有红的根因都是它）---"
@@ -647,6 +662,37 @@ chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" 
     "rc=2 且 stderr 非空 且 stdout 空" \
     "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
+# AV-14（P2-2 红锁）：防抖标记写不下去时，必须留一行可见诊断。
+#   造法：catalog 开启大仓治理 + 计次假引擎（verify 恒 0），把 .async-verify-last 占成目录，
+#   writeFileSync 恒 EISDIR/EPERM、lastRun() 永远读不出 epoch → 180 秒防抖**永久**失效，
+#   不是源码注释说的「最多多跑一次」：每一次 Edit|Write 都全量跑一遍 verify（settings timeout 300）。
+#   本 hook 自己的收口原则是「闸没跑成不许静默 exit 0」，唯独这一处把「防抖坏了」吞得干干净净，
+#   用户只看得到「编辑变慢了」，找不到原因。
+SB=$(newsb av-markdir catalog)
+cat > "$SB/.claude/harness/harness.mjs" <<'STUBCNT'
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const here = path.dirname(fileURLToPath(import.meta.url));
+fs.appendFileSync(path.join(here, "verify-calls.txt"), process.argv.slice(2).join(" ") + "\n");
+process.exit(0);
+STUBCNT
+mkdir -p "$SB/.claude/.async-verify-last"
+AV_ROUND=0; AV_DIAG=0; AV_RCS=""
+while [ "$AV_ROUND" -lt 3 ]; do
+    AV_ROUND=$((AV_ROUND + 1))
+    run_hook harness-async-verify "$SB" '{"tool_input":{"file_path":"src/a.ts"}}'
+    AV_RCS="$AV_RCS$RC,"
+    if [ "$RC" -eq 0 ] && [ -n "$ERRT" ] && printf '%s' "$ERRT" | grep -qE '防抖|async-verify-last'; then
+        AV_DIAG=$((AV_DIAG + 1))
+    fi
+done
+AV_CALLS=$(grep -c . "$SB/.claude/harness/verify-calls.txt" 2>/dev/null || echo 0)
+chk "$([ "$AV_DIAG" -eq 3 ] && echo 0 || echo 1)" \
+    "AV-14 防抖标记写不下（位置被占成目录）→ 每轮留一行 stderr 说明防抖失效，不静默吞（吞了＝每次编辑都全量跑 verify 而没人知道）" \
+    "3 轮都 rc=0 且 stderr 点出防抖标记写不下" \
+    "带诊断的轮数=$AV_DIAG/3 rc=[$AV_RCS] verify 实跑=${AV_CALLS}次 末轮err=[$(show "$ERRT")]"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- KD kill-dev-ports（PreToolUse/Bash，无输出恒 0；只断言当前平台那一支）---"
@@ -657,15 +703,59 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "KD-1 非 pnpm dev 命令 → rc 0 零输出（脚本内自判，不进清端口分支）" \
     "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
-SB=$(newsb kd-hit)
-T0=$(date +%s)
-run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev --port 3000"}}'
-T1=$(date +%s)
-ELAPSED=$((T1 - T0))
-chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ "$ELAPSED" -ge 1 ] && echo 0 || echo 1)" \
-    "KD-2 pnpm dev → 进清端口分支（可观测代理：分支尾部那 1 秒静默期），仍 rc 0 无 stdout" \
-    "rc=0、stdout 空、耗时 >= 1s" \
-    "rc=$RC 耗时=${ELAPSED}s out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+# 靶子进程：监听 <端口> 的 node 服务，起好写 ready 文件；30 秒自杀兜底（测试中途炸了也不留守）。
+kd_target() {
+    node -e '
+const net = require("net");
+const fs = require("fs");
+const [port, ready] = process.argv.slice(1);
+net.createServer().listen(Number(port), "127.0.0.1", () => { fs.writeFileSync(ready, "1"); });
+setTimeout(() => process.exit(0), 30000);
+' "$1" "$2" &
+}
+
+# 端口上还有没有人在听。0=还在听 1=没了。判活不看 pid：Git Bash 里 $! 是 msys pid，
+# 对 taskkill /F 掉的原生进程 kill -0 不可靠；「端口空了」才是这个 hook 真正的可观测面。
+kd_listening() {
+    node -e '
+const net = require("net");
+const s = net.connect(Number(process.argv[1]), "127.0.0.1");
+s.on("connect", () => { s.destroy(); process.exit(0); });
+s.on("error", () => process.exit(1));
+setTimeout(() => { s.destroy(); process.exit(1); }, 1500);
+' "$1"
+}
+
+# POSIX 侧清端口靠 lsof；lsof 不在时 hook 什么也杀不掉，KD-2/KD-6 就没有可观测面可言，
+# 只能跳过——未执行 != 通过，所以打 SKIP 而不是记 PASS。Windows 侧走 netstat/taskkill，系统自带。
+KD_CANKILL=yes
+case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*) : ;;
+    *) command -v lsof >/dev/null 2>&1 || KD_CANKILL=no ;;
+esac
+
+# KD-2（P2-3 红锁）：清哪些端口必须能被 CC_DEV_PORTS 覆盖。
+#   旧写法拿「分支尾部那 1 秒静默期」当可观测面，代价是让 hook 对**跑测试这台机器**的
+#   3000/3001/4173/5173/8080 真执行 kill -9（Windows 侧 taskkill /F）——挂进 run-all 之后，
+#   跑一次回归就杀掉用户的 Vite/Next。可观测面换成「靶子端口上的监听没了」，端口表换成没人用的高位口。
+if [ "$KD_CANKILL" = yes ]; then
+    SB=$(newsb kd-hit)
+    KD_READY="$TMP/kd-a.ready"; rm -f "$KD_READY"
+    kd_target 47321 "$KD_READY"; KD_PID1=$!
+    waitfile "$KD_READY" 5000 || true
+    KD_UP=no; kd_listening 47321 && KD_UP=yes
+    export CC_DEV_PORTS=47321
+    run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev --port 3000"}}'
+    unset CC_DEV_PORTS
+    KD_DOWN=no; kd_listening 47321 || KD_DOWN=yes
+    kill "$KD_PID1" 2>/dev/null || true; wait "$KD_PID1" 2>/dev/null || true
+    chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ "$KD_UP" = yes ] && [ "$KD_DOWN" = yes ] && echo 0 || echo 1)" \
+        "KD-2 pnpm dev + CC_DEV_PORTS=47321 → 清的是被指定的那个端口（靶子的监听消失），仍 rc 0 无 stdout" \
+        "夹具靶子跑前在听、跑后不在听、rc=0、stdout 空" \
+        "rc=$RC 跑前在听=$KD_UP 跑后没了=$KD_DOWN out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+else
+    skip "KD-2 无 lsof——POSIX 侧 hook 清不掉任何端口，没有可观测面（未执行 != 通过）"
+fi
 
 SB=$(newsb kd-nocmd)
 run_hook kill-dev-ports "$SB" '{"tool_input":{}}'
@@ -683,6 +773,28 @@ SB=$(newsb kd-fast); mkfast "$SB" active
 run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev"}}'
 chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "KD-5 fast-mode 生效 → 静默放行" "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+
+# KD-6（P2-3 红锁的另一半）：CC_DEV_PORTS 指到别处后，默认端口表一个都不许碰。
+#   4173（默认表里的 Vite preview 口）上放一个靶子，覆盖成 47321 再喂同一条命令——4173 得活着。
+#   这条红 = hook 仍按写死的默认表杀宿主机上的进程，回归套件本身成了破坏源。
+if [ "$KD_CANKILL" = yes ]; then
+    SB=$(newsb kd-default)
+    KD_READY2="$TMP/kd-b.ready"; rm -f "$KD_READY2"
+    kd_target 4173 "$KD_READY2"; KD_PID2=$!
+    waitfile "$KD_READY2" 5000 || true
+    KD_UP2=no; kd_listening 4173 && KD_UP2=yes
+    export CC_DEV_PORTS=47321
+    run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"pnpm dev"}}'
+    unset CC_DEV_PORTS
+    KD_ALIVE2=no; kd_listening 4173 && KD_ALIVE2=yes
+    kill "$KD_PID2" 2>/dev/null || true; wait "$KD_PID2" 2>/dev/null || true
+    chk "$([ "$RC" -eq 0 ] && [ "$KD_UP2" = yes ] && [ "$KD_ALIVE2" = yes ] && echo 0 || echo 1)" \
+        "KD-6 CC_DEV_PORTS 指到别处时，默认表 3000/3001/4173/5173/8080 一个都不清（跑测试这台机器上的 dev server 不该被回归套件杀掉）" \
+        "4173 上的靶子跑前跑后都在听、rc=0" \
+        "rc=$RC 跑前在听=$KD_UP2 跑后仍在听=$KD_ALIVE2 out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+else
+    skip "KD-6 无 lsof——POSIX 侧 hook 清不掉任何端口，没有可观测面（未执行 != 通过）"
+fi
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -761,6 +873,44 @@ SB=$(newsb mr-fast); mkfast "$SB" active
 run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
 chk "$([ "$RC" -eq 0 ] && [ ! -f "$SB/.claude/.needs-review" ] && echo 0 || echo 1)" \
     "MR-13 fast-mode 生效 → 静默放行且不登记" "rc=0 无清单" "rc=$RC 清单=[$(nrlist "$SB")]"
+
+# MR-14（P2-1 红锁）：拿不到锁而裸跑的这一趟，出门时不许删掉别人的锁。
+#   造法：A 用 openSync(lock,'wx') 真持锁 4 秒——比 LOCK_WAIT_MS(1000) 长，hook 必然等不到；
+#   比 LOCK_STALE_MS(5000) 短，这把锁自始至终是「新鲜的」，按契约不该被回收。
+#   hook 等不到锁照样登记（登记比串行重要，这一条不变），但它释放的是**自己没拿到的**锁：
+#   锁一没，下一个 PostToolUse 立刻拿到锁与还在临界区的 A 并发读改写同一份 .needs-review，
+#   丢更新的方向是「待审文件从清单里掉出去」——stop-gate 少拦一个，假绿。
+SB=$(newsb mr-lock)
+MR_LOCK="$SB/.claude/.needs-review.lock"
+MR_READY="$TMP/mr-lock.ready"
+rm -f "$MR_READY"
+node -e '
+const fs = require("node:fs");
+const [lock, list, ready] = process.argv.slice(1);
+const fd = fs.openSync(lock, "wx");          // 真持锁；拿不到就抛，ready 不出现 = 夹具坏了不是 hook 错
+fs.writeFileSync(ready, "1");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4000);   // 临界区停 4 秒
+let prior = "";
+try { prior = fs.readFileSync(list, "utf8"); } catch (_e) { prior = ""; }
+const lines = prior.replace(/\r/g, "").split("\n").filter((l) => l !== "");
+if (!lines.includes("a-locked.ts")) lines.push("a-locked.ts");
+fs.writeFileSync(list, lines.join("\n") + "\n");
+fs.closeSync(fd);
+fs.rmSync(lock, { force: true });            // 只有真持锁的这一方才删这把锁
+' "$MR_LOCK" "$SB/.claude/.needs-review" "$MR_READY" &
+MR_APID=$!
+waitfile "$MR_READY" 5000 || true
+run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/locked.ts"}}'
+MR_RC="$RC"
+MR_LOCKED=no; [ -e "$MR_LOCK" ] && MR_LOCKED=yes
+wait "$MR_APID" 2>/dev/null || true
+MR_BOTH=no
+grep -qxF 'src/locked.ts' "$SB/.claude/.needs-review" 2>/dev/null \
+  && grep -qxF 'a-locked.ts' "$SB/.claude/.needs-review" 2>/dev/null && MR_BOTH=yes
+chk "$([ "$MR_RC" -eq 0 ] && [ "$MR_LOCKED" = yes ] && [ "$MR_BOTH" = yes ] && echo 0 || echo 1)" \
+    "MR-14 别人的活锁还在时裸跑 → 照常登记，但绝不删自己没拿到的那把锁（删了＝持锁方与后来者并发写，待审文件丢更新）" \
+    "rc=0、hook 退出后锁文件仍在、持锁方释放后清单里两边的登记都在" \
+    "rc=$MR_RC 锁还在=$MR_LOCKED 两条登记都在=$MR_BOTH 清单=[$(nrlist "$SB")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -1794,6 +1944,17 @@ SB=$(tf_repo tf-fast); printf 'echo more\n' >> "$SB/src/app.sh"; mkfast "$SB" ac
 run_hook three-file-sync-gate "$SB" ''
 chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "TF-16 fast-mode 生效 → 静默放行" "rc=0 stdout 空" "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(tf_repo tf-mjs)
+printf 'export const a = 1;\n' > "$SB/src/a.mjs"
+printf 'module.exports = 1;\n' > "$SB/src/a.cjs"
+( cd "$SB" && git add -A && git commit -qm addmjs ) >/dev/null 2>&1
+printf 'export const b = 2;\n' >> "$SB/src/a.mjs"
+printf 'module.exports = 2;\n' >> "$SB/src/a.cjs"
+run_hook three-file-sync-gate "$SB" ''
+chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+    "TF-17 已跟踪的 src/a.mjs / src/a.cjs 改了而 progress.md 没动 → block（node 生态的源码扩展名，闸随框架分发到目标项目，那里的 server.mjs 没有 .claude/ 那一支兜底）" \
+    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
 
 # ---------------------------------------------------------------------------
 echo ""

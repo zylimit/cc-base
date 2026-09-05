@@ -531,7 +531,7 @@ chk "$ok" "⑦-4 --dry-run 不建锁、不留维护标记（防回归位：现�
 # 只要求四个类别词各自与一个数字同行——「文件数」是契约明写的，没数字等于没报计划。
 d7miss=""
 for w in create update conflict skip; do
-  grep -qiE "$w[^0-9]*[0-9]" "$TMP/b5-d7.out" || d7miss="$d7miss $w"
+  grep -qiE "${w}[^0-9]*[0-9]" "$TMP/b5-d7.out" || d7miss="$d7miss $w"
 done
 ok=0; [ -z "$d7miss" ] || ok=1
 chk "$ok" "⑦-5 stdout 打出 create / update / conflict / skip 四类的文件数" \
