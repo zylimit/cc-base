@@ -73,6 +73,8 @@ _Last updated: 2026-09-05_
 （2026-08-16 及更早的 Done 条目（v1.0.x~v1.10.0）已归档到 progress.archive.md）
 
 ## Decisions
+- 2026-09-05: **evolution-engine「某 Skill 相关 feedback 合计 ≥ 5」只计未毕业条目（用户「全部搞完」拍板采纳主 Agent 建议）**——dev-builder 算术命中 5 但 4 次来自已毕业条目，已落进规则的教训再算进来只会重复提议。改的是 `skills/evolution-engine/SKILL.md` 第二步一行，manifest 重生随 `0e8330d` 提交。
+- 2026-09-05: **框架方向变更：从「刻意轻量、fast-mode 布尔」转向「可分档位执行」（用户指令）**——用户原话要点：不缩减功能、还要加功能；7 万行规模要裁剪；可严格开发 / 可快速开发 / 可精细化调整框架强度；避免过度复杂化、轻便而全面；借鉴 dsh-base / codex-base 但不盲从、上网找优秀实践。**这条推翻两处旧判定**：① CROSS-POLLINATION 里对 codex-base「Assurance profile 四档 + 15 控制轴」的整套拒绝（理由曾是本仓刻意轻量）要重评；② 2026-06-14「只取轻量且确定有效方案」的边界要按「分档」重新画——轻量是默认档，不是天花板。落点：先出提案（含行数与风险），不动代码。
 - 2026-09-05: **`.ps1` 纯 ASCII 保持铁律，理由改写为「兼容性面会变」（用户拍板）**——用户先说「我不会使用 powershell 5.1」，据此合了 #30（5.1 无机器可验这个缺口不存在）；但随即明确「永远不要在 PowerShell 里写中文注释，后面要考虑兼容性」。故 Pinned 那条**不放开**：不加 `#requires -Version 7.0`、不允许中文注释、`\uXXXX` 转义写法照旧。与之前的理由差别在于——原来的依据是「本机 Windows 跑的是 powershell.exe 5.1」这一具体事实，现在依据是「目标环境会变，脚本不赌解释器版本与代码页」，比原来更强、不随环境消失而失效。兄弟仓 deepseek-base 的 `#requires -Version 7.0` 判定维持拒绝（见 docs/CROSS-POLLINATION.md）。
 - 2026-09-04: **「不存在」只认 ENOENT（主 Agent 裁定）**——批 1 复审抓出的一族缺陷根因是 `catch (_e)` 把 ENOENT 与 EACCES / ENOTDIR / EISDIR 抹平成同一个答案。裁定：所有「读状态」路径里只有 ENOENT 算不存在，其余 I/O 错误一律算读不出来 → fail-closed + quarantine 留痕。连带两条：① `trace` 的 `degraded` 与 `truncated` 恒等、`degraded:false` 恒在（多 8 行 golden）——接受，`degraded` 是跨命令词汇，与紧邻的 `truncated` 恒在习惯一致；② `.fast-mode` CRLF 时引擎判开、bash hook 判关的分叉是既有问题非本批引入，单开 TODO 不混进本批。另：`static-check.sh` 没有 `.mjs` 分支，本批 Stage 0 对 9 个改动源文件是空绿，补 `node --check` 分支归入批 4 小修（hook 增量补缺，.sh/.ps1 成对）。
 - 2026-09-04: **批 1 三条小裁定（主 Agent 拍板）**——① S3 arch-trend 台账有洞的判定信息走既有 `reason` 字段含 `trend-history-corrupt`，不新造字段；② supervisor 是独立脚本不 import lib，坏 state 只在自己输出里点名、**不写** quarantine.jsonl，避免跨工具耦合；③ 受损 receipt / 运行态文件**原地不动、不重命名不删除**——deepseek 的做法是改名 `*.corrupt-<ts>` 挪走，但在本仓 stop-gate 场景下挪走后第二次 verify 会因「无回执」走宽限 rc 0，等于一次拦停后自动放行；改为每次都 fail-closed 直到人处理，quarantine.jsonl 只做留痕，`risk` 报 QUARANTINED_STATE。
@@ -153,6 +155,8 @@ _Last updated: 2026-09-05_
 
 **2026-09-05 三件已收口（用户「搞起」后并行）**：① progress-recorder 补账——本条即是，27 条 Done 归档经主 Agent 机械对拍逐字节一致；② evolution-runner 扫 8 条待处理 feedback——**无进化建议**，无一达毕业线（最近的仍是 local-green 复现 2 差 1），另报一处口径问题待用户定：EVOLUTION.md「同一 Skill 相关 feedback 合计 ≥ 5」在 dev-builder 上算术命中 5，但其中 4 次来自已毕业条目，规则没写合计是否扣掉已毕业；③ `release` 装配——七项 PASS、`gate-fresh` DEGRADED（本仓无 catalog 的预期形态）、零阻断，`trustBoundary` 四个 false 照旧。v1.14.0 release notes 草稿在 `/tmp/release-notes-v1.14.0.md`（版本取 minor：新增 record-authorship 一对 hook + static-check.ps1，waiver 语义变严，非纯补丁）。发版本身是 HIGH 档，等用户敲 /release-builder；进入前本条补账改动需先提交，`release` 的 worktree 项才会重新 PASS。
 
+**2026-09-05 进行中（用户「你全部搞完吧」+ 追加架构裁剪与借鉴指令）**：① 补账 + 口径改动已提交 `0e8330d`，push 卡在 `750fe76` 装上的本地 pre-push 钩子（默认跑全量 run-all 约 15 分钟，与用户 09-04「本地不跑 run-all」的裁定冲突，跑完要摆给用户定是否 `CCBASE_PREPUSH_FULL=0` 降档）；push 落地后等 CI 绿 → `git ls-remote --tags` 查远端 → 打 v1.14.0 → 建 GitHub release（notes 草稿 `/tmp/release-notes-v1.14.0.md`）。② deployer 已从 `0e8330d` 打出 `/tmp/cc-base-v1.14.0.zip`（1360467 字节、307 条目），主 Agent 用它留的 `/tmp/verify-v1.14.0.sh` 独立复核：feedback 剥离精确（HEAD 286 − zip 254 = 32 条全是顶层私有 feedback）、运行态残留 0、从 zip 装到全新目录后 doctor rc 0 / selftest 287 / 7 agents / 25+25 hooks / 17 skills；密钥形态命中全是扫描器源码与 agent-memory 里的模式名。**隐私审计抓到一处真个人信息**：progress.md Notes 一条 Windows 用户名路径（v1.13.0 也带着它出的包，当时记的「零命中」不准），另 6 处 `D:\Code\…` 工作盘路径；已按 v1.13.0 收口先例擦成 `~`（progress.md 2 行、archive 5 行），**zip 须在新 HEAD 上重打**，`0e8330d` 那份作废。agent-memory 随包分发按 09-03 用户裁定不处理。③ 三路只读调研后台中：dsh-base（`~/code/dsh-base` HEAD `bcf70e4`）增量与档位机制 / codex-base（HEAD `6d1429d`）增量与 assurance profile 全解剖 / 上网找业界实践；另有 Explore 摸本仓可裁剪面。**已量出的底数**：全仓 76,591 行，`.claude/tests/` 41,469 行（54%）其中 golden 基线 JSON 29,236 行（38%）、引擎 16,984 行、skills 4,626、hooks 3,083（.sh 1,415 + .ps1 1,668）；21 个 hook 挂 10 个事件，约 20 个脚本各自经 `lib-fast-mode.sh` 读 fast-mode 布尔、catalog 有无由 `lib-harness.sh` 统一判——现有强度只有这两个开关，分档只需改 `lib-fast-mode.sh` 这一个入口。三路回来后合成提案。**注意**：run-all 跑 `test-golden-mutate.sh` 期间 `lib/core.mjs` 会短暂被改再还原，Stop 闸看到的那处 diff 是它，不是真改动。
+
 **历史指针**：2026-09-04 曾按用户「加速、一口气搞定全部、然后封板」改为 worktree 隔离并行跑六批（批 1 主树 + 五个 `.claude/worktrees/agent-*/`），按 4 → 6 → 5 → 2 → 3 cherry-pick 合入主干——批 1 单独 `66f7725`，其余合于 `c60ea14`，细节见当日 Done；各 worktree 里 tester 未提交的 agent-memory 改动互相冲突已弃，主干版本以批 1 tester 的为准。
 
 ### 本轮已完成并推上远端（8 个 commit）
@@ -214,7 +218,8 @@ P6 余项：无（`release` 落地即收官）。**`fleet` 已判明确不做**�
 ### 下一步候选（2026-09-05）
 1. **发版**——v1.13.0 之后 7 个 commit 未发版，`release` 装配证据后由用户敲 /release-builder（HIGH 档）。
 2. **EVOLUTION.md 合计口径**——「同一 Skill 相关 feedback 合计 ≥ 5」是否扣掉已毕业条目，用户定（改规则属 HIGH 档）；8 条待处理 feedback 本轮无一达毕业线。
-3. **仍开着的 TODO 分三档**：要写测试才有意义的 #48 / #46 按用户「不测试」指令搁置；低价值边角 #29 / #34 / #36 / #19f / #51 建议不做；推不动的 #26（缺复现信息）/ #10（烧 token）/ #50（语义待定）维持挂账。#20b 另两项（PreToolUse Scope 拦、TaskCompleted 闸）明确不做。
+3. **架构提案**——分档位（严格 / 标准 / 快速 + 细粒度旋钮）+ 裁剪杠杆（golden 基线体积、.sh/.ps1 成对、多份排除表单一真相源）+ 兄弟仓与业界实践借鉴，出文档待用户拍板后再排期。
+4. **仍开着的 TODO 分三档**：要写测试才有意义的 #48 / #46 按用户「不测试」指令搁置；低价值边角 #29 / #34 / #36 / #19f / #51 建议不做；推不动的 #26（缺复现信息）/ #10（烧 token）/ #50（语义待定）维持挂账。#20b 另两项（PreToolUse Scope 拦、TaskCompleted 闸）明确不做。
 
 ### 运行状态与已知面
 - **Fast Mode 已关闭**（2026-09-03 用户指令「关闭快速模式」，实查 `fast-mode: off`，hook 恢复严格拦截）。它开着的那段时间横跨 P5 尾、整个 P6 与 CI 攻坚，期间不派 code-reviewer / tester、不走红锁闭环——**遗留的账（#31–#33）已随 09-04 批 0 `f3cd449` 走完红锁闭环**。
@@ -312,10 +317,10 @@ P6 余项：无（`release` 落地即收官）。**`fleet` 已判明确不做**�
 - 2026-08-16: **本网络（WSL 经 10.255.255.254 网关，netentsec）拦 git push 的大 POST**——git-receive-pack 的 POST 体积过大（实测 104KB 被拦、几十 KB 过）时网关注入 403 HTML 拦截页（Server: netentsec_page_push，TLS 被 Huawei Web Secure Internet Gateway MITM，绕代理直连同样被透明拦截）；fetch/ls-remote/api.github.com 均正常。解法：把大批次拆成多个小提交顺序 push（每包压线以下），或换热点/外网。误导性输出注意：失败时 git 会打「Everything up-to-date」，以 ls-remote 实查为准（远端副作用实查铁律的又一例证）。
 - 2026-07-31: Phase 5 排查补漏批次（10 处漏全修）完成，详见当日 Done 条目。
 - 2026-07-31: Phase 6「未验证面攻坚」批次（A 路由框架 + B+C 大仓实战+端到端闸 + D PS5.1 验）完成，详见当日 Done 条目。E progress 归档待（条目多，收口后做）。
-- 2026-07-31: **资产上传**：内网发版时资产传不上（代理拦 uploads），切个人热点/外网直连即可——v1.9.0-v1.9.3 四资产已用此法全补。本地 D:\Code\cc-base-v1.9.x.zip 可删（远端已有）。
+- 2026-07-31: **资产上传**：内网发版时资产传不上（代理拦 uploads），切个人热点/外网直连即可——v1.9.0-v1.9.3 四资产已用此法全补。本地 ~\Code\cc-base-v1.9.x.zip 可删（远端已有）。
 - 2026-07-30: 大仓能力落地时的接入约束——新增 `.claude/harness/` 运行态账本需补进 `.claude/.gitignore`；新增 harness 文件须纳入 FRAMEWORK-MANIFEST + doctor.sh 抽检 + run-all.sh 自测。
 - 2026-07-30: 大仓能力接入锚点（不新增 hook 事件）——diff-bound 回执挂 mark-review-needed→stop-gate 现有链；四态风险分层门挂 pre-commit-check/static-check 锚点。
-- 2026-07-30: 四姊妹框架分析 + harness 实现设计共 5 篇产于 .claude/research/，已在 `1272c84` 入库（含 FRAMEWORK-MANIFEST 抽检）。已签字实施方案见 plan 文件 C:\Users\z00632348\.claude\plans\vectorized-splashing-hollerith.md。
+- 2026-07-30: 四姊妹框架分析 + harness 实现设计共 5 篇产于 .claude/research/，已在 `1272c84` 入库（含 FRAMEWORK-MANIFEST 抽检）。已签字实施方案见 plan 文件 ~\.claude\plans\vectorized-splashing-hollerith.md。
 - 2026-07-30: setup.sh 无 jq 路径经 `-mac` 强制复现确认代码正确（test-setup FAIL 系断言误判，非代码缺陷），已补 ③b 回归锁覆盖，原「预存缺陷」标签作废。
 - 2026-07-30: 已知：真触发 live case（cases/todo-app、cases/bug-report）在当前 use-local LiteLLM 环境下 claude -p 产出无 Skill 事件而 FAIL，非回归；判定 harness 改动影响面时以"是否触碰 CLAUDE.md/skills/路由 hook"为准。
 - 2026-07-30: Task #5（Phase 0-2 收口）**已完成**：feat/harness-large-repo fast-forward 合并进 main（f0f21f2）+ 合并后全量静态回归 6/0 全绿；家底 hook 红蓝审查经用户显式豁免（信静态自测直接合并）；Fast Mode 按用户决定保持开（约剩 21h 自动过期）。
