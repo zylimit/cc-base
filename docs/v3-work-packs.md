@@ -134,8 +134,96 @@ hooks/lib/harness.mjs        // 语义 = lib-harness.sh
 
 ---
 
-## Phase A：档位（待 D 收口后写细则）
+## Phase A：档位（D 收口后开工；D 的 implementer 按 A.2 预留接口）
 
-要点见提案 §三：`profile.json` 三档 + 闸门三态 + 地板 + `raise.paths`；`hooks/lib/fastmode.mjs` → `tier.mjs` 暴露 `gateMode(id)`；引擎 `tier` 子命令 status / set / explain / validate；`fast` 硬上限 8h；降档带 reason + expiry 进 gate log；`scripts/fast-mode.sh/.ps1` 变薄壳。
+### A.1 数据模型
+
+**`.claude/harness/profile.json`**（进分发包，用户可改；`tier validate` 校验）：
+
+```json
+{
+  "version": 1,
+  "default": "standard",
+  "floor": ["secret-exfil-guard", "dangerous-pkill-guard", "release-gate", "postcompact-reinject", "notify"],
+  "hooks": {
+    "stop-gate":               { "kind": "guard",    "fast": "advise", "standard": "block", "strict": "block" },
+    "three-file-sync-gate":    { "kind": "guard",    "fast": "advise", "standard": "block", "strict": "block" },
+    "precompact-gate":         { "kind": "guard",    "fast": "advise", "standard": "block", "strict": "block" },
+    "pre-commit-check":        { "kind": "guard",    "fast": "advise", "standard": "block", "strict": "block" },
+    "no-direct-code-guard":    { "kind": "guard",    "fast": "advise", "standard": "block", "strict": "block" },
+    "tdd-gate":                { "kind": "guard",    "fast": "off",    "standard": "advise", "strict": "block" },
+    "harness-async-verify":    { "kind": "guard",    "fast": "off",    "standard": "block", "strict": "block" },
+    "mark-review-needed":      { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "record-authorship":       { "kind": "recorder", "fast": "on",     "standard": "on",    "strict": "on" },
+    "auto-push":               { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "kill-dev-ports":          { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "subagent-acceptance-reminder": { "kind": "recorder", "fast": "off", "standard": "on", "strict": "on" },
+    "detect-feedback-signal":  { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "check-evolution":         { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "recap-on-dirty":          { "kind": "recorder", "fast": "off",    "standard": "on",    "strict": "on" },
+    "session-rules-banner":    { "kind": "recorder", "fast": "on",     "standard": "on",    "strict": "on" }
+  },
+  "raise": { "to": "strict", "paths": [".claude/hooks/**", ".claude/harness/**", ".claude/skills/**", ".claude/agents/**", ".claude/CLAUDE.md", ".claude/rules/**", ".claude/settings.json", ".github/**"] },
+  "overrides": {}
+}
+```
+
+- `kind: guard` 的合法值 `off | advise | block`（秩 0/1/2）；`kind: recorder` 的合法值 `off | on`（秩 0/1）。`advise` = 只出 `additionalContext` / stderr 提醒并记 gate log，不 block、不 exit 2。
+- `floor` 里的 hook **不出现在 `hooks` 表**，出现即 `tier validate` 报错；它们永远按现行为跑（`static-check` 不是 hook，不在表内）。
+- 与今天的对应：`fast` 列 = 现在 `.fast-mode` 开着时各 hook 的行为（吃 fast-mode 的 17 个 → off/advise；`record-authorship` 改为 fast 也记账，关 #50）；`standard` 列 = 现行默认；`strict` 列在 A 里只比 standard 多 `tdd-gate: block`——SubagentStop deny / TaskCompleted 闸是新 hook，归 Phase A2，不在本期。
+- `overrides`：项目级单闸覆盖 `{ "tdd-gate": "off" }`，只对非 floor 生效；**不能把某闸调到低于 `fast` 列**之外的值？——不设这条限制，overrides 就是用户的最终话语权，但 `tier explain` 会标出「overridden」。
+
+**运行态 `.claude/.runtime/tier.json`**（替代 `.claude/.fast-mode`，`.runtime/*` 已在六份排除表里）：
+```json
+{ "tier": "fast", "reason": "原型期赶进度", "by": "user", "set_epoch": 1788600000, "expires_epoch": 1788628800 }
+```
+- 只有 `tier set` 写；`fast` 的 `expires_epoch − set_epoch ≤ 8h`，超过按 8h 截并在 stderr 说明；`standard` / `strict` 无过期。
+- 过期 / 缺文件 / 坏 JSON → 视为无覆盖，走 `default`；坏 JSON 另 `recordCorruptState({kind:'tier'})` 留痕（引擎侧）。
+- `.claude/.fast-mode` 不再写也不再读；`scripts/fast-mode.sh on N` / `.ps1` 变薄壳转发 `node harness.mjs tier set fast --hours N --reason "fast-mode.sh"`，`off` 转 `tier set standard`，`status` 转 `tier status`。
+
+### A.2 判定函数（**单一解析器**：`.claude/hooks/lib/tier.mjs`，引擎 `quality.mjs` / `memory.mjs` / `evidence.mjs` 从这里 import，不再各自解析——引擎依赖 hook lib 这个方向可以，反过来不行）
+
+```
+effectiveTier({ projectDir, now })
+  → { tier, source: 'default'|'session'|'raise', raisedBy?: [paths…], expiresEpoch? }
+  规则：base = session 覆盖（未过期）?? profile.default；raise = 工作树 `git status --porcelain -z` 里任一路径命中 raise.paths → raise.to；
+        effective = 秩更高者（fast<standard<strict）。git 不可用 → 不抬、source 照 base。
+gateMode(hookId, ctx?)
+  → 'off'|'advise'|'block'|'on'
+  规则：floor 含 hookId → 'block'（guard）或 'on'（recorder）；overrides 含 → 取之；否则 profile.hooks[hookId][effectiveTier]；
+        hookId 不在表内 → 'block'/'on'（未登记的闸按最严跑，并 stderr 提醒一次）。
+fastModeActive()   // 兼容旧调用方：effectiveTier().tier === 'fast'
+```
+
+hook 侧用法（D 阶段先按此写，A 阶段只换 `fastmode.mjs` → `tier.mjs`）：
+```js
+import { gateMode } from './lib/tier.mjs';
+const mode = gateMode('stop-gate');
+if (mode === 'off') process.exit(0);
+// … 判定 …
+if (shouldBlock) mode === 'block' ? block(reason) : advise(reason);   // advise = additionalContext/stderr + gateLog，exit 0
+```
+D 阶段的 `fastmode.mjs` 暴露同名 `gateMode(id)`：`fastModeActive() && !FLOOR.has(id) ? 'off' : (GUARDS.has(id) ? 'block' : 'on')`——这样 D 的 22 个 hook 一次写对，A 只换 lib 不碰 hook。
+
+### A.3 引擎 `tier` 子命令（`lib/tier.mjs` 薄封装，逻辑在 hooks/lib/tier.mjs）
+
+| 子命令 | 行为 | 退出码 |
+|---|---|---|
+| `tier status` | 打印 effectiveTier + 来源 + 过期 + 每 hook 模式表 | 0 |
+| `tier set <fast\|standard\|strict> [--hours N] [--reason …]` | 写 `.runtime/tier.json`；`fast` 无 `--reason` 拒；`--hours` 只对 fast 有效且 ≤ 8；同时 `gateLog('tier', 'set fast … until …')` | 0 / 2 用法错 |
+| `tier explain [hook-id]` | 打印该闸在三档各是什么、当前生效值、来源（default / session / raise / override / floor） | 0 / 2 未知 id |
+| `tier validate` | 校验 profile.json：三档单调（每 hook fast ≤ standard ≤ strict）、floor 不在表内、kind 与取值匹配、raise.to 合法、未知字段报错 | 0 / 1 违规 |
+| `fast` 类旧命令 | 无（本仓从没有 `fast` 子命令） | — |
+
+`risk` 的 `GOVERNANCE_SURFACE_CHANGED` 改读 `profile.raise.paths`（同一份表）。`invariants` 输出里的 Fast Mode 段改成 tier 段（「fast 开着 = 债」措辞保留）。`release` 的 `fast-mode` 项改名 `tier`：effective ≠ fast 才 PASS。`dod` 加一步 `tier validate`。
+
+### A.4 分批
+
+| 批 | 内容 | 判据 |
+|---|---|---|
+| A-T | tester 造红：`test-tier.sh`（validate 的每条规则一正一反；set 的 8h 截断 / 无 reason 拒 / 过期回默认；explain 来源标注；raise 命中家底路径自动 strict；floor 不受 fast 影响；overrides 生效并被 explain 标出；CRLF/坏 JSON 留痕）+ `test-hooks-node.sh` 增补「三档下 6 个代表 hook 的行为矩阵」（stop-gate / tdd-gate / mark-review-needed / secret-exfil-guard / record-authorship / harness-async-verify） | 红数 ≥ 40 |
+| A-1 | `hooks/lib/tier.mjs` + `profile.json` + 引擎 `tier` 子命令 + 三处 fast-mode 解析点收编 + `fast-mode.sh/.ps1` 薄壳 + `risk` / `invariants` / `release` / `dod` 接线 + golden 归因重录 + docs（CLAUDE.md Fast Mode 段改 tier 段、harness-large-repo.md 加 `tier`） | 全绿；golden 差异逐条归因 |
+| A-R | code-reviewer 三阶段 | PASS |
+| A-V | 反向验证：改 profile 让 standard < fast → validate 必红；删 floor 判断 → secret-exfil-guard 在 fast 下必仍拦 | 2/2 |
 
 ## Phase B / C / E：待排
