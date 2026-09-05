@@ -29,6 +29,7 @@ const GUARDS = new Set([
   'release-gate',
   'secret-exfil-guard',
   'stop-gate',
+  'tdd-gate',            // 只提醒不拦，但按 Phase A 的 kind=guard 归这一档
   'three-file-sync-gate',
 ]);
 
