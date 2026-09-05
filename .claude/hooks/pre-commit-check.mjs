@@ -10,9 +10,10 @@
 //     逐文件循环编译（一次塞完整列表会撞命令行长度上限），且**只有输出含 SyntaxError 才拦**，
 //     其余非零（stub、文件没了、环境坏）一律降级跳过。
 //   - 大仓四态门：catalog 存在才启用，契约外退出码 = 引擎崩了，放行就是假绿
+//   - 档位（profile.json）：off 静默放行；advise（fast 档）照跑照报但不 exit 2；block 走原逻辑
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinJson, git, run, say, errText, fastOff } from './lib/io.mjs';
+import { projectDir, readStdinJson, git, run, say, errText, gateModeOf } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
@@ -55,7 +56,8 @@ function probePython(cwd) {
 }
 
 async function main() {
-  if (await fastOff('pre-commit-check')) return;
+  const mode = await gateModeOf('pre-commit-check');
+  if (mode === 'off') return;
 
   // 脚本内自判触发命令：非 git commit 输入直接放行
   const ev = readStdinJson();
@@ -154,6 +156,12 @@ async function main() {
   }
 
   if (fail) {
+    // advise 档（fast）：门跑了、也说了不过，但不拦这次 commit——欠账记账本，别悄悄咽下去
+    if (mode === 'advise') {
+      say('[fast] 以上编译/语法门禁未通过，fast 档不拦本次 commit——欠账仍在，回 standard 前请修掉。');
+      gateLog('pre-commit-check', '[fast] 编译/语法门禁未通过，advise 档放行 commit');
+      return;
+    }
     gateLog('pre-commit-check', '编译/语法门禁未通过，commit 被阻止');
     process.exitCode = 2;
   }

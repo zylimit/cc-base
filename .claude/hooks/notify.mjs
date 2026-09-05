@@ -4,7 +4,7 @@
 // （OSC 777 桌面通知 + BEL 响铃），经 hook JSON 的 terminalSequence 字段由 Claude Code
 // 代发（hook 进程无 /dev/tty，直写会失败；terminalSequence 是官方指定通道）。
 // Notification 事件忽略退出码与 stderr，terminalSequence 照常生效。
-// 不拦任何东西，纯可见性；不吃 fast-mode——快速模式不是「不用通知我」。
+// 不拦任何东西，纯可见性；地板闸（profile.floor），任何档位都改不了——fast 档不是「不用通知我」。
 import { readStdinJson, emit } from './lib/io.mjs';
 
 const OSC = '\u001b]777;notify;Claude Code;';

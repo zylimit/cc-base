@@ -3,7 +3,7 @@
 // 与 pre-commit-check 的关系：commit 闸仍是同步硬门；本 hook 在两次 commit 之间的编辑期
 // 后台跑同一套 harness verify（四态门+五性证据门），FAIL/BLOCKED 时 exit 2 唤醒主 Agent
 // 读 stderr 摘要——失败早暴露（fail-visible），不挤占交互时延。
-// 启用条件与降级：catalog 存在才跑（大仓治理默认关闭）；fast-mode 放行（质量闸）；
+// 启用条件与降级：catalog 存在才跑（大仓治理默认关闭）；档位 off（fast 档）静默放行（质量闸）；
 // 180 秒防抖（.async-verify-last 记上次运行 epoch，异步并发场景先写后跑防风暴）；标记写不下时
 // 防抖是永久失效而非多跑一次，那一行诊断必须留下，不吞。
 // 摘要预算：只回 gate + 失败/受阻 check 前 5 条 + 属性缺口计数，不贴全量 JSON。

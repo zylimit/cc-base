@@ -10,7 +10,7 @@
 // 守卫（压缩已经发生了，拦也没用；但不许静默）：
 //   - 引擎缺失 / 退出码不在 0|3 契约内 → 打可见的降级说明（systemMessage），退出 0 不阻断；
 //   - 引擎输出解析不出来 → 同上，说清是哪一步没成，别让人以为不变量已经回来了。
-// 不吃 fast-mode：压缩已经把约束删了，这跟赶不赶进度没关系。
+// 地板闸（profile.floor），任何档位都改不了：压缩已经把约束删了，这跟赶不赶进度没关系。
 import fs from 'node:fs';
 import { projectDir, readStdinRaw, emit } from './lib/io.mjs';
 import { harnessEntry, harnessRun, rcInContract } from './lib/harness.mjs';

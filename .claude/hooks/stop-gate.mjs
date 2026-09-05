@@ -9,11 +9,13 @@
 // 放行契约（向后兼容）：审查通过后 `echo clean > .claude/.needs-review` 即可。
 // 删状态文件一律 rmSync(..., {force:true})：删不掉又被静默吞掉时 .stop-gate-strikes 会残留，
 //   下一轮同一清单立刻撞上限提前放行——闸把自己关了（历史缺陷 81c63c9）。
+// 档位（profile.json）：off 静默放行；advise（fast 档）照判照记账，但出 systemMessage 而不是
+//   decision:block，也不动 .needs-review 与连拦计数；block（standard/strict）走上面全部逻辑。
 // fail-closed：闸自身出错（含状态文件清理失败）绝不静默放行，一律拦停。不读 stdin。
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { projectDir, readTextFile, pendingReviewLines, emit, fastOff, runFailClosed } from './lib/io.mjs';
+import { projectDir, readTextFile, pendingReviewLines, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
@@ -39,6 +41,16 @@ function blockWith(reason) {
   emit({ decision: 'block', reason });
 }
 
+/**
+ * advise 档（fast）：同一段话照说、照记账，只是不拦。
+ * 不 block ≠ 不吭声——欠账得看得见，gate-audit 也要统计得出「fast 开着跳过了什么」。
+ */
+function adviseWith(reason) {
+  const msg = `[fast] ${reason}`;
+  gateLog('stop-gate', msg);
+  emit({ systemMessage: msg });
+}
+
 /** 达连拦上限时的放行：不是「过了」，是欠账带着放行，必须让人看见。 */
 function releaseWith(notice) {
   gateLog('stop-gate', notice);
@@ -46,7 +58,11 @@ function releaseWith(notice) {
 }
 
 runFailClosed(async () => {
-  if (await fastOff('stop-gate')) return;
+  const mode = await gateModeOf('stop-gate');
+  if (mode === 'off') return;
+  // advise 档只换出口形态（systemMessage 而不是 decision:block），判定与状态文件一个都不少
+  const advise = mode === 'advise';
+  const decide = (reason) => (advise ? adviseWith(reason) : blockWith(reason));
 
   const root = projectDir();
   const stateFile = path.join(root, '.claude', '.needs-review');
@@ -70,21 +86,21 @@ runFailClosed(async () => {
       const rv = harnessRun(['receipt', 'verify'], { cwd: root });
       const rc = rv.status;
       if (rc === 4) {
-        blockWith('代码在上次审查后又有改动，无匹配的已通过回执（diff 已越过所有已审回执）。请重新派 code-reviewer 审查当前改动并写回执后再停止。');
+        decide('代码在上次审查后又有改动，无匹配的已通过回执（diff 已越过所有已审回执）。请重新派 code-reviewer 审查当前改动并写回执后再停止。');
         return;
       }
       if (!rcInContract(rc, 0, 3)) {
         // 连拦计数复用同一状态文件，sig 按退出码记（码一变即清零重计），与待审清单那套互不串味
         const hsig = `harness-receipt-verify-rc${rc}`;
-        const strikes = readStrikes(strikeFile, hsig);
+        const strikes = advise ? 0 : readStrikes(strikeFile, hsig);
         const head = errHead(rv.stderr) || '（引擎无 stderr 输出）';
         if (strikes >= 3) {
           fs.rmSync(strikeFile, { force: true });
           releaseWith(`stop-gate：harness receipt verify 连续 3 次以契约外退出码 ${rc} 退出（引擎异常，不是回执过期），达连拦上限本次放行——但回执绑定始终没被验过，欠账仍在，请尽快修引擎：node .claude/harness/harness.mjs receipt verify。引擎报错：${head}`);
           return;
         }
-        writeStrikes(strikeFile, hsig, strikes + 1);
-        blockWith(`stop-gate：harness receipt verify 以契约外退出码 ${rc} 退出（契约只有 0/3/4），回执闸没跑成——这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是回执过期。跑 node .claude/harness/harness.mjs receipt verify 看真实报错，修好引擎再停止。引擎报错：${head}`);
+        if (!advise) writeStrikes(strikeFile, hsig, strikes + 1);
+        decide(`stop-gate：harness receipt verify 以契约外退出码 ${rc} 退出（契约只有 0/3/4），回执闸没跑成——这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是回执过期。跑 node .claude/harness/harness.mjs receipt verify 看真实报错，修好引擎再停止。引擎报错：${head}`);
         return;
       }
     }
@@ -98,13 +114,14 @@ runFailClosed(async () => {
   const inline = files.join('、');
 
   // 连拦计数：只对同一待审清单指纹累加，清单一变即清零重计（顺序无关，先排序再算）
+  // advise 档不累计连拦：它压根没拦，攒下的次数只会让下一轮真拦时提前触顶放行
   const sig = crypto.createHash('sha256').update([...files].sort().join('\n')).digest('hex');
-  const strikes = readStrikes(strikeFile, sig);
+  const strikes = advise ? 0 : readStrikes(strikeFile, sig);
   if (strikes >= 3) {
     fs.rmSync(strikeFile, { force: true });
     releaseWith(`stop-gate：同一待审清单连续拦截已达 3 次上限，本次放行——但待审清单未清空（${count} 个欠账仍在：${inline}），条件允许时务必尽快派 code-reviewer 审查。`);
     return;
   }
-  writeStrikes(strikeFile, sig, strikes + 1);
-  blockWith(`代码已修改但未 code review（${count} 个待审文件：${inline}）。请派发 code-reviewer sub-agent 两阶段审查；通过后执行 echo clean > .claude/.needs-review 放行。`);
+  if (!advise) writeStrikes(strikeFile, sig, strikes + 1);
+  decide(`代码已修改但未 code review（${count} 个待审文件：${inline}）。请派发 code-reviewer sub-agent 两阶段审查；通过后执行 echo clean > .claude/.needs-review 放行。`);
 }, 'stop-gate 自检失败，fail-closed 拦停——请修复闸/状态文件后重试停止。');

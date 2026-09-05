@@ -8,15 +8,17 @@
 //     auto 压缩可能是上下文触顶的恢复动作，拦第二次只会让请求反复失败；
 //   - 脚本自身出错 fail-open 放行（拦不住压缩顶多丢注记，拦死压缩会卡死整个会话）。
 // 状态干净 / 非 git / 无 progress.md → 放行并清标记。
+// 档位（profile.json）：off 静默放行；advise（fast 档）出 systemMessage + 记账不拦；block 走原逻辑。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinRaw, readTextFile, pendingReviewFiles, git, emit, fastOff, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinRaw, readTextFile, pendingReviewFiles, git, emit, gateModeOf, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 const COOLDOWN_SECONDS = 600;
 
 runFailOpen(async () => {
-  if (await fastOff('precompact-gate')) return;
+  const mode = await gateModeOf('precompact-gate');
+  if (mode === 'off') return;
 
   // 消费 stdin（trigger/custom_instructions 本闸不区分，manual/auto 同一判定）
   readStdinRaw();
@@ -87,6 +89,13 @@ runFailOpen(async () => {
   try { fs.mkdirSync(path.dirname(mark), { recursive: true }); fs.writeFileSync(mark, `${now}\n`); } catch (_e) { /* 冷却标记写不成只会多拦一次 */ }
 
   const reason = `压缩前守门：${dirtyReason}。压缩会把对话正文换成摘要，这些状态最容易随之蒸发——请先派 progress-recorder /record 固化决策/完成事项（待审项处理或显式记欠账），再重试压缩。本次拦截后 10 分钟内不会再拦。`;
+  // advise 档（fast）：同一段话照说、照记账，只是不拦压缩
+  if (mode === 'advise') {
+    const msg = `[fast] ${reason}`;
+    gateLog('precompact-gate', msg);
+    emit({ systemMessage: msg });
+    return;
+  }
   gateLog('precompact-gate', reason);
   emit({ decision: 'block', reason });
 });

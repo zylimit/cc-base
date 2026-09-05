@@ -6,7 +6,7 @@
 //   R3 环境变量外传：env/printenv/set 输出管进 curl/wget/nc
 // wrapper 剥壳：先剥 sudo/nohup/nice/timeout/env 前缀与 bash -c 引号壳再判——套壳绕闸是
 // 已知逃逸路径（借鉴 codex-base v3），原文与剥壳后两个形态都要过检。
-// 本闸属安全护栏：fast-mode 不放行（放水不放安全），所以这里根本不问那个开关。
+// 本闸属安全护栏，是地板闸（profile.floor）：任何档位都放行不了（放水不放安全），所以这里根本不问档位。
 // 输入解析不出命令时降级放行（与 dangerous-pkill-guard 同一取舍——无解析能力时不误伤正常命令）。
 import { readStdinJson, say, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';

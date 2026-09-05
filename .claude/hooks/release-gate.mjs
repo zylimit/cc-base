@@ -4,7 +4,7 @@
 //   - .needs-review 有待审文件 → block（review→fix 闭环没走完，不许进发布流程）
 //   - 干净 → 放行，并注入 additionalContext 提醒发布前置卡点（测试全绿运行清单 /
 //     打包禁跳步 / 部署三件套独立验收）
-// 发布卡点不吃 fast-mode 豁免（CLAUDE.md：Fast Mode 不等于部署或 push 授权）。
+// 发布卡点是地板闸（profile.floor），任何档位都改不了（CLAUDE.md：Fast Mode 不等于部署或 push 授权）。
 // fail-open：本闸出错放行（发布流程自身还有 test-builder 卡点与 HIGH 档审批兜底）。
 import { projectDir, readStdinJson, pendingReviewFiles, emit, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';

@@ -1,0 +1,333 @@
+// tier.mjs — 档位（fast / standard / strict）的**单一解析器**：一个闸此刻是 off / advise / block / on
+// 只在这里算一次。hook 从这里取，引擎（quality / memory / evidence）也从这里 import——
+// 依赖方向只许「引擎 → hook lib」，反过来不行（hook 与引擎是进程级隔离，见 io.mjs 头注释）。
+// #38 的根因就是同一个开关被三处各解析一遍，一边判开一边判关；这份文件的存在就是不让它重演。
+//
+// 三个输入，合并规则「只抬不降」（秩 fast < standard < strict，取高者）：
+//   ① profile.default      —— .claude/harness/profile.json 的默认档
+//   ② 会话覆盖             —— .claude/.runtime/tier.json（未过期才算数，只有 `tier set` 写）
+//   ③ 治理面自动升档       —— 工作树里改了 raise.paths 命中的家底文件 → 抬到 raise.to
+// 地板（floor）在这三者之外：安全护栏 / 发布授权 / 压缩后回注 / 通知，profile 只能往里加、不能往外拿。
+//
+// **档位是否启用，看 profile.json 在不在**（与「catalog 在不在决定大仓治理是否启用」同构）：
+//   - 在  → 按三档表跑，旧的 .claude/.fast-mode 一概不读（留着的老开关文件不许悄悄放水）；
+//   - 不在 → 档位未启用，整套退回 Phase D 语义：读 .fast-mode，开着则非地板闸静默放行，
+//            关着走 standard 列。判定来源是 fastmode.mjs，**静态 import**：那份文件缺了，
+//            本模块随之加载失败，调用方（io.gateModeOf）退到 standard 列走严格——
+//            「少一个文件 = 闸整个消失」是这条链上最贵的静默失效，宁可整模块起不来也不装没事。
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fastModeActive as legacyFlagActive } from './fastmode.mjs';
+
+export const TIERS = ['fast', 'standard', 'strict'];
+
+/** 档位秩：越大越严。不认识的档返回 -1（调用方按未知处理，不当成 fast）。 */
+export function rank(tier) {
+  return TIERS.indexOf(String(tier));
+}
+
+/** 分发包里的 profile.json 内容；缺文件 / 坏 JSON 时用它，行为与「照原样装了一份」一致。 */
+export const DEFAULT_PROFILE = {
+  version: 1,
+  default: 'standard',
+  floor: ['secret-exfil-guard', 'dangerous-pkill-guard', 'release-gate', 'postcompact-reinject', 'notify'],
+  hooks: {
+    'stop-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'three-file-sync-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'precompact-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'pre-commit-check': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'no-direct-code-guard': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'tdd-gate': { kind: 'guard', fast: 'off', standard: 'advise', strict: 'block' },
+    'harness-async-verify': { kind: 'guard', fast: 'off', standard: 'block', strict: 'block' },
+    'mark-review-needed': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'record-authorship': { kind: 'recorder', fast: 'on', standard: 'on', strict: 'on' },
+    'auto-push': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'kill-dev-ports': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'subagent-acceptance-reminder': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'detect-feedback-signal': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'check-evolution': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'recap-on-dirty': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'session-rules-banner': { kind: 'recorder', fast: 'on', standard: 'on', strict: 'on' },
+  },
+  raise: {
+    to: 'strict',
+    paths: ['.claude/hooks/**', '.claude/harness/**', '.claude/skills/**', '.claude/agents/**',
+      '.claude/CLAUDE.md', '.claude/rules/**', '.claude/settings.json', '.github/**'],
+  },
+  overrides: {},
+};
+
+/**
+ * 结构上的地板：任何 profile 都拿不掉。profile.floor 只能在此基础上**再加**——
+ * 用户把某闸从 floor 里删掉就能让它吃 fast，那 floor 就只是一句措辞而不是地板了。
+ */
+const BUILTIN_FLOOR = new Set(DEFAULT_PROFILE.floor);
+
+/** 以 decision:block 或 exit 2 表态的闸；其余是记账/提醒类。未登记 id 按种类取最严值时要用它。 */
+const GUARDS = new Set([
+  'dangerous-pkill-guard',
+  'harness-async-verify',
+  'no-direct-code-guard',
+  'pre-commit-check',
+  'precompact-gate',
+  'release-gate',
+  'secret-exfil-guard',
+  'stop-gate',
+  'tdd-gate',
+  'three-file-sync-gate',
+]);
+
+const GUARD_MODES = new Set(['off', 'advise', 'block']);
+const RECORDER_MODES = new Set(['off', 'on']);
+
+/** 项目根：CLAUDE_PROJECT_DIR → git 顶层 → cwd（与 io.projectDir 同语义，但本模块不 import io，避免环）。 */
+function defaultRoot() {
+  const env = process.env.CLAUDE_PROJECT_DIR;
+  if (env) return env;
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { shell: false, encoding: 'utf8' });
+  if (top.status === 0 && String(top.stdout || '').trim()) return String(top.stdout).trim();
+  return process.cwd();
+}
+
+/**
+ * 隔离账本：坏掉的状态文件记一行就走，绝不改变调用方的判决，也绝不抛
+ * （抄 core.mjs recordCorruptState 的形态，不 import）。
+ * 同一进程同一文件只记一次：一次 hook 里判定会被问好几遍，一份坏文件记成三条会把
+ * 「坏了几个文件」这个数直接算错。
+ */
+const quarantined = new Set();
+function quarantine(root, kind, file, reason) {
+  if (quarantined.has(file)) return;
+  quarantined.add(file);
+  try {
+    const fp = path.join(root, '.claude', 'harness', 'state', 'quarantine.jsonl');
+    const rel = path.relative(root, file).split(path.sep).join('/') || file;
+    fs.mkdirSync(path.dirname(fp), { recursive: true });
+    fs.appendFileSync(fp, JSON.stringify({
+      ts: new Date().toISOString(),
+      kind: String(kind),
+      path: rel,
+      reason: String(reason).slice(0, 500),
+    }) + '\n', 'utf8');
+  } catch (_e) {
+    /* 账本写不成最多少一条审计，不能让它把判定掀了 */
+  }
+}
+
+/**
+ * 读 profile.json。
+ * @returns {{profile:object, present:boolean, corrupt:boolean, path:string}}
+ *   present = 档位是否启用（文件在不在）。坏 JSON 仍算「在」：一份读不懂的 profile 不该悄悄
+ *   把旧 .fast-mode 通道打开——那正好是「以为自己在严格档、其实全放行」的形态。
+ */
+export function loadProfile(root = defaultRoot()) {
+  const fp = path.join(root, '.claude', 'harness', 'profile.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(fp, 'utf8');
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { profile: DEFAULT_PROFILE, present: false, corrupt: false, path: fp };
+    quarantine(root, 'profile', fp, `读不出来：${(e && e.code) || 'IO'}`);
+    return { profile: DEFAULT_PROFILE, present: true, corrupt: true, path: fp };
+  }
+  try {
+    const v = JSON.parse(raw.replace(/\r/g, ''));
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('不是 JSON 对象');
+    return { profile: v, present: true, corrupt: false, path: fp };
+  } catch (e) {
+    quarantine(root, 'profile', fp, `坏 JSON，按内置默认档位表跑：${(e && e.message) || e}`);
+    return { profile: DEFAULT_PROFILE, present: true, corrupt: true, path: fp };
+  }
+}
+
+/**
+ * 读运行态会话覆盖 .claude/.runtime/tier.json。
+ * 缺文件 / 已过期 / 档名非法 → null（视为无覆盖，回默认档）；坏 JSON → null + quarantine 留痕。
+ * 读之前先剥 \r：Windows 侧写出的 CRLF 是合法输入，不许因为行尾把整份判成坏文件（#38）。
+ * @returns {{tier:string,reason?:string,by?:string,set_epoch?:number,expires_epoch?:number}|null}
+ */
+export function readSession(root = defaultRoot(), now = Date.now()) {
+  const fp = path.join(root, '.claude', '.runtime', 'tier.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(fp, 'utf8');
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return null;
+    quarantine(root, 'tier', fp, `读不出来：${(e && e.code) || 'IO'}`);
+    return null;
+  }
+  let v;
+  try {
+    v = JSON.parse(raw.replace(/\r/g, ''));
+  } catch (e) {
+    quarantine(root, 'tier', fp, `坏 JSON，本次视为无覆盖回默认档：${(e && e.message) || e}`);
+    return null;
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v) || rank(v.tier) < 0) {
+    quarantine(root, 'tier', fp, `档位字段非法（tier=${v && v.tier}），本次视为无覆盖回默认档`);
+    return null;
+  }
+  const exp = Number(v.expires_epoch);
+  if (Number.isFinite(exp)) {
+    if (exp * 1000 <= now) return null;                 // 到期自动失效，不靠人记得关
+  } else if (v.tier === 'fast') {
+    return null;                                        // fast 必须带过期（A.1 硬上限 8h）；没有就不认这份覆盖
+  }
+  return v;
+}
+
+/** glob 转正则：两个星号加斜杠跨目录、结尾两个星号全匹、单星号只吃一段、`?` 单字符，其余字面量转义。 */
+function globToRe(glob) {
+  let re = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        if (glob[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } else { re += '.*'; i += 1; }
+      } else {
+        re += '[^/]*';
+      }
+    } else if (c === '?') {
+      re += '[^/]';
+    } else {
+      re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${re}$`);
+}
+
+/** 工作树改动路径（含未跟踪）。git 不可用 / 跑不成 → 空数组（不抬，不是抬）。 */
+const dirtyCache = new Map();
+function dirtyPaths(root) {
+  if (dirtyCache.has(root)) return dirtyCache.get(root);
+  // -uall 不能省：未跟踪目录默认会被折叠成一条 `?? .claude/`，`.claude/hooks/**` 就永远命不中，
+  // 治理面升档在「家底目录整个还没进版本库」的项目里等于不存在。
+  const st = spawnSync('git', ['status', '--porcelain', '-z', '-uall'], { shell: false, encoding: 'utf8', cwd: root });
+  const out = [];
+  if (st.status === 0) {
+    // -z 形态：每条记录 `XY <path>`，R/C 另跟一条裸旧路径——必须按 NUL 切，不能按行读。
+    const recs = String(st.stdout || '').split('\0');
+    for (let i = 0; i < recs.length; i++) {
+      const rec = recs[i];
+      if (!rec) continue;
+      const status = rec.slice(0, 2);
+      out.push(rec.slice(3));
+      if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
+        i += 1;
+        if (recs[i]) out.push(recs[i]);
+      }
+    }
+  }
+  dirtyCache.set(root, out);
+  return out;
+}
+
+/** 工作树里命中 raise.paths 的路径（点名用；空数组 = 不抬）。 */
+function raisedBy(root, profile) {
+  const raise = (profile && profile.raise) || {};
+  const pats = Array.isArray(raise.paths) ? raise.paths : [];
+  if (!pats.length || rank(raise.to) < 0) return [];
+  const res = pats.map(globToRe);
+  return dirtyPaths(root).filter((p) => res.some((re) => re.test(p)));
+}
+
+/**
+ * 当前生效档位。
+ * @returns {{tier:string, source:'default'|'session'|'raise'|'legacy', raisedBy?:string[], expiresEpoch?:number}}
+ *   source=legacy 只出现在「档位未启用（无 profile.json）且旧 .fast-mode 还开着」这一种兼容形态。
+ */
+export function effectiveTier({ projectDir = defaultRoot(), now = Date.now() } = {}) {
+  const { profile, present } = loadProfile(projectDir);
+
+  if (!present) {
+    return legacyFlagActive(projectDir)
+      ? { tier: 'fast', source: 'legacy' }
+      : { tier: 'standard', source: 'default' };
+  }
+
+  const session = readSession(projectDir, now);
+  let tier = session ? session.tier : (rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default);
+  let source = session ? 'session' : 'default';
+  const out = { tier, source };
+  if (session && Number.isFinite(Number(session.expires_epoch))) out.expiresEpoch = Number(session.expires_epoch);
+
+  const raise = (profile.raise || {});
+  if (rank(raise.to) > rank(tier)) {
+    const hits = raisedBy(projectDir, profile);
+    if (hits.length) {
+      out.tier = raise.to;
+      out.source = 'raise';
+      out.raisedBy = hits;
+    }
+  }
+  return out;
+}
+
+/** 某 hook 的种类（登记表优先，未登记按 GUARDS 兜底）。 */
+function isGuard(id, profile) {
+  const row = profile && profile.hooks && profile.hooks[id];
+  if (row && row.kind) return row.kind === 'guard';
+  return GUARDS.has(id);
+}
+
+/** 某种类的最严值：未登记的闸按最严跑，不会因为漏登记就静默。 */
+function strictestFor(guard) {
+  return guard ? 'block' : 'on';
+}
+
+/** standard 列（档位未启用时的取值，也是「判定库都没了」时调用方的兜底口径）。 */
+function standardOf(id) {
+  const row = DEFAULT_PROFILE.hooks[id];
+  return row ? row.standard : strictestFor(GUARDS.has(id));
+}
+
+const warned = new Set();
+function warnUnregistered(id) {
+  if (warned.has(id)) return;
+  warned.add(id);
+  try { fs.writeSync(2, `[tier] 闸 ${id} 不在 profile.hooks 表里，本次按最严档跑；请补登记或确认它是否属于 floor。\n`); } catch (_e) { /* 提醒发不出去不影响判定 */ }
+}
+
+/**
+ * 这个闸此刻该怎么跑：'off' 静默放行 / 'advise' 只提醒记账不拦 / 'block' 按拦停闸跑 / 'on' 按记账跑。
+ * 优先级：floor → overrides → 档位表；floor 永远拦，overrides 是用户的最终话语权（explain 会标出来）。
+ * @param {string} id hook id（= 文件名去后缀）
+ * @param {{projectDir?:string, now?:number}} [ctx]
+ */
+export function gateMode(id, ctx = {}) {
+  const root = ctx.projectDir || defaultRoot();
+  const { profile, present } = loadProfile(root);
+  const guard = isGuard(id, profile);
+
+  const floor = Array.isArray(profile.floor) ? profile.floor : [];
+  if (BUILTIN_FLOOR.has(id) || floor.includes(id)) return strictestFor(guard);
+
+  // 档位未启用 → Phase D 语义（.fast-mode 开着就静默放行，关着走 standard 列）
+  if (!present) return legacyFlagActive(root) ? 'off' : standardOf(id);
+
+  const legal = guard ? GUARD_MODES : RECORDER_MODES;
+  const ov = profile.overrides && profile.overrides[id];
+  if (typeof ov === 'string' && legal.has(ov)) return ov;
+
+  const row = profile.hooks && profile.hooks[id];
+  if (!row) { warnUnregistered(id); return strictestFor(guard); }
+
+  // 省掉一次 git status：raise 只会往上抬，若本闸在「当前档」与「可能被抬到的档」上取值相同，
+  // 探不探工作树都是同一个答案。默认档下这一条让绝大多数 PostToolUse hook 完全不碰 git。
+  const session = readSession(root, ctx.now);
+  const base = session ? session.tier : (rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default);
+  const to = (profile.raise || {}).to;
+  const pick = (t) => {
+    const v = row[t];
+    return (typeof v === 'string' && legal.has(v)) ? v : strictestFor(guard);
+  };
+  if (rank(to) <= rank(base) || pick(to) === pick(base)) return pick(base);
+
+  return pick(effectiveTier({ projectDir: root, now: ctx.now }).tier);
+}
+
+/** 兼容旧调用方：现在「fast 档」就是过去的「fast-mode 开着」。 */
+export function fastModeActive(ctx = {}) {
+  return effectiveTier(ctx).tier === 'fast';
+}

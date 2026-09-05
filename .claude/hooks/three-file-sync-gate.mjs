@@ -9,15 +9,18 @@
 // 项目根解析：CLAUDE_PROJECT_DIR 优先，缺失回退 git root，再回退 pwd。
 // 子目录场景：项目只是父仓子目录时（show-prefix 非空），status 加 -- . 限定项目子树，
 //   记录路径先剥 show-prefix 前缀再分类，剥不掉的跳过；项目即仓根时前缀为空、行为不变。
+// 档位（profile.json）：off 静默放行；advise（fast 档）照判照记账但出 systemMessage 不 block；
+//   block（standard/strict）走原逻辑。
 // fail-closed：闸自身出错（含 git status 跑不成）绝不静默放行，一律拦停——树没被看过就不能
 //   当成「树是干净的」。不读 stdin：判定只来自工作树，喂什么都不影响结论。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, git, emit, fastOff, runFailClosed } from './lib/io.mjs';
+import { projectDir, git, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 runFailClosed(async () => {
-  if (await fastOff('three-file-sync-gate')) return;
+  const mode = await gateModeOf('three-file-sync-gate');
+  if (mode === 'off') return;
 
   const root = projectDir();
   if (!fs.existsSync(path.join(root, 'progress.md'))) return;
@@ -101,6 +104,13 @@ runFailClosed(async () => {
   if (reasons.length === 0) return;
 
   const reason = reasons.join(' ');
+  // advise 档（fast）：同一段话照说、照记账，只是不拦——欠账得看得见
+  if (mode === 'advise') {
+    const msg = `[fast] ${reason}`;
+    gateLog('three-file-sync-gate', msg);
+    emit({ systemMessage: msg });
+    return;
+  }
   gateLog('three-file-sync-gate', reason);
   emit({ decision: 'block', reason });
 }, 'three-file-sync-gate 自检失败，fail-closed 拦停——请修复闸后重试停止。');

@@ -1,4 +1,4 @@
-// io.mjs — hook 侧最小 I/O 契约（stdin / stdout / stderr / 退出码 / 外部命令 / 路径 / fast-mode 总闸）。
+// io.mjs — hook 侧最小 I/O 契约（stdin / stdout / stderr / 退出码 / 外部命令 / 路径 / 档位总闸）。
 //
 // 故意不 import .claude/harness/lib/*：hook 与引擎是**进程级隔离**，引擎的 lib/ 被删时
 // hook 必须还起得来、还能判出「引擎跑不成」——若直接 import 引擎代码，缺 lib/ 会让 hook
@@ -154,16 +154,30 @@ export function runFailOpen(main) {
   }
 }
 
+/** 判定库整个加载不了时的兜底口径 = standard 列。只列与「按种类取最严」不同的那一条，别在这里养第二张表。 */
+const FALLBACK_GUARDS = new Set([
+  'dangerous-pkill-guard', 'harness-async-verify', 'no-direct-code-guard', 'pre-commit-check',
+  'precompact-gate', 'release-gate', 'secret-exfil-guard', 'stop-gate', 'tdd-gate', 'three-file-sync-gate',
+]);
+const FALLBACK_ADVISE = new Set(['tdd-gate']);
+
 /**
- * fast-mode 总闸：这个闸此刻该不该静默放行。
- * 动态 import 而不是静态——fastmode 库缺失时按严格跑（不崩、也不静默放行）。
- * 15 个 hook 共用这一份：Phase A 换 tier.mjs 时只改这里，挨个改漏一个就是一个静默走旧档的闸。
+ * 档位总闸：这个闸此刻该怎么跑（'off' 静默 / 'advise' 只提醒 / 'block' 拦停 / 'on' 记账）。
+ * 动态 import 而不是静态——tier 判定库缺失/损坏时不许把 hook 自己带崩，退到 standard 列走严格：
+ * 不放行，也不把只提醒的闸擅自升成硬拦（少一个文件不该改变闸的性质）。
+ * 全部非地板 hook 共用这一份：换档位实现时只改这里，挨个改漏一个就是一个静默走旧档的闸。
  */
-export async function fastOff(hookId) {
+export async function gateModeOf(hookId) {
   try {
-    const m = await import('./fastmode.mjs');
-    return m.gateMode(hookId) === 'off';
+    const m = await import('./tier.mjs');
+    return m.gateMode(hookId);
   } catch (_e) {
-    return false;
+    if (FALLBACK_ADVISE.has(hookId)) return 'advise';
+    return FALLBACK_GUARDS.has(hookId) ? 'block' : 'on';
   }
+}
+
+/** 只关心「要不要静默放行」的闸用这个（= gateModeOf 的 off 分支），三态闸直接用 gateModeOf。 */
+export async function fastOff(hookId) {
+  return (await gateModeOf(hookId)) === 'off';
 }
