@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // check-syntax.mjs -- does every framework asset still parse?
 //
-// cc-base ships behaviour as configuration: hooks are .sh/.ps1, the engine is .mjs,
+// cc-base ships behaviour as configuration: hooks and the engine are both .mjs,
 // wiring is .json, and every skill and agent is a Markdown file whose YAML
 // frontmatter decides whether it is loaded at all. A file that cannot be parsed
 // cannot do its job, and the expensive part is that most of these failures are
@@ -28,8 +28,9 @@
 //           checker, or a frontmatter construct outside the subset this checker
 //           can rule on.
 // A missing checker (no bash, no pwsh) is SKIPPED, and SKIPPED is not a pass:
-// 26 .ps1 files nobody parsed used to come out as exit 0 ok:true, which is the
-// exact sentence "we checked and it is fine" for a class that was never opened.
+// a whole class of .ps1 files nobody parsed used to come out as exit 0 ok:true,
+// which is the exact sentence "we checked and it is fine" for a class that was
+// never opened.
 // Skipped classes are printed, carried in the JSON, and now cost exit 3.
 //
 // Every path is anchored to the repository root. `git ls-files` run from a

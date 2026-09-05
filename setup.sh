@@ -2,7 +2,7 @@
 # setup.sh — 把 cc-base 框架资产注入式安装到 target 项目（Mac/Linux）。
 # 用法：./setup.sh [--dry-run] [target_dir]    不给 target 默认当前目录 "."
 # 流程：逐段校验 target 路径 → 上独占锁 + 落维护标记 → 复制 .claude 框架文件（跳过运行时产物）→
-#   chmod hooks → settings.json 合并（有 jq 自动 merge；无 jq 降级：新 target 直接复制，已有
+#   settings.json 合并（有 jq 自动 merge；无 jq 降级：新 target 直接复制，已有
 #   settings 备份 .bak + 打印手工合并指引，不静默覆盖）→ 备份 .bak → 清标记与锁。
 # --dry-run：一个字节都不写，只把 create / update / conflict / skip 四类计划打到 stdout。
 set -u
@@ -258,7 +258,7 @@ manifest_sha_of() {
 # 四份手工同步的口径由测试兜：.claude/tests/test-setup.sh 的 ⑥ 逐臂比对四份表，
 #   .claude/tests/test-release-manifest.sh 造真文件锁生成器与审计者两侧行为一致。
 copy_claude_tree() {
-  local src_dir=$1 dest_dir=$2 rel src dest mode old_sha
+  local src_dir=$1 dest_dir=$2 rel src dest old_sha
   [ -d "$src_dir" ] || die "源 .claude 不存在：$src_dir"
   [ -f "$dest_dir/FRAMEWORK-MANIFEST.txt" ] && OLD_MANIFEST="$dest_dir/FRAMEWORK-MANIFEST.txt"
   while IFS= read -r -d '' src; do
@@ -290,10 +290,6 @@ copy_claude_tree() {
       feedback/*.md) continue ;;                                    # 私人进化经验（顶层 *.md）；INDEX 装后重置为模板
     esac
     dest="$dest_dir/$rel"
-    mode=""
-    case "$rel" in
-      hooks/*.sh) mode=0755 ;;
-    esac
     # manifest 分层判断：目标已存在且内容不同时才需要区分「可升级」vs「用户改过」
     if [ -e "$dest" ] && ! cmp -s "$src" "$dest"; then
       old_sha=$(manifest_sha_of "$rel")
@@ -304,7 +300,6 @@ copy_claude_tree() {
         plan_note conflict ".claude/$rel"
         [ "$DRY_RUN" = "1" ] && continue
         cp -p "$src" "$dest.framework-new" || die "无法写入 $dest.framework-new"
-        [ -n "$mode" ] && chmod "$mode" "$dest.framework-new"
         FRAMEWORK_NEW_LIST="${FRAMEWORK_NEW_LIST}${rel}
 "
         note_write "$dest.framework-new"
@@ -316,7 +311,7 @@ copy_claude_tree() {
       plan_note create ".claude/$rel"
     fi
     [ "$DRY_RUN" = "1" ] && continue
-    copy_file "$src" "$dest" "$mode"
+    copy_file "$src" "$dest"
   done < <(find "$src_dir" -type f -print0)
 }
 
@@ -337,28 +332,31 @@ merge_settings() {
     printf 'setup: 要点：把 source 各 event 下的 hook command 追加到 target 同名 event，已有的不重复加。\n' >&2
     return
   fi
-  # target 已有 settings.json：先清掉异平台框架 hook command 残留（.ps1 形态），再追加 target 尚无的
-  # 本平台（.sh）command，不动用户其他配置。跨平台搬迁后旧平台 command 不再双双残留报错。
-  # 判定「.ps1 残留」保守只认框架形态：command 同时匹配 powershell/pwsh 解释器 与 .claude/hooks/<name>.ps1
-  # 路径——两条件都中才移除，不误伤用户自定义 command。
+  # target 已有 settings.json：先清掉老版本装的 shell 形态 hook command（.sh / .ps1 都算），再追加
+  # target 尚无的 exec form command，不动用户其他配置。老安装升级上来后旧形态不再残留报错。
+  # 判定「历史残留」只认框架形态：command 或 args 任一项指向 .claude/hooks/<name>.sh|.ps1——
+  # 只认这条路径，不误伤用户自定义 command。
+  # 去重键是 command + args 整体：exec form 下每条 hook 的 command 都是字面 node，只比 command 会把
+  # 21 条全判成「已存在」，一条都合不进去。
   tmp=$(mktemp) || die "无法创建临时文件"
   jq -s '
-    def is_ps1_residue:
-      (.command // "") as $c
-      | ($c | test("powershell|pwsh"; "i")) and ($c | test("\\.claude[/\\\\]hooks[/\\\\][A-Za-z0-9_-]+\\.ps1"));
-    def clean_ps1:
+    def is_legacy_hook:
+      ([(.command // "")] + ((.args // []) | map(tostring)))
+      | any(test("\\.claude[/\\\\]hooks[/\\\\][A-Za-z0-9_-]+\\.(sh|ps1)"));
+    def clean_legacy:
       if .hooks then
-        .hooks |= with_entries(.value |= map(.hooks |= map(select(is_ps1_residue | not))))
+        .hooks |= with_entries(.value |= map(.hooks |= map(select(is_legacy_hook | not))))
       else . end;
-    def commands: [.. | objects | .command? // empty] | map(select(. != "")) | unique;
+    def hook_id: (.command // "") + " " + (((.args // []) | map(tostring)) | join(" "));
+    def commands: [.. | objects | select((.command? // "") != "") | hook_id] | unique;
     .[0] as $tgt0
     | .[1] as $source
-    | ($tgt0 | clean_ps1) as $target
+    | ($tgt0 | clean_legacy) as $target
     | ($target | commands) as $existing
     | reduce (($source.hooks // {}) | keys_unsorted[]) as $event ($target;
         reduce (($source.hooks[$event] // [])[]) as $group (.;
           ($group.hooks // []
-            | map(select((.command // "") as $cmd | ($cmd != "" and (($existing | index($cmd)) | not)))))
+            | map(select(hook_id as $id | ((.command // "") != "" and (($existing | index($id)) | not)))))
           as $new_hooks
           | if ($new_hooks | length) > 0 then
               .hooks[$event] = ((.hooks[$event] // []) + [($group | .hooks = $new_hooks)])
@@ -374,7 +372,7 @@ merge_settings() {
 }
 
 main() {
-  # 平台参数 -win/-mac/-ubt（默认按 uname 检测）。win → 调 setup.ps1；mac/ubt → 装 .sh 形态。
+  # 平台参数 -win/-mac/-ubt（默认按 uname 检测）。win → 调 setup.ps1；mac/ubt → 本脚本直接装。
   local platform=""
   local target="."
   while [ $# -gt 0 ]; do
@@ -467,18 +465,18 @@ main() {
   local fb_tpl="$source_dir/.claude/feedback/templates/feedback-index-template.md"
   [ -f "$fb_tpl" ] && copy_file "$fb_tpl" "$target/.claude/feedback/FEEDBACK-INDEX.md"
 
-  hooks_count=$(find "$source_dir/.claude/hooks" -type f -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')
+  hooks_count=$(find "$source_dir/.claude/hooks" -maxdepth 1 -type f -name '*.mjs' 2>/dev/null | wc -l | tr -d ' ')
   skills_count=$(find "$source_dir/.claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ')
 
-  # 装 .sh 后跑 fix-platform.sh 清异平台（.ps1）残留 command + chmod（python3 兜底，无 jq 也清）
+  # 装完跑 fix-platform.sh 清老安装遗留的 .sh/.ps1 hook + 归一 statusLine（python3 兜底，无 jq 也清）
   if [ -f "$target/.claude/scripts/fix-platform.sh" ] && command -v python3 >/dev/null 2>&1; then
-    printf 'setup: 跑 fix-platform.sh 清理异平台残留 + chmod...\n' >&2
+    printf 'setup: 跑 fix-platform.sh 清理历史 .sh/.ps1 残留 + 归一 statusLine...\n' >&2
     ( cd "$target" && CLAUDE_PROJECT_DIR="$target" bash "$target/.claude/scripts/fix-platform.sh" ) >&2 || true
   fi
   finish_install
   printf 'installed: hooks=%s skills=%s target=%s\n' "$hooks_count" "$skills_count" "$target"
-  printf '完成。Claude Code 会从 %s/.claude/settings.json 加载 hooks（.sh，需 Git Bash 环境）。\n' "$target"
-  printf 'Windows 纯 PowerShell 环境改用： pwsh -File setup.ps1 -Target %s\n' "$target"
+  printf '完成。Claude Code 会从 %s/.claude/settings.json 加载 hooks（node 跑 .mjs，三平台同一份）。\n' "$target"
+  printf '本机没有 bash（Windows 纯 PowerShell）时改用： pwsh -File setup.ps1 -Target %s\n' "$target"
 }
 
 main "$@"

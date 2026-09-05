@@ -50,16 +50,22 @@ for d in .claude/skills/*/; do
   [ -f "$d/SKILL.md" ] && ok "skill $s/SKILL.md" || bad "skill $s 缺 SKILL.md"
 done
 
-# hooks 可执行位
+# hooks 语法：hook 全是 node 跑的 .mjs，不需要执行位；坏的是语法——注册着却起不来，
+# 每次事件报一次 hook error，谁也不会去看那行小字。
 [ -d .claude/hooks ] && ok ".claude/hooks 存在" || bad ".claude/hooks 缺失"
-for hook in .claude/hooks/*.sh; do
-  [ -e "$hook" ] || continue
-  [ -x "$hook" ] && ok "hook 可执行 $hook" || bad "hook 缺可执行位 $hook"
-done
+if command -v node >/dev/null 2>&1; then
+  for hook in .claude/hooks/*.mjs .claude/hooks/lib/*.mjs; do
+    [ -e "$hook" ] || continue
+    node --check "$hook" >/dev/null 2>&1 && ok "hook 语法 $hook" || bad "hook 语法错 $hook（node --check 不过）"
+  done
+else
+  note "未找到 node，跳过 hooks/*.mjs 语法校验——hook 全靠 node 跑，装上 node 再验一次"
+fi
 
-# harness 接线依赖库（stop-gate / pre-commit-check source 它，缺失会静默降级）
-[ -f .claude/hooks/lib-harness.sh ]   && ok "lib-harness.sh 存在"   || bad "lib-harness.sh 缺失"
-[ -f .claude/hooks/lib-harness.ps1 ] && ok "lib-harness.ps1 存在" || bad "lib-harness.ps1 缺失"
+# hook 公共库四件（22 个 hook 都 import，缺一件就是一整片 hook 起不来）
+for m in io gatelog fastmode harness; do
+  [ -f ".claude/hooks/lib/$m.mjs" ] && ok "hooks/lib/$m.mjs 存在" || bad "hooks/lib/$m.mjs 缺失"
+done
 
 # settings.json 合法 JSON
 if [ -f .claude/settings.json ]; then
@@ -74,6 +80,34 @@ if [ -f .claude/settings.json ]; then
   fi
 else
   bad ".claude/settings.json 缺失"
+fi
+
+# settings.json 里每条 hook 的 args[0] 指向的文件真的在——注册了却没装，是每次事件报一次 hook error，
+# 而那行小字滚过去谁也不会读。用 node 解析（hook 本来就靠 node 跑，它不在的话下面也验不了语法）。
+if [ -f .claude/settings.json ] && command -v node >/dev/null 2>&1; then
+  hook_miss=$(node -e '
+const fs = require("node:fs");
+const s = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
+const root = process.cwd();
+const miss = [];
+for (const groups of Object.values(s.hooks || {})) {
+  for (const g of (groups || [])) {
+    for (const h of ((g && g.hooks) || [])) {
+      const a = Array.isArray(h.args) && h.args.length ? String(h.args[0]) : "";
+      if (!a) continue;
+      if (!fs.existsSync(a.split("${CLAUDE_PROJECT_DIR}").join(root))) miss.push(a);
+    }
+  }
+}
+process.stdout.write(miss.join(" "));
+' 2>/dev/null) || hook_miss="PARSE_ERROR"
+  if [ "$hook_miss" = "PARSE_ERROR" ]; then
+    note "settings.json 的 hook 条目解析不了，跳过 args[0] 存在性检查"
+  elif [ -z "$hook_miss" ]; then
+    ok "settings.json 每条 hook 的 args[0] 都指向真实存在的文件"
+  else
+    bad "settings.json 有 hook 指向不存在的文件：$hook_miss"
+  fi
 fi
 
 # 关键脚本存在
@@ -96,6 +130,16 @@ done
 command -v git  >/dev/null 2>&1 && ok "git 可用"  || note "未找到 git；git 相关 hook 能力受限"
 command -v bash >/dev/null 2>&1 && ok "bash 可用" || note "未找到 bash"
 command -v jq   >/dev/null 2>&1 && ok "jq 可用（可选）"      || note "未找到 jq（可选）"
+command -v node >/dev/null 2>&1 && ok "node 可用（22 个 hook 全靠它跑）" || bad "未找到 node；hook 一个都起不来"
+
+# Claude Code 版本：hook 的 exec form（command:node + args）要够新的 Claude Code 才认。版本号拿不到就
+# 只留一句话，不判 ✗——装法千奇百怪，为一句版本号把整份自检判红不值。
+claude_ver=$(command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null | head -1)
+if [ -n "${claude_ver:-}" ]; then
+  printf -- '- %s\n' "Claude Code：$claude_ver（hook 走 exec form，需较新版本；本项只报不判）"
+else
+  note "拿不到 claude --version；hook 的 exec form 需较新的 Claude Code，版本自己确认一下"
+fi
 
 # 大仓治理 harness（默认关闭，catalog 存在即启用）——只报告状态，不 fail 小项目
 [ -f .claude/harness/harness.mjs ] && ok "harness.mjs 存在" \

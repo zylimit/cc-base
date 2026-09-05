@@ -2,7 +2,7 @@
 # gate-audit.sh — 只读诊断：汇总所有钩子的真实拦截战绩
 #
 # cc-base 注册了一批 block 闸（.claude/settings.json），拦截账本 gate-block.log
-# 由 lib-gate-log.sh 写在 .claude/evidence/（主仓 + 各 worktree 各一份）。本脚本把
+# 由 hooks/lib/gatelog.mjs 写在 .claude/evidence/（主仓 + 各 worktree 各一份）。本脚本把
 # 它们全找出来，对照注册清单算出：哪些钩子真拦过（有战绩）、哪些注册了却从没出现
 # （疑似死闸/黑箱）——对齐「闸靠数据留，不靠感觉留」。
 # 纯只读——除 stdout 外不写/改/删任何文件（尤其不碰任何 .log）。
@@ -21,12 +21,12 @@ fi
 logs=()
 while IFS= read -r f; do logs+=("$f"); done < <(find "$scan_root" -type f -name gate-block.log 2>/dev/null | sort)
 
-# 2) 注册闸清单：只认源码里 source 了 lib-gate-log 的 hook 才算闸（能经 gate_log 写账本的
-#    block 钩子）。信息类 hook（auto-push / session-rules-banner 等不调 gate_log、永不拦截）
-#    不是闸，不纳入——否则它们必然「零记录」，被误报成死闸。
+# 2) 注册闸清单：只认源码里引了 gatelog 的 hook 才算闸（能经 gateLog 写账本的 block 钩子）。
+#    信息类 hook（auto-push / session-rules-banner 等不调 gateLog、永不拦截）不是闸，不纳入——
+#    否则它们必然「零记录」，被误报成死闸。现算，别写死名单：写死的名单一定会跟代码走散。
 registered=()
-while IFS= read -r f; do registered+=("$(basename "$f" .sh)"); done \
-  < <(grep -lE 'lib-gate-log' "$scan_root/.claude/hooks/"*.sh 2>/dev/null | sort -u)
+while IFS= read -r f; do registered+=("$(basename "$f" .mjs)"); done \
+  < <(grep -lE "gatelog|gateLog\(" "$scan_root/.claude/hooks/"*.mjs 2>/dev/null | sort -u)
 
 # 3) 账本统计：TSV（时间戳<TAB>钩子名<TAB>原因）→ 每钩子 次数/首次/末次
 #    awk 输出「钩子名<TAB>次数<TAB>首次<TAB>末次」，按次数降序由 sort 处理。

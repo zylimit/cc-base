@@ -1,6 +1,10 @@
 #!/usr/bin/env pwsh
-# fix-platform.ps1 -Normalize hook commands in .claude/settings.json to the current platform (.ps1) form.
-# After cross-platform moves, old (.sh) commands coexist with new platform commands and error; run this once after moving to Windows.
+# fix-platform.ps1 -Normalize an older .sh/.ps1 install of this framework to the single runtime (node runs .mjs).
+# After an upgrade the target still holds hook files nobody ships any more, and settings.json still points at them -
+# a command pointing at a deleted file is one hook error per event. Run once after upgrading or moving; idempotent.
+# Two jobs here: (1) delete leftover .claude/hooks/*.sh|*.ps1 (lib-* included), (2) rewrite settings.json hook
+# commands to exec form and normalize statusLine to statusline.mjs. No chmod: nothing under hooks/ is a shell
+# script any more, and Windows has no exec bit anyway.
 # No dependency on the cc-base repo or jq -uses pwsh built-in ConvertFrom-Json/ConvertTo-Json.
 # Usage: pwsh -File fix-platform.ps1 [-Target <dir>]    -Target defaults to "." or reads CLAUDE_PROJECT_DIR.
 [CmdletBinding()]
@@ -17,48 +21,37 @@ if (-not (Test-Path $settings)) { throw "settings.json not found: $settings (run
 
 Write-Host '=== fix-platform (Windows/.ps1) ===' -ForegroundColor Cyan
 
-# pwsh interpreter probe (ported from setup.ps1:113-121): pwsh 7 absolute path first, then Get-Command pwsh, then powershell.exe.
-# pwsh 7 uses absolute path (quoted if spaces) -powershell.exe 5.1 inherits Git Bash-polluted PATH and hangs (noted in setup.ps1).
-$pwsh7Path = 'C:\Program Files\PowerShell\7\pwsh.exe'
-if (Test-Path $pwsh7Path) {
-  $hookInterp = '"' + ($pwsh7Path -replace '\\', '/') + '"'
-} else {
-  $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
-  if ($pwshCmd) { $hookInterp = '"' + ($pwshCmd.Source -replace '\\', '/') + '"' }
-  else { $hookInterp = 'powershell.exe'; Write-Host '[!] pwsh 7 not found, hook commands fall back to powershell.exe 5.1' -ForegroundColor Yellow }
-}
-Write-Host "[ok] hook interpreter: $hookInterp"
+# exec form template, byte-identical to the shipped settings.json: placeholders are brace-only, path forward-slash only.
+$argForm = '${CLAUDE_PROJECT_DIR}/.claude/hooks/'
 
-# Convert-ToPs1Command (ported from setup.ps1:122-128): rewrite a .sh command into .ps1 form.
-# Single-quote literal construction; \, ", $ pass through into the generated command (ConvertTo-Json escapes them).
-function Convert-ToPs1Command([string]$cmd) {
-  if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
-    $name = $Matches[1]
-    return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
+# Legacy hook detection: the command or one of its args points at .claude/hooks/<name>.sh|.ps1. Only the framework's
+# own entries look like that, so user-defined commands are left alone. Returns the hook name, or $null.
+function Get-LegacyHookName($h) {
+  if ($null -eq $h) { return $null }
+  $parts = @()
+  if ($h.PSObject.Properties['command'] -and $h.command) { $parts += [string]$h.command }
+  if ($h.PSObject.Properties['args'] -and $h.args) { foreach ($a in @($h.args)) { $parts += [string]$a } }
+  foreach ($p in $parts) {
+    if ($p -match '\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.(sh|ps1)') { return $Matches[1] }
   }
-  return $cmd
+  return $null
 }
 
-# .sh residue detection (ported from setup.ps1:164-170 Test-IsShResidue):
-# Conservative: only framework .sh forms -no powershell/pwsh, points at .claude/hooks/<name>.sh, no $env/-Command (.ps1 markers).
-# All three conditions met = .sh residue; user-defined .sh (pointing elsewhere) or .ps1 forms are left alone.
-function Test-IsShResidue([string]$cmd) {
-  if (-not $cmd) { return $false }
-  if ($cmd -match 'powershell|pwsh') { return $false }
-  if ($cmd -notmatch '\.claude[/\\]hooks[/\\][A-Za-z0-9_-]+\.sh') { return $false }
-  if ($cmd -match '\$env' -or $cmd -match '-Command') { return $false }
-  return $true
-}
-
-# Extract hook name from command (supports .sh and .ps1, used for dedup).
-function Get-HookName([string]$cmd, [string]$ext) {
-  if ($cmd -match ('\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.' + $ext)) { return $Matches[1] }
+# Same shape, for entries that are already exec form (used for dedup so a rewrite never doubles an entry).
+function Get-MjsHookName($h) {
+  if ($null -eq $h) { return $null }
+  $parts = @()
+  if ($h.PSObject.Properties['command'] -and $h.command) { $parts += [string]$h.command }
+  if ($h.PSObject.Properties['args'] -and $h.args) { foreach ($a in @($h.args)) { $parts += [string]$a } }
+  foreach ($p in $parts) {
+    if ($p -match '\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.mjs') { return $Matches[1] }
+  }
   return $null
 }
 
 $data = Get-Content $settings -Raw | ConvertFrom-Json
-$deletedSh = 0
-$addedPs1 = 0
+$converted = 0
+$dropped = 0
 
 if ($data.hooks) {
   foreach ($event in $data.hooks.PSObject.Properties) {
@@ -66,64 +59,71 @@ if ($data.hooks) {
     if (-not $groups) { continue }
     foreach ($group in $groups) {
       if (-not $group.hooks) { continue }
-      # Collect existing .ps1 hook names in this group first (avoid dupes) -use a hashtable as a set, to avoid
-      # the PSToObjectArrayBinder binding bug in pwsh 7.6 when casting List[object]/HashSet[string] to arrays.
-      $existingPs1 = @{}
+      # Collect the exec-form hook names already in this group first -use a hashtable as a set, to avoid the
+      # PSToObjectArrayBinder binding bug in pwsh 7.6 when casting List[object]/HashSet[string] to arrays.
+      $existing = @{}
       foreach ($h in $group.hooks) {
-        $n = Get-HookName $h.command 'ps1'
-        if ($n) { $existingPs1[$n] = $true }
+        $n = Get-MjsHookName $h
+        if ($n) { $existing[$n] = $true }
       }
       $newList = @()
-      $deletedEntries = @()
       foreach ($h in $group.hooks) {
-        if (Test-IsShResidue $h.command) {
-          $n = Get-HookName $h.command 'sh'
-          $deletedEntries += [pscustomobject]@{ Name = $n; Entry = $h }
-          $deletedSh++
-        } else {
-          $newList += $h
-        }
-      }
-      # For each deleted name, if no matching .ps1 in the same group, add one (preserve type/timeout etc. from the original entry)
-      foreach ($de in $deletedEntries) {
-        if ($de.Name -and $existingPs1.ContainsKey($de.Name)) { continue }
+        $name = Get-LegacyHookName $h
+        if (-not $name) { $newList += $h; continue }
+        if ($existing.ContainsKey($name)) { $dropped++; continue }
+        # Rebuild as type / command / args / everything else the original carried (timeout, asyncRewake, ...).
         $newEntry = [pscustomobject]@{}
-        foreach ($p in $de.Entry.PSObject.Properties) {
-          if ($p.Name -eq 'command') {
-            $newEntry | Add-Member -NotePropertyName command -NotePropertyValue (Convert-ToPs1Command $de.Entry.command) -Force
-          } else {
-            $newEntry | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force
-          }
+        $type = 'command'
+        if ($h.PSObject.Properties['type'] -and $h.type) { $type = [string]$h.type }
+        $newEntry | Add-Member -NotePropertyName type -NotePropertyValue $type -Force
+        $newEntry | Add-Member -NotePropertyName command -NotePropertyValue 'node' -Force
+        $newEntry | Add-Member -NotePropertyName args -NotePropertyValue @($argForm + $name + '.mjs') -Force
+        foreach ($p in $h.PSObject.Properties) {
+          if ($p.Name -eq 'type' -or $p.Name -eq 'command' -or $p.Name -eq 'args') { continue }
+          $newEntry | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force
         }
-        if (-not $newEntry.PSObject.Properties['command']) {
-          $newEntry | Add-Member -NotePropertyName command -NotePropertyValue (Convert-ToPs1Command $de.Entry.command) -Force
-        }
-        # Match setup.ps1:135: if timeout exists, normalize to 30 (pwsh starts slower than bash; setup.ps1 also force-writes 30)
-        if ($newEntry.PSObject.Properties['timeout']) { $newEntry.timeout = 30 }
         $newList += $newEntry
-        if ($de.Name) { $existingPs1[$de.Name] = $true }
-        $addedPs1++
+        $existing[$name] = $true
+        $converted++
       }
       $group.hooks = $newList
     }
   }
 }
 
-# statusLine: normalize the framework statusline command to .ps1 form (same conservative rule --
-# only rewrite a pure .sh form that points at .claude/scripts/statusline.sh; user statuslines stay).
+# statusLine: normalize the framework status line to statusline.mjs. It has no exec form, only a shell string, and
+# on a pure PowerShell box that string is run by PowerShell -hence the $env: spelling. Only a command pointing at
+# the framework's own statusline is rewritten; a user status line stays.
 $statusFixed = 0
 if ($data.PSObject.Properties['statusLine'] -and $data.statusLine.command) {
-  $c = $data.statusLine.command
-  if (($c -notmatch 'powershell|pwsh') -and ($c -match '\.claude[/\\]scripts[/\\]statusline\.sh') -and ($c -notmatch '\$env')) {
-    $data.statusLine.command = $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\scripts\statusline.ps1\""'
+  $c = [string]$data.statusLine.command
+  if ($c -match '\.claude[/\\]scripts[/\\]statusline\.(sh|ps1)') {
+    $data.statusLine.command = 'node "$env:CLAUDE_PROJECT_DIR/.claude/scripts/statusline.mjs"'
     $statusFixed = 1
   }
 }
 
-# Backup then write back
-Copy-Item $settings "$settings.bak" -Force
-Write-Host "backup: $settings.bak"
+# Backup then write back. Keep the first backup: the copy worth having is the pre-migration original, and a
+# second run would otherwise overwrite it with the already-normalized content -people usually run this again
+# precisely because something looked wrong, which is the worst moment to lose the original.
+if (Test-Path "$settings.bak") {
+  Write-Host "backup: kept the existing $settings.bak (pre-migration copy)"
+} else {
+  Copy-Item $settings "$settings.bak" -Force
+  Write-Host "backup: $settings.bak"
+}
 $data | ConvertTo-Json -Depth 20 | Set-Content $settings -Encoding UTF8
-Write-Host "fix-platform: deleted .sh residue commands=$deletedSh, added .ps1 commands=$addedPs1, statusline fixed=$statusFixed" -ForegroundColor Green
-Write-Host "Done. settings.json normalized to .ps1 form (Windows). Path: $settings" -ForegroundColor Green
+
+# Delete the hook files an older install left behind: .claude/hooks/*.sh|*.ps1, lib-*.sh / lib-*.ps1 included.
+# Nothing ships them any more; left in place they only make doctor.sh / gate-audit.sh keep counting them.
+$removed = 0
+$hooksDir = Join-Path $projectRoot '.claude\hooks'
+if (Test-Path $hooksDir) {
+  $stale = @(Get-ChildItem $hooksDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.sh' -or $_.Extension -eq '.ps1' })
+  foreach ($f in $stale) { Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue }
+  $removed = $stale.Count
+}
+
+Write-Host "fix-platform: converted to exec form=$converted, dropped duplicate legacy entries=$dropped, statusline fixed=$statusFixed, removed legacy hook files=$removed" -ForegroundColor Green
+Write-Host "Done. settings.json normalized to exec form (node runs .mjs). Path: $settings" -ForegroundColor Green
 exit 0

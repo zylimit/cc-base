@@ -2,17 +2,14 @@
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
 # Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force] [-DryRun]    without -Target, defaults to the current directory ".".
 #      -DryRun writes nothing and prints the plan (create / update / conflict / skip) instead.
-# Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json),
-#      and rewrite each hook command to: <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
-#      Interpreter: prefer pwsh 7 (absolute path, quoted - it lives under "Program Files") because powershell.exe 5.1
-#      inherits a Git Bash-polluted PATH and stalls on some machines (verified fix on digifiber UserPromptSubmit);
-#      fall back to powershell.exe when pwsh is absent so machines without PowerShell 7 still work.
-#      Why the \$ escape: on Windows the hook command runs in Git Bash (the outer shell when git is installed - a
-#      cc-base prerequisite). A bare $env:CLAUDE_PROJECT_DIR has its $env eaten by bash (unset bash var -> empty,
-#      leaving ":CLAUDE_PROJECT_DIR", broken). Escaping as \$env keeps a literal $ through bash, so the full
-#      $env:CLAUDE_PROJECT_DIR reaches the inner powershell which expands it. -Command (not -File) is required
-#      because only inside -Command does PowerShell expand $env: (a -File path is taken literally). Verified on a
-#      real Windows machine (the SessionStart banner prints).
+# Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json).
+#      Hook commands are no longer rewritten: settings.json ships the exec form ("command":"node" plus
+#      "args":["${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.mjs"]), which spawns node.exe directly with no shell in
+#      between, so the very same file works verbatim on Windows / Mac / Linux.
+#      The one thing still rewritten here is statusLine: it has no exec form, only a shell command string, and on a
+#      pure PowerShell box that string is run by PowerShell - where the Git Bash spelling "$CLAUDE_PROJECT_DIR"
+#      expands to nothing. Hence the $env: spelling.
+#      Also cleaned up: hook files and hook commands an older .sh/.ps1 install of this framework left behind.
 [CmdletBinding()]
 param(
   [string]$Target = '.',
@@ -300,46 +297,37 @@ if ($DryRun) {
   exit 0
 }
 
-# 3. Rewrite each hook command: .sh -> <pwsh> -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\<name>.ps1\""
-#    Built with single-quoted PowerShell literals so the \, ", and $ characters pass through verbatim into the
-#    generated command (ConvertTo-Json escapes them for the JSON file).
-#    Interpreter detection: pwsh 7 preferred (quoted absolute path, forward slashes survive Git Bash fine);
-#    powershell.exe 5.1 kept as fallback for machines without PowerShell 7.
-$pwsh7Path = 'C:\Program Files\PowerShell\7\pwsh.exe'
-if (Test-Path $pwsh7Path) {
-  $hookInterp = '"' + ($pwsh7Path -replace '\\', '/') + '"'
-} else {
-  $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
-  if ($pwshCmd) { $hookInterp = '"' + ($pwshCmd.Source -replace '\\', '/') + '"' }
-  else { $hookInterp = 'powershell.exe'; Write-Host '[!] pwsh 7 not found, hook commands fall back to powershell.exe 5.1' -ForegroundColor Yellow }
-}
-Write-Host "[ok] hook interpreter: $hookInterp"
-function Convert-ToPs1Command([string]$cmd) {
-  if ($cmd -match '[/\\]\.claude[/\\]hooks[/\\]([A-Za-z0-9_-]+)\.sh') {
-    $name = $Matches[1]
-    return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\hooks\' + $name + '.ps1\""'
-  }
-  if ($cmd -match '[/\\]\.claude[/\\]scripts[/\\]statusline\.sh') {
-    return $hookInterp + ' -NoProfile -ExecutionPolicy Bypass -Command "& \"\$env:CLAUDE_PROJECT_DIR\.claude\scripts\statusline.ps1\""'
-  }
-  return $cmd
-}
-
+# 3. Hook commands are taken as they ship - exec form, node runs the .mjs directly (see the header note).
+#    Two things still happen here.
+#    a) statusLine has no exec form; on a pure PowerShell box the string is run by PowerShell, so the project-dir
+#       variable has to be spelled $env:CLAUDE_PROJECT_DIR (forward slashes, double quotes - PowerShell expands
+#       $env: inside those).
 $src = Get-Content (Join-Path $srcClaude 'settings.json') -Raw | ConvertFrom-Json
-foreach ($event in $src.hooks.PSObject.Properties) {
-  foreach ($group in $event.Value) {
-    foreach ($h in $group.hooks) {
-      $h.command = Convert-ToPs1Command $h.command
-      if ($h.PSObject.Properties['timeout']) { $h.timeout = 30 }
-    }
-  }
-}
-# statusLine command goes through the same .sh -> .ps1 rewrite (statusline.ps1 lives under .claude/scripts/)
 if ($src.PSObject.Properties['statusLine'] -and $src.statusLine.command) {
-  $src.statusLine.command = Convert-ToPs1Command $src.statusLine.command
+  $src.statusLine.command = 'node "$env:CLAUDE_PROJECT_DIR/.claude/scripts/statusline.mjs"'
 }
 
-# Recursively collect every .command value in the object (for merge dedup)
+#    b) drop hook files an older install of this framework left in the target: .claude/hooks/<name>.sh|.ps1 plus
+#       the lib-*.sh / lib-*.ps1 helpers next to them. The framework no longer ships any of them, so copying
+#       alone would leave them lying around forever and doctor.sh / gate-audit.sh would keep counting them.
+$targetHooks = Join-Path $targetClaude 'hooks'
+if (Test-Path $targetHooks) {
+  $stale = @(Get-ChildItem $targetHooks -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.sh' -or $_.Extension -eq '.ps1' })
+  foreach ($f in $stale) { Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue }
+  if ($stale.Count -gt 0) { Write-Host "[ok] removed $($stale.Count) legacy .sh/.ps1 hook file(s) from the target" }
+}
+
+# Identity of one hook entry = command plus its args. Exec form puts the literal "node" in .command for all 21
+# hooks, so keying dedup on .command alone would judge every incoming hook "already present" and merge nothing.
+function Get-HookId($h) {
+  $id = [string]$h.command
+  if ($h.PSObject.Properties['args'] -and $h.args) {
+    $id += ' ' + ((@($h.args) | ForEach-Object { [string]$_ }) -join ' ')
+  }
+  return $id
+}
+
+# Recursively collect the identity of every command-bearing object (for merge dedup)
 function Get-AllCommands($obj) {
   $acc = New-Object System.Collections.Generic.List[string]
   function Walk($o) {
@@ -347,10 +335,8 @@ function Get-AllCommands($obj) {
     if (($o -is [System.Collections.IEnumerable]) -and ($o -isnot [string])) {
       foreach ($i in $o) { Walk $i }
     } elseif ($o -is [pscustomobject]) {
-      foreach ($p in $o.PSObject.Properties) {
-        if ($p.Name -eq 'command' -and $p.Value -is [string]) { $acc.Add($p.Value) }
-        Walk $p.Value
-      }
+      if ($o.PSObject.Properties['command'] -and ($o.command -is [string])) { $acc.Add((Get-HookId $o)) }
+      foreach ($p in $o.PSObject.Properties) { Walk $p.Value }
     }
   }
   Walk $obj
@@ -359,40 +345,43 @@ function Get-AllCommands($obj) {
 
 $targetSettings = Join-Path $targetClaude 'settings.json'
 
-# Detect .sh-platform residue commands in target (left by a prior setup.sh install on Linux/Mac) so the merge
-# can drop them before appending .ps1 commands. Conservative: only pure .sh invocations go - a command must
-# reference a .claude/hooks/<name>.sh path, NOT mention powershell/pwsh (the .ps1 interpreter marker), and
-# NOT carry .ps1-form shape ($env / -Command). All three together = .sh residue; user commands stay untouched.
-function Test-IsShResidue([string]$cmd) {
-  if (-not $cmd) { return $false }
-  if ($cmd -match 'powershell|pwsh') { return $false }
-  if ($cmd -notmatch '\.claude[/\\]hooks[/\\][A-Za-z0-9_-]+\.sh') { return $false }
-  if ($cmd -match '\$env' -or $cmd -match '-Command') { return $false }
-  return $true
+# Detect hook entries an older install of this framework left in the target settings - either the Git Bash ".sh"
+# form or the pwsh '-Command "& ...<name>.ps1"' form - so the merge can drop them before appending the exec-form
+# entries. Conservative: the command or one of its args must point at a .claude/hooks/<name>.sh|.ps1 path, which
+# only the framework's own entries do; user commands stay untouched.
+function Test-IsLegacyHook($h) {
+  if ($null -eq $h) { return $false }
+  $parts = @()
+  if ($h.PSObject.Properties['command'] -and $h.command) { $parts += [string]$h.command }
+  if ($h.PSObject.Properties['args'] -and $h.args) { foreach ($a in @($h.args)) { $parts += [string]$a } }
+  foreach ($p in $parts) {
+    if ($p -match '\.claude[/\\]hooks[/\\][A-Za-z0-9_-]+\.(sh|ps1)') { return $true }
+  }
+  return $false
 }
 
-# Strip .sh-residue hook entries from every group of every event in $obj's hooks (in place).
-function Remove-ShResidue($obj) {
+# Strip legacy hook entries from every group of every event in $obj's hooks (in place).
+function Remove-LegacyHooks($obj) {
   if (-not $obj.hooks) { return }
   foreach ($ev in $obj.hooks.PSObject.Properties) {
     foreach ($group in $ev.Value) {
       if ($group.hooks) {
-        $group.hooks = @($group.hooks | Where-Object { -not (Test-IsShResidue $_.command) })
+        $group.hooks = @($group.hooks | Where-Object { -not (Test-IsLegacyHook $_) })
       }
     }
   }
 }
 
 if ((Test-Path $targetSettings) -and -not $Force) {
-  # 4. target already has settings.json: strip cross-platform .sh residue, then only append .ps1 hook commands
-  #    not present yet, leaving other user config untouched.
+  # 4. target already has settings.json: strip legacy .sh/.ps1 hook entries, then only append the exec-form hook
+  #    commands not present yet, leaving other user config untouched.
   $tgt = Get-Content $targetSettings -Raw | ConvertFrom-Json
-  Remove-ShResidue $tgt
+  Remove-LegacyHooks $tgt
   $existing = Get-AllCommands $tgt
   if (-not $tgt.hooks) { $tgt | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force }
   foreach ($event in $src.hooks.PSObject.Properties) {
     foreach ($group in $event.Value) {
-      $newHooks = @($group.hooks | Where-Object { $_.command -and ($existing -notcontains $_.command) })
+      $newHooks = @($group.hooks | Where-Object { $_.command -and ($existing -notcontains (Get-HookId $_)) })
       if ($newHooks.Count -gt 0) {
         $ng = [pscustomobject]@{}
         if ($group.PSObject.Properties['matcher']) { $ng | Add-Member -NotePropertyName matcher -NotePropertyValue $group.matcher }
@@ -452,7 +441,7 @@ if ($script:markerPath -and (Test-Path $script:markerPath)) { Remove-Item $scrip
 if ($script:lockPath -and (Test-Path $script:lockPath)) { Remove-Item $script:lockPath -Force }
 if ((Test-Path $runtimeDir) -and -not (Get-ChildItem $runtimeDir -Force)) { Remove-Item $runtimeDir -Force }
 
-$hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.ps1 -ErrorAction SilentlyContinue).Count
-Write-Host "installed: ps1_hooks=$hooksCount target=$Target" -ForegroundColor Green
-Write-Host "Done. Claude Code loads the .ps1 hooks from $targetClaude\settings.json (hook commands use the escaped-dollar form so the project-dir env var survives the Git Bash outer shell and expands in the inner powershell)."
+$hooksCount = (Get-ChildItem (Join-Path $srcClaude 'hooks') -Filter *.mjs -File -ErrorAction SilentlyContinue).Count
+Write-Host "installed: mjs_hooks=$hooksCount target=$Target" -ForegroundColor Green
+Write-Host "Done. Claude Code loads the hooks from $targetClaude\settings.json (exec form: node runs .claude/hooks/<name>.mjs directly, byte-identical on every platform)."
 exit 0
