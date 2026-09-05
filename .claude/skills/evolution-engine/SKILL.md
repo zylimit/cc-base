@@ -29,7 +29,7 @@ agent: evolution-runner
         触发条件（满足任一）：
         - 某 Skill 连续 3 次同一维度 <= 2 分
         - 某 Skill 某维度最近 5 次平均 <= 3 分
-        - 某 Skill 来源的 feedback occurrences 合计 >= 5
+        - 某 Skill 来源的未毕业 feedback occurrences 合计 >= 5（已毕业条目不计，那些教训已落进规则，再算进来只会重复提议）
 
     第三步：检查新 Skill 信号
         筛选：occurrences >= 5 且不属于任何已有 Skill 的覆盖范围
