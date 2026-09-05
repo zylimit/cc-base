@@ -1,111 +1,142 @@
 #!/usr/bin/env bash
-# test-hook-parity.sh — 3 处 .ps1 hook 不对等回归断言（固化 Task 3 改动）。
-# 覆盖：
-#   ① tdd-gate.ps1 中文触发词「编码实现」：feed JSON 含触发词 → 输出 TDD 提示（非空）；
-#      不含触发词 → 无输出。
-#   ② mark-review-needed.ps1 Mutex：feed file_path JSON → exit 0 且 .needs-review 含该文件
-#      （不崩即 Mutex 路径通）。
-#   ③ session-rules-banner.ps1 提示：grep .ps1 内 fast-mode off 提示含 pwsh + fast-mode.ps1，
-#      不含 bash fast-mode.sh。
-# 无 pwsh → ①② 标 SKIP（不假绿）；③ 是静态文件 grep，不依赖 pwsh、始终跑。
-set -u
+# test-hook-parity.sh — settings.json 与 hooks/ 目录的一一对应对拍（无依赖 claude CLI）。
+#
+# 分工：形态那一面归 test-hooks-settings.sh（command 逐字 node、args[0] 的占位符写法、
+#   timeout/matcher 保值、statusLine、零 .sh/.ps1、node --check）。本文件只做它没做的那半——
+#   **两个方向的集合对拍**：目录里的 .mjs 有没有全被注册，注册表里的名字有没有全在目录里。
+#   HS-6 判的是「args[0] 指向的文件存在」，那是单向的；反向漏一个（写了 hook 却忘了注册）
+#   在那边一条都不会红，而它的后果是「闸装了却从来不触发」——最难发现的那种失效。
+#
+# 契约来源：docs/v3-work-packs.md D.1 目标状态表（「22 个 <同名>.mjs + lib/ 四件」「settings.json
+#   注册 21 个，static-check.mjs 不注册、由 code-review Stage 0 手调」）。
+#
+# 依赖：node（解析 JSON，故意不用 jq——目标机器只保证 node + git + coreutils）。
+# 纪律：对本仓只读；每条断言打印 EXPECT / GOT，判定不依赖措辞。
+set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-HOOKS="$ROOT/.claude/hooks"
-
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
-
-PASS=0
-FAIL=0
-SKIP=0
-pass() { PASS=$((PASS + 1)); echo "  [PASS] $1"; }
-fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $1"; }
-skip() { SKIP=$((SKIP + 1)); echo "  [SKIP] $1"; }
+SETTINGS="$ROOT/.claude/settings.json"
+HOOKDIR="$ROOT/.claude/hooks"
 
 echo "===== test-hook-parity ====="
 
-# ---- ③ session-rules-banner.ps1 提示文本（静态 grep，不依赖 pwsh）----
-echo "--- ③ session-rules-banner.ps1：fast-mode 提示含 pwsh、不含 bash fast-mode.sh ---"
-BANNER="$HOOKS/session-rules-banner.ps1"
-if [ ! -f "$BANNER" ]; then
-    fail "session-rules-banner.ps1 不存在：$BANNER"
-else
-    if grep -q 'pwsh' "$BANNER" && grep -q 'fast-mode\.ps1' "$BANNER"; then
-        pass "fast-mode 提示含 pwsh + fast-mode.ps1"
-    else
-        fail "fast-mode 提示缺 pwsh 或 fast-mode.ps1（grep 未命中）"
-    fi
-    if grep -q 'bash fast-mode\.sh' "$BANNER"; then
-        fail "fast-mode 提示仍含 bash fast-mode.sh（应已改 pwsh fast-mode.ps1）"
-    else
-        pass "fast-mode 提示不含 bash fast-mode.sh"
-    fi
+if ! command -v node >/dev/null 2>&1; then
+    echo "SKIPPED: 无 node——settings.json 解析不了，未执行 != 通过。" >&2
+    exit 1
 fi
 
-# ---- ① ② 需要 pwsh ----
-if ! command -v pwsh >/dev/null 2>&1; then
-    echo ""
-    echo "--- ① tdd-gate.ps1 中文触发 ---"
-    skip "tdd-gate.ps1：无 pwsh（运行时验证无法跑，不假绿）"
-    echo ""
-    echo "--- ② mark-review-needed.ps1 Mutex ---"
-    skip "mark-review-needed.ps1：无 pwsh（运行时验证无法跑，不假绿）"
-else
-    # ---- ① tdd-gate.ps1 中文触发词「编码实现」----
-    echo ""
-    echo "--- ① tdd-gate.ps1：中文触发「编码实现」→ TDD 提示；非触发 → 无输出 ---"
-    # 伪项目根：git init 让 git rev-parse 确定返回此目录（不依赖 mktemp 是否在 git 仓内）；
-    # 不建 .claude/.red-verified、.tdd-exempt → 触发 TDD 提示；不建 .claude/.fast-mode → fast-mode 不放行。
-    TPROJ="$TMP/tdd-proj"
-    mkdir -p "$TPROJ"
-    ( cd "$TPROJ" && git init -q )
+PASS=0
+FAIL=0
 
-    # 触发词「编码实现」→ 应输出 TDD 提示（非空）
-    OUT=$(cd "$TPROJ" && CLAUDE_PROJECT_DIR="$TPROJ" \
-        printf '%s' '{"tool_input":{"command":"编码实现 x"}}' \
-        | pwsh -NoProfile -File "$HOOKS/tdd-gate.ps1" 2>&1) || true
-    if [ -n "$OUT" ]; then
-        pass "中文触发「编码实现」→ 有 TDD 提示输出"
+# chk <判定 0=过/1=不过> <标题> <EXPECT 描述> <GOT 描述>
+chk() {
+    if [ "$1" -eq 0 ]; then
+        PASS=$((PASS + 1)); echo "  [PASS] $2"
     else
-        fail "中文触发「编码实现」→ 无输出（期望 TDD 提示）"
+        FAIL=$((FAIL + 1)); echo "  [FAIL] $2"
     fi
+    echo "         EXPECT $3"
+    echo "         GOT    $4"
+}
 
-    # 非触发词 → 应无输出
-    OUT2=$(cd "$TPROJ" && CLAUDE_PROJECT_DIR="$TPROJ" \
-        printf '%s' '{"tool_input":{"command":"echo hello"}}' \
-        | pwsh -NoProfile -File "$HOOKS/tdd-gate.ps1" 2>&1) || true
-    if [ -z "$OUT2" ]; then
-        pass "非触发「echo hello」→ 无输出"
-    else
-        fail "非触发「echo hello」→ 有输出（期望空，实得：$OUT2）"
-    fi
+# 注册名清单：展平所有事件下的 hook，从 args[0]（exec form）或 command（万一还是 shell form）
+# 里抠出 hooks/<name>.<后缀> 的 name，每行一个。抠不出名字的记成 ?<原文> ——那种条目
+# 既不在目录侧也不在注册侧，会在下面两个方向里各红一次，比静默丢掉强。
+REG=$(node -e '
+const fs = require("node:fs");
+const s = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const out = [];
+for (const ev of Object.keys(s.hooks || {})) {
+  for (const g of (s.hooks[ev] || [])) {
+    for (const h of (g.hooks || [])) {
+      const a = Array.isArray(h.args) && h.args.length ? String(h.args[0]) : String(h.command || "");
+      const m = a.match(/hooks[\/\\]([A-Za-z0-9_-]+)\.[A-Za-z0-9]+$/);
+      out.push(m ? m[1] : "?" + a);
+    }
+  }
+}
+process.stdout.write(out.sort().join("\n"));
+' "$SETTINGS" 2>&1) || REG="<解析失败>"
 
-    # ---- ② mark-review-needed.ps1 Mutex 路径 ----
-    echo ""
-    echo "--- ② mark-review-needed.ps1：Mutex 串行不崩、.needs-review 登记文件 ---"
-    MPROJ="$TMP/mark-proj"
-    mkdir -p "$MPROJ/.claude"
-    # pwsh 的 .NET GetFullPath 把 Unix 路径 /tmp/... 解析到 C:\tmp\...（与 Git Bash 的 /tmp 挂载点不同），
-    # 须传 Windows 形态路径让 pwsh 与 Git Bash 指向同一位置。cygpath -w 转换（Linux 无 cygpath 时原样用）。
-    if command -v cygpath >/dev/null 2>&1; then
-        WPROJ=$(cygpath -w "$MPROJ")
-    else
-        WPROJ="$MPROJ"
-    fi
-    RC=0
-    OUT=$(cd "$MPROJ" && CLAUDE_PROJECT_DIR="$WPROJ" \
-        printf '%s' '{"tool_input":{"file_path":"src/app.ts"}}' \
-        | pwsh -NoProfile -File "$HOOKS/mark-review-needed.ps1" 2>&1) || RC=$?
-    if [ "$RC" -eq 0 ]; then
-        pass "mark-review-needed.ps1：exit 0（Mutex 路径不崩）"
-    else
-        fail "mark-review-needed.ps1：exit $RC（Mutex 路径崩了，输出：$OUT）"
-    fi
-    # .needs-review 写入位置受 pwsh .NET GetFullPath 路径解析影响（/tmp → C:\\tmp 映射差异），
-    # Mutex exit 0 即达成本断言目的（不崩=串行路径通）；写入内容验证留给真机同路径环境。
-fi
+# 目录侧：hooks/ 顶层的 .mjs（lib/ 是子目录，-maxdepth 1 天然排除）。
+DIR_ALL=$(find "$HOOKDIR" -maxdepth 1 -type f -name '*.mjs' 2>/dev/null \
+    | sed 's#.*/##; s#\.mjs$##' | sort)
 
+TMPD=$(mktemp -d)
+trap 'rm -rf "$TMPD"' EXIT
+printf '%s\n' "$REG" | grep -v '^$' | sort -u > "$TMPD/reg"
+printf '%s\n' "$DIR_ALL" | grep -v '^$' > "$TMPD/dir"
+
+REG_N=$(grep -c . "$TMPD/reg" || true)
+DIR_N=$(grep -c . "$TMPD/dir" || true)
+
+# ---------------------------------------------------------------------------
 echo ""
-echo "结果：PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
-[ "$FAIL" -eq 0 ]
+echo "--- 前置：两侧清单都非空（任一为空，下面的对拍就是空转全绿）---"
+
+chk "$([ "${REG_N:-0}" -gt 0 ] && echo 0 || echo 1)" \
+    "PT-0a settings.json 里抠得出注册 hook 名（抠不出 = 对拍无对象）" \
+    "至少 1 个注册名" \
+    "$REG_N 个：$(tr '\n' ' ' < "$TMPD/reg")"
+
+chk "$([ "${DIR_N:-0}" -gt 0 ] && echo 0 || echo 1)" \
+    "PT-0b hooks/ 顶层有 .mjs（一个没有 = 对拍无对象）" \
+    "至少 1 个 hooks/*.mjs" \
+    "$DIR_N 个"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- 方向一：目录 → settings（写了 hook 却忘了注册 = 装了个从不触发的闸）---"
+
+# static-check 按 D.1 明确不注册：它是 code-review Stage 0 手调的工具，注册进去会变成
+# 每次事件都跑一遍全仓静态检查。所以它从这一侧的期望里排除，另由 PT-2 正面锁住。
+ORPHAN=$(grep -vxF 'static-check' "$TMPD/dir" | grep -vxF -f "$TMPD/reg" | tr '\n' ' ' || true)
+chk "$([ -z "$ORPHAN" ] && echo 0 || echo 1)" \
+    "PT-1 除 static-check 外，每个 hooks/*.mjs 都在 settings.json 里注册了" \
+    "零个未注册的 .mjs" \
+    "未注册：${ORPHAN:-无}"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- 方向二：settings → 目录（注册了却没文件 = 每次事件都报 hook error）---"
+
+GHOST=$(grep -vxF -f "$TMPD/dir" "$TMPD/reg" | tr '\n' ' ' || true)
+chk "$([ -z "$GHOST" ] && echo 0 || echo 1)" \
+    "PT-2 每个注册名在 hooks/ 下都有同名 .mjs" \
+    "零个注册了但没文件的名字" \
+    "缺文件：${GHOST:-无}"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- 例外与边界 ---"
+
+r=1
+if [ -f "$HOOKDIR/static-check.mjs" ] && ! grep -qxF 'static-check' "$TMPD/reg"; then r=0; fi
+chk "$r" \
+    "PT-3 static-check.mjs 装着但**不**注册（Stage 0 手调工具；注册了就变成每次事件全仓静态扫）" \
+    "文件存在且不在注册清单里" \
+    "文件=$([ -f "$HOOKDIR/static-check.mjs" ] && echo 存在 || echo 缺失)；在注册清单里=$(grep -qxF 'static-check' "$TMPD/reg" && echo yes || echo no)"
+
+LIBREG=""
+if [ -d "$HOOKDIR/lib" ]; then
+    for f in "$HOOKDIR"/lib/*.mjs; do
+        [ -f "$f" ] || continue
+        b=$(basename "$f" .mjs)
+        grep -qxF "$b" "$TMPD/reg" && LIBREG="$LIBREG $b"
+    done
+fi
+chk "$([ -z "$LIBREG" ] && echo 0 || echo 1)" \
+    "PT-4 hooks/lib/ 下的模块一个都没被当 hook 注册（lib 是被 import 的，直接拉起什么都不做）" \
+    "零个 lib 模块出现在注册清单里" \
+    "被注册的 lib 模块：${LIBREG:- 无}"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "==== test-hook-parity：PASS=$PASS FAIL=$FAIL ===="
+if [ "$FAIL" -gt 0 ]; then
+    echo "test-hook-parity: failed（settings.json 与 hooks/ 目录对不上，上面点名了是哪一侧多/少）" >&2
+    echo "    注册侧（$REG_N）：$(tr '\n' ' ' < "$TMPD/reg")" >&2
+    echo "    目录侧（$DIR_N）：$(tr '\n' ' ' < "$TMPD/dir")" >&2
+    exit 1
+fi
+echo "test-hook-parity: passed（$REG_N 个注册 hook 与 $DIR_N 个 hooks/*.mjs 双向对得上）"

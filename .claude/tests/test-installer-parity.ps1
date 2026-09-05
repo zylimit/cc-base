@@ -209,11 +209,11 @@ try {
 
         Chk (($shRc -eq 0) -and ($shOut -match 'installed: hooks=')) `
             'setup.sh installed through its own .sh path' `
-            'rc 0 and the .sh summary line "installed: hooks=" (not "ps1_hooks=", which would mean it re-execed setup.ps1)' `
+            'rc 0 and the .sh summary line "installed: hooks=" (not "mjs_hooks=", which would mean it re-execed setup.ps1)' `
             ("rc=$shRc summary=[" + (($shOut -split "`n" | Where-Object { $_ -match 'installed: ' }) -join ' ') + "]")
-        Chk (($psRc -eq 0) -and ($psOut -match 'installed: ps1_hooks=')) `
+        Chk (($psRc -eq 0) -and ($psOut -match 'installed: mjs_hooks=')) `
             'setup.ps1 installed' `
-            'rc 0 and the .ps1 summary line "installed: ps1_hooks="' `
+            'rc 0 and the .ps1 summary line "installed: mjs_hooks="' `
             ("rc=$psRc summary=[" + (($psOut -split "`n" | Where-Object { $_ -match 'installed: ' }) -join ' ') + "]")
 
         $shList = Get-InstalledList (Join-Path $targetSh '.claude')
@@ -272,12 +272,12 @@ try {
         $t9BaseRc = $LASTEXITCODE
         $t7Claude = Join-Path $t7 '.claude'
         $t7Edited = Join-Path $t7Claude 'CLAUDE.md'
-        $t7Deleted = Join-Path $t7Claude 'hooks/notify.ps1'
+        $t7Deleted = Join-Path $t7Claude 'hooks/notify.mjs'
 
         Chk (($t7BaseRc -eq 0) -and ($t9BaseRc -eq 0) -and (Test-Path $t7Edited) -and (Test-Path $t7Deleted)) `
             'scaffolding: the two batch-5 targets installed and carry both dry-run probes' `
-            'both baseline installs rc 0, and .claude/CLAUDE.md plus .claude/hooks/notify.ps1 are on disk to perturb' `
-            ("t7Rc=$t7BaseRc t9Rc=$t9BaseRc CLAUDE.md=" + (Test-Path $t7Edited) + " notify.ps1=" + (Test-Path $t7Deleted))
+            'both baseline installs rc 0, and .claude/CLAUDE.md plus .claude/hooks/notify.mjs are on disk to perturb' `
+            ("t7Rc=$t7BaseRc t9Rc=$t9BaseRc CLAUDE.md=" + (Test-Path $t7Edited) + " notify.mjs=" + (Test-Path $t7Deleted))
 
         # Plant the two perturbations a real install has to undo, so "nothing changed" is not the
         # trivially true statement it would be on an already-idempotent target: one framework file

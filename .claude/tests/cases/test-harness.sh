@@ -755,9 +755,9 @@ fi
 rm -rf "$TMPG" "$TMPBIG"
 
 # ⑰ stop-gate 端到端（hook→lib-harness→harness.mjs receipt verify 链）
-#   验重点：stop-gate.sh 真调了 harness receipt verify 并据 rc=4 拦停、rc=0 放行（不只 CLI 单测）。
+#   验重点：stop-gate.mjs 真调了 harness receipt verify 并据 rc=4 拦停、rc=0 放行（不只 CLI 单测）。
 #   关键：临时仓必须自带 harness.mjs（hook 经 $CLAUDE_PROJECT_DIR/.claude/harness/harness.mjs 找它）。
-STOP_GATE="$ROOT/.claude/hooks/stop-gate.sh"
+STOP_GATE="$ROOT/.claude/hooks/stop-gate.mjs"
 
 # ⑰a 有 stale receipt + diff 变动 + .needs-review=clean -> stop-gate decision:block（rc=4 路径）
 TMPS="$(mktemp -d)"
@@ -773,7 +773,7 @@ echo "changed" >> "$TMPS/core/a.ts"
 echo "more-change-after-receipt" >> "$TMPS/core/a.ts"
 echo "clean" > "$TMPS/.claude/.needs-review"
 RC=0
-OUT=$(cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" bash "$STOP_GATE" 2>&1) || RC=$?
+OUT=$(cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" node "$STOP_GATE" 2>&1) || RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"decision":"block"'; then
   pass "stop-gate 端到端 rc=4 拦停链（stale receipt -> decision:block）"
 else
@@ -784,7 +784,7 @@ fi
 ( cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" node "$HARNESS" receipt write <<<'{"taskId":"T2","reviewer":"bob","verdict":"pass","scope":"core"}'
 ) >/dev/null 2>&1
 RC=0
-OUT=$(cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" bash "$STOP_GATE" 2>&1) || RC=$?
+OUT=$(cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" node "$STOP_GATE" 2>&1) || RC=$?
 if [ "$RC" -eq 0 ] && [ ! -f "$TMPS/.claude/.needs-review" ] \
    && ! printf '%s' "$OUT" | grep -q '"decision":"block"'; then
   pass "stop-gate 端到端放行链（匹配 receipt -> 放行 + 清 .needs-review）"
@@ -794,9 +794,9 @@ fi
 rm -rf "$TMPS"
 
 # ⑱ pre-commit-check 端到端（hook→lib-harness→harness.mjs verify 链）
-#   验重点：pre-commit-check.sh 真调了 harness verify 并据 rc=2 阻断 commit（exit 2）、rc=0 放行。
+#   验重点：pre-commit-check.mjs 真调了 harness verify 并据 rc=2 阻断 commit（exit 2）、rc=0 放行。
 #   stdin 喂 git commit JSON 模拟 PreToolUse hook；catalog verification 故意 FAIL。
-PRECOMMIT="$ROOT/.claude/hooks/pre-commit-check.sh"
+PRECOMMIT="$ROOT/.claude/hooks/pre-commit-check.mjs"
 
 # ⑱a catalog verification FAIL -> pre-commit exit 2（阻断 commit）
 TMPP="$(mktemp -d)"
@@ -813,7 +813,7 @@ node -e '
   && mkdir -p core && echo "x" > core/a.ts && git add -A && git commit -qm init ) >/dev/null 2>&1
 echo "stage-me" >> "$TMPP/core/a.ts" && ( cd "$TMPP" && git add -A ) >/dev/null 2>&1
 RC=0
-OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" bash "$PRECOMMIT") 2>&1) || RC=$?
+OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" node "$PRECOMMIT") 2>&1) || RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '大仓四态质量门未通过'; then
   pass "pre-commit 端到端 rc=2 阻断链（verification FAIL -> exit 2）"
 else
@@ -829,7 +829,7 @@ node -e '
   }));
 ' "$TMPP/.claude/harness/module-catalog.json" 'node -e "process.exit(0)"'
 RC=0
-OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" bash "$PRECOMMIT") 2>&1) || RC=$?
+OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" node "$PRECOMMIT") 2>&1) || RC=$?
 if [ "$RC" -eq 0 ]; then
   pass "pre-commit 端到端放行链（verification PASS -> exit 0）"
 else
@@ -838,7 +838,7 @@ fi
 
 # ⑱c 非 git commit 命令 -> pre-commit 直接放行（不触发 harness）
 RC=0
-OUT=$(echo '{"tool_input":{"command":"git status"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" bash "$PRECOMMIT") 2>&1) || RC=$?
+OUT=$(echo '{"tool_input":{"command":"git status"}}' | (cd "$TMPP" && CLAUDE_PROJECT_DIR="$TMPP" node "$PRECOMMIT") 2>&1) || RC=$?
 if [ "$RC" -eq 0 ]; then
   pass "pre-commit 非 git commit 命令 -> 放行（不触发 harness）"
 else

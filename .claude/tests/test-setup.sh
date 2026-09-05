@@ -32,9 +32,12 @@ CL="$TARGET/.claude"
 [ -f "$CL/EVOLUTION.md" ] || fail "EVOLUTION.md 未安装"
 
 # harness 安装产物（大仓治理运行时 + 接线依赖库 + 大仓 rules）
+# hook 的依赖库是 hooks/lib/ 四件 .mjs——只点 harness.mjs 一件的话，另外三件漏装照样静默：
+# 缺哪一件都是「注册了但每次事件报 hook error」，装齐要逐件判。
 [ -f "$CL/harness/harness.mjs" ]         || fail "harness/harness.mjs 未安装"
-[ -f "$CL/hooks/lib-harness.sh" ]        || fail "hooks/lib-harness.sh 未安装"
-[ -f "$CL/hooks/lib-harness.ps1" ]       || fail "hooks/lib-harness.ps1 未安装"
+for m in io gatelog fastmode harness; do
+  [ -f "$CL/hooks/lib/$m.mjs" ]          || fail "hooks/lib/$m.mjs 未安装"
+done
 [ -f "$CL/rules/harness-large-repo.md" ] || fail "rules/harness-large-repo.md 未安装"
 
 # 7 个 agent 全装齐
@@ -49,13 +52,12 @@ while IFS= read -r d; do
   [ -f "$d/SKILL.md" ] || fail "skill 缺 SKILL.md：$(basename "$d")"
 done < <(find "$CL/skills" -mindepth 1 -maxdepth 1 -type d)
 
-# hooks/*.sh 装齐且带可执行位
-hook_count=0
-while IFS= read -r h; do
-  hook_count=$((hook_count + 1))
-  [ -x "$h" ] || fail "hook 缺可执行位：$(basename "$h")"
-done < <(find "$CL/hooks" -maxdepth 1 -type f -name '*.sh')
-[ "$hook_count" -gt 0 ] || fail "未装任何 hooks/*.sh"
+# hooks/*.mjs 装齐。执行位不判：.mjs 由 settings.json 里的 `node <路径>` 拉起，
+# 不走 shebang，位在不在与能不能跑无关（判它只会变成恒红）。
+# 数量下限写 22 而不是 >0：21 个注册 hook + 未注册的 static-check，少一个就是漏装，
+# 而「>0」在只装进一个文件时也照样绿。
+hook_count=$(find "$CL/hooks" -maxdepth 1 -type f -name '*.mjs' | wc -l | tr -d ' ')
+[ "$hook_count" -ge 22 ] || fail "hooks/*.mjs 装少了：实得 $hook_count 个，至少应有 22 个"
 
 # settings.json 合法 JSON（有 jq 用 jq，无 jq 用 python3 解析——降级环境同样要验）
 if command -v jq >/dev/null 2>&1; then
@@ -489,12 +491,12 @@ b5_head() { head -1 "$1" 2>/dev/null | tr -d '\000-\011\013-\037\177' | cut -c1-
 T7="$TMP/b5-dryrun"
 bash "$ROOT/setup.sh" -ubt "$T7" >"$TMP/b5-d7-install.log" 2>&1 \
   || { cat "$TMP/b5-d7-install.log" >&2; fail "⑦ 脚手架：dry-run 目标首装失败"; }
-[ -f "$T7/.claude/hooks/notify.sh" ] || fail "⑦ 脚手架：装完没有 hooks/notify.sh（换个仍存在的文件当 create 探针）"
+[ -f "$T7/.claude/hooks/notify.mjs" ] || fail "⑦ 脚手架：装完没有 hooks/notify.mjs（换个仍存在的文件当 create 探针）"
 [ -f "$T7/.claude/CLAUDE.md" ]       || fail "⑦ 脚手架：装完没有 CLAUDE.md（换个仍存在的文件当 conflict 探针）"
 [ -z "$(find "$T7" -type f \( -name '*.framework-new' -o -name '*.bak' \) -print)" ] \
   || fail "⑦ 脚手架：首装就留下了 .bak/.framework-new，「dry-run 不许产生它们」的断言会失去判别力"
 printf '# user local edit for dry-run probe\n' >>"$T7/.claude/CLAUDE.md"
-rm -f "$T7/.claude/hooks/notify.sh"
+rm -f "$T7/.claude/hooks/notify.mjs"
 find "$T7" -type f -exec sha256sum {} + | LC_ALL=C sort >"$TMP/b5-d7.before"
 
 D7RC=0
@@ -537,11 +539,11 @@ chk "$ok" "⑦-5 stdout 打出 create / update / conflict / skip 四类的文件
   "缺的类别=[${d7miss# }] stdout 首行=[$(b5_head "$TMP/b5-d7.out")] 行数=$(wc -l <"$TMP/b5-d7.out" | tr -d ' ')"
 
 ok=0
-grep -q 'hooks/notify\.sh' "$TMP/b5-d7.out" || ok=1
+grep -q 'hooks/notify\.mjs' "$TMP/b5-d7.out" || ok=1
 grep -q 'CLAUDE\.md'       "$TMP/b5-d7.out" || ok=1
 chk "$ok" "⑦-6 计划点名具体文件：被删的进 create、被改的进 conflict" \
-  "stdout 同时出现 hooks/notify.sh（本地已删，真装会补回）与 CLAUDE.md（本地改过，真装会落 .framework-new）" \
-  "notify=$(grep -c 'hooks/notify\.sh' "$TMP/b5-d7.out" || true) claude_md=$(grep -c 'CLAUDE\.md' "$TMP/b5-d7.out" || true)"
+  "stdout 同时出现 hooks/notify.mjs（本地已删，真装会补回）与 CLAUDE.md（本地改过，真装会落 .framework-new）" \
+  "notify=$(grep -c 'hooks/notify\.mjs' "$TMP/b5-d7.out" || true) claude_md=$(grep -c 'CLAUDE\.md' "$TMP/b5-d7.out" || true)"
 
 # ---- ⑧ 独占锁：活锁拒绝、陈旧锁接管、装完清锁 ----
 # 不起两个真并发进程（那是 flaky 的来源），改手工造锁——锁的语义本来就是「文件里的 pid 还活着吗」，
@@ -873,9 +875,9 @@ chk "$ok" "⑨-5 doctor 对该目标报「上次安装未完成」且 rc 非 0" 
   "rc 非 0 且输出含 未完成 / INSTALL INTERRUPTED / install.marker / interrupted 之一（同一目标在中断前刚验过 doctor rc=0，所以这条红不是别的缺失撑出来的）" \
   "rc=$D9RC（中断前基线 rc=$D0RC）点名=$(grep -ciE '未完成|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-doc9.all" || true)"
 
-BANNER="$ROOT/.claude/hooks/session-rules-banner.sh"
+BANNER="$ROOT/.claude/hooks/session-rules-banner.mjs"
 if [ -f "$BANNER" ]; then
-  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T9" bash "$BANNER" >"$TMP/b5-ban9.out" 2>"$TMP/b5-ban9.err" || true
+  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T9" node "$BANNER" >"$TMP/b5-ban9.out" 2>"$TMP/b5-ban9.err" || true
   cat "$TMP/b5-ban9.out" "$TMP/b5-ban9.err" >"$TMP/b5-ban9.all"
   ok=0; grep -qiE '未完成|安装中断|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-ban9.all" || ok=1
   chk "$ok" "⑨-6 SessionStart 横幅看到 marker 也打一行警告" \
@@ -884,7 +886,7 @@ if [ -f "$BANNER" ]; then
 
   # 对照组：期望值写死「一条都不许命中」，不从上面那次探测回填——没有 marker 的项目
   # 每次开 session 都被吓一跳，比不告警还糟。
-  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T7" bash "$BANNER" >"$TMP/b5-ban7.out" 2>"$TMP/b5-ban7.err" || true
+  printf '{"source":"startup"}' | env CLAUDE_PROJECT_DIR="$T7" node "$BANNER" >"$TMP/b5-ban7.out" 2>"$TMP/b5-ban7.err" || true
   cat "$TMP/b5-ban7.out" "$TMP/b5-ban7.err" >"$TMP/b5-ban7.all"
   ban7hit=$(grep -ciE '未完成|安装中断|INSTALL INTERRUPTED|install\.marker|interrupted' "$TMP/b5-ban7.all" || true)
   ok=0; [ "$ban7hit" = "0" ] || ok=1
@@ -893,7 +895,7 @@ if [ -f "$BANNER" ]; then
     "命中数=$ban7hit 首行=[$(b5_head "$TMP/b5-ban7.all")]"
 else
   chk 1 "⑨-6 SessionStart 横幅看到 marker 也打一行警告" \
-    "hooks/session-rules-banner.sh 存在并可跑" "找不到 $BANNER"
+    "hooks/session-rules-banner.mjs 存在并可跑" "找不到 $BANNER"
 fi
 
 R9RC=0

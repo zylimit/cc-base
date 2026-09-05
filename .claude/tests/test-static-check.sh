@@ -13,19 +13,19 @@
 # 为什么沙箱里不放 .sh/.py/tsconfig.json：那样 `ran` 会被 shellcheck/ruff/tsc 填上，
 #   「输出含 node --check」就不再是 JS 分支的证据。这个目录里只有 JS，判据才干净。
 #
-# 用法：bash test-static-check.sh [static-check.sh 路径]
+# 用法：bash test-static-check.sh [static-check.mjs 路径]
 #   带参数是给突变/修复验证用的——把候选实现放 /tmp，跑同一份断言看它转不转绿。
 set -u
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)
-CHECK=${1:-"$SRC/hooks/static-check.sh"}
+CHECK=${1:-"$SRC/hooks/static-check.mjs"}
 
 echo "===== test-static-check ====="
 command -v node >/dev/null 2>&1 || {
     echo 'SKIPPED: 无 node——node --check 这条分支本身跑不了，未执行 != 通过。'
     exit 0
 }
-[ -f "$CHECK" ] || { echo "test-static-check: 找不到被测 static-check.sh：$CHECK" >&2; exit 1; }
+[ -f "$CHECK" ] || { echo "test-static-check: 找不到被测 static-check.mjs：$CHECK" >&2; exit 1; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -45,7 +45,7 @@ SC_RC=0
 SC_OUT=""
 run_check() {
     SC_RC=0
-    SC_OUT=$(bash "$CHECK" "$1" 2>&1) || SC_RC=$?
+    SC_OUT=$(node "$CHECK" "$1" 2>&1) || SC_RC=$?
 }
 # 输出可能很长，GOT 里只留前几行。
 brief() { printf '%s\n' "$1" | head -6 | tr '\n' '|'; }
@@ -132,11 +132,10 @@ chk "$r" "③ node_modules 下的语法错被排除，但仓内 JS 仍被真的�
 # ---------------------------------------------------------------------------
 # 覆盖缺口，明说不假装
 # ---------------------------------------------------------------------------
-if [ -f "$SRC/hooks/static-check.ps1" ]; then
-    echo "  [NOTE] 存在 static-check.ps1，但本文件只验 .sh 侧；.ps1 侧行为无人守，需另开断言。"
-else
-    echo "  [NOTE] static-check.ps1 今天并不存在（该 hook 从来只有 .sh 一份）。派单写的「与 .ps1 成对」"
-    echo "         意味着新建整份 .ps1，不是改一处分支——本文件不替这个决定打分，交主 Agent 裁定。"
+LEFTOVER=$(find "$SRC/hooks" -maxdepth 1 \( -name 'static-check.sh' -o -name 'static-check.ps1' \) 2>/dev/null | tr '\n' ' ')
+if [ -n "$LEFTOVER" ]; then
+    echo "  [NOTE] hooks/ 下仍有 static-check 的 shell 形态（$LEFTOVER）：Phase D 之后只该剩 .mjs 一份，"
+    echo "         本文件只验 .mjs 侧，那些残留无人守——归 test-hooks-settings 的 HS-17/HS-18 判。"
 fi
 echo "  [NOTE] 「有 tsc 时不跑 node --check」这条优先级没测：要真装 node_modules + typescript，"
 echo "         代价与环境依赖都过高，列为已知覆盖缺口。"

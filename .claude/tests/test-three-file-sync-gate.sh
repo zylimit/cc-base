@@ -10,8 +10,10 @@
 # 临时 git 仓建在 scratchpad，trap 清理。
 set -eu
 
-HOOK=$(cd "$(dirname "$0")/.." && pwd)/hooks/three-file-sync-gate.sh
-[ -x "$HOOK" ] || { echo "test-three-file-sync-gate: 缺 hook：$HOOK" >&2; exit 1; }
+HOOK=$(cd "$(dirname "$0")/.." && pwd)/hooks/three-file-sync-gate.mjs
+# .mjs 由 node 拉起，不需要执行位（执行位只对 shebang 生效）——判 -f 就够，判 -x 会变成恒红。
+[ -f "$HOOK" ] || { echo "test-three-file-sync-gate: 缺 hook：$HOOK" >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "test-three-file-sync-gate: 无 node——hook 是 .mjs，跑不起来；未执行 != 通过。" >&2; exit 1; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -43,7 +45,7 @@ fresh_repo() {
 # 跑闸，回显 stdout（block 时为 {"decision":"block",...}，放行时为空）。
 run_gate() {
   local t="$1"
-  CLAUDE_PROJECT_DIR="$t" bash "$HOOK" 2>/dev/null
+  CLAUDE_PROJECT_DIR="$t" node "$HOOK" 2>/dev/null
 }
 
 # 断言改某家底文件（progress 未同步）→ 必须 block。

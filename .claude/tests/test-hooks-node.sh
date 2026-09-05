@@ -11,7 +11,9 @@
 #                                 fail-open|closed）、A' 两侧不等价表、B 段 lib 契约、E 段隔离要求
 #   docs/v3-work-packs.md         D.2 node 侧 lib 契约、D.3 逐 hook 移植规则（含 9 处「取哪边」）、D.5 已知坑
 #   移植来源：test-hook-failopen.sh 28 条（引擎契约外退出码 / 三振熔断 / 保留 .needs-review /
-#             诊断带实际退出码）、test-ps1-behavior.ps1 A–E 组语义。
+#             诊断带实际退出码 / 夹具自证）、test-ps1-behavior.ps1 A–E 组语义。
+#             D-3c 起 test-hook-failopen.sh 整份退役、test-ps1-behavior.ps1 的 A–E 组删去，
+#             那些断言此后只在本文件里，两平台跑同一份。
 #
 # 跨平台：只用 bash + node + git + coreutils。不用 jq / lsof / flock / python3 做断言
 #   （hook 内部用什么是 hook 自己的事）。CI 的 windows-latest Git Bash 跑同一份。
@@ -236,6 +238,29 @@ chk "$([ -z "$MISS" ] && echo 0 || echo 1)" \
     "EX-1 22 个 hook 的 .mjs 全部就位" \
     "0 个缺失" \
     "缺失：${MISS:- 无}"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- SF 脚手架自证（故障引擎真的给出契约外的码；移植 test-hook-failopen 的夹具自检）---"
+
+# 下面 SG / PC / AV 三组的「契约外退出码」断言全建立在这两个夹具上。夹具哪天不再产生
+# 那个条件（引擎改了退出码、stub 写法失效），那些断言会安静地变成空转全绿——所以先
+# 把夹具本身断言一遍，红了先看这一段，别去改闸。
+ENGRC=0
+SB=$(newsb sf-broken catalog engine:broken)
+( cd "$SB" && node "$SB/.claude/harness/harness.mjs" verify ) >/dev/null 2>&1 || ENGRC=$?
+chk "$([ "$ENGRC" != "0" ] && [ "$ENGRC" != "2" ] && [ "$ENGRC" != "3" ] && [ "$ENGRC" != "4" ] && echo 0 || echo 1)" \
+    "SF-1 engine:broken（只留 harness.mjs、删 lib/）真的退出在契约 {0,2,3,4} 之外" \
+    "退出码不在 {0,2,3,4} 内" \
+    "实得 rc=$ENGRC"
+
+ENGRC=0
+SB=$(newsb sf-7 catalog engine:7)
+( cd "$SB" && node "$SB/.claude/harness/harness.mjs" verify ) >/dev/null 2>&1 || ENGRC=$?
+chk "$([ "$ENGRC" = "7" ] && echo 0 || echo 1)" \
+    "SF-2 engine:7 假引擎真的退出 7（「诊断点出实际退出码」那几条靠它才有判别力）" \
+    "rc=7" \
+    "实得 rc=$ENGRC"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -602,6 +627,26 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "AV-12 fast-mode 生效 → 静默放行（质量闸吃 fast-mode）" \
     "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
 
+# AV-13：hook 自己抛异常时的契约（D-2b 裁定）——按唤醒处理，不是静默下班、也不是裸崩。
+# 造法：整套拷进沙箱，往 lib/io.mjs 的 readStdinRaw 注入一个 throw（本仓零改动）。
+# 判据里 rc 必须**恰好是 2**：未捕获的异常 node 会以 rc 1 退出，只断「rc 非 0」分不开
+# 「闸按契约唤醒」和「闸崩了」这两件事，而后者正是这条要挡的。
+SB=$(newsb av-throw catalog engine:2)
+install_hook "$SB" harness-async-verify
+node -e '
+const fs = require("node:fs");
+const f = process.argv[1];
+const s = fs.readFileSync(f, "utf8").replace(
+  "export function readStdinRaw() {",
+  "export function readStdinRaw() {\n  throw new Error(\"injected fault\");");
+fs.writeFileSync(f, s);
+' "$SB/.claude/hooks/lib/io.mjs"
+run_script "$SB/.claude/hooks/harness-async-verify.mjs" "$SB" '{"tool_input":{"file_path":"src/a.ts"}}'
+chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "AV-13 hook 内部异常（lib 注入 throw）→ 留 stderr 诊断并 exit 2 唤醒，不静默下班也不裸崩（未捕获会是 rc 1）" \
+    "rc=2 且 stderr 非空 且 stdout 空" \
+    "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- KD kill-dev-ports（PreToolUse/Bash，无输出恒 0；只断言当前平台那一支）---"
@@ -951,6 +996,21 @@ run_hook pre-commit-check "$SB" "$COMMIT_JSON"
 chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "PC-17 fast-mode 生效 → 静默放行（编译门吃 fast-mode；发布闸另有卡点）" \
     "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+
+# 暂存 JS 家族源码时走 node --check（D-2 新增分支）。先一条对照组：语法正确的 .mjs 必须放行——
+# 少了它，下面那条红只能证明「拦了」，证不出「拦的是语法错」（暂存任何文件都拦也满足它）。
+SB=$(newsb pc-mjsok git); printf 'export const x = 1;\n' > "$SB/ok.mjs"; stage "$SB"
+run_hook pre-commit-check "$SB" "$COMMIT_JSON"
+chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
+    "PC-18 语法正确的 .mjs → 放行 rc 0（对照组：node --check 分支不许见 JS 就拦）" \
+    "rc=0" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb pc-mjsbad git); printf 'const x = ;\n' > "$SB/bad.mjs"; stage "$SB"
+run_hook pre-commit-check "$SB" "$COMMIT_JSON"
+PC_MJS_RC="$RC"; PC_MJS_ERR="$ERRT"
+chk "$([ "$PC_MJS_RC" -eq 2 ] && hasq 'bad.mjs' "$PC_MJS_ERR" && echo 0 || echo 1)" \
+    "PC-19 暂存语法坏的 .mjs → exit 2 阻断且诊断点名 bad.mjs（hook 全改 .mjs 后，坏 hook 提交进去就是每次事件报错）" \
+    "rc=2 且 stderr 点名 bad.mjs" "rc=$PC_MJS_RC err=[$(show "$PC_MJS_ERR")]"
 
 # ---------------------------------------------------------------------------
 echo ""

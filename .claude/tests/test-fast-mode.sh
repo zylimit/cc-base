@@ -4,12 +4,14 @@
 #   > now 才放行 hook；缺行 / 非数字 / 已过期一律 fail-closed 走严格逻辑。
 # 覆盖：① on 后 flag 含 expires_epoch 且 status 报 on ② on 3 写入 3h 的 epoch 差值
 #   ③ off 删 flag ④ 手写过期 flag → status 报过期、hook 不放行 ⑤ 非法 hours 报错 exit 2
-#   ⑥ 抽 tdd-gate.sh：有效 flag 放行 exit 0、过期/坏 flag 不放行（走原严格逻辑）。
+#   ⑥ 抽 tdd-gate.mjs：有效 flag 放行 exit 0、过期/坏 flag 不放行（走原严格逻辑）
+#   ⑦ 判定库 hooks/lib/fastmode.mjs 缺失 → 仍 exit 0 且走严格（闸不因少一个文件而消失）。
 # 临时目录当项目根（伪造 .claude/.fast-mode + 拷 scripts/hooks），trap 清理。
 set -eu
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 [ -f "$SRC/scripts/fast-mode.sh" ] || { echo "test-fast-mode: 缺 $SRC/scripts/fast-mode.sh" >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "test-fast-mode: 无 node——抽测的 hook 是 .mjs，跑不起来；未执行 != 通过。" >&2; exit 1; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -19,12 +21,14 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); echo "  [PASS] $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $1"; }
 
-# 伪项目根：拷 fast-mode.sh 与抽测 hook（含共享判定库 lib-fast-mode.sh），保持 .claude/ 相对结构
+# 伪项目根：拷 fast-mode.sh 与抽测 hook，保持 .claude/ 相对结构。
+# hooks/lib/ 按目录整拷、不枚举模块名：hook 之间还会加新 lib，枚举法漏一个就是
+# ERR_MODULE_NOT_FOUND 的假红。
 ROOT="$TMP/proj"
-mkdir -p "$ROOT/.claude/scripts" "$ROOT/.claude/hooks"
+mkdir -p "$ROOT/.claude/scripts" "$ROOT/.claude/hooks/lib"
 cp "$SRC/scripts/fast-mode.sh" "$ROOT/.claude/scripts/"
-cp "$SRC/hooks/tdd-gate.sh" "$ROOT/.claude/hooks/"
-cp "$SRC/hooks/lib-fast-mode.sh" "$ROOT/.claude/hooks/"
+cp "$SRC/hooks/tdd-gate.mjs" "$ROOT/.claude/hooks/"
+cp -R "$SRC/hooks/lib/." "$ROOT/.claude/hooks/lib/"
 FM="bash $ROOT/.claude/scripts/fast-mode.sh"
 FLAG="$ROOT/.claude/.fast-mode"
 
@@ -66,39 +70,42 @@ for BAD in abc 0 -1 1.5; do
   if [ "$RC" -eq 2 ]; then pass "非法 hours '$BAD' → exit 2"; else fail "非法 hours '$BAD' → exit $RC（期望 2）"; fi
 done
 
-# ⑥ 抽 tdd-gate.sh 验证放行/不放行
+# ⑥ 抽 tdd-gate.mjs 验证放行/不放行
 # hook 读 stdin，喂一个会触发提醒路径的 implementer 派发命令；fast-mode 有效时应先行 exit 0 且无输出。
 # 严格路径的提醒走 stderr，故 2>&1 合并捕获；cd 进伪根（非 git 仓）让 PROJECT_ROOT 落在无 .red-verified 的位置。
 HOOK_IN='{"tool_input":{"command":"claude agent implementer write code"}}'
-run_hook() { printf '%s' "$HOOK_IN" | (cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" bash "$ROOT/.claude/hooks/tdd-gate.sh" 2>&1); }
+run_hook() { printf '%s' "$HOOK_IN" | (cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" node "$ROOT/.claude/hooks/tdd-gate.mjs" 2>&1); }
 
 $FM on >/dev/null
 OUT=$(run_hook); RC=$?
 if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
-  pass "有效 flag：tdd-gate.sh 静默放行（exit 0、无输出）"
+  pass "有效 flag：tdd-gate.mjs 静默放行（exit 0、无输出）"
 else
-  fail "有效 flag：tdd-gate.sh 未静默放行（exit $RC，输出：$OUT）"
+  fail "有效 flag：tdd-gate.mjs 未静默放行（exit $RC，输出：$OUT）"
 fi
 
 printf 'enabled_epoch=1000\nexpires_epoch=2000\nhours=1\n' > "$FLAG"
 OUT=$(run_hook || true)
 if [ -n "$OUT" ]; then
-  pass "过期 flag：tdd-gate.sh 不放行（走严格逻辑，有输出）"
+  pass "过期 flag：tdd-gate.mjs 不放行（走严格逻辑，有输出）"
 else
-  fail "过期 flag：tdd-gate.sh 被放行了（期望走严格逻辑输出提醒）"
+  fail "过期 flag：tdd-gate.mjs 被放行了（期望走严格逻辑输出提醒）"
 fi
 
 printf 'garbage\nexpires_epoch=notanumber\n' > "$FLAG"
 OUT=$(run_hook || true)
 if [ -n "$OUT" ]; then
-  pass "坏 flag（非数字）：tdd-gate.sh fail-closed 不放行"
+  pass "坏 flag（非数字）：tdd-gate.mjs fail-closed 不放行"
 else
-  fail "坏 flag（非数字）：tdd-gate.sh 被放行了（期望 fail-closed）"
+  fail "坏 flag（非数字）：tdd-gate.mjs 被放行了（期望 fail-closed）"
 fi
 
-# ⑦ 共享库缺失 → fail-closed：有效 flag 也不放行（走严格逻辑），且 hook 不崩（exit 0 + 有提醒输出）
+# ⑦ 判定库缺失 → fail-closed：有效 flag 也不放行（走严格逻辑），且 hook 不崩（exit 0 + 有提醒输出）。
+# 造法按 .mjs 的解析规则重写：dot-source 那套没了，缺件就是 hooks/lib/fastmode.mjs 不在。
+# 裸 import 一个不存在的模块会让 node 在跑到第一行之前就 rc 1 退出，那正是这条要挡的形态——
+# 闸不许因为少一个文件而整个消失，判定要退回严格而不是退回「不响」。
 $FM on >/dev/null
-mv "$ROOT/.claude/hooks/lib-fast-mode.sh" "$ROOT/.claude/hooks/lib-fast-mode.sh.hidden"
+rm -f "$ROOT/.claude/hooks/lib/fastmode.mjs"
 RC=0
 OUT=$(run_hook) || RC=$?
 if [ "$RC" -eq 0 ] && [ -n "$OUT" ]; then
@@ -106,7 +113,7 @@ if [ "$RC" -eq 0 ] && [ -n "$OUT" ]; then
 else
   fail "lib 缺失：期望 fail-closed 走严格逻辑且不崩（exit $RC，输出：$OUT）"
 fi
-mv "$ROOT/.claude/hooks/lib-fast-mode.sh.hidden" "$ROOT/.claude/hooks/lib-fast-mode.sh"
+cp "$SRC/hooks/lib/fastmode.mjs" "$ROOT/.claude/hooks/lib/"
 
 rm -f "$FLAG"
 echo ""

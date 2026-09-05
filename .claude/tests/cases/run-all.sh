@@ -78,16 +78,21 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——audit 三只哨兵的两套测试跳过，未执行 != 通过。"
     AUDIT_NOTE="；audit 测试 SKIPPED（无 node）"
 fi
-# 引擎异常退出红锁：harness 崩掉给出契约外退出码时，stop-gate / pre-commit-check 不许静默放行。
-#   与 cases/test-harness.sh 分工——那份锁「引擎端到端链路该有的行为」，这份锁「引擎崩掉时闸不许假绿」。
-#   同样只需 node + git；无 node 时它自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
-FAILOPEN_NOTE=""
+# hook 单运行时的两份回归网：22 个 .mjs 的行为（喂 stdin 断言 stdout/退出码/状态文件副作用）
+#   与 settings.json 的注册面（exec form、args[0] 存在、零 .sh/.ps1、timeout 保值）。
+#   引擎崩掉给契约外退出码时闸不许静默放行的那 28 条红锁，已并进 test-hooks-node.sh 的
+#   SG / PC 组（原 test-hook-failopen.sh 随 Phase D 退役）。
+#   与 cases/test-harness.sh 分工——那份锁「引擎端到端链路该有的行为」，这两份锁「闸自己的行为」。
+#   都只需 node + git；无 node 时它们自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
+HOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    echo "----- 运行 test-hook-failopen.sh -----"
-    bash "$TESTS_DIR/test-hook-failopen.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    for s in test-hooks-node.sh test-hooks-settings.sh; do
+        echo "----- 运行 $s -----"
+        bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    done
 else
-    echo "SKIPPED: 无 node（command -v node 未找到）——引擎异常退出红锁跳过，未执行 != 通过。"
-    FAILOPEN_NOTE="；引擎异常退出红锁 SKIPPED（无 node）"
+    echo "SKIPPED: 无 node（command -v node 未找到）——hook 行为与注册面回归跳过，未执行 != 通过。"
+    HOOKS_NOTE="；hook 行为/注册面回归 SKIPPED（无 node）"
 fi
 # 证据层红锁：账本读不出来要降级、并发追加不许断链、证据被改写要有命令看得见、
 #   闸的范围不许由调用方伪造、被压制的失败不许冒充「从没跑过」。
@@ -196,26 +201,24 @@ else
     echo "SKIPPED: 无 node（command -v node 未找到）——dod / release 一键闸跳过，未执行 != 通过。"
     ONEKEY_NOTE="；dod / release 一键闸 SKIPPED（无 node）"
 fi
-# .ps1 hook 真跑回归：喂真实 JSON 断言退出码 / stdout / .needs-review 与 gate-block.log 的副作用。
-#   与 test-hook-parity.sh 分工——那份从 Git Bash 验对等且明说 .needs-review 内容留给真机，
-#   这份用原生 pwsh 把那块补上，另加 stop-gate / pre-commit-check 的 fail-closed（.sh 侧归
-#   test-hook-failopen.sh，.ps1 侧此前全空）。
+# 剩余 .ps1 的回归：单运行时之后 hook 不再有 .ps1，这份缩到「幸存的 6 个 .ps1 纯 ASCII」
+#   与 fast-mode.ps1 的端到端开关行为——hook 行为归 test-hooks-node.sh（Windows 上由 Git Bash 跑）。
 #   本机没 pwsh 就明示 SKIP：CI 的 ps1 那格会真跑，那里 rc 3 直接判失败。
 #   退出码：0=全过 / 1=有断言红 / 3=有整组没跑成（缺 node 或 git）。
 PS1_NOTE=""
 PS1_BEHAVIOR="$TESTS_DIR/test-ps1-behavior.ps1"
 if command -v pwsh >/dev/null 2>&1; then
-    echo "----- 运行 test-ps1-behavior.ps1（原生 pwsh 真跑 .ps1 hook）-----"
+    echo "----- 运行 test-ps1-behavior.ps1（原生 pwsh 跑剩余 .ps1）-----"
     PS1_RC=0
     pwsh -NoProfile -File "$PS1_BEHAVIOR" || PS1_RC=$?
     if [ "$PS1_RC" -eq 3 ]; then
-        PS1_NOTE="；.ps1 行为回归有整组 SKIPPED（未执行 != 通过）"
+        PS1_NOTE="；剩余 .ps1 回归有整组 SKIPPED（未执行 != 通过）"
     elif [ "$PS1_RC" -ne 0 ]; then
         STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
     fi
 else
-    echo "SKIPPED: 无 pwsh（command -v pwsh 未找到）——.ps1 行为回归跳过，未执行 != 通过。"
-    PS1_NOTE="；.ps1 行为回归 SKIPPED（无 pwsh）"
+    echo "SKIPPED: 无 pwsh（command -v pwsh 未找到）——剩余 .ps1 回归跳过，未执行 != 通过。"
+    PS1_NOTE="；剩余 .ps1 回归 SKIPPED（无 pwsh）"
 fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
@@ -229,7 +232,7 @@ echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -247,10 +250,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${FAILOPEN_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"
