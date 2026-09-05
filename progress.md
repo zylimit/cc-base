@@ -14,7 +14,7 @@ _Last updated: 2026-09-05_
 - **验收五步闸（禁跳步）**：做任何「完成」声称前必走：①想清要跑的命令 → ②跑全量全新（无缓存）→ ③读完整输出 + exit code → ④确认输出支持结论 → ⑤才开口。禁用"应该/大概/看起来"措辞替代实测。（2026-06-15 纪律增强；引用本框架两次翻车案例：PS 5.1 git fatal 误判、v1.0.1 远程 tag 误判）
 - **接收审查/反馈禁表演式认同**：禁"你说得对/好建议/这就改"开场。改为：复述确认（"你说的是X，对吗？"）、或先问清再表态、或有异议顶回去、或直接动手不废话。（2026-06-15 纪律增强）
 - **.ps1 hook 补中文触发词须用 \uXXXX Unicode 转义，不能直接写中文**：Pinned 既有「.ps1 纯 ASCII（PS 5.1 GBK 读中文崩）」的延伸。tdd-gate.ps1 第 21 行漏中文「编码实现」触发词非疏忽，是 ASCII 约束下的历史取舍；修复用 编码实现 之类 Unicode 转义匹配（PS -match 走 .NET 正则支持 \u），保持纯 ASCII。Explore 探查漏点破此层。（2026-07-29）
-- **v2 改造期每个 Phase 的收口闸（`feat/v2-engine` 有效）**：selftest 全绿 + `harness-golden.mjs --check` 零差异 + `run-all.sh` 全绿 + 该 Phase 新增测试，四项齐才算完。现有 15 个子命令的 stdout JSON 与退出码是**对外契约**（stop-gate / pre-commit-check / harness-async-verify 三个 hook 在消费），零行为回归。每条新闸必须**同批**产出一条反向验证（注入缺陷 → 闸真响）——只跑正向全绿的闸等于没有闸。
+- **v2 / v3 改造期每个 Phase 的收口闸（`feat/v2-engine` / `feat/v3-tiered` 有效）**：selftest 全绿 + `harness-golden.mjs --check` 零差异 + `run-all.sh` 全绿 + 该 Phase 新增测试，四项齐才算完。现有 15 个子命令的 stdout JSON 与退出码是**对外契约**（stop-gate / pre-commit-check / harness-async-verify 三个 hook 在消费），零行为回归。每条新闸必须**同批**产出一条反向验证（注入缺陷 → 闸真响）——只跑正向全绿的闸等于没有闸。
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
@@ -75,6 +75,7 @@ _Last updated: 2026-09-05_
 （2026-08-16 及更早的 Done 条目（v1.0.x~v1.10.0）已归档到 progress.archive.md）
 
 ## Decisions
+- 2026-09-05: **v3 提案四项全部采纳（用户「1,2,3,4，都接受，干」）**——① 三档 `fast / standard / strict`，默认 `standard`；② `fast` 硬上限 8 小时；③ Phase D（25 对 .sh/.ps1 hook 改 node 单运行时）进计划，家底重写的 HIGH 档审批已给；④ 分发包默认不带 tests / research / agent-memory / progress，目标项目 `--with-tests` 才装。执行顺序主 Agent 定为 **D → A → B → C → E**：A 的档位入口落在 hook 里，先换单运行时再做档位，避免在 shell 上做一遍又在 node 上重做；C（golden 瘦身）与 D 文件面不重叠可并行；B 动 setup.ps1 与 D 冲突，排 D 后；E 改 CLAUDE.md 规则最敏感，最后做且先给 diff 摘要再落。工作分支 `feat/v3-tiered`，收口闸沿用 Pinned 的 v2 四项（selftest 全绿 + golden `--check` 零差异或差异逐条归因 + run-all 全绿 + 本 Phase 新增测试），每条新闸同批出反向验证。
 - 2026-09-05: **evolution-engine「某 Skill 相关 feedback 合计 ≥ 5」只计未毕业条目（用户「全部搞完」拍板采纳主 Agent 建议）**——dev-builder 算术命中 5 但 4 次来自已毕业条目，已落进规则的教训再算进来只会重复提议。改的是 `skills/evolution-engine/SKILL.md` 第二步一行，manifest 重生随 `0e8330d` 提交。
 - 2026-09-05: **框架方向变更：从「刻意轻量、fast-mode 布尔」转向「可分档位执行」（用户指令）**——用户原话要点：不缩减功能、还要加功能；7 万行规模要裁剪；可严格开发 / 可快速开发 / 可精细化调整框架强度；避免过度复杂化、轻便而全面；借鉴 dsh-base / codex-base 但不盲从、上网找优秀实践。**这条推翻两处旧判定**：① CROSS-POLLINATION 里对 codex-base「Assurance profile 四档 + 15 控制轴」的整套拒绝（理由曾是本仓刻意轻量）要重评；② 2026-06-14「只取轻量且确定有效方案」的边界要按「分档」重新画——轻量是默认档，不是天花板。落点：先出提案（含行数与风险），不动代码。
 - 2026-09-05: **`.ps1` 纯 ASCII 保持铁律，理由改写为「兼容性面会变」（用户拍板）**——用户先说「我不会使用 powershell 5.1」，据此合了 #30（5.1 无机器可验这个缺口不存在）；但随即明确「永远不要在 PowerShell 里写中文注释，后面要考虑兼容性」。故 Pinned 那条**不放开**：不加 `#requires -Version 7.0`、不允许中文注释、`\uXXXX` 转义写法照旧。与之前的理由差别在于——原来的依据是「本机 Windows 跑的是 powershell.exe 5.1」这一具体事实，现在依据是「目标环境会变，脚本不赌解释器版本与代码页」，比原来更强、不随环境消失而失效。兄弟仓 deepseek-base 的 `#requires -Version 7.0` 判定维持拒绝（见 docs/CROSS-POLLINATION.md）。
