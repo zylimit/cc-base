@@ -13,19 +13,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { projectDir, readTextFile, emit, runFailClosed } from './lib/io.mjs';
+import { projectDir, readTextFile, pendingReviewLines, emit, fastOff, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 /** 读连拦计数：只认与本次 sig 相同的记录，sig 一变即从 0 重计；文件损坏当无状态。 */
 function readStrikes(file, sig) {
@@ -67,7 +57,7 @@ runFailClosed(async () => {
   // 读不出来 ≠ 没有：状态未知时放行就是拿「没看到欠账」当「没有欠账」，交给 fail-closed
   if (state.error) throw state.error;
 
-  const files = state.text.replace(/\r/g, '').split('\n').filter((l) => l.trim() !== '' && l !== 'clean');
+  const files = pendingReviewLines(state.text);
 
   if (files.length === 0) {
     // 大仓回执网关（catalog 存在才启用；不启用时走原逻辑零行为变化）：清单已清空（口头释放）后，

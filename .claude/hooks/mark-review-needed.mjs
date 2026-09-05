@@ -9,24 +9,15 @@
 //   - 拼法说「在根外」时再问一次身份：两侧同过 realpathSync.native 展开 8.3 短名
 //     （C:\Users\ABC123~1 与 C:\Users\Administrator 是同一处）与 symlink 后重判，
 //     免得项目内的文件被当成项目外——那等于跳过审查
-//   - 读改写加锁串行（独占创建 .needs-review.lock，陈旧锁可回收），防并发 PostToolUse 互相截断
+//   - 读改写加锁串行（独占创建 .needs-review.lock，陈旧锁可回收），防并发 PostToolUse 互相截断；
+//     等不到锁就裸跑登记，但出门时绝不删自己没拿到的那把锁——删了持锁方还在临界区，两边并发写会丢登记
 //   - 无 file_path / 输入损坏 → 优雅降级退出，恒 exit 0（记账 hook，不为一条怪路径拦住工具）
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinJson, toPosix, say, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinJson, toPosix, say, fastOff, runFailOpen } from './lib/io.mjs';
 
 const LOCK_STALE_MS = 5000;   // 锁超过这么久没释放视为持锁进程已死，可回收
 const LOCK_WAIT_MS = 1000;    // 总等待上限（PostToolUse timeout 只有 3s，等不起更久）
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 /**
  * 身份形态：从存在的最近祖先开始展开真实路径，剩下的按字面拼回去。
@@ -76,8 +67,10 @@ function acquireLock(lockFile) {
   }
 }
 
+/** 释放锁：只有真拿到锁（fd >= 0）的那一趟才删锁文件——裸跑那趟删掉的会是别人的活锁。 */
 function releaseLock(fd, lockFile) {
-  try { if (fd >= 0) fs.closeSync(fd); } catch (_e) { /* 已经关了 */ }
+  if (fd < 0) return;                                    // 没拿到锁就没有可释放的东西，动了就是删别人的
+  try { fs.closeSync(fd); } catch (_e) { /* 已经关了 */ }
   try { fs.rmSync(lockFile, { force: true }); } catch (_e) { /* 残留锁下次按陈旧回收 */ }
 }
 

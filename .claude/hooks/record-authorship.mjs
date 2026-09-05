@@ -12,19 +12,10 @@
 //   只往 stderr 写一行说明；引擎调用套 10 秒超时，一次卡死不许拖住每一次 Edit。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinJson, toPosix, say, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinJson, toPosix, say, fastOff, runFailOpen } from './lib/io.mjs';
 import { harnessEnabled, harnessRun } from './lib/harness.mjs';
 
 const RECORD_TIMEOUT_MS = 10000;
-
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 /** path.relative 的答案是否根本没待在 base 底下（要爬出去，或跨盘符压根没有相对路线）。 */
 function escapesBase(rel) {

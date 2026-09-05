@@ -8,21 +8,11 @@
 // 输出用**顶层** additionalContext（UserPromptSubmit 的契约，不是 hookSpecificOutput）。
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readStdinJson, readTextFile, emit, say, runFailOpen } from './lib/io.mjs';
+import { readStdinJson, readTextFile, emit, say, fastOff, runFailOpen } from './lib/io.mjs';
 
 const DEFAULT_SIGNALS = '不是这样|别这样做|你搞错|搞错了|你错了|不对|不应该|你漏了|你忘了|改一下|不合理|你理解错|我说的不是|你确定|到底在|为什么没|没有执行|没有生效|你又忘|强调了|说过了|提醒过|怎么还|一直在|每次都|我不是让你|你先.*看|再说一遍|你到底|什么意思|能不能|不要再|别再|停下|不用管|先不要';
 
 const CONTEXT = '检测到用户修正信号。请在处理完用户请求后，派发 feedback-observer sub-agent 使用 feedback-writer skill 记录这条反馈。feedback 记录到 .claude/feedback/ 目录，不是 memory 目录。';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 runFailOpen(async () => {
   if (await fastOff('detect-feedback-signal')) return;

@@ -1,21 +1,11 @@
 // PreToolUse(Edit|Write)：检测主 Agent 是否直接写业务源码，是则警告并 exit 2 拦下。
-import { readStdinJson, toPosix, say, runFailOpen } from './lib/io.mjs';
+import { readStdinJson, toPosix, say, fastOff, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 // 框架文件放行（.claude/ / CLAUDE.md / Product-Spec / DEV-PLAN / progress / feedback / agents / skills / hooks / *.md）
 const EXEMPT = /(\.claude\/|CLAUDE\.md|Product-Spec|DEV-PLAN|progress\.md|CHANGELOG|\/feedback\/|\/agents\/|\/skills\/|\/hooks\/|\.md$|\.json$|\.toml$|\.sh$|\.ps1$)/;
 // 业务源码路径（src/ / app/ / lib/ / components/ 等），相对/绝对两种形态都拦
 const SOURCE = /(^|\/)(src|app|lib|components|pages|api|server|client|utils|models|services)\//;
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 runFailOpen(async () => {
   if (await fastOff('no-direct-code-guard')) return;

@@ -6,8 +6,7 @@
 //     打包禁跳步 / 部署三件套独立验收）
 // 发布卡点不吃 fast-mode 豁免（CLAUDE.md：Fast Mode 不等于部署或 push 授权）。
 // fail-open：本闸出错放行（发布流程自身还有 test-builder 卡点与 HIGH 档审批兜底）。
-import path from 'node:path';
-import { readStdinJson, readTextFile, emit, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinJson, pendingReviewFiles, emit, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 const CTX = '发布前置卡点提醒（release-gate 注入）：① 打包前必过测试卡点——test-builder 全量跑，报绿须附运行清单（跑了哪些文件、各自结果），证据=运行器真实输出；② Fast Mode 不豁免发布卡点；③ 部署完成后主 Agent 独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟），不信 deployer 自报。';
@@ -18,12 +17,8 @@ runFailOpen(() => {
   const cmdName = ev ? String(ev.command_name || '') : '';
   if (cmdName && cmdName !== 'release-builder') return;
 
-  const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const state = readTextFile(path.join(root, '.claude', '.needs-review'));
-  const pending = (state.text || '')
-    .replace(/\r/g, '')
-    .split('\n')
-    .filter((l) => l.trim() !== '' && l !== 'clean');
+  const root = projectDir();
+  const pending = pendingReviewFiles(root);
 
   if (pending.length > 0) {
     const reason = `发布前置闸：待审清单未清（${pending.length} 个文件待 code review：${pending.join('、')}）。先完成 review→fix 闭环（通过后 echo clean > .claude/.needs-review），再执行 /release-builder。`;

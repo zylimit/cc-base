@@ -3,8 +3,9 @@
 //   [模型] ctx NN% | $成本 | FAST-MODE 剩余h | 待审 N | harness ON
 // 数据源：stdin JSON（model/context_window/cost/workspace）+ 项目运行态文件
 // （.claude/.fast-mode expires_epoch / .claude/.needs-review / harness/module-catalog.json）。
-// 不 import hooks/lib：状态行每次渲染都会跑，必须便宜、必须安静，也不该因为别处的模块出岔就刷屏；
-//   任何异常一律降级输出静态标识 cc-base，绝不报错。
+// 只从 hooks/lib/io.mjs 借项目根与待审清单两个口径（各写各的过滤规则，就会出现「状态栏说干净、
+//   Stop 闸却不放人」），其余一概自理；且是动态 import——状态行每次渲染都会跑，必须便宜、必须
+//   安静，连模块加载失败在内的任何异常一律降级输出静态标识 cc-base，绝不报错、绝不刷屏。
 // 输出不带换行：宿主按整段文本渲染一行，多的换行会被当成第二行。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +16,8 @@ function fallback() {
 }
 
 try {
+  const { projectDir, pendingReviewFiles } = await import('../hooks/lib/io.mjs');
+
   let d = {};
   try {
     const raw = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8');
@@ -25,7 +28,8 @@ try {
   }
 
   const ws = d.workspace || {};
-  const root = ws.project_dir || ws.current_dir || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  // 宿主给的 workspace 最准；没给才回落 projectDir()（env → git 顶层 → cwd）
+  const root = ws.project_dir || ws.current_dir || projectDir();
 
   const segs = [];
 
@@ -56,14 +60,9 @@ try {
     /* 没开 fast-mode 是常态，不是错 */
   }
 
-  // 待审欠账：去空行去 clean 后仍有条目即红色示数（与 stop-gate 同口径）
-  try {
-    const raw = fs.readFileSync(path.join(root, '.claude', '.needs-review'), 'utf8');
-    const n = raw.split('\n').filter((l) => l.trim() !== '' && l.trim() !== 'clean').length;
-    if (n > 0) segs.push(`\u001b[31m待审 ${n}\u001b[0m`);
-  } catch (_e) {
-    /* 清单不存在 = 没有欠账 */
-  }
+  // 待审欠账：清单不存在就是没有欠账，有条目即红色示数
+  const pending = pendingReviewFiles(root).length;
+  if (pending > 0) segs.push(`\u001b[31m待审 ${pending}\u001b[0m`);
 
   // 大仓治理开关（catalog 存在即启用）
   if (fs.existsSync(path.join(root, '.claude', 'harness', 'module-catalog.json'))) {

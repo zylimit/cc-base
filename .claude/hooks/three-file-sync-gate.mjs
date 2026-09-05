@@ -1,6 +1,6 @@
 // Stop hook: 三文件同步铁律恢复侧强制闸——只认 git 工作树实际未提交改动（弃用裸 mtime
 //   比较，mtime 在 checkout 1ms 先后下会假阳性）。
-// C1：未提交改动里有代码/家底文件（.sh/.ps1/.ts/.tsx/.js/.jsx/.py/.css/.go/.rs，以及 .claude/
+// C1：未提交改动里有代码/家底文件（.sh/.ps1/.mjs/.cjs/.ts/.tsx/.js/.jsx/.py/.css/.go/.rs，以及 .claude/
 //     下的家底 CLAUDE.md/agents/skills/settings.json 等；排除 .claude/evidence/node_modules/out/
 //     dist）且 progress.md 不在改动集 → 拦停提醒同步。
 // C2：改动集含 Product-Spec.md 但不含 Product-Spec-CHANGELOG.md（或反之）→ 需求变更漏记。
@@ -13,18 +13,8 @@
 //   当成「树是干净的」。不读 stdin：判定只来自工作树，喂什么都不影响结论。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, git, emit, runFailClosed } from './lib/io.mjs';
+import { projectDir, git, emit, fastOff, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 runFailClosed(async () => {
   if (await fastOff('three-file-sync-gate')) return;
@@ -53,7 +43,7 @@ runFailClosed(async () => {
     // evidence 账本是机器写的旁路记录，node_modules/out/dist 是产物，都不算「改了要记 progress」
     if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return;
     // .claude/ 下家底（CLAUDE.md / agents / skills / settings.json 等）改了也属「改了要记 progress」
-    if (/\.(sh|ps1|ts|tsx|js|jsx|py|css|go|rs)$/.test(p) || /(^|\/)\.claude\//.test(p)) {
+    if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p) || /(^|\/)\.claude\//.test(p)) {
       codeDirty = true;
       if (!firstCode) firstCode = p;
     }

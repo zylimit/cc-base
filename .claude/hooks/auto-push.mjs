@@ -2,22 +2,12 @@
 // 不解析 hook 退出码字段（PostToolUse 输入 schema 跨版本不稳，旧写法用了
 // 不存在的 .tool_exit_code 导致永不 push）——改用 git 状态判断，确定可靠。
 import fs from 'node:fs';
-import { readStdinJson, git, runFailOpen } from './lib/io.mjs';
+import { readStdinJson, git, fastOff, runFailOpen } from './lib/io.mjs';
 
 // git 与 commit 之间允许夹全局选项（`git -c user.name=x commit` / `git -C dir commit`）——只认
 // 紧邻两个词的旧写法对这类形式不触发，提交完不推。前置限行首或分隔符，`echo "git commit"` 里
 // 的字样不算提交；commit 后要空白或行尾，挡掉 commit-tree 与 log --grep=commit。
 const COMMIT_RE = /(^|[\s;&|(){}])git(\s+-\S+(\s+\S+)?)*\s+commit(\s|$)/;
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 runFailOpen(async () => {
   if (await fastOff('auto-push')) return;

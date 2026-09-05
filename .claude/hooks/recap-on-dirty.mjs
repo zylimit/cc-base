@@ -1,16 +1,6 @@
 // SessionStart：工作树有未提交改动（上个 session 可能中断/上下文压缩、状态未落 progress.md）
 // → 注入提醒：先 /recap 读 progress.md，对照实际改动校准后再继续。
-import { git, emit, runFailOpen } from './lib/io.mjs';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
+import { git, emit, fastOff, runFailOpen } from './lib/io.mjs';
 
 runFailOpen(async () => {
   if (await fastOff('recap-on-dirty')) return;

@@ -2,17 +2,7 @@
 // 有就提醒派 evolution-runner。裸 stdout 文本（SessionStart 的输出直接进 context）。
 // 待处理 = 未带「✅[已毕业]」前缀的条目（行首 "- ["）；总数 = 含已毕业一并计数。
 import path from 'node:path';
-import { projectDir, readTextFile, out, runFailOpen } from './lib/io.mjs';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
+import { projectDir, readTextFile, out, fastOff, runFailOpen } from './lib/io.mjs';
 
 runFailOpen(async () => {
   if (await fastOff('check-evolution')) return;

@@ -12,21 +12,11 @@
 //   - 大仓四态门：catalog 存在才启用，契约外退出码 = 引擎崩了，放行就是假绿
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinJson, git, run, say, errText } from './lib/io.mjs';
+import { projectDir, readStdinJson, git, run, say, errText, fastOff } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 const TSCONFIG_MAX_DEPTH = 3;
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 /** 广度优先找最浅的 tsconfig.json（不下 node_modules / .next），找不到返回 null。 */
 function findTsconfig(root) {

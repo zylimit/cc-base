@@ -10,20 +10,10 @@
 // 状态干净 / 非 git / 无 progress.md → 放行并清标记。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinRaw, readTextFile, git, emit, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinRaw, readTextFile, pendingReviewFiles, git, emit, fastOff, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 const COOLDOWN_SECONDS = 600;
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 runFailOpen(async () => {
   if (await fastOff('precompact-gate')) return;
@@ -45,11 +35,7 @@ runFailOpen(async () => {
   let dirtyReason = '';
 
   // C1：待审清单未清（复用 stop-gate 的清单语义：去空行去 clean 后仍有条目）
-  const state = readTextFile(path.join(root, '.claude', '.needs-review'));
-  const pending = (state.text || '')
-    .replace(/\r/g, '')
-    .split('\n')
-    .filter((l) => l.trim() !== '' && l !== 'clean');
+  const pending = pendingReviewFiles(root);
   if (pending.length > 0) dirtyReason = `待审清单未清（${pending.length} 个文件待 code review）`;
 
   // C2：代码/家底脏而 progress.md 未同步（three-file-sync C1 的简化版，只判是否需要先记录）

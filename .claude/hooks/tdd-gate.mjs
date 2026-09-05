@@ -2,17 +2,7 @@
 // 检测是否在没有 .red-verified / .tdd-exempt 的情况下派 implementer 写代码。
 import fs from 'node:fs';
 import path from 'node:path';
-import { readStdinJson, git, say, runFailOpen } from './lib/io.mjs';
-
-// fast-mode 总闸：动态 import——库缺失时按严格跑（不崩、也不静默放行）
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
+import { readStdinJson, git, say, fastOff, runFailOpen } from './lib/io.mjs';
 
 runFailOpen(async () => {
   if (await fastOff('tdd-gate')) return;

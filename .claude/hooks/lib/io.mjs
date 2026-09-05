@@ -1,4 +1,4 @@
-// io.mjs — hook 侧最小 I/O 契约（stdin / stdout / stderr / 退出码 / 外部命令 / 路径）。
+// io.mjs — hook 侧最小 I/O 契约（stdin / stdout / stderr / 退出码 / 外部命令 / 路径 / fast-mode 总闸）。
 //
 // 故意不 import .claude/harness/lib/*：hook 与引擎是**进程级隔离**，引擎的 lib/ 被删时
 // hook 必须还起得来、还能判出「引擎跑不成」——若直接 import 引擎代码，缺 lib/ 会让 hook
@@ -9,6 +9,7 @@
 // 退出码一律只设 process.exitCode 后自然退出，唯一例外是 runFailClosed 的 catch 分支
 // （闸自身崩了必须当场把拦停 JSON 落出去，不能指望后续代码还有机会跑）。
 import fs from 'node:fs';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 /** 反斜杠→正斜杠。无条件替换，不按 path.sep 分支：Windows 形态的路径会经夹具/事件流到任何平台。 */
@@ -57,6 +58,23 @@ export function projectDir() {
   const top = git(['rev-parse', '--show-toplevel']);
   if (top.status === 0 && top.stdout.trim()) return top.stdout.trim();
   return process.cwd();
+}
+
+/**
+ * 待审清单文本 → 还欠着的文件行。先 trim 再判空、再判 clean：同一行 " clean " 一边算欠账、
+ * 另一边算干净，会造出「状态栏说干净、Stop 闸却不放人」这种最难自查的死胡同。
+ */
+export function pendingReviewLines(text) {
+  return String(text || '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '' && l !== 'clean');
+}
+
+/**
+ * 读 .claude/.needs-review 取欠账文件；读不出来（不存在 / I/O 错）一律空数组。
+ * 要分「不存在」与「读不出」的调用方（stop-gate 靠这个差别 fail-closed）先用 readTextFile 判完，
+ * 再把文本交给 pendingReviewLines——口径仍是同一份。
+ */
+export function pendingReviewFiles(root) {
+  return pendingReviewLines(readTextFile(path.join(root, '.claude', '.needs-review')).text);
 }
 
 /** 单行 JSON 到 stdout（hook 与宿主之间的机器契约，多行会被记成 hook error）。 */
@@ -133,5 +151,19 @@ export function runFailOpen(main) {
     if (r && typeof r.then === 'function') r.then(undefined, fail);
   } catch (e) {
     fail(e);
+  }
+}
+
+/**
+ * fast-mode 总闸：这个闸此刻该不该静默放行。
+ * 动态 import 而不是静态——fastmode 库缺失时按严格跑（不崩、也不静默放行）。
+ * 15 个 hook 共用这一份：Phase A 换 tier.mjs 时只改这里，挨个改漏一个就是一个静默走旧档的闸。
+ */
+export async function fastOff(hookId) {
+  try {
+    const m = await import('./fastmode.mjs');
+    return m.gateMode(hookId) === 'off';
+  } catch (_e) {
+    return false;
   }
 }

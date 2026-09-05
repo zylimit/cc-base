@@ -4,24 +4,16 @@
 // 后台跑同一套 harness verify（四态门+五性证据门），FAIL/BLOCKED 时 exit 2 唤醒主 Agent
 // 读 stderr 摘要——失败早暴露（fail-visible），不挤占交互时延。
 // 启用条件与降级：catalog 存在才跑（大仓治理默认关闭）；fast-mode 放行（质量闸）；
-// 180 秒防抖（.async-verify-last 记上次运行 epoch，异步并发场景先写后跑防风暴）。
+// 180 秒防抖（.async-verify-last 记上次运行 epoch，异步并发场景先写后跑防风暴）；标记写不下时
+// 防抖是永久失效而非多跑一次，那一行诊断必须留下，不吞。
 // 摘要预算：只回 gate + 失败/受阻 check 前 5 条 + 属性缺口计数，不贴全量 JSON。
 import fs from 'node:fs';
 import path from 'node:path';
-import { readStdinRaw, readTextFile, say, errText } from './lib/io.mjs';
+import { projectDir, readStdinRaw, readTextFile, say, errText, fastOff } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 const DEBOUNCE_SEC = 180;
-
-async function fastOff(id) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.gateMode(id) === 'off';
-  } catch (_e) {
-    return false;
-  }
-}
 
 /** 上次跑完的 epoch；文件缺失 / 不是纯数字都当「没跑过」。 */
 function lastRun(mark) {
@@ -57,13 +49,20 @@ async function main() {
 
   if (!harnessEnabled()) return;
 
-  const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const root = projectDir();
   const mark = path.join(root, '.claude', '.async-verify-last');
   const now = Math.floor(Date.now() / 1000);
   const last = lastRun(mark);
   if (last !== null && now - last < DEBOUNCE_SEC) return;
   // 先写后跑：异步并发下后来者要立刻看到「有人在跑」，写在跑完之后就挡不住风暴
-  try { fs.writeFileSync(mark, `${now}\n`); } catch (_e) { /* 写不下防抖标记也照跑，最多多跑一次 */ }
+  try {
+    fs.writeFileSync(mark, `${now}\n`);
+  } catch (e) {
+    // 标记写不下 → lastRun() 此后永远读不出 epoch → 防抖是**永久**失效，不是只多跑一次：
+    // 每一次 Edit|Write 都要全量跑一遍 verify。本轮照跑（早警比防抖重要），但不许静默——
+    // 用户那头只看得到「编辑变慢了」，没这一行就找不到原因。
+    say(`[harness-async-verify] 防抖标记写不下（${errText(e)}），本轮防抖失效`);
+  }
 
   const r = harnessRun(['verify'], { cwd: root });
 
