@@ -48,7 +48,8 @@ runFailOpen(async () => {
     const classifyPath = (p) => {
       if (p === 'progress.md') progDirty = true;
       if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return;
-      if (/\.(sh|ps1|ts|tsx|js|jsx|py|css|go|rs)$/.test(p)) { codeDirty = true; return; }
+      // 扩展名表与 three-file-sync-gate 同表，改一处要同步另一处
+      if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p)) { codeDirty = true; return; }
       if (/(^|\/)\.claude\//.test(p)) codeDirty = true;
     };
     const classifyRel = (p) => {

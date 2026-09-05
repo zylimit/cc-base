@@ -10,7 +10,8 @@ const DEFAULT_PORTS = [3000, 3001, 4173, 5173, 8080];
 
 /**
  * 要清哪些端口：CC_DEV_PORTS（逗号分隔整数）给了就用它，没给用默认表。
- * 单个非法值只丢它自己；一个合法值都挑不出来才退回默认表。
+ * 单个非法值只丢它自己；给了 CC_DEV_PORTS 却一个合法值都挑不出来，是「想限定靶子」写错了，
+ * 不是「想清默认表」——这时本次一个端口都不清并出一行 stderr，别静默退回默认表去杀人家真在跑的 dev server。
  */
 function devPorts() {
   const raw = process.env.CC_DEV_PORTS;
@@ -20,7 +21,11 @@ function devPorts() {
     .filter((s) => /^[0-9]+$/.test(s))
     .map(Number)
     .filter((n) => n > 0 && n < 65536);
-  return picked.length ? picked : DEFAULT_PORTS;
+  if (!picked.length) {
+    process.stderr.write('[kill-dev-ports] CC_DEV_PORTS 无合法端口，本次不清\n');
+    return [];
+  }
+  return picked;
 }
 
 /** 同步小睡：端口释放到内核回收有延迟，清完立刻起 dev server 照样撞占用。 */
@@ -60,6 +65,7 @@ runFailOpen(async () => {
   if (!cmd || !/pnpm\s+dev/.test(cmd)) return;
 
   const ports = devPorts();
+  if (!ports.length) return;                        // 空表 = 本次不清，别往下走到 lsof/netstat
   if (process.platform === 'win32') {
     const ns = run('netstat', ['-ano']);
     if (ns.status === 0) for (const port of ports) killWindows(port, ns.stdout);
