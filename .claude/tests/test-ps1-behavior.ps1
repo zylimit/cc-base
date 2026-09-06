@@ -10,8 +10,11 @@
 #   cannot cover:
 #     group 0  the pinned ASCII-only rule, for the named list of .ps1 files that survive,
 #              plus a check that the list is still the whole truth
-#     group F  fast-mode.ps1 driven by a real PowerShell host (the unix-epoch arithmetic and
-#              the flag file are the parts that used to differ between hosts)
+#     group F  fast-mode.ps1 driven by a real PowerShell host. The script is a thin shell now:
+#              on/off/status forward to harness.mjs tier set|status, the state lives in
+#              .claude/.runtime/tier.json, and the old .claude/.fast-mode is neither written nor
+#              read. What a PowerShell host can still get wrong is the forwarding itself --
+#              argument passing, exit codes, and the engine line it has to relay.
 #
 # What it proves and what it does not
 #   CI runs this under pwsh 7 (the Windows runner ships it). Real users run these scripts under
@@ -42,6 +45,10 @@ $ErrorActionPreference = 'Continue'
 $RepoRoot = (Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..')).Path
 $Scripts = Join-Path $RepoRoot '.claude/scripts'
 $Tests = Join-Path $RepoRoot '.claude/tests'
+# The switch forwards, so the fixture needs the engine it forwards to, and the engine needs the
+# hook-side resolver it imports (harness/lib/tier.mjs -> hooks/lib/tier.mjs).
+$HooksDir = Join-Path $RepoRoot '.claude/hooks'
+$HarnessDir = Join-Path $RepoRoot '.claude/harness'
 
 $TmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('ccbase-ps1-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
 New-Item -ItemType Directory -Path $TmpRoot -Force | Out-Null
@@ -70,6 +77,12 @@ $HostExe = $null
 try { $HostExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName } catch { $HostExe = $null }
 if (-not $HostExe) { $HostExe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source }
 if (-not $HostExe) { $HostExe = (Get-Command powershell -ErrorAction SilentlyContinue).Source }
+
+# node runs the engine the switch forwards to. Absent means group F cannot run at all, and that
+# is reported as a skip (exit 3), not as a pass -- see the exit codes above.
+$NodeExe = $null
+$NodeCmd = Get-Command node -ErrorAction SilentlyContinue
+if ($NodeCmd) { $NodeExe = $NodeCmd.Source }
 
 # Invoke-Script -- run a .ps1 in its own process with stdin/stdout/stderr on files.
 # A child process is mandatory: the scripts read [Console]::In, which is the process stdin and is
@@ -120,6 +133,36 @@ function Invoke-Script {
     if ($null -eq $code) { $code = -1 }
     # Get-Content -Raw gives $null for an empty file; normalise to '' so every caller can use
     # -like and .Trim() without a null guard.
+    $out = (Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue)
+    $err = (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
+    if ($null -eq $out) { $out = '' }
+    if ($null -eq $err) { $err = '' }
+    return [pscustomobject]@{ Code = $code; Out = $out; Err = $err }
+}
+
+# Invoke-Node -- run the engine in the sandbox, the way a gate reads the tier.
+# The script under test is a forwarder: asking it what it did is asking one program to grade its
+# own homework, so the state has to be read back over a path that does not go through it.
+function Invoke-Node {
+    param([string]$ProjectDir, [string[]]$EngineArgs)
+    $tag = [guid]::NewGuid().ToString('N').Substring(0, 10)
+    $outFile = Join-Path $TmpRoot "nout-$tag.txt"
+    $errFile = Join-Path $TmpRoot "nerr-$tag.txt"
+    # One pre-quoted command line rather than an array, for the same 5.1 reason as Invoke-Script.
+    $argLine = '"' + (Join-Path $ProjectDir '.claude/harness/harness.mjs') + '"'
+    foreach ($a in $EngineArgs) { $argLine += ' "' + $a + '"' }
+    $had = Test-Path Env:CLAUDE_PROJECT_DIR
+    $prev = $null
+    if ($had) { $prev = $env:CLAUDE_PROJECT_DIR }
+    $env:CLAUDE_PROJECT_DIR = $ProjectDir
+    try {
+        $proc = Start-Process -FilePath $NodeExe -ArgumentList $argLine -WorkingDirectory $ProjectDir -RedirectStandardOutput $outFile -RedirectStandardError $errFile -NoNewWindow -Wait -PassThru
+        $code = $proc.ExitCode
+    } finally {
+        if ($had) { $env:CLAUDE_PROJECT_DIR = $prev }
+        else { Remove-Item Env:CLAUDE_PROJECT_DIR -ErrorAction SilentlyContinue }
+    }
+    if ($null -eq $code) { $code = -1 }
     $out = (Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue)
     $err = (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
     if ($null -eq $out) { $out = '' }
@@ -207,46 +250,107 @@ try {
 
     # fast-mode.ps1 resolves the project from $PSScriptRoot/../.., so it is copied into the
     # sandbox; running the repository copy would flip the real repository into fast mode.
+    # The shell writes nothing itself any more, it forwards, so the sandbox needs the engine as
+    # well. hooks/lib and harness/lib go in whole rather than module by module: harness/lib/tier
+    # imports hooks/lib/tier, and a fixture that lists the files it thinks are needed turns into
+    # ERR_MODULE_NOT_FOUND -- an rc that has nothing to do with the tier -- the day one is added.
     $fmSrc = Join-Path $Scripts 'fast-mode.ps1'
-    if (-not (Test-Path -LiteralPath $fmSrc)) {
-        Skipped 'F fast-mode.ps1 is missing, the group cannot run (not executed is not a pass)'
+    $engineSrc = Join-Path $HarnessDir 'harness.mjs'
+    $profileSrc = Join-Path $HarnessDir 'profile.json'
+    $hooksLib = Join-Path $HooksDir 'lib'
+    $harnessLib = Join-Path $HarnessDir 'lib'
+    $absent = @(@($fmSrc, $engineSrc, $profileSrc, $hooksLib, $harnessLib) |
+        Where-Object { -not (Test-Path -LiteralPath $_) })
+    if ($absent.Count -gt 0) {
+        Skipped ('F the fixture cannot be assembled, missing: ' +
+            (($absent | ForEach-Object { $_.Replace($RepoRoot, '') }) -join '; ') +
+            ' (not executed is not a pass)')
+    } elseif (-not $NodeExe) {
+        Skipped 'F no node on PATH and the switch forwards to a .mjs engine, so the group cannot run (not executed is not a pass)'
     } else {
         $sbF = Join-Path $TmpRoot 'f-fastmode'
         New-Item -ItemType Directory -Path (Join-Path $sbF '.claude/scripts') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $sbF '.claude/hooks') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $sbF '.claude/harness') -Force | Out-Null
         Copy-Item -LiteralPath $fmSrc -Destination (Join-Path $sbF '.claude/scripts/fast-mode.ps1')
+        Copy-Item -LiteralPath $hooksLib -Destination (Join-Path $sbF '.claude/hooks') -Recurse
+        Copy-Item -LiteralPath $engineSrc -Destination (Join-Path $sbF '.claude/harness/harness.mjs')
+        Copy-Item -LiteralPath $harnessLib -Destination (Join-Path $sbF '.claude/harness') -Recurse
+        Copy-Item -LiteralPath $profileSrc -Destination (Join-Path $sbF '.claude/harness/profile.json')
         $fmScript = Join-Path $sbF '.claude/scripts/fast-mode.ps1'
-        $flag = Join-Path $sbF '.claude/.fast-mode'
+        $tierFile = Join-Path $sbF '.claude/.runtime/tier.json'
+        $legacy = Join-Path $sbF '.claude/.fast-mode'
 
         $rOn = Invoke-Script -Script $fmScript -ScriptArgs @('on', '3') -WorkingDir $sbF
         $rStatus = Invoke-Script -Script $fmScript -ScriptArgs @('status') -WorkingDir $sbF
-        $mins = -1
-        if ($rStatus.Out -match 'about\s+(\d+)\s+minutes remaining') { $mins = [int]$Matches[1] }
-        Chk (($rOn.Code -eq 0) -and ($mins -ge 175) -and ($mins -le 180)) `
-            'F1 fast-mode.ps1 on 3 then status reports the remaining minutes (the unix-epoch arithmetic is right on a real host)' `
-            'status reports 175..180 minutes remaining' "on rc=$($rOn.Code) minutes=$mins status=$(Show $rStatus.Out)"
+        # The engine puts its human line on stderr ("tier: fast, source=session, 3h left") and it
+        # reaches stdout only because the shell relays it; a shell that swallowed it would leave
+        # the operator nothing to read when the gates go quiet. The hour count is the arithmetic
+        # part -- it is derived from expires_epoch on the reading side, so a host that mangled the
+        # epoch would show up here as a number outside the window rather than as a missing file.
+        $left = -1.0
+        if ($rStatus.Out -match '([0-9]+(?:\.[0-9]+)?)h left') { $left = [double]$Matches[1] }
+        Chk (($rOn.Code -eq 0) -and ($rStatus.Out -match 'fast') -and ($left -ge 2.0) -and ($left -le 3.0)) `
+            'F1 on 3 then status names the fast tier with 2..3 hours left (the switch forwards, and the epoch arithmetic survives a real host)' `
+            'rc 0, status mentions fast, remaining hours within 2..3' `
+            "on rc=$($rOn.Code) statusRc=$($rStatus.Code) hoursLeft=$left status=$(Show $rStatus.Out)"
 
-        # The flag file is what every gate reads, so assert the file and not only the message.
-        # LF only: the engine and the hooks both strip \r, but a CRLF flag written here would
-        # hide a regression in the writer that bit this repository once already (#38).
-        $flagText = ''
-        if (Test-Path -LiteralPath $flag) { $flagText = [System.IO.File]::ReadAllText($flag) }
-        Chk (($flagText -match '(?m)^expires_epoch=\d+$') -and (-not ($flagText -match "`r"))) `
-            'F2 on writes a LF-only flag file carrying expires_epoch (the line every gate parses)' `
-            'flag has an expires_epoch=<digits> line and no CR' `
-            ("flag=[" + (Show $flagText) + "] hasCR=" + [bool]($flagText -match "`r"))
+        # tier.json is the one switch file every gate reads, so assert the file and not only the
+        # message. Bytes rather than text: a CR or a BOM in here is the shape #38 came in -- open
+        # to one reader, unparsable to the next -- and .fast-mode must stay gone, because two
+        # switch files coexisting is how one gate answered open while another answered closed.
+        $tierBytes = @()
+        if (Test-Path -LiteralPath $tierFile) { $tierBytes = [System.IO.File]::ReadAllBytes($tierFile) }
+        $hasCR = ($tierBytes -contains 13)
+        $hasBom = (($tierBytes.Count -ge 3) -and ($tierBytes[0] -eq 239) -and ($tierBytes[1] -eq 187) -and ($tierBytes[2] -eq 191))
+        $rec = $null
+        if ($tierBytes.Count -gt 0) {
+            try { $rec = [System.Text.Encoding]::UTF8.GetString($tierBytes) | ConvertFrom-Json } catch { $rec = $null }
+        }
+        $recTier = '<unparsed>'
+        $recExp = '<none>'
+        if ($rec) {
+            $recTier = [string]$rec.tier
+            if ($null -ne $rec.expires_epoch) { $recExp = [string]$rec.expires_epoch }
+        }
+        Chk (($tierBytes.Count -gt 0) -and ($recTier -eq 'fast') -and ($recExp -match '^\d+$') `
+                -and (-not $hasCR) -and (-not $hasBom) -and (-not (Test-Path -LiteralPath $legacy))) `
+            'F2 on writes .claude/.runtime/tier.json (fast, with an expiry, LF and no BOM) and never the old .claude/.fast-mode' `
+            'tier.json parses as fast with a numeric expires_epoch, no CR, no BOM, and no .fast-mode beside it' `
+            ("bytes=" + $tierBytes.Count + " tier=" + $recTier + " expires_epoch=" + $recExp +
+                " hasCR=" + $hasCR + " hasBOM=" + $hasBom + " legacy=" + (Test-Path -LiteralPath $legacy))
 
         $rOff = Invoke-Script -Script $fmScript -ScriptArgs @('off') -WorkingDir $sbF
         $rStatus2 = Invoke-Script -Script $fmScript -ScriptArgs @('status') -WorkingDir $sbF
-        Chk (($rOff.Code -eq 0) -and ($rStatus2.Out -like '*fast-mode: off*') -and (-not (Test-Path -LiteralPath $flag))) `
-            'F3 fast-mode.ps1 off removes the flag and status agrees (strict mode really comes back)' `
-            'status says off and .fast-mode is gone' `
-            "off rc=$($rOff.Code) status=$(Show $rStatus2.Out) flag=$(Test-Path -LiteralPath $flag)"
+        # Read the tier back from the engine, not from the switch. The switch only ever repeats
+        # what the engine told it, so its own output cannot tell "the tier came back" apart from
+        # "the script still prints the sentence it always printed".
+        $rEngine = Invoke-Node -ProjectDir $sbF -EngineArgs @('tier', 'status')
+        $effTier = '<unparsed>'
+        $effSource = '<unparsed>'
+        try {
+            $st = $rEngine.Out | ConvertFrom-Json
+            $effTier = [string]$st.tier
+            $effSource = [string]$st.source
+        } catch { $effTier = '<unparsed>' }
+        Chk (($rOff.Code -eq 0) -and ($effTier -eq 'standard') -and (-not ($rStatus2.Out -match 'fast')) `
+                -and (-not (Test-Path -LiteralPath $legacy))) `
+            'F3 off puts the tier back to standard as the engine reads it, and status stops saying fast (the gates really come back)' `
+            'engine reports tier standard and the switch no longer mentions fast' `
+            "off rc=$($rOff.Code) engineRc=$($rEngine.Code) engineTier=$effTier engineSource=$effSource status=$(Show $rStatus2.Out)"
 
+        # The record left by off is the control: a rejected switch must neither half-open the gate
+        # nor quietly rewrite the tier that is already recorded. Starting from "nothing on disk"
+        # would make the second half true no matter what the script does.
+        $before = ''
+        if (Test-Path -LiteralPath $tierFile) { $before = [System.IO.File]::ReadAllText($tierFile) }
         $rBad = Invoke-Script -Script $fmScript -ScriptArgs @('on', 'abc') -WorkingDir $sbF
-        Chk (($rBad.Code -eq 2) -and (-not (Test-Path -LiteralPath $flag))) `
-            'F4 a bad hours argument exits 2 and writes no flag (a rejected switch must not half-open the gate)' `
-            'rc 2 and no .fast-mode on disk' `
-            "rc=$($rBad.Code) flag=$(Test-Path -LiteralPath $flag) out=$(Show $rBad.Out)$(Show $rBad.Err)"
+        $after = ''
+        if (Test-Path -LiteralPath $tierFile) { $after = [System.IO.File]::ReadAllText($tierFile) }
+        Chk (($rBad.Code -eq 2) -and ($before -ne '') -and ($after -eq $before) -and (-not (Test-Path -LiteralPath $legacy))) `
+            'F4 a bad hours argument exits 2, leaves the recorded tier byte-identical and writes no flag file' `
+            'rc 2, tier.json unchanged and non-empty, no .fast-mode on disk' `
+            "rc=$($rBad.Code) recordedBefore=$(Show $before) unchanged=$($after -eq $before) legacy=$(Test-Path -LiteralPath $legacy) err=$(Show $rBad.Err)"
     }
 
 } catch {
