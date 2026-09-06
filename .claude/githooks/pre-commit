@@ -141,6 +141,14 @@ if [ -f "$GENX" ] && [ -f "$ROOT/setup.sh" ] && [ -f "$ROOT/.claude/harness/excl
     run_check "exclusions" lint node "$GENX" --check
 fi
 
+# ---------- 清单与源码树一致（同上只在框架仓本体有意义）----------
+# 改了框架文件没重跑 gen-manifest.sh → 清单里是旧哈希：装到别人项目那份文件会被当「用户改过」永不覆盖，
+# release 装配 manifest 项 FAIL、test-setup ⑨ 红。一天里栽了两次（E 收口、-uall 补注释）才加的这一步。
+GENM="$ROOT/.claude/scripts/gen-manifest.sh"
+if [ -f "$GENM" ] && [ -f "$ROOT/setup.sh" ] && [ -f "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" ]; then
+    run_check "manifest" lint bash "$GENM" --check
+fi
+
 # ---------- 大仓治理（catalog 存在才启用；默认关，小项目零负担）----------
 if [ -f "$CATALOG" ]; then
     if [ ! -f "$ENGINE" ]; then

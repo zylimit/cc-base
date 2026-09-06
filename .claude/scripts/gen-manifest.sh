@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # gen-manifest.sh — 在框架源仓库生成 .claude/FRAMEWORK-MANIFEST.txt（框架核心文件清单）。
 # 用法： bash .claude/scripts/gen-manifest.sh   （在 cc-base 仓库根或任意位置跑均可）
+#        bash .claude/scripts/gen-manifest.sh --check   只比对不写：清单与源码树不一致 → 列出漂移项、退出 1
+#          （改了框架文件没重跑本脚本，清单里就是旧哈希——装到别人项目那份会被当「用户改过」永不覆盖，
+#            release 装配 manifest 项 FAIL、test-setup ⑨ 红；pre-commit githook 挂这一步是一天栽两次换来的）
 # 清单格式：每行 <相对 .claude/ 的路径>TAB<sha256>；# 开头为注释头。
 # 哈希算法：LF 归一化后再 SHA256（先 tr -d '\r' 再 sha256sum）——git autocrlf 会让不同
 #   checkout 的工作树字节 CRLF/LF 不一，直接对字节算会误判"用户改过"，归一化后跨平台稳定。
@@ -20,6 +23,13 @@
 # 排除项一律显式列名，不用 harness/* 这种通配符一把梭——运行态目录会继续增加，
 #   但静默漏掉本该登记的框架文件（升级时会被当成"用户改过"永不覆盖）是更贵的错。
 set -eu
+
+CHECK=0
+case "${1:-}" in
+  --check) CHECK=1 ;;
+  "") ;;
+  *) echo "gen-manifest: 未知参数 $1（只认 --check）" >&2; exit 2 ;;
+esac
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SRC="$ROOT/.claude"
@@ -77,6 +87,19 @@ while IFS= read -r -d '' src; do
   esac
   printf '%s\t%s\n' "$rel" "$(norm_sha "$src")"
 done < <(find "$SRC" -type f -print0) | sort >"$TMP"
+
+if [ "$CHECK" -eq 1 ]; then
+  [ -f "$OUT" ] || { echo "gen-manifest --check: 清单不存在：$OUT（先不带参数跑一次生成）" >&2; exit 1; }
+  # 只比正文：头四行注释不参与，清单里没有的路径与哈希变了的路径都算漂移
+  DRIFT=$(diff <(grep -v '^#' "$OUT") "$TMP" | grep '^[<>]' || true)
+  if [ -n "$DRIFT" ]; then
+    echo "gen-manifest --check: 清单与源码树不一致（< 清单里的 / > 源码树实际的），重跑 bash .claude/scripts/gen-manifest.sh 后 git add：" >&2
+    printf '%s\n' "$DRIFT" | cut -c1-80 >&2
+    exit 1
+  fi
+  echo "gen-manifest --check: 清单与源码树一致（$(wc -l <"$TMP" | tr -d ' ') 个框架文件）"
+  exit 0
+fi
 
 {
   printf '# cc-base FRAMEWORK-MANIFEST（框架核心文件清单，由 gen-manifest.sh 生成）\n'
