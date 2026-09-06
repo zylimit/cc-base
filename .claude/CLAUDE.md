@@ -51,25 +51,18 @@
     - **审批三档（上条的落档查检表，不同 session 松紧一致；落档判断靠自觉，只有部分条目有机器闸）**：
       · **LOW——不问直接跑**：写文档 / progress.md / feedback、加测试、P2/P3 顺手修复、只读探索调研、本地构建 / 本地测试运行。
       · **MEDIUM——一句话预告后继续，不停等**：新增或修改框架非家底文件、派长耗时 Sub-Agent（预告静默 + 预计时长）、改动超 5 个文件的批量重构、依赖安装。
-      · **HIGH——必停等用户明确批准**：删除 / 停用 / 重写任何现有 hook / skill / agent / CLAUDE.md 规则（存量资产铁律）、git push / 发版上线 / 部署、不可逆或远端写操作（删数据 / 改生产）、Product-Spec 签字门、押后事项重启与长耗时计算启动（见 feedback/deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md）、密钥 / 隐私相关。
+      · **HIGH——必停等用户明确批准**：删除 / 停用 / 重写任何现有 hook / skill / agent / CLAUDE.md 规则（存量资产铁律）、发版上线 / 部署（git push 不在此列——用户 2026-09-06 指令：定期推送、不再确认）、不可逆或远端写操作（删数据 / 改生产）、Product-Spec 签字门、押后事项重启与长耗时计算启动（见 feedback/deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md）、密钥 / 隐私相关。
       模糊落档时按高一档处理；用户当前指令可显式豁免单次（安全护栏除外，见「用户当前指令优先」）。
 
-[Fast Mode——快速开发模式]
-    用户明确选择的临时放水开发。默认关闭，开启后默认 24 小时自动过期回严格模式。
-    开关命令：`bash .claude/scripts/fast-mode.sh on [hours]|off|status`（Windows：`pwsh .claude/scripts/fast-mode.ps1` 同参；hours 默认 24）。开关状态由 session-rules-banner 每次 SessionStart 播报，防忘关。
-
-    开启期间的流程侧行为（hook 侧放行之外，主控流程同步放水）：
-    - 不自动派 tester / code-reviewer，不自动进入 per-Task review → fix 闭环和 red-blue 对抗模式。
-    - 不新增或运行测试用例，不受 [开发测试规则] 四步走验证和 red-locks 卡点约束。
-    - implementer 直接交付：变更清单 + 实际执行结果 + 已知顾虑。
-    - 用户显式要求测试 / 检视时照做——显式要求覆盖 Fast Mode 默认。
-    - 跳过的只是**自动派发**的 review / test / red-locks 卡点；静态检查（`static-check.mjs` 之类廉价闸）与用户显式要求的检视 / 测试不在跳过范围。
-
-    边界（放水不放安全）：
-    - **不豁免**危险命令 / 破坏性操作 / 密钥隐私 / 远端副作用等安全护栏——[总体规则] 里的远端实况实查、不可逆操作审批照旧生效；密钥侧 `secret-exfil-guard.mjs` 明确不认 fast-mode 开关。
-    - 不等于部署或 push 授权，发布仍走 [发布阶段] 的完整卡点（`release-gate.mjs` 同样不吃 fast-mode 豁免）。
-    - 正常模式流程不变——[开发测试规则] 与 per-Task review 闭环是默认，Fast Mode 只是用户显式开启的例外。
-    细则见 feedback/scaffold-development-skip-quality-gates.md。
+[档位——框架强度三档]
+    强度是一张表不是一个开关：`.claude/harness/profile.json` 把每个闸在 `fast / standard / strict` 三档下的模式（guard 类 off / advise / block，recorder 类 off / on）写死，hook 只问 `gateMode(<自己的 id>)`，默认档 `standard` = 现行流程。查看与切换：`node .claude/harness/harness.mjs tier status|explain <hook-id>|validate`；`tier set fast --hours N --reason "…"`（`bash .claude/scripts/fast-mode.sh on [hours]|off|status` 与 `pwsh .claude/scripts/fast-mode.ps1` 是它的薄壳，参数同）。`fast` 必须带 reason、**硬上限 8 小时**自动回默认档；档位与来源由 session-rules-banner 每次 SessionStart 播报，statusline 常驻显示。
+    - **地板**（任何档都改不了）：`secret-exfil-guard` / `dangerous-pkill-guard` / `release-gate` / `postcompact-reinject` / `notify`——危险命令、密钥隐私、发布卡点、压缩回注、通知永远照跑。
+    - **自动升档**：工作树里改了 `.claude/hooks|harness|skills|agents/**`、`.claude/CLAUDE.md`、`.claude/rules/**`、`.claude/settings.json`、`.github/**` 任一路径，本轮自动进 `strict`（`tier status` 的 `source: raise` 点名文件），提交后自动回落；升档不需要人，降档必须带 reason 并记进 gate-block.log（`gate-audit` 能统计 fast 期跳过了哪些闸）。
+    - **`fast`**：用户明示的临时放水。guard 类闸只出提醒（Stop 类 `systemMessage`、PreToolUse 类 stderr）并记债、不拦；recorder 类多数关，`record-authorship` 照记。流程侧同步放水：不自动派 tester / code-reviewer，不自动进 per-Task review → fix 闭环与 red-blue，不受 [开发测试规则] 四步走与 red-locks 约束，implementer 直接交付「变更清单 + 实际执行结果 + 已知顾虑」；用户显式要求测试 / 检视时照做；静态检查（`static-check.mjs` 之类廉价闸）不在跳过范围。
+    - **`strict`**：在 `standard` 之上 `tdd-gate` 由提醒改为拦（没验红标记不许派 implementer 写码）；家底改动自动进这一档。
+    - 项目级微调写 `profile.json` 的 `overrides`（单闸覆盖，`tier explain` 会标 `override`）；改完 `tier validate` 校验三档单调（fast ≤ standard ≤ strict）、地板不在表内。
+    - 不等于部署或 push 授权，发布仍走 [发布阶段] 的完整卡点；`release` 装配在 `fast` 生效时 `tier` 项直接 FAIL。
+    细则见 feedback/scaffold-development-skip-quality-gates.md（fast 的由来）与 docs/v3-tiered-harness-proposal.md §三。
 
 [Skill 调用规则]
     匹配触发条件时，必须先调用 Skill 再输出响应。不要先回复再调用。
@@ -204,7 +197,7 @@
     | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | progress-recorder | 增量维护 progress.md 项目记忆 + 归档 progress.archive.md |
 
     Allowed Skills 是各角色允许主动使用的 Skill 清单，用于约束行为与交接——不是安全边界，真实权限由工具授权决定。
-    **三层不得混写**：agents / skills 保存稳定角色源码；Spec / DEV-PLAN / 当次派单保存项目绑定；fast-mode 开关、review marker、evidence 日志等运行态只进 git 忽略的运行态文件。
+    **三层不得混写**：agents / skills 保存稳定角色源码；Spec / DEV-PLAN / 当次派单保存项目绑定；档位会话记录（`.runtime/tier.json`）、review marker、evidence 日志等运行态只进 git 忽略的运行态文件。
 
     各 Agent 的派发时机和流程见对应的工作流程章节和 Skill 调用规则。
     evolution-runner 返回的进化建议需展示给用户逐条确认/跳过后再执行。

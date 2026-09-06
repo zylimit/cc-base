@@ -172,7 +172,7 @@ settings.json 实际注册 21 个 hook（每个一份 `.mjs`，node 单运行时
 
 **设计要点**：hook 不依赖 jq / python3，只要 node；共用逻辑在 `hooks/lib/`，hook 不 import 引擎（进程级隔离，引擎坏了 hook 判出「引擎跑不成」而不是假绿）；review 闸门按文件登记（非全局布尔）+ 独占创建锁防并发 + 优先级反转（clean 与待审混存时正确 block）。
 
-settings.json 同时带三层原生配置（hook 之外的机器执法）：**permissions deny/ask**——密钥文件 Read deny（连带挡 Edit/Write 与 Bash 内 cat/head/sed），`git push`/`gh release`/`npm publish`/`docker push` ask（bypassPermissions 下 ask 规则照样弹审批，HIGH 档机器化）；**statusLine**——`.claude/scripts/statusline.mjs` 常驻显示模型/context%/成本/Fast Mode 剩余/待审数/harness 开关；**env**——`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`（Stop 闸原生 8 次强制放行上限提额；stop-gate 自身三振熔断先触发，此为兜底边界）。
+settings.json 同时带三层原生配置（hook 之外的机器执法）：**permissions deny/ask**——密钥文件 Read deny（连带挡 Edit/Write 与 Bash 内 cat/head/sed），`git push`/`gh release`/`npm publish`/`docker push` ask（bypassPermissions 下 ask 规则照样弹审批，HIGH 档机器化）；**statusLine**——`.claude/scripts/statusline.mjs` 常驻显示模型/context%/成本/档位（fast 剩余）/待审数/harness 开关；**env**——`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`（Stop 闸原生 8 次强制放行上限提额；stop-gate 自身三振熔断先触发，此为兜底边界）。
 
 ---
 
@@ -203,7 +203,7 @@ project/
     ├── hooks/                            # 21 个注册闸门（.mjs）+ static-check 工具 + lib/
     ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
-    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode / fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）
+    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode（tier set 薄壳）/ fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）
     ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / test-supervisor / cases）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎

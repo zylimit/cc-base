@@ -76,7 +76,7 @@ target/
 注意两点：
 
 - 目标项目**已有** `.claude/settings.json` 时先人工合并，不要覆盖——要点是把框架 settings.json 里各 event 下的 hook command 追加进你已有的同名 event，已存在的条目不重复加，你项目自己的其他配置一律不动。
-- 复制前清掉运行时产物（`.needs-review`、`.tdd-exempt`、`.fast-mode`、`settings.local.json`、feedback 顶层私人经验 *.md）——安装器会自动跳过这些，手工复制要自己留意。
+- 复制前清掉运行时产物（`.needs-review`、`.tdd-exempt`、`.runtime/tier.json`、`settings.local.json`、feedback 顶层私人经验 *.md）——安装器会自动跳过这些，手工复制要自己留意。
 
 安装器仍是推荐路径（自动排除运行时产物、合并 settings、重置 FEEDBACK-INDEX）；拷贝即用适合快速试用或无 bash/pwsh 安装环境的场合。
 
@@ -85,10 +85,24 @@ target/
 框架 settings.json 在 hooks 之外带三层 Claude Code 原生配置：
 
 - **permissions deny/ask（密钥红线 + HIGH 档机器化）**：`Read(**/.env)`、`Read(**/id_rsa*)`、`Read(secrets/**)` 等 deny 规则让密钥文件对任何工具不可读（同路径 Edit/Write 连带被挡，Bash 里的 cat/head/sed 也认；任意子进程绕读由 secret-exfil-guard hook 补拦）；`Bash(git push*)`、`Bash(gh release *)`、`Bash(npm publish*)`、`Bash(docker push*)` ask 规则把「发布/push 必停等审批」做成机器强制——**bypassPermissions 模式下 ask 规则照样弹审批**（官方语义），与审批三档的 HIGH 档一致。
-- **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.mjs` 显示 `[模型] | ctx N% | $成本 | FAST-MODE 剩余h | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
+- **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.mjs` 显示 `[模型] | ctx N% | $成本 | tier: 档位（fast 剩余h） | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
 - **env**：`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`——Claude Code 对 Stop 闸有「连拦 8 次强制放行」的原生上限，提额到 25 作兜底（stop-gate 自身三振熔断先触发）。
 
 可选进阶（默认不开，按需自取）：`/sandbox` 开原生 OS 级沙箱（文件系统/网络域名白名单/凭据 mask；Linux/WSL2 需 `apt install bubblewrap socat`，原生 Windows 不支持）；`CLAUDE_CODE_TOOL_MEMORY_LIMIT` 给 Bash 命令加 cgroup 内存上限防跑飞 build 拖死会话（Linux，取值格式见官方 env 文档）；权限模式想要「不打扰 + 分类器兜底」可把 `defaultMode` 改 `"auto"`。五性视角的定位见 `.claude/rules/quality-attributes.md`「Claude Code 原生安全层」节。
+
+## 档位：fast / standard / strict
+
+框架强度是 `.claude/harness/profile.json` 里的一张表：每个闸在三档下各是什么模式（`off` / `advise` / `block`，记账类为 `off` / `on`），默认 `standard` 就是现行流程。五个地板闸（密钥外泄、危险 pkill、发布前置、压缩回注、通知）不在表里，任何档都照跑。
+
+```bash
+node .claude/harness/harness.mjs tier status              # 当前档、来源（default / session / raise）、每闸模式
+node .claude/harness/harness.mjs tier set fast --hours 4 --reason "原型期赶进度"   # 上限 8 小时，到期自动回默认
+node .claude/harness/harness.mjs tier explain stop-gate   # 这个闸三档各是什么、现在是什么、为什么
+node .claude/harness/harness.mjs tier validate            # 改过 profile.json 后校验三档单调
+bash .claude/scripts/fast-mode.sh on 4                    # 老入口还在，只是 tier set fast 的薄壳
+```
+
+改了 `.claude/hooks|harness|skills|agents/**`、`CLAUDE.md`、`rules/**`、`settings.json`、`.github/**` 任一路径，本轮自动升到 `strict`（`tdd-gate` 从提醒变拦），提交后回落——升档不用人批，降档要带 reason 并进 `gate-block.log`。`fast` 下闸只提醒不拦，跳过的每一次都记账，`gate-audit` 能算出 fast 期欠了什么。项目级微调写 `profile.json` 的 `overrides`。
 
 ## hook 单运行时（node）
 
