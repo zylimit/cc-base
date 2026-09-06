@@ -78,6 +78,19 @@ const GUARDS = new Set([
 const GUARD_MODES = new Set(['off', 'advise', 'block']);
 const RECORDER_MODES = new Set(['off', 'on']);
 
+/** 把任意仓内目录归一到 git 顶层；不在 git 仓里或 git 不可用就原样返回。 */
+const rootCache = new Map();
+function repoRootOf(dir) {
+  if (rootCache.has(dir)) return rootCache.get(dir);
+  let out = dir;
+  try {
+    const top = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { shell: false, encoding: 'utf8' });
+    if (top.status === 0 && String(top.stdout || '').trim()) out = String(top.stdout).trim();
+  } catch (_e) { /* 原样 */ }
+  rootCache.set(dir, out);
+  return out;
+}
+
 /** 项目根：CLAUDE_PROJECT_DIR → git 顶层 → cwd（与 io.projectDir 同语义，但本模块不 import io，避免环）。 */
 function defaultRoot() {
   const env = process.env.CLAUDE_PROJECT_DIR;
@@ -168,10 +181,15 @@ export function readSession(root = defaultRoot(), now = Date.now()) {
   let exp = Number(v.expires_epoch);
   if (v.tier === 'fast') {
     // 8h 硬上限在读侧也夹：写侧的截断只是礼貌，手写一份 720h 的 tier.json 不能换来 720h 的放水。
+    // 夹的锚点是 set_epoch——缺了它上限就没处算，这份 fast 覆盖不认（红蓝审查 v2.0.0 High #2：
+    // 缺 set_epoch 曾换来 642713 小时的 fast）。
     const setAt = Number(v.set_epoch);
-    const cap = Number.isFinite(setAt) ? setAt + MAX_FAST_SECONDS : NaN;
-    if (!Number.isFinite(exp)) return null;             // fast 必须带过期（A.1 硬上限 8h）；没有就不认这份覆盖
-    if (Number.isFinite(cap) && exp > cap) { exp = cap; v = { ...v, expires_epoch: cap }; }
+    if (!Number.isFinite(setAt) || !Number.isFinite(exp)) {
+      quarantine(root, 'tier', fp, `fast 会话缺 set_epoch/expires_epoch（8h 上限无处算），本次视为无覆盖回默认档`);
+      return null;
+    }
+    const cap = setAt + MAX_FAST_SECONDS;
+    if (exp > cap) { exp = cap; v = { ...v, expires_epoch: cap }; }
   }
   if (Number.isFinite(exp) && exp * 1000 <= now) return null;   // 到期自动失效，不靠人记得关
   return v;
@@ -227,6 +245,12 @@ function dirtyPaths(root) {
   // 治理面升档在「家底目录整个还没进版本库」的项目里等于不存在。
   const st = spawnSync('git', ['status', '--porcelain', '-z', '-uall'], { shell: false, encoding: 'utf8', cwd: root });
   const out = [];
+  if (st.error && st.error.code === 'ENOENT' && !dirtyCache.has('__git_warned__')) {
+    // git 二进制不在：按设计不抬（不是抬），但要出声——静默等于「今天家底改动不算数」没人知道。
+    // 「在但不是仓」不算异常（框架允许装在非 git 目录），那种情况照常不抬、不喊。
+    dirtyCache.set('__git_warned__', true);
+    process.stderr.write('[tier] 找不到 git，治理面自动升档本轮跳过（按当前档跑）\n');
+  }
   if (st.status === 0) {
     // -z 形态：每条记录 `XY <path>`，R/C 另跟一条裸旧路径——必须按 NUL 切，不能按行读。
     const recs = String(st.stdout || '').split('\0');
@@ -260,6 +284,9 @@ function raisedBy(root, profile) {
  * @returns {{tier:string, source:'default'|'session'|'raise', raisedBy?:string[], expiresEpoch?:number}}
  */
 export function effectiveTier({ projectDir = defaultRoot(), now = Date.now() } = {}) {
+  // 传进来的可能是仓内某个子目录（调用方拿 cwd 当项目根）：profile / tier.json / git status 都得
+  // 以仓根为准，否则家底改动一条命不中、档位静默回默认（红蓝审查 v2.0.0 High #1）。
+  projectDir = repoRootOf(projectDir);
   const { profile } = loadProfile(projectDir);
   const session = readSession(projectDir, now);
   const def = rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default;

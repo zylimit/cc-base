@@ -11,7 +11,16 @@ const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const CLAUDE_DIR = join(SCRIPTS, '..');
 const REPO = join(CLAUDE_DIR, '..');
 
-const entries = JSON.parse(readFileSync(join(CLAUDE_DIR, 'harness', 'exclusions.json'), 'utf8')).entries;
+const EXCL = join(CLAUDE_DIR, 'harness', 'exclusions.json');
+let entries;
+try {
+  entries = JSON.parse(readFileSync(EXCL, 'utf8')).entries;
+  if (!Array.isArray(entries)) throw new Error('entries is not an array');
+} catch (e) {
+  // 真相源缺了或坏了：一行人读 + rc 1，不甩 node 栈——这个文件是用户可改的
+  process.stderr.write(`gen-exclusions: cannot read ${EXCL}: ${(e && e.code) || (e && e.message) || e}\n`);
+  process.exit(1);
+}
 
 // ① bash 臂：keep=true 是白名单（不 continue），顺序照 json
 const bashArms = (indent) =>

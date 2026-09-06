@@ -63,7 +63,7 @@ else
 fi
 
 # hook 公共库四件（22 个 hook 都 import，缺一件就是一整片 hook 起不来）
-for m in io gatelog fastmode harness; do
+for m in io gatelog tier harness; do
   [ -f ".claude/hooks/lib/$m.mjs" ] && ok "hooks/lib/$m.mjs 存在" || bad "hooks/lib/$m.mjs 缺失"
 done
 

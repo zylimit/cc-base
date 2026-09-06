@@ -535,6 +535,96 @@ chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "PR-5 对照：standard + source=compact → 静默（证明 PR-4 赢的是 fast，不是「compact 也照喊」）" \
     "rc=0 且 stdout 为空" "rc=$RC stdout=[$(show "$OUT")]"
 
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PD 子目录 cwd 下的自动升档（hook 是被事件触发的，cwd 从来不保证是仓根）---"
+
+# 派单口径 PR-1..PR-4；PR 已被上面的 banner 组占用，这里顺号改标 PD-1..PD-4，逐条对应、不改语义。
+# 要害：raise 判定要读工作树，读盘的根若跟着进程 cwd 走（而不是跟 projectDir 走），
+# 那么「在子目录里发生的 hook 事件」就查不到家底改动 —— 升档静默失效，而人在仓根一跑
+# tier status 还是 strict，两边对不上也看不出来。仓根那条对照就是为了把这个差别钉死。
+
+# tierjs <沙箱> <cwd> —— 在指定 cwd 直接问 hook 侧解析器 effectiveTier（不经引擎、不经 hook 本体）。
+#   项目根用 CLAUDE_PROJECT_DIR 与入参双给：两条都给全了还错，就只剩 cwd 这一个变量。
+tierjs() {
+    local d="$1" c="$2"
+    RC=0
+    ( cd "$c" && CLAUDE_PROJECT_DIR="$d" node -e '
+const { pathToFileURL } = require("node:url");
+import(pathToFileURL(process.argv[1]).href)
+  .then((m) => Promise.resolve(m.effectiveTier({ projectDir: process.argv[2] })))
+  .then((r) => { console.log(JSON.stringify(r)); })
+  .catch((e) => { console.error(String((e && e.stack) || e)); process.exit(1); });
+' "$d/.claude/hooks/lib/tier.mjs" "$d" ) >"$TMP/.o" 2>"$TMP/.e" || RC=$?
+    OUT=$(cat "$TMP/.o" 2>/dev/null || true)
+    ERRT=$(cat "$TMP/.e" 2>/dev/null || true)
+}
+
+SB=$(newsb pd-sub); mkprofile "$SB"
+printf '// touched\n' > "$SB/.claude/hooks/x.mjs"      # 故意不提交：命中 raise.paths 的未提交改动
+SUB="$SB/some/sub/dir"; mkdir -p "$SUB"
+
+tierjs "$SB" "$SUB"
+PD_RC="$RC"; PD_A="$OUT"
+chk "$([ "$(jq_ "$PD_A" 'String(d.tier)')" = "strict" ] && echo 0 || echo 1)" \
+    "PD-1 家底改动未提交 + 在子目录里问 → effectiveTier 的 tier=strict（升档不能因为 cwd 换了就没了）" \
+    "tier=strict" "rc=$PD_RC out=[$(show "$PD_A")] err1=[$(printf '%s' "$ERRT" | head -1)]"
+chk "$([ "$(jq_ "$PD_A" 'String(d.source)')" = "raise" ] && echo 0 || echo 1)" \
+    "PD-2 同上 → source=raise（抬上去的理由要说得出，不然跟用户手设 strict 分不开）" \
+    "source=raise" "out=[$(show "$PD_A")]"
+
+tierjs "$SB" "$SB"
+PD_R_RC="$RC"; PD_R="$OUT"
+chk "$([ "$(jq_ "$PD_R" 'String(d.tier)')" = "strict" ] && echo 0 || echo 1)" \
+    "PD-3 对照：同一沙箱、同一命令，cwd 换回仓根 → tier=strict（证明 PD-1 判的是 cwd，不是这条路恒红）" \
+    "tier=strict" "rc=$PD_R_RC out=[$(show "$PD_R")] err1=[$(printf '%s' "$ERRT" | head -1)]"
+
+RC=0
+( cd "$SUB" && CLAUDE_PROJECT_DIR="$SB" node "$SB/.claude/harness/harness.mjs" tier status ) \
+    >"$TMP/.o" 2>"$TMP/.e" || RC=$?
+PD_S_RC="$RC"; PD_S=$(cat "$TMP/.o" 2>/dev/null || true); PD_S_E=$(cat "$TMP/.e" 2>/dev/null || true)
+chk "$([ "$(jq_ "$PD_S" 'String(d.tier)')" = "strict" ] && echo 0 || echo 1)" \
+    "PD-4 同一处境走引擎：cwd 子目录 + CLAUDE_PROJECT_DIR 仓根 → tier status 报 strict（人查到的那一格也得对）" \
+    "stdout JSON tier=strict" "rc=$PD_S_RC out=[$(show "$PD_S")] err1=[$(printf '%s' "$PD_S_E" | head -1)]"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PX 续 tier.json 缺 set_epoch（8h 夹的起算点没了 = 一份手写文件换永久 fast）---"
+
+# 派单口径 PX-4/5/6；上面 PX 组已用到 PX-4，这里顺号为 PX-5..PX-7，逐条对应、不改语义。
+# 8h 夹算的是 now - set_epoch，缺这个字段就没有起算点。缺字段的覆盖只有两种收场：认它
+# （那 8h 上限等于不存在，expires_epoch 想写多远写多远，PX-1..3 夹了个寂寞）或不认它回默认档。
+# 契约取后者 —— 与坏 JSON、档名非法同一口径：读不出来的状态一律视为无覆盖 + 留痕（tier.mjs:143）。
+
+# gitignore_state <沙箱> —— 把运行态目录纳入忽略并提交。
+#   quarantine.jsonl 落在 .claude/harness/state/，而那是 raise.paths 命中的目录：留痕这个动作
+#   本身会把沙箱抬成 strict，「缺 set_epoch 认不认」的红因就串到「升档」上去了。
+gitignore_state() {
+    printf '.claude/harness/state/\n.claude/.runtime/\n' > "$1/.gitignore"
+    commit_sb "$1" ignore-runtime
+}
+
+SB=$(newsb px-noset); mkprofile "$SB"; gitignore_state "$SB"
+printf '{"tier":"fast","reason":"t","by":"t","expires_epoch":4102444800}\n' \
+    > "$SB/.claude/.runtime/tier.json"                 # 2100 年才过期，且没有 set_epoch
+tierjs "$SB" "$SB"
+PXN_RC="$RC"; PXN="$OUT"; PXN_T=$(jq_ "$PXN" 'String(d.tier)')
+chk "$([ "$PXN_T" != "fast" ] && [ "$PXN_T" != "<not-json>" ] && [ -n "$PXN_T" ] && echo 0 || echo 1)" \
+    "PX-5 tier.json 缺 set_epoch + expires 写到 2100 年 → tier 不是 fast（认了它，8h 上限就只是写侧的礼貌）" \
+    "tier≠fast 且 stdout 是 JSON" "tier=$PXN_T rc=$PXN_RC out=[$(show "$PXN")] err1=[$(printf '%s' "$ERRT" | head -1)]"
+PXN_Q=$(cat "$SB/.claude/harness/state/quarantine.jsonl" 2>/dev/null || true)
+chk "$(printf '%s' "$PXN_Q" | grep -q '"kind":"tier"' && echo 0 || echo 1)" \
+    "PX-6 同上 → quarantine.jsonl 多一条 kind=tier（回默认档要留痕，不然用户只看到档位莫名其妙变了）" \
+    "账本含 \"kind\":\"tier\"" "账本=[$(show "$PXN_Q")]"
+
+SB=$(newsb px-setok); mkprofile "$SB"; gitignore_state "$SB"
+mkruntime "$SB" fast "$NOW" "$((NOW + 3600))"          # 同形但字段齐全的 1 小时窗口
+tierjs "$SB" "$SB"
+PXO_RC="$RC"; PXO="$OUT"
+chk "$([ "$(jq_ "$PXO" 'String(d.tier)')" = "fast" ] && echo 0 || echo 1)" \
+    "PX-7 对照：set_epoch=now + expires=now+1h 的同形文件 → tier=fast（证明 PX-5 挡的是缺字段，不是这条路读不出 fast）" \
+    "tier=fast" "rc=$PXO_RC out=[$(show "$PXO")] err1=[$(printf '%s' "$ERRT" | head -1)]"
+
 echo ""
 echo "==== test-tier-hardening：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]
