@@ -76,112 +76,24 @@
     2. 根据上下文判断最匹配的 Skill
     3. 不确定时 → 询问用户意图
 
-    [product-spec-builder]
-        **自动调用**：
-        - 用户表达想要开发产品、应用、工具时
-        - 用户描述产品想法、功能需求时
-        - 用户要修改 UI、改界面、调整布局时（迭代模式）
-        - 用户要增加功能、新增功能时（迭代模式）
-        - 用户要改需求、调整功能、修改逻辑时（迭代模式）
-        **手动调用**：/product-spec-builder
-
-    [arch-designer]
-        **自动调用**：
-        - Product-Spec 批准后判为 M/L 档（多模块 / 有边界诉求 / 大规模）时建议调用
-        - 用户说"架构设计"、"模块划分"、"技术架构"、"分层"、"架构评审"时
-        **手动调用**：/arch-designer
-        前置条件：Product-Spec.md 必须存在
-        执行方式：文档类 skill，主 Agent 直接执行（同 product-spec-builder）；产出 Architecture-Design.md，L 档同步产出 `.claude/harness/module-catalog.json` 骨架接通 arch-check 架构防腐闸
-
-    [dfx-designer]
-        **自动调用**：
-        - arch-designer 完成后建议顺路做 DFX 定档
-        - 用户说"DFX"、"非功能需求"、"可靠性/可测试性/可服务性设计"、"DFX 评审"时
-        **手动调用**：/dfx-designer
-        前置条件：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
-        执行方式：文档类 skill，主 Agent 直接执行；设计模式产出 DFX-Spec.md 并把档位落进 catalog attributes + adapters 接线；评审模式只出评分卡不改文件
-
-    [design-brief-builder]
-        **手动调用**：/design-brief-builder
-        前置条件：Product-Spec.md 必须存在
-
-    [design-maker]
-        **手动调用**：/design-maker
-        前置条件：Product-Spec.md 和 Design-Brief.md 必须存在
-
-    [dev-planner]
-        **手动调用**：/dev-planner
-        前置条件：Product-Spec.md 必须存在
-
-    [dev-builder]
-        **手动调用**：/dev-builder
-        前置条件：Product-Spec.md 和 DEV-PLAN.md 必须存在
-
-    [bug-fixer]
-        **自动调用**：
-        - code-review 发现问题后，自动调用修复（review → fix 闭环的一部分）
-        - 用户报告 bug、功能异常、编译错误、运行时错误时
-        - 用户说"这个功能坏了"、"报错了"、"不正常"时
-        **手动调用**：/bug-fixer
-        前置条件：项目代码已创建
-
-    [code-review]
-        **自动调用**：
-        - 每个功能开发完成后，自动进入 review → fix 闭环
-        - 用户要求代码审查、检查代码质量时
-        **手动调用**：/code-review
-        前置条件：Product-Spec.md 必须存在，项目代码已创建
-        执行方式：派发 code-reviewer Sub-Agent 执行三阶段审查（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量），主 Agent 不自己审查（见 [Sub-Agent 调度规则]）
-
-    [test-builder]
-        **自动调用**：
-        - dev-builder 四步走验证第2步「测试完整性」时，调用 test-builder 跑/补回归测试（真卡点）
-        - per-Task review → fix 闭环中，Stage 1 规格通过后补关键逻辑测试（可选，按价值取舍）
-        **手动调用**：/test-builder
-        前置条件：项目代码已创建
-        执行方式：务实回归——主 Agent 写测试提示词，**测试代码交独立方编写（写测≠被测作者：派 tester Sub-Agent，或非该功能作者的另一 implementer fresh 实例）**，主 Agent 独立复核运行输出后验收；测试失败按代码错/测试错分流（bug-fixer 修代码 / tester 修测试）
-
-    [release-builder]
-        **手动调用**：/release-builder（skill 设 disable-model-invocation——发布是副作用工作流，主 Agent 不能代触发；用户口头说"发布/打包/上线"时，主 Agent 回指该命令请用户亲自敲，这是 HIGH 档显式人触发的机器化）
-        前置条件：项目代码已创建
-        执行方式：用户敲命令时 release-gate hook 先查待审清单（未清直接拦、干净则注入卡点提醒）；打包前先过测试卡点（复用 test-builder 作前置闸门，证据=运行器真实输出，卡点未过不许打包交付）；部署派发 deployer Sub-Agent 执行，主 Agent 不亲自执行、只验收（独立核查三件套，见 [总体规则] 验收铁律）
-
-    [red-blue-review]
-        **自动调用**：
-        - 发版 / 合并分支前，对高风险或家底（hooks / skills / CLAUDE.md / agents）改动建议过一遍
-        - 用户说"红蓝审查"、"对抗审查"、"检视改动"时
-        **手动调用**：/red-blue-review
-        前置条件：有一批已成型的改动（已 commit 或工作树未提交）
-        执行方式：主 Agent 编排 Blue → Red → Judge 三遍——跑 red-blue-review.sh 凑证据包 → 派 implementer 做 Blue 自证（仅作靶子）→ 派 code-reviewer（fresh，独立于 Blue）做 Red 四 lens 攻击（correctness / security / release / windows，每 finding 须附复现路径或 file:line）→ 主 Agent 自己 Judge 裁定（只看证据），出 ACCEPT / FIX_REQUIRED / NEEDS_MORE_EVIDENCE 填进 RED-BLUE-REVIEW.md
-
-    [branch-finisher]
-        **自动建议**（skill 设 disable-model-invocation，主 Agent 只建议不能代触发——合并/清分支是副作用工作流，须用户亲自敲命令）：
-        - Phase / 功能完成后，建议用户敲 /branch-finisher 收尾当前开发分支
-        - 用户说"收尾"、"合并分支"、"这个分支弄完了"时，回指 /branch-finisher 请用户确认触发
-        **手动调用**：/branch-finisher
-        前置条件：项目代码已创建
-        执行方式：先检测环境状态，测试全绿为前置闸门；据状态给出条件化菜单（合并 / 提 PR / 清理分支），按用户选择执行
-
-    [skill-builder]
-        **自动调用**：
-        - EVOLUTION.md 第四层提议创建新 Skill，用户确认后
-        **手动调用**：/skill-builder
-        前置条件：无
-        新建或改 skill 后跑 `node .claude/harness/harness.mjs skills-lint` 校验 description（CSO，触发式开头、≤180 字），不过先修
-
-    [feedback-writer]
-        由 feedback-observer sub-agent 调用，不由用户直接触发
-        执行方式：永远通过 feedback-observer sub-agent 执行
-
-    [evolution-engine]
-        **自动调用**：session 初始化时自动派发 evolution-runner sub-agent
-        **手动调用**：/evolution-engine
-        执行方式：永远通过 evolution-runner sub-agent 执行（skill 已声明 `context: fork` + `agent: evolution-runner`——直接调 skill 也会自动落到该 sub-agent 后台运行，不阻塞开场；建议返回后仍逐条展示给用户确认）
-
-    [progress-recorder]
-        **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
-        **手动调用**：/record /archive /recap
-        执行方式：record/archive 派 progress-recorder sub-agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
+    各 Skill 一行一个（`/名 - 自动触发；手动入口；前置条件`）；执行方式与话术全在 .claude/rules/dev-workflow-details.md「各 Skill 执行方式」——触发即调，怎么执行去那读：
+    - /product-spec-builder - 自动：用户表达想要开发产品、应用、工具时；用户描述产品想法、功能需求时；用户要修改 UI、改界面、调整布局时（迭代模式）；用户要增加功能、新增功能时（迭代模式）；用户要改需求、调整功能、修改逻辑时（迭代模式）。手动：/product-spec-builder
+    - /arch-designer - 自动：Product-Spec 批准后判为 M/L 档（多模块 / 有边界诉求 / 大规模）时建议调用；用户说"架构设计"、"模块划分"、"技术架构"、"分层"、"架构评审"时。手动：/arch-designer。前置：Product-Spec.md 必须存在
+    - /dfx-designer - 自动：arch-designer 完成后建议顺路做 DFX 定档；用户说"DFX"、"非功能需求"、"可靠性/可测试性/可服务性设计"、"DFX 评审"时。手动：/dfx-designer。前置：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
+    - /design-brief-builder - 手动：/design-brief-builder。前置：Product-Spec.md 必须存在
+    - /design-maker - 手动：/design-maker。前置：Product-Spec.md 和 Design-Brief.md 必须存在
+    - /dev-planner - 手动：/dev-planner。前置：Product-Spec.md 必须存在
+    - /dev-builder - 手动：/dev-builder。前置：Product-Spec.md 和 DEV-PLAN.md 必须存在
+    - /bug-fixer - 自动：code-review 发现问题后，自动调用修复（review → fix 闭环的一部分）；用户报告 bug、功能异常、编译错误、运行时错误时；用户说"这个功能坏了"、"报错了"、"不正常"时。手动：/bug-fixer。前置：项目代码已创建
+    - /code-review - 自动：每个功能开发完成后，自动进入 review → fix 闭环；用户要求代码审查、检查代码质量时。手动：/code-review。前置：Product-Spec.md 必须存在，项目代码已创建
+    - /test-builder - 自动：dev-builder 四步走验证第2步「测试完整性」时，调用 test-builder 跑/补回归测试（真卡点）；per-Task review → fix 闭环中，Stage 1 规格通过后补关键逻辑测试（可选，按价值取舍）。手动：/test-builder。前置：项目代码已创建
+    - /release-builder - 手动：/release-builder（skill 设 disable-model-invocation——发布是副作用工作流，主 Agent 不能代触发；用户口头说"发布/打包/上线"时，主 Agent 回指该命令请用户亲自敲，这是 HIGH 档显式人触发的机器化）。前置：项目代码已创建
+    - /red-blue-review - 自动：发版 / 合并分支前，对高风险或家底（hooks / skills / CLAUDE.md / agents）改动建议过一遍；用户说"红蓝审查"、"对抗审查"、"检视改动"时。手动：/red-blue-review。前置：有一批已成型的改动（已 commit 或工作树未提交）
+    - /branch-finisher - 自动：Phase / 功能完成后，建议用户敲 /branch-finisher 收尾当前开发分支；用户说"收尾"、"合并分支"、"这个分支弄完了"时，回指 /branch-finisher 请用户确认触发。手动：/branch-finisher。前置：项目代码已创建
+    - /skill-builder - 自动：EVOLUTION.md 第四层提议创建新 Skill，用户确认后。手动：/skill-builder。前置：无
+    - /feedback-writer - 由 feedback-observer sub-agent 调用，不由用户直接触发
+    - /evolution-engine - 手动：/evolution-engine
+    - /progress-recorder - 手动：/record /archive /recap
 
 [Sub-Agent 调度规则]
     **可派发的 Sub-Agent**（全部为 Claude Code 原生 Sub-Agent，用 Task/Agent 工具派发，每次 fresh 实例）：
@@ -199,34 +111,9 @@
     Allowed Skills 是各角色允许主动使用的 Skill 清单，用于约束行为与交接——不是安全边界，真实权限由工具授权决定。
     **三层不得混写**：agents / skills 保存稳定角色源码；Spec / DEV-PLAN / 当次派单保存项目绑定；档位会话记录（`.runtime/tier.json`）、review marker、evidence 日志等运行态只进 git 忽略的运行态文件。
 
-    各 Agent 的派发时机和流程见对应的工作流程章节和 Skill 调用规则。
-    evolution-runner 返回的进化建议需展示给用户逐条确认/跳过后再执行。
-
-    **编码/审查/测试/部署——一律走 Sub-Agent，不存在"主 Agent 自己上"的分支**：
-    四个环节都通过 Task/Agent 工具派发对应 Sub-Agent，主 Agent 只「写提示词 + 验收」。这是隔离保证，不是可选最佳实践。
-
-    **Sub-Agent 隔离原则（适用于所有 Sub-Agent 派发）**：
-    - 每个 Task 必须用 fresh 实例，不复用之前的 Sub-Agent
-    - 主 Agent 提供完整任务上下文（Spec 条目、交付清单、涉及文件、项目结构），Sub-Agent 不继承 session 历史
-    - Sub-Agent 不知道之前的 Task 做了什么。如果需要上下文，主 Agent 必须显式提供
-    - 这不是可选的最佳实践，是隔离保证：防止 Task A 的错误假设污染 Task B
-    - **统一派单包**：每次派发明确六字段——**Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Verification**（本任务允许且需要的最小客观核查；用户明确豁免时写明豁免）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。不适用的字段写 N/A，不让 fresh 实例靠猜；大仓启用后这六字段由 `task` 子命令机器校验，缺哪个点哪个。
-    - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md；大仓启用后 `record-authorship.mjs` 每次编辑自动记谁写了哪些文件，`review` 的 verdict 据此拒绝出自审 ACCEPT
-    - **并行**：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环），同文件改动或有依赖一律串行；**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。用户说「加速/快点」≠ 授权并行铺开——加速的正解是砍范围、串行提效、减少返工。
-
-    **Workflow 编排模式**：多个无依赖单位的规模化 fan-out 上层（判据轴 = 单元决策要不要自洽；须用户显式 opt-in，多 Agent 耗 token ~15x）。**写或提议任何 workflow 之前必须先读 .claude/rules/workflow-orchestration.md**（判据轴 / 三个推荐场景 / agentType 集成点 / 三铁律 / 成本闸门 / worktree 操作纪律全在该文件）。
-
-    **Sub-Agent 回传纪律（防回传消息灌爆主 Agent 上下文）**：
-    - Sub-Agent 的**最终回传消息**是唯一进主 Agent 上下文的东西。回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译输出位置 / 测试运行器输出位置 / 时间戳）+ 关键提炼，**不贴全文/原始长日志**。长报告压成要点。
-    - **统一回执信封**：所有 Sub-Agent 回传先给通用信封，再追加角色专属内容——**Status**（四态，见下；tester 可用 PASS/FAIL 表示运行器结果）/ **Changed**（实际修改的文件或产物；只读角色写 None）/ **Verified**（实际执行并得到结果的核查）/ **Not verified**（没执行或无法证明的事项，必须列出）/ **Needs review by**（需主 Agent、用户或其他专职角色接管的事项）/ **Evidence**（路径 / commit / 输出位置 / 时间戳等句柄，不贴长日志）。
-    - **implementer 四态自评开头**：implementer 回传消息须以自评状态四选一开头——**DONE**（完成、无遗留疑虑）/ **DONE_WITH_CONCERNS**（完成但有疑虑，逐条列出疑虑点）/ **NEEDS_CONTEXT**（缺上下文做不下去，列明缺什么）/ **BLOCKED**（受阻，说明阻塞在哪、需要什么）。主 Agent 据此前置决策（补上下文 / 先解阻塞 / 直接进 review），不必等 code-reviewer 才把疑虑暴露出来。四态即信封的 Status 字段，各 Sub-Agent 同样以之开头。
-    - **禁原样重试**：收到 BLOCKED / NEEDS_CONTEXT 后，重派必须至少变更一项（上下文 / 范围 / 角色 / 模型）——同一 prompt 同一模型原样重发一遍属于赌运气。
-    翻证据外包下判断自留、单次派单 >60min 的分解红线、四级升级阶梯的完整细则见 .claude/rules/subagent-dispatch.md——派发前、收到 BLOCKED / NEEDS_CONTEXT 时必须先读该文件。
-
-    **⚠️ feedback 和 memory 是两套不同的系统，不能混淆：**
-    - 用户修正 AI 行为时，必须走 feedback 流程（派发 feedback-observer 写进 .claude/feedback/），不能只写 memory
-    - **决策 / 约束 / 完成事项只认 progress.md**——三文件同步铁律不因任何 memory 存了什么而豁免，`three-file-sync-gate.mjs` 在 Stop 阶段照拦
-    feedback / 用户 memory / agent memory 三套的各自边界见 .claude/rules/memory-systems.md——写 feedback、动 agent memory、判断某条该记哪儿之前必须先读该文件。
+    各 Agent 的派发时机和流程见对应的工作流程章节和 Skill 调用规则。evolution-runner 返回的进化建议需展示给用户逐条确认/跳过后再执行。
+    **编码/审查/测试/部署——一律走 Sub-Agent，不存在"主 Agent 自己上"的分支**：四个环节都通过 Task/Agent 工具派发对应 Sub-Agent，主 Agent 只「写提示词 + 验收」。这是隔离保证，不是可选最佳实践。
+    隔离原则（fresh 实例 / 统一派单包六字段 / 写测独立 / 并行判据）、Workflow 编排模式、回传纪律（统一回执信封 / 四态自评 / 禁原样重试）、feedback 与 memory 两套系统的边界——全在 .claude/rules/subagent-dispatch.md 与 .claude/rules/memory-systems.md，**派发前必须先读**。每单 ≤ 6 次工具调用、只给「文件:行 + 改成什么 + 一条验证命令」（2026-09-06 用户纠正）。
 
 [项目状态检测与路由]
     初始化时自动检测项目进度，路由到对应阶段：
@@ -238,30 +125,10 @@
         - 有 Product-Spec.md + 代码，无 DEV-PLAN.md → 建议调用 /dev-planner 生成计划
         - 有 Product-Spec.md + DEV-PLAN.md + 代码 → 项目开发中 → 可继续开发、审查、修复或发布
     
-    显示格式：
-        "📊 **项目进度检测**
-        
-        - Product Spec：[已完成/未完成]
-        - Design Brief：[已生成/未生成/未创建]
-        - DEV-PLAN：[已生成/未生成]
-        - 项目代码：[已创建/未创建]
-        
-        **当前阶段**：[阶段名称]
-        **下一步**：[具体指令或操作]"
+    显示格式（「📊 项目进度检测」四行 + 当前阶段 + 下一步）见 .claude/rules/dev-workflow-details.md「项目进度检测显示格式」。
 
 [工作流程]
-    **执行任何阶段之前必须先读 .claude/rules/dev-workflow-details.md**——各阶段的完整步骤、签字闸、输出话术全在该文件，主控只留触发与要点索引：
-    - [需求收集阶段]：用户表达产品想法（自动）或 /product-spec-builder（手动）→ 调 product-spec-builder skill → 输出交付指南
-    - [交付阶段]：Spec 生成后自动执行 → **用户签字闸**（用户批准 Product-Spec.md 后才进规划，没点头不往下走）→ 输出交付话术（见细则）
-    - [架构设计阶段]：/arch-designer（或 M/L 档自动建议）→ 调 arch-designer skill → 七大原则自检 + 模块划分 + ADR → 引导 /dfx-designer
-    - [DFX 设计阶段]：/dfx-designer → 调 dfx-designer skill → 12 维过堂定档 + 落 catalog attributes → 引导 /dev-planner
-    - [设计规范阶段]：/design-brief-builder → 调 design-brief-builder skill → 引导下一步
-    - [设计图制作阶段]：/design-maker → 调 design-maker skill → 引导 /dev-planner
-    - [开发计划阶段]：/dev-planner → 调 dev-planner skill → 生成后跑 `.claude/scripts/plan-lint.sh`，不过先修再往下走
-    - [项目开发阶段]：/dev-builder → 六步走（问设计稿 → Plan Mode 列 TaskList、编码一律委派 implementer → per-Task review→fix 循环 → Phase 四步走验证（第2步派 tester）→ 用户确认 → 引导下一 Phase/发布）。per-Task 闭环顺序：implementer 编码 → code-reviewer 三阶段审查（Stage 0 静态闸 → Stage 1 规格 → Stage 2 质量），任一 Stage 失败派 bug-fixer/implementer 修复后从 Stage 0 重审，三 Stage 全过才 commit 进下一 Task（Stage 0 跑 `static-check.mjs`，commit 侧 `pre-commit-check.mjs` 按栈卡编译/语法，待审清单没清空 `stop-gate.mjs` 不让停）。手动入口：/code-review、/bug-fixer 照常可用
-    - [发布阶段]：/release-builder → 打包前先过测试卡点（`release-gate.mjs` 在 skill 展开进上下文前先查待审清单，未清直接拦）；部署派 deployer，主 Agent 独立验收
-    - [本地运行阶段]：用户说"帮我跑起来/启动项目/运行一下" → 检测项目类型、装依赖、启动、报访问地址
-    - [内容修订]：用户提修改意见 → 五步走（product-spec-builder 迭代改 Spec+CHANGELOG → **用户签字闸** → dev-planner 更新计划 → implementer 委派改码 → review→fix 循环 → 四步走验证 → 用户确认）；已发布过则提醒 /release-builder 重新打包
+    **执行任何阶段之前必须先读 .claude/rules/dev-workflow-details.md**——各阶段的完整步骤、签字闸、输出话术全在该文件，主控不再复述索引。要点：需求收集 → 交付（**用户签字闸**）→ 架构 / DFX / 设计（可选）→ 开发计划（跑 plan-lint）→ 项目开发（Plan Mode 列 TaskList、编码一律委派 implementer、per-Task review→fix 闭环、Phase 四步走）→ 发布（release-gate 先查待审清单，部署派 deployer 主 Agent 独立验收）；内容修订走五步走（Spec+CHANGELOG 成对改 → **用户签字闸** → 更新计划 → 委派改码 → review→fix → 四步走验证）。
 
 [开发测试规则]
     每完成一个 Phase 必须通过四步走验证（Code Review → 测试完整性 → 编译验证 → 功能测试），全部通过才能确认 Phase 完成。
@@ -275,15 +142,10 @@
 
 
 [大仓能力（可选——按需开启）]
-    大仓治理（60 万行级项目的影响面分析 / diff-bound 审查回执 / 四态质量门 / 架构防腐 / 五性证据门）。默认关闭，启用 = 放一份合规 `.claude/harness/module-catalog.json`；不启用对项目完全透明、所有 hook 走原逻辑零行为变化。
-    做启用 catalog、解读 impact / context-pack / arch-check / fitness / attributes / adr-check / arch-trend / spec-lint / trace / spec / dod / release / review / review-pack / authorship / invariants / recap / archive / sync-check 输出、写或验 receipt、申请 waiver、排查 stop-gate / pre-commit-check 的 harness 拦停之前必须先读 `.claude/rules/harness-large-repo.md`——启用条件、三十九能力清单、退出码契约、接线点、与 per-Task review→fix 闭环关系全在该文件。
-    接线（不新增 hook 事件，catalog + node 双满足才生效）：stop-gate 在 `.needs-review` 清空后校验 diff-bound 回执，rc=4（STALE）拦停强制重审；pre-commit-check 在 commit 前跑定向质量门，rc=2（FAIL/BLOCKED 或 critical/high 属性缺证据）阻断 commit。
-    架构防腐：`arch-check` 拿真实 import 边对照 catalog 声明图——越禁边（forbiddenDependencies / layer 违规）、未声明边（漂移会让 impact 漏测）、虚边、依赖环全部机器可见；声明与禁令冲突时禁令赢。`adr-check` 盯 ADR 执法引用（幽灵引用比没有更糟）；`arch-check --record` + `arch-trend --gate` 做漂移棘轮——老仓带债立基线，旧债不挡路、新债零容忍。
+    60 万行级治理：影响面 / diff-bound 回执 / 四态质量门 / 架构防腐 / 五性证据门。默认关闭，放一份合规 `.claude/harness/module-catalog.json` 即启用；不启用对项目零行为变化。三十九能力清单、退出码契约、接线点（stop-gate 校验回执 rc=4 拦停；pre-commit-check 跑定向质量门 rc=2 阻断）、`arch-check` / `adr-check` / `arch-trend --gate` 的漂移棘轮——做启用、解读任一子命令输出、写或验 receipt、申请 waiver、排查拦停之前必须先读 `.claude/rules/harness-large-repo.md`。
 
 [五性治理（韧性 / Security / Safety / 隐私 / 可靠性）]
-    模块按 ISO 25010 声明质量属性与档位（critical/high 阻断、medium 告警、low/minimal 记录、none 留痕退出），check 声明它是哪些属性的证据，覆盖与否机器判定——「检查全绿但没人证明过 security」不再能读作完成。critical 与 security/safety 属性永无豁免通道；fitness 内置五条零依赖规则（密钥字面量 / 日志 PII / 静默吞错 / 无界重试 / 高危未挂单 TODO）随变更可扫；adapters 工具表把 semgrep / osv-scanner / gitleaks / presidio / stryker / k6 等外部工具按属性接进质量门。开发态韧性由 supervisor 进程守护兜底（宕机自动拉起 + 指数退避 + 重启风暴熔断 + 健康探针，`node .claude/scripts/supervisor.mjs`）。
-    声明档位、判定规则、fitness/adapters 用法、需求到验证的贯通线全在 `.claude/rules/quality-attributes.md`——做五性声明、解读 attributeGaps、接外部扫描器、给长驻服务上守护之前必须先读该文件。
-
+    模块按 ISO 25010 声明属性与档位（critical/high 阻断、medium 告警、low/minimal 记录），check 声明它是哪些属性的证据，覆盖与否机器判定；critical 与 security/safety 永无豁免；fitness 五条零依赖规则随变更可扫；adapters 把外部扫描器按属性接进质量门；开发态韧性由 supervisor 守护（`node .claude/scripts/supervisor.mjs`）。声明档位、解读 attributeGaps、接扫描器、上守护之前必须先读 `.claude/rules/quality-attributes.md`。
 
 [项目记忆规则]
     - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）；大仓启用后 `recap` 子命令按预算从同样三份派生处境，不从摘要来
@@ -294,30 +156,7 @@
         • 出现"完成了/实现了/修复了"等完成标识
         • 出现"需要/应该/计划"等新任务
     - **自动归档（阈值触发，不靠人工判断）**：每次 record 完成后，progress-recorder 必须检查 progress.md 的 Notes/Done 条目数；超过 100 条即在同批操作里自动归档到 progress.archive.md（归档较早条目、正文保留最近条目 + 一行摘要指针）；大仓启用后 `archive` 子命令按同一门槛机器搬迁，默认只报计划、`--apply` 才写。大规模项目下条目增长快，单文件膨胀会拖慢 recap，自动化是硬要求而非可选。
-
-[指令集 - 前缀 "/"]
-    - record: 使用 progress-recorder 执行增量合并任务
-    - archive: 使用 progress-recorder 执行快照归档任务
-    - recap: 读齐三份恢复项目上下文——progress.md（进度/决策/约束/待办）+ Product-Spec.md（需求）+ Product-Spec-CHANGELOG.md（需求变更），三份存在即读、不存在的跳过不报错；只读 progress.md 不算恢复完成。/clear 后的首次恢复同此。细则见 feedback/recap-recovery-must-read-spec-and-changelog-not-just-progress.md
-
-[可用技能]
-    /product-spec-builder   - 需求收集，生成 Product Spec
-    /arch-designer          - 架构设计：七大原则推演自检 + 模块划分 + ADR，L 档产出 module-catalog 骨架
-    /dfx-designer           - DFX 设计：12 维质量属性过堂定档 + 可度量场景，落 harness 质量门；可做 DFX 评审
-    /design-brief-builder   - 设计规范，生成 Design Brief
-    /design-maker           - 设计图制作，通过设计工具生成完整设计稿（可选）
-    /dev-planner            - 开发计划，生成 DEV-PLAN
-    /dev-builder            - 开发项目代码
-    /bug-fixer              - Bug 修复
-    /code-review            - 对照 Spec + 设计稿做 Code Review
-    /test-builder           - 务实回归测试：搭基建 + 为高价值逻辑写/跑回归测试
-    /release-builder        - 构建打包或部署发布
-    /red-blue-review        - 红蓝对抗审查：Blue 自证 → Red 四 lens 攻击 → Judge 凭证据裁定（ACCEPT/FIX_REQUIRED/NEEDS_MORE_EVIDENCE）
-    /branch-finisher        - 开发分支收尾：环境检测 + 条件化合并/PR/清理（测试全绿前置）
-    /skill-builder          - 创建新的 Skill
-    /feedback-writer        - 记录用户反馈（由 feedback-observer sub-agent 调用）
-    /evolution-engine       - 扫描 feedback，生成进化建议（由 evolution-runner sub-agent 调用）
-    /progress-recorder      - 维护 progress.md 项目记忆（由 progress-recorder sub-agent 调用；对应 /record /archive /recap）
+    指令：/record（增量合并）/archive（快照归档）/recap（读齐 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md，只读 progress 不算恢复完成，/clear 后同此）。
 
 [初始化]
     ```

@@ -1,3 +1,10 @@
+---
+paths:
+  - ".claude/**"
+  - "Product-Spec.md"
+  - "DEV-PLAN.md"
+---
+
 本文件由 CLAUDE.md 下沉；主控命中指针时必须完整读取本文件再行动，不得凭指针行猜测内容。
 
 [文件结构]
