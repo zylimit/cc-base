@@ -23,7 +23,7 @@
 #   对本仓只读。被测 hook 从仓库根 .claude/hooks/ 取，状态文件落在沙箱。
 #   每条断言打印 EXPECT / GOT，判定不依赖措辞；每条带稳定组号（SG / TF / PC / …）。
 #
-# 组号：EX 存在性 / LB lib 四件 / FM fastmode / GL gatelog / HN harness lib /
+# 组号：EX 存在性 / LB lib 四件 / FM tier 判定库 / GL gatelog / HN harness lib /
 #       AP auto-push / CE check-evolution / DP dangerous-pkill-guard / DF detect-feedback-signal /
 #       AV harness-async-verify / KD kill-dev-ports / MR mark-review-needed / ND no-direct-code-guard /
 #       NT notify / PR postcompact-reinject / PC pre-commit-check / PG precompact-gate /
@@ -191,7 +191,7 @@ install_hook() {
 
 # mkfast <沙箱> [active|expired] —— 「快速模式开着」的当前形态 = 档位 fast 的会话覆盖。
 #   Phase A 起开关只有一个：.claude/.runtime/tier.json。旧的 .claude/.fast-mode 不再被判定读到，
-#   要造它只剩 mklegacyflag 两处用途（FM 组测旧读法本身、TR-21 锁「留着的老文件不许被读」）。
+#   要造它只剩 mklegacyflag 一处用途（TR-21 锁「留着的老文件不许被读」）。
 mkfast() {
     case "${2:-active}" in
         expired) mktier "$1" fast expired ;;
@@ -230,7 +230,9 @@ fs.writeFileSync(dest, JSON.stringify(p, null, 2) + "\n");
 ' "$f" "$mut"
 }
 
-# mktier <沙箱> <fast|standard|strict> [live|expired] —— 造运行态档位覆盖 .claude/.runtime/tier.json。
+# mktier <沙箱> <fast|standard|strict> [live|expired|crlf|badexp|noexp] —— 造运行态档位覆盖
+#   .claude/.runtime/tier.json。后三种是 FM 组要的坏形态：Windows 侧写出的 CRLF、过期时间写成
+#   非数字、以及压根没写过期时间——fast 必须带得出过期，缺了就不认这份覆盖（A.1 的 8h 硬上限）。
 mktier() {
     local d="$1" t="$2" st="${3:-live}" now exp f
     mkdir -p "$d/.claude/.runtime"
@@ -240,6 +242,9 @@ mktier() {
     case "$st" in
         live)    printf '{"tier":"%s","reason":"t","by":"user","set_epoch":%s,"expires_epoch":%s}\n' "$t" "$now" "$exp" > "$f" ;;
         expired) printf '{"tier":"%s","reason":"t","by":"user","set_epoch":1000,"expires_epoch":2000}\n' "$t" > "$f" ;;
+        crlf)    printf '{"tier":"%s","reason":"t","by":"user","set_epoch":%s,"expires_epoch":%s}\r\n' "$t" "$now" "$exp" > "$f" ;;
+        badexp)  printf '{"tier":"%s","reason":"t","by":"user","set_epoch":1000,"expires_epoch":"notanumber"}\n' "$t" > "$f" ;;
+        noexp)   printf '{"tier":"%s","reason":"t","by":"user","set_epoch":1000}\n' "$t" > "$f" ;;
     esac
 }
 
@@ -324,7 +329,7 @@ chk "$([ "$ENGRC" = "7" ] && echo 0 || echo 1)" \
 echo ""
 echo "--- LB / FM / GL / HN：hooks/lib 四件的契约（D.2）---"
 
-for m in io gatelog fastmode harness; do
+for m in io gatelog tier harness; do
     chk "$([ -f "$LIBDIR/$m.mjs" ] && echo 0 || echo 1)" \
         "LB-$m hooks/lib/$m.mjs 存在" \
         "文件存在" \
@@ -341,39 +346,42 @@ libjs() {
     ERRT=$(cat "$e" 2>/dev/null || true)
 }
 
-FMJS='import { fastModeActive } from "./fastmode.mjs"; process.stdout.write(String(fastModeActive()));'
+# A.1 起判定库是 tier.mjs，旧的 fastmode.mjs 已无生产调用方（tier.mjs 也不 import 它）。
+# FM 组因此改问 tier.mjs 的同名导出：六种形态一条不减，测的是现在真跑的那份读法。
+# 「旧 .fast-mode 不许被读」由 TR-21 守着，不在本组。
+FMJS='import { fastModeActive } from "./tier.mjs"; process.stdout.write(String(fastModeActive()));'
 
-SB=$(newsb fm-active); mklegacyflag "$SB" active lf
+SB=$(newsb fm-active); mktier "$SB" fast live
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "true" ] && echo 0 || echo 1)" \
-    "FM-1 未过期的 LF 形态 .fast-mode → fastModeActive() = true" \
+    "FM-1 未过期的 fast 会话覆盖 → fastModeActive() = true" \
     "true" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
-SB=$(newsb fm-crlf); mklegacyflag "$SB" active crlf
+SB=$(newsb fm-crlf); mktier "$SB" fast crlf
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "true" ] && echo 0 || echo 1)" \
-    "FM-2 同一开关写成 CRLF（Windows 侧 fast-mode.ps1 的形态）→ 同答 true（#38：一边开一边关比两边都关更糟）" \
+    "FM-2 同一份 tier.json 写成 CRLF（Windows 侧写出的形态）→ 同答 true（#38：一边开一边关比两边都关更糟）" \
     "true（读侧必须先剥 \\r）" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
-SB=$(newsb fm-expired); mklegacyflag "$SB" expired
+SB=$(newsb fm-expired); mktier "$SB" fast expired
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "false" ] && echo 0 || echo 1)" \
-    "FM-3 已过期 → false（严格模式）" "false" "rc=$RC out=[$(show "$OUT")]"
+    "FM-3 已过期 → false（回默认档）" "false" "rc=$RC out=[$(show "$OUT")]"
 
-SB=$(newsb fm-bad); mklegacyflag "$SB" bad
+SB=$(newsb fm-bad); mktier "$SB" fast badexp
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "false" ] && echo 0 || echo 1)" \
     "FM-4 expires_epoch 非数字 → false（fail-closed）" "false" "rc=$RC out=[$(show "$OUT")]"
 
-SB=$(newsb fm-nokey); mklegacyflag "$SB" nokey
+SB=$(newsb fm-nokey); mktier "$SB" fast noexp
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "false" ] && echo 0 || echo 1)" \
-    "FM-5 缺 expires_epoch 行 → false" "false" "rc=$RC out=[$(show "$OUT")]"
+    "FM-5 缺 expires_epoch → false（fast 必须带过期，没有就不认这份覆盖）" "false" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb fm-none)
 libjs "$SB" "$FMJS"
 chk "$([ "$OUT" = "false" ] && echo 0 || echo 1)" \
-    "FM-6 开关文件不存在 → false（缺文件 = 严格，不是放行）" "false" "rc=$RC out=[$(show "$OUT")]"
+    "FM-6 tier.json 不存在 → false（缺文件 = 默认档，不是放行）" "false" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb gl-basic)
 libjs "$SB" 'import { gateLog } from "./gatelog.mjs"; gateLog("probe-hook", "第一行原因\n第二行不该进账本");'

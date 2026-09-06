@@ -124,7 +124,7 @@ fi
 #   dod 断 rc 0：本仓静态治理常态全绿，红了就是真有 blocking step 挂了。
 #   release **不能**断 rc 0——工作树脏 / Fast Mode 开着 / CI 红都会让它正确地判「未就绪」(rc 1)，
 #   断 rc 0 会把它变成恒红。这里断的是「引擎跑出了结构完整的清单」：rc 在 {0,1} 内、stdout 是
-#   JSON、七个装配项齐、状态在枚举内、每条 blocker 带 nextStep。引擎崩了也给 rc 1 但吐不出 JSON，
+#   JSON、八个装配项齐、状态在枚举内、每条 blocker 带 nextStep。引擎崩了也给 rc 1 但吐不出 JSON，
 #   正好被结构这一层区分开——「判定为未就绪」和「引擎崩了」不许混成同一个红。
 ONEKEY_NOTE=""
 if command -v node >/dev/null 2>&1; then
@@ -145,7 +145,7 @@ if command -v node >/dev/null 2>&1; then
     RELEASE_RC=0
     RELEASE_JSON=$( cd "$REPO_ROOT" && node "$HARNESS_MJS" release 2>/dev/null ) || RELEASE_RC=$?
     if [ "$RELEASE_RC" -eq 3 ]; then
-        echo "SKIPPED: release rc 3（非 git 仓，或七项全 UNKNOWN 什么都没确立）——未执行 != 通过。"
+        echo "SKIPPED: release rc 3（非 git 仓，或八项全 UNKNOWN 什么都没确立）——未执行 != 通过。"
         ONEKEY_NOTE="；release SKIPPED（rc 3 什么都没确立）"
     elif [ "$RELEASE_RC" -ne 0 ] && [ "$RELEASE_RC" -ne 1 ]; then
         STATIC_RC=1
@@ -160,7 +160,10 @@ process.stdin.on("data", d => s += d).on("end", () => {
     console.error("release: stdout 不是 JSON（引擎崩了，不是判定未就绪）：" + e.message);
     process.exit(1);
   }
-  const want = ["worktree", "remote", "dod", "manifest", "review-queue", "fast-mode", "ci"];
+  // 档位落地后这项叫 tier 不叫 fast-mode（放水与否是档位盘的一格，不再是独立开关），
+  // 且装配多了 gate-fresh 一项。名单照 RELEASE_CHECKS 的实际八项写全：少写一项，
+  // 那一项哪天从装配里掉出去也没人拦得住。
+  const want = ["worktree", "remote", "dod", "manifest", "review-queue", "tier", "ci", "gate-fresh"];
   const got = (j.checks || []).map(c => c.id);
   const miss = want.filter(w => !got.includes(w));
   if (miss.length) {
@@ -183,7 +186,7 @@ process.stdin.on("data", d => s += d).on("end", () => {
 ' || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     fi
 
-    # release 的 manifest 项：上面那条只判清单结构，判不出七项里某一项的内容对不对。
+    # release 的 manifest 项：上面那条只判清单结构，判不出八项里某一项的内容对不对。
     #   这份在沙箱仓里造真的运行态文件（.stop-gate-strikes / harness/state/* / .runtime/* …），
     #   断言 manifest 仍 PASS 且 unlisted=0——MANIFEST_RULES 的运行态排除规则此前无人守，
     #   删掉整批 selftest 与 golden 都照样全绿。它自身有 node/git/sha256sum 守卫会打 SKIPPED。

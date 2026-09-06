@@ -51,6 +51,8 @@ REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 HARNESS="$REPO/.claude/harness/harness.mjs"
 LIBDIR="$(dirname "$HARNESS")/lib"
+HOOKSLIB="$REPO/.claude/hooks/lib"
+PROFILE="$REPO/.claude/harness/profile.json"
 
 echo "===== test-evidence-defects ====="
 echo "REPO=$REPO"
@@ -95,12 +97,17 @@ skip() { echo "  [SKIP] $1"; }
 # newsandbox <名> <check命令> [check类] [--nogit]
 #   造一个启用了 harness 的临时项目：一个 core 模块、一条 medium 档 check。
 #   引擎按目录整拷（harness.mjs import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND）。
+#   hooks/lib/ 与 profile.json 一起进来：档位只有一个解析器且在 hook 侧，引擎 lib/tier.mjs
+#   import 的是 ../../hooks/lib/tier.mjs——缺它引擎以契约外的 rc 1 退出，下面每条「期望非零」
+#   的断言都会因为同一个起不来而变绿，整份文件读起来全过、其实一条都没跑。
 newsandbox() {
     local name="$1" cmd="$2" cls="${3:-test}" mode="${4:-git}"
     local d="$TMP/$name"
-    mkdir -p "$d/.claude/harness" "$d/core" "$d/docs"
+    mkdir -p "$d/.claude/harness" "$d/.claude/hooks" "$d/core" "$d/docs"
     cp "$HARNESS" "$d/.claude/harness/harness.mjs"
     cp -R "$LIBDIR" "$d/.claude/harness/lib"
+    cp -R "$HOOKSLIB" "$d/.claude/hooks/lib"
+    cp "$PROFILE" "$d/.claude/harness/profile.json"
     cat > "$d/.claude/harness/module-catalog.json" <<EOF
 {"version":1,
  "modules":[{"id":"core","paths":["core/**"],"riskTier":"medium"}],
@@ -613,7 +620,10 @@ chk "$r" \
 
 # Fast Mode 那半：全 SKIP 的 gate 不许关闭任务。
 SB7C=$(newsandbox e7-fast false)
-printf 'expires_epoch=%s\n' "$(node -e 'console.log(Math.floor(Date.now()/1000)+86400)')" > "$SB7C/.claude/.fast-mode"
+mkdir -p "$SB7C/.claude/.runtime"
+node -e 'const fs=require("fs"); const now=Math.floor(Date.now()/1000);
+    fs.writeFileSync(process.argv[1], JSON.stringify({tier:"fast",reason:"test",by:"test",set_epoch:now,expires_epoch:now+3600}) + "\n");' \
+    "$SB7C/.claude/.runtime/tier.json"
 run "$SB7C" gate
 E7C_GATE=$(jval "$OUT" gate); E7C_REASON=$(jval "$OUT" reason); E7C_SKIPPED=$(jval "$OUT" skippedByFastMode)
 start_task "$SB7C" e7c >/dev/null 2>&1 || true

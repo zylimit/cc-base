@@ -377,7 +377,7 @@ echo "--- TE tier explain（A.3：三档各值 + 当前值 + 来源；override /
 
 SB=$(newsb te-basic); mkprofile "$SB"
 hrun "$SB" tier explain stop-gate
-TE_B_RC="$RC"; TE_B="$OUT$ERRT"
+TE_B_RC="$RC"; TE_B="$OUT$ERRT"; TE_B_OUT="$OUT"
 chk "$([ "$TE_B_RC" -eq 0 ] && echo 0 || echo 1)" \
     "TE-1 explain stop-gate → rc 0" "rc=0" "rc=$TE_B_RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 TE_MISS=""
@@ -391,9 +391,10 @@ chk "$([ "$TE_B_RC" -eq 0 ] && hasq 'default' "$TE_B" && echo 0 || echo 1)" \
     "TE-3 无覆盖时标来源 default（A.3 的五种来源：default/session/raise/override/floor）" \
     "rc=0 且输出含 default（rc 一起判：usage 文本里也有 default 这个词）" \
     "rc=$TE_B_RC 输出=[$(show "$TE_B")]"
-chk "$([ "$TE_B_RC" -eq 0 ] && ! hasq 'override' "$TE_B" && echo 0 || echo 1)" \
-    "TE-4 对照：没配 overrides 时输出不许出现 override（否则 TE-6 的标记等于恒真、锁不住任何东西）" \
-    "rc=0 且输出不含 override" "rc=$TE_B_RC 输出=[$(show "$TE_B")]"
+chk "$([ "$TE_B_RC" -eq 0 ] && [ "$(jq_ "$TE_B_OUT" 'String(d.override)')" = "undefined" ] \
+      && [ "$(jq_ "$TE_B_OUT" 'String(d.source)')" != "override" ] && echo 0 || echo 1)" \
+    "TE-4 对照：没配 overrides 时 stdout JSON 既无 override 字段、source 也不是 override（否则 TE-6 的标记等于恒真、锁不住任何东西）" \
+    "rc=0 且 override 字段缺席、source≠override" "rc=$TE_B_RC out=[$(show "$TE_B_OUT")]"
 
 SB=$(newsb te-unknown); mkprofile "$SB"
 hrun "$SB" tier explain no-such-hook
@@ -403,10 +404,13 @@ chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
 
 SB=$(newsb te-override); mkprofile "$SB" 'p.overrides = { "tdd-gate": "off" };'
 hrun "$SB" tier explain tdd-gate
-TE_O_RC="$RC"; TE_O="$OUT$ERRT"
-chk "$([ "$TE_O_RC" -eq 0 ] && hasq 'override' "$TE_O" && echo 0 || echo 1)" \
-    "TE-6 配了 overrides.tdd-gate=off → explain 标出 override（用户有最终话语权，但必须看得见）" \
-    "rc=0 且输出含 override" "rc=$TE_O_RC 输出=[$(show "$TE_O")]"
+TE_O_RC="$RC"; TE_O="$OUT"
+# 锁字段不锁子串：stderr 那行人读摘要里本就有「source override」字样，整段 grep 分不清是
+# `override` 字段给的还是 `source` 给的——只删其中一个，子串检查照样绿。
+chk "$([ "$TE_O_RC" -eq 0 ] && [ "$(jq_ "$TE_O" 'String(d.override)')" = "off" ] \
+      && [ "$(jq_ "$TE_O" 'String(d.source)')" = "override" ] && echo 0 || echo 1)" \
+    "TE-6 配了 overrides.tdd-gate=off → explain 的 override=off 且 source=override（用户有最终话语权，但必须看得见）" \
+    "rc=0 且 stdout JSON 里 override=off、source=override" "rc=$TE_O_RC out=[$(show "$TE_O")]"
 
 SB=$(newsb te-ov-eff); mkprofile "$SB" 'p.overrides = { "tdd-gate": "off" };'
 hrun "$SB" tier status

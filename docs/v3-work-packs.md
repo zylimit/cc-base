@@ -232,7 +232,7 @@ D 阶段的 `fastmode.mjs` 暴露同名 `gateMode(id)`：`fastModeActive() && !F
 | `tier status` | 打印 effectiveTier + 来源 + 过期 + 每 hook 模式表 | 0 |
 | `tier set <fast\|standard\|strict> [--hours N] [--reason …]` | 写 `.runtime/tier.json`；`fast` 无 `--reason` 拒；`--hours` 只对 fast 有效且 ≤ 8；同时 `gateLog('tier', 'set fast … until …')` | 0 / 2 用法错 |
 | `tier explain [hook-id]` | 打印该闸在三档各是什么、当前生效值、来源（default / session / raise / override / floor） | 0 / 2 未知 id |
-| `tier validate` | 校验 profile.json：三档单调（每 hook fast ≤ standard ≤ strict）、floor 不在表内、kind 与取值匹配、raise.to 合法、未知字段报错 | 0 / 1 违规 |
+| `tier validate` | 校验 profile.json：三档单调（每 hook fast ≤ standard ≤ strict）、floor 不在表内、overrides 不许指向地板闸、kind 与取值匹配、raise.to 合法、未知字段报错；settings.json 读不出 → 降级 | 0 / 1 违规 / 3 降级（settings 不可读，规则只跑了一部分） |
 | `fast` 类旧命令 | 无（本仓从没有 `fast` 子命令） | — |
 
 `risk` 的 `GOVERNANCE_SURFACE_CHANGED` 改读 `profile.raise.paths`（同一份表）。`invariants` 输出里的 Fast Mode 段改成 tier 段（「fast 开着 = 债」措辞保留）。`release` 的 `fast-mode` 项改名 `tier`：effective ≠ fast 才 PASS。`dod` 加一步 `tier validate`。

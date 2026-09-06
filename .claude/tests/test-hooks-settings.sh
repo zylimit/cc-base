@@ -247,9 +247,9 @@ chk "$([ -z "$PS_LEFT" ] && echo 0 || echo 1)" \
     "0 个 .ps1" \
     "残留：${PS_LEFT:-无}"
 
-for m in io gatelog fastmode harness; do
+for m in io gatelog tier harness; do
     chk "$([ -f "$HOOKDIR/lib/$m.mjs" ] && echo 0 || echo 1)" \
-        "HS-19/$m hooks/lib/$m.mjs 存在（D.2 四件 lib）" \
+        "HS-19/$m hooks/lib/$m.mjs 存在（D.2 四件 lib；A.1 起判定库是 tier.mjs，fastmode.mjs 已无生产调用方）" \
         "文件存在" \
         "$([ -f "$HOOKDIR/lib/$m.mjs" ] && echo 存在 || echo 缺失)"
 done

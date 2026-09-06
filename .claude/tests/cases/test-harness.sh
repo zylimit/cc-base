@@ -18,9 +18,15 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 [ -f "$HARNESS" ] || { echo "  [FAIL] 缺 harness.mjs：$HARNESS" >&2; exit 1; }
 HARNESS_DIR="$(cd "$(dirname "$HARNESS")" && pwd)"
+HOOKS_LIB="$ROOT/.claude/hooks/lib"
+PROFILE="$ROOT/.claude/harness/profile.json"
 
 # 把整台引擎搬进沙箱：harness.mjs 拆库后 import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND 起不来。
 # lib/ 路径由 $HARNESS 推导、按目录整拷，后续新增模块自动跟着走，不写死文件名。
+# hooks/lib/ 一并搬：档位只有一个解析器且放在 hook 侧，引擎 lib/tier.mjs import 的是
+# ../../hooks/lib/tier.mjs——沙箱里少这一份，引擎起不来、以契约外的 rc 1 退出，
+# ⑰⑱ 那几条端到端断言测到的就不再是 hook 的判定链。
+# profile.json 同装：档位表在不在 = 档位启不启用，不装是在测一条不存在的兼容路径。
 install_harness() {
   local dest="$1/.claude/harness"
   mkdir -p "$dest"
@@ -28,6 +34,13 @@ install_harness() {
   if [ -d "$HARNESS_DIR/lib" ]; then
     mkdir -p "$dest/lib"
     cp -R "$HARNESS_DIR/lib/." "$dest/lib/"
+  fi
+  if [ -f "$PROFILE" ]; then
+    cp "$PROFILE" "$dest/profile.json"
+  fi
+  if [ -d "$HOOKS_LIB" ]; then
+    mkdir -p "$1/.claude/hooks/lib"
+    cp -R "$HOOKS_LIB/." "$1/.claude/hooks/lib/"
   fi
 }
 
@@ -211,12 +224,14 @@ else
 fi
 rm -rf "$TMPNG"
 
-# ⑤f verify 全 SKIPPED（Fast Mode 端到端）-> rc 3：写 .fast-mode flag + allowFastSkip 真 SKIP 路径。
+# ⑤f verify 全 SKIPPED（Fast Mode 端到端）-> rc 3：写 fast 档会话覆盖 + allowFastSkip 真 SKIP 路径。
 #     全跳过 = 一条 check 都没跑成，什么都没建立，与 dod / release 的「什么都没确立 = 3」同口径；
 #     rc 3 在 pre-commit-check.sh 里落在 harness_rc_in_contract 0 3 的放行分支，所以「不阻断」
 #     这个意图没变，变的只是它不再冒充「验过了」。
-TMPV="$(mktemp -d)"; mkdir -p "$TMPV/.claude/harness"
-node -e 'const fs=require("fs"); fs.writeFileSync(process.argv[1], "expires_epoch=" + Math.floor(new Date("2099-01-01").getTime()/1000) + "\n");' "$TMPV/.claude/.fast-mode"
+#     开关只有 .claude/.runtime/tier.json 一个（旧的 .claude/.fast-mode 判定不再读它）。
+TMPV="$(mktemp -d)"; mkdir -p "$TMPV/.claude/harness" "$TMPV/.claude/.runtime"
+node -e 'const fs=require("fs"); const now=Math.floor(Date.now()/1000);
+  fs.writeFileSync(process.argv[1], JSON.stringify({tier:"fast",reason:"test",by:"test",set_epoch:now,expires_epoch:now+3600}) + "\n");' "$TMPV/.claude/.runtime/tier.json"
 node -e '
   const fs = require("fs");
   fs.writeFileSync(process.argv[1], JSON.stringify({

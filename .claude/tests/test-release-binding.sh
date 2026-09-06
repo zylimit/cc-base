@@ -58,6 +58,8 @@ REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 HARNESS="$REPO/.claude/harness/harness.mjs"
 LIBDIR="$(dirname "$HARNESS")/lib"
+HOOKSLIB="$REPO/.claude/hooks/lib"
+PROFILE="$REPO/.claude/harness/profile.json"
 
 echo "===== test-release-binding ====="
 echo "REPO=$REPO"
@@ -92,6 +94,17 @@ chk() {
 # 沙箱与引擎驱动
 # ---------------------------------------------------------------------------
 
+# engdeps <项目根> —— 补齐引擎在别处也能起来所需的那两样：hooks/lib/ 与 profile.json。
+#   档位只有一个解析器且放在 hook 侧，引擎 lib/tier.mjs import 的是 ../../hooks/lib/tier.mjs；
+#   只搬 harness/ 的树里引擎会 ERR_MODULE_NOT_FOUND，以契约外的 rc 1 退出，
+#   下面「gate 该 PASS」「receipt 该 STALE」这类断言全部读成同一个起不来。
+engdeps() {
+    local d="$1"
+    mkdir -p "$d/.claude/hooks"
+    cp -R "$HOOKSLIB" "$d/.claude/hooks/lib"
+    cp "$PROFILE" "$d/.claude/harness/profile.json"
+}
+
 # mksandbox <名> <catalog yes|no> [check命令]
 #   造一个临时项目：一个 core 模块、一条 medium 档 check、一个 src/ 非治理面文件。
 #   引擎按目录整拷（harness.mjs import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND）。
@@ -103,6 +116,7 @@ mksandbox() {
     mkdir -p "$d/.claude/harness" "$d/core" "$d/src"
     cp "$HARNESS" "$d/.claude/harness/harness.mjs"
     cp -R "$LIBDIR" "$d/.claude/harness/lib"
+    engdeps "$d"
     if [ "$withcat" = yes ]; then
         cat > "$d/.claude/harness/module-catalog.json" <<EOF
 {"version":1,
@@ -433,7 +447,10 @@ cat > "$SB_FAST/.claude/harness/module-catalog.json" <<'EOF'
 EOF
 (cd "$SB_FAST" && git add -A && git commit -qm catalog) >/dev/null 2>&1
 echo worktree-change >> "$SB_FAST/core/a.txt"
-printf 'expires_epoch=%s\n' "$(( $(date +%s) + 3600 ))" > "$SB_FAST/.claude/.fast-mode"
+# fast 档只有一个开关：.claude/.runtime/tier.json（旧的 .claude/.fast-mode 判定不再读）。
+mkdir -p "$SB_FAST/.claude/.runtime"
+printf '{"tier":"fast","reason":"test","by":"test","set_epoch":%s,"expires_epoch":%s}\n' \
+    "$(date +%s)" "$(( $(date +%s) + 3600 ))" > "$SB_FAST/.claude/.runtime/tier.json"
 run "$SB_FAST" gate
 FAST_VERDICT=$(jval "$OUT" gate)
 FAST_SKIPPED=$(jval "$OUT" skippedByFastMode)
@@ -486,6 +503,7 @@ NONGIT="$TMP/nongit"
 mkdir -p "$NONGIT/.claude/harness"
 cp "$HARNESS" "$NONGIT/.claude/harness/harness.mjs"
 cp -R "$LIBDIR" "$NONGIT/.claude/harness/lib"
+engdeps "$NONGIT"
 run "$NONGIT" release
 TB_NG=$(trust_probe "$OUT")
 chk "$([ "$(printf '%s' "$TB_NG" | cut -f2)" = "yes" ] && echo 0 || echo 1)" \
@@ -516,9 +534,12 @@ chk "$(printf '%s' "$FILE_EH" | grep -Eq '^[0-9a-f]{64}$' && echo 0 || echo 1)" 
     "文件里的 engineHash=[$FILE_EH]"
 
 # 引擎副本①：逐字节照抄，只是换了个位置。哈希算的是内容不是路径，这条必须仍放行。
-ENG_SAME="$TMP/eng-same"
+#   副本连 .claude/ 这层壳一起搬：引擎 lib/tier.mjs 的 ../../hooks/lib/tier.mjs 是按自身位置解析的，
+#   把引擎摊在 $TMP/eng-same/ 下那条路径会落到 $TMP/hooks/，副本一台都起不来。
+ENG_SAME="$TMP/eng-same/.claude/harness"
 mkdir -p "$ENG_SAME"
 cp -R "$SB_C/.claude/harness/." "$ENG_SAME/"
+engdeps "$TMP/eng-same"
 run_engine "$ENG_SAME/harness.mjs" "$SB_C" receipt verify --task t1
 SAME_STATE=$(jval "$OUT" state)
 chk "$([ "$RC" -eq 0 ] && [ "$SAME_STATE" != "STALE" ] && echo 0 || echo 1)" \
@@ -527,9 +548,10 @@ chk "$([ "$RC" -eq 0 ] && [ "$SAME_STATE" != "STALE" ] && echo 0 || echo 1)" \
     "rc=$RC state=$SAME_STATE note=$(jval "$OUT" note)"
 
 # 引擎副本②：往一个 lib 文件末尾加一行注释——语义没变，字节变了，回执的背书就该失效。
-ENG_MUT="$TMP/eng-moved"
+ENG_MUT="$TMP/eng-moved/.claude/harness"
 mkdir -p "$ENG_MUT"
 cp -R "$SB_C/.claude/harness/." "$ENG_MUT/"
+engdeps "$TMP/eng-moved"
 printf '\n// mutation: one comment line, enough to move the engine hash\n' >> "$ENG_MUT/lib/core.mjs"
 run_engine "$ENG_MUT/harness.mjs" "$SB_C" receipt verify --task t1
 MUT_STATE=$(jval "$OUT" state)
