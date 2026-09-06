@@ -193,12 +193,11 @@ process.stdin.on("data", d => s += d).on("end", () => {
     echo "----- 运行 test-release-manifest.sh -----"
     bash "$TESTS_DIR/test-release-manifest.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
 
-    # 借鉴兄弟仓那轮落地的五份（2026-09-04），同样只需 node + git，各自内部有守卫：
+    # 借鉴兄弟仓那轮落地的四份（2026-09-04），同样只需 node + git，各自内部有守卫：
     #   test-doctor 锁「清单全量比对、不抽样」；test-scan-secrets-userinfo 锁 url-userinfo 那条密钥模式；
     #   test-static-check 锁 Stage 0 对 .mjs 不再空绿；test-release-binding 锁 release 的 gate-fresh /
-    #   trustBoundary、receipt 绑引擎哈希、治理面 risk、shim 发现；test-golden-mutate 锁突变尺子本身
-    #   （它真往 lib/ 写突变再还原，最慢，放最后）。
-    for s in test-doctor.sh test-scan-secrets-userinfo.sh test-static-check.sh test-release-binding.sh test-golden-mutate.sh; do
+    #   trustBoundary、receipt 绑引擎哈希、治理面 risk、shim 发现。
+    for s in test-doctor.sh test-scan-secrets-userinfo.sh test-static-check.sh test-release-binding.sh; do
         echo "----- 运行 $s -----"
         bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     done

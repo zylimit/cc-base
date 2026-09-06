@@ -10,6 +10,7 @@
 - [hook 解释器选 pwsh 7，不用 Windows PowerShell 5.1](hook-interpreter-use-pwsh7-not-powershell51.md) — 本机配置 hook / 脚本解释器时 PowerShell 一律用 pwsh 7 绝对路径（含空格加引号、bash 命令串用正斜杠），其余裸 powershell.exe hook 超时时按同法逐个替换
 - [本地全量回归绿不等于 CI 绿，收官前须独读 CI 真实输出](local-green-is-not-ci-green-check-before-closeout.md) — 本地 run-all 与 CI 跑的集合不同，前者绿不能反推后者绿；收官/发版前 `gh run list` 是独立核查步骤；CI 失败邮件早已送达用户，缺的不是通知是验收方（主 Agent）从不核对——通知到人≠验收到位；跨环境修复未经真实环境判决前只记「已修未验」；行号绑定的豁免机制每批改动宿主文件都要重查
 - [长跑批处理必须有看门狗与输入预检，挂死立即止损不观望](long-batch-needs-watchdog-input-precheck-and-prompt-stop-loss.md) — 批处理流水设计期就带看门狗超时 + 病态输入廉价预检直接跳过隔离；确认挂死迹象立即报告止损，不许"进程还活着"式观望，观望是最贵的选项
+- [元测试不进发版链，脚手架保持轻量](meta-tests-not-in-release-chain-scaffold-stay-lean.md) — 加"验证验证者"的机制前先问省了谁的什么时间；发版链只放直接证明代码正确的检查，元测试（测尺子的尺子）挪出高频路径；现有机制按「与代码直接相关」+「拦过什么」定期清理；长耗时步骤开跑前先报预计时长和证明什么
 - [调研使用 Claude Code 原生 Sub-Agent，主 Agent 保留独立判断](native-subagent-research-main-agent-judgment.md) — 长目录/复杂材料学习派原生 Task/Agent fresh Sub-Agent，不擅自调本地 ask gemini 桥；主 Agent 亲读关键材料独立判断，翻证据可委派、下判断不外包
 - [permissions.ask 列表与用户「全部放行」指令冲突](settings-ask-list-conflicts-with-user-authorize-continuous-execution.md) — 用户抱怨反复被要求确认时先查 `.claude/settings.json` 的 `permissions.ask` 列表和 hook 的 `permissionDecision`，别只辩解"我没问"；用户明确全部放行后记进 progress.md 决策并清理冲突的 ask 规则，安全护栏条目不在放行范围
 - [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意
