@@ -414,9 +414,29 @@ function cmdTierValidate(root) {
   }
   const reg = registeredHooks(root);
   const violations = validateProfile(profile, reg.ids);
+  for (const [id, mode] of Object.entries((profile && profile.overrides) || {})) {
+    if (Array.isArray(profile.floor) && profile.floor.includes(id)) {
+      violations.push({ code: 'FLOOR_OVERRIDE', hook: id, message: `overrides.${id}=${mode}: floor hooks cannot be overridden` });
+    }
+  }
   for (const f of violations) process.stderr.write(f.code + ': ' + f.message + '\n');
+  if (!reg.readable) {
+    // 登记表读不出来，三条对照 settings 的规则一条没跑：这是打了折的判决，不是合规。
+    process.stderr.write('.claude/settings.json could not be read; hook-registration rules were skipped\n');
+    return emit({
+      ok: null,
+      degraded: true,
+      degradedReason: 'settings-unreadable',
+      degradedFile: '.claude/settings.json',
+      file: repoRelative(file),
+      registeredHooks: 0,
+      registeredHooksReadable: false,
+      violations,
+    }, 3);
+  }
   return emit({
     ok: violations.length === 0,
+    degraded: false,
     file: repoRelative(file),
     registeredHooks: reg.ids.length,
     registeredHooksReadable: reg.readable,

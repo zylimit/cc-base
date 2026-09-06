@@ -17,6 +17,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const TIERS = ['fast', 'standard', 'strict'];
+export const MAX_FAST_SECONDS = 8 * 3600;   // fast 档硬上限，写侧截断、读侧再夹一次
 
 /** 档位秩：越大越严。不认识的档返回 -1（调用方按未知处理，不当成 fast）。 */
 export function rank(tier) {
@@ -164,12 +165,15 @@ export function readSession(root = defaultRoot(), now = Date.now()) {
     quarantine(root, 'tier', fp, `档位字段非法（tier=${v && v.tier}），本次视为无覆盖回默认档`);
     return null;
   }
-  const exp = Number(v.expires_epoch);
-  if (Number.isFinite(exp)) {
-    if (exp * 1000 <= now) return null;                 // 到期自动失效，不靠人记得关
-  } else if (v.tier === 'fast') {
-    return null;                                        // fast 必须带过期（A.1 硬上限 8h）；没有就不认这份覆盖
+  let exp = Number(v.expires_epoch);
+  if (v.tier === 'fast') {
+    // 8h 硬上限在读侧也夹：写侧的截断只是礼貌，手写一份 720h 的 tier.json 不能换来 720h 的放水。
+    const setAt = Number(v.set_epoch);
+    const cap = Number.isFinite(setAt) ? setAt + MAX_FAST_SECONDS : NaN;
+    if (!Number.isFinite(exp)) return null;             // fast 必须带过期（A.1 硬上限 8h）；没有就不认这份覆盖
+    if (Number.isFinite(cap) && exp > cap) { exp = cap; v = { ...v, expires_epoch: cap }; }
   }
+  if (Number.isFinite(exp) && exp * 1000 <= now) return null;   // 到期自动失效，不靠人记得关
   return v;
 }
 

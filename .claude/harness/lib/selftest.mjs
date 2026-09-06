@@ -6,6 +6,7 @@ import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { DEFAULT_PROFILE } from '../../hooks/lib/tier.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -3124,8 +3125,8 @@ function selftestCases() {
     // runtime file's shape) is covered by .claude/tests/test-tier.sh, which drives the real
     // binary; what is asserted here is the judgement these rules make.
     ['tier: the shipped profile passes its own validator', () => {
-      const registered = Object.keys(BASE_PROFILE.hooks).concat(BASE_PROFILE.floor).sort();
-      assert.deepEqual(validateProfile(BASE_PROFILE, registered), [],
+      const registered = Object.keys(baseProfile().hooks).concat(baseProfile().floor).sort();
+      assert.deepEqual(validateProfile(baseProfile(), registered), [],
         'the profile this framework ships has to survive the rule set it ships with');
     }],
 
@@ -3155,14 +3156,14 @@ function selftestCases() {
 
     ['tier: a registered hook with no row, and a row for no hook, are both violations', () => {
       const dropped = profileWith(p => { delete p.hooks['tdd-gate']; });
-      assert.deepEqual(validateProfile(dropped, registeredOf(BASE_PROFILE)).map(x => [x.code, x.hook]),
+      assert.deepEqual(validateProfile(dropped, registeredOf(baseProfile())).map(x => [x.code, x.hook]),
         [['UNREGISTERED', 'tdd-gate']],
         'running at full strength as a fallback is a backstop, not somebody deciding');
 
       const invented = profileWith(p => {
         p.hooks['not-a-hook-at-all'] = { kind: 'guard', fast: 'off', standard: 'block', strict: 'block' };
       });
-      assert.deepEqual(validateProfile(invented, registeredOf(BASE_PROFILE)).map(x => [x.code, x.hook]),
+      assert.deepEqual(validateProfile(invented, registeredOf(baseProfile())).map(x => [x.code, x.hook]),
         [['NOT_A_HOOK', 'not-a-hook-at-all']],
         'a row nothing reads is worse than no row, because it reads as configured');
     }],
@@ -4451,11 +4452,22 @@ function writeSkippableCatalog(root) {
 }
 
 /** The profile this framework ships, as the validator cases' starting point. */
-const BASE_PROFILE = JSON.parse(fs.readFileSync(path.join(HARNESS_DIR, 'profile.json'), 'utf8'));
+// 惰性读：模块顶层读盘会让 profile.json 缺/坏时整台引擎在加载期崩（harness.mjs 静态 import 本文件），
+// 而那正是用户可改的文件。读不到就用 hook 侧的内置默认表，selftest 自己跑到这些用例时再决定。
+let _baseProfile = null;
+function baseProfile() {
+  if (_baseProfile) return _baseProfile;
+  try {
+    _baseProfile = JSON.parse(fs.readFileSync(path.join(HARNESS_DIR, 'profile.json'), 'utf8'));
+  } catch (_e) {
+    _baseProfile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  }
+  return _baseProfile;
+}
 
 /** A deep copy of the shipped profile with one mutation applied. */
 function profileWith(mutate) {
-  const p = JSON.parse(JSON.stringify(BASE_PROFILE));
+  const p = JSON.parse(JSON.stringify(baseProfile()));
   mutate(p);
   return p;
 }
@@ -4484,7 +4496,7 @@ function writeTierState(root, body) {
   fs.mkdirSync(path.join(root, '.claude', '.runtime'), { recursive: true });
   fs.writeFileSync(path.join(root, '.claude', '.runtime', 'tier.json'),
     body === undefined
-      ? JSON.stringify({ tier: 'fast', reason: 'selftest fixture', by: 'user', set_epoch: 1, expires_epoch: 4102444800 }) + '\n'
+      ? JSON.stringify({ tier: 'fast', reason: 'selftest fixture', by: 'user', set_epoch: Math.floor(Date.now() / 1000), expires_epoch: Math.floor(Date.now() / 1000) + 3600 }) + '\n'
       : body, 'utf8');
 }
 

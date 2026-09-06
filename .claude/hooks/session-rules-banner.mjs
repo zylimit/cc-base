@@ -51,6 +51,13 @@ runFailOpen(async () => {
   const quiet = source === 'compact' || source === 'resume';
 
   // 档位播报：防 fast 忘关，也让自动升档说得出「为什么今天全是硬拦」。
+  // 本闸也在 profile.hooks 表里——表说 off 就得真哑，否则 tier status 报的模式在撒谎。
+  if (root) {
+    try {
+      const m = await import('./lib/tier.mjs');
+      if (m.gateMode('session-rules-banner') === 'off') return;
+    } catch (_e) { /* 判定库起不来照旧播报 */ }
+  }
   const tier = root ? await tierNow(root) : null;
   if (tier && tier.tier === 'fast') {
     const left = hoursLeft(tier.expiresEpoch);
