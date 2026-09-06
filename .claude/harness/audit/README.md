@@ -281,8 +281,8 @@ bash .claude/tests/test-audit-defects.sh                  # 已修缺陷的红�
    会顺带抓到，少数情况（二进制密钥库）会漏。要补就补成独立一条 finding kind，
    别塞进现有规则。
 5. **`check-syntax` 只证明「解析得动」**。解析通过的 hook 仍然可能逻辑全错，
-   frontmatter 解析通过也不代表 `name` / `description` 写对了（这一层归
-   `.claude/scripts/skill-description-lint.sh`）。
+   frontmatter 解析通过也不代表 `name` / `description` 写对了（这一层归引擎
+   `harness.mjs skills-lint`）。
 6. **`node --check` 的解析目标随 node 版本变**。含 ESM 语法的 `.js` 在新版 node 上
    靠模块语法探测通过，老版本会判失败——所以 JSON 输出里带 `node` 版本字段，
    一条失败必须连着它读。

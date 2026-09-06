@@ -2329,22 +2329,22 @@ function selftestCases() {
     ['skills-lint: name, description and the boolean that is really a string', () => {
       const doc = (...body) => ['---', ...body, '---', '', '# Body', ''].join('\n');
       const codes = (dir, text) => lintSkillFile(dir, '.claude/skills/' + dir + '/SKILL.md', text).findings.map(f => f.code);
-      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: when the user asks for a demo')), []);
-      assert.deepEqual(codes('demo-skill', doc('description: when the user asks')), ['MISSING_NAME']);
-      assert.deepEqual(codes('demo-skill', doc('name: Demo_Skill', 'description: when the user asks')), ['BAD_NAME']);
-      assert.deepEqual(codes('demo-skill', doc('name: other-skill', 'description: when the user asks')), ['NAME_MISMATCH'],
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: 当用户要 demo 时使用')), []);
+      assert.deepEqual(codes('demo-skill', doc('description: 当用户提问时使用')), ['MISSING_NAME']);
+      assert.deepEqual(codes('demo-skill', doc('name: Demo_Skill', 'description: 当用户提问时使用')), ['BAD_NAME']);
+      assert.deepEqual(codes('demo-skill', doc('name: other-skill', 'description: 当用户提问时使用')), ['NAME_MISMATCH'],
         'the directory and the declared name are read as two different skills');
       assert.deepEqual(codes('demo-skill', doc('name: demo-skill')), ['MISSING_DESCRIPTION']);
-      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: ' + 'x'.repeat(DESCRIPTION_BUDGET))), [],
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: 当' + 'x'.repeat(DESCRIPTION_BUDGET - 2) + '时')), [],
         'the budget is inclusive');
-      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: ' + 'x'.repeat(DESCRIPTION_BUDGET + 1))), ['LONG_DESCRIPTION']);
-      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: d', 'disable-model-invocation: true')), []);
-      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: d', 'disable-model-invocation: "false"')), ['STRING_BOOLEAN'],
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: 当' + 'x'.repeat(DESCRIPTION_BUDGET - 1) + '时')), ['LONG_DESCRIPTION']);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: 当有需要时使用', 'disable-model-invocation: true')), []);
+      assert.deepEqual(codes('demo-skill', doc('name: demo-skill', 'description: 当有需要时使用', 'disable-model-invocation: "false"')), ['STRING_BOOLEAN'],
         'a quoted false is a non-empty string, so the flag reads as set while its text says the opposite');
       assert.deepEqual(codes('demo-skill', doc('name: Nope', 'user-invocable: yes')), ['BAD_NAME', 'MISSING_DESCRIPTION', 'STRING_BOOLEAN'],
         'one file may be wrong in more than one way, and each way is named');
       const counted = lintSkillFile('demo-skill', 'f', doc('name: demo-skill', 'description: \u4e00\u4e8c\u4e09'));
-      assert.deepEqual(counted.descriptionChars, 3, 'characters, not bytes -- the same count skill-description-lint.sh makes');
+      assert.deepEqual(counted.descriptionChars, 3, 'characters, not bytes -- code points, the unit the description budget is written in');
     }],
 
     // S23 the scan -- a duplicate name is the one defect no single file can show, and a
@@ -2352,8 +2352,8 @@ function selftestCases() {
     ['skills-lint: a duplicate name is invisible in either file on its own', () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-'));
       try {
-        writeSkill(root, 'alpha', ['name: alpha', 'description: when the user asks for alpha']);
-        writeSkill(root, 'beta', ['name: alpha', 'description: when the user asks for beta']);
+        writeSkill(root, 'alpha', ['name: alpha', 'description: 当用户要 alpha 时使用']);
+        writeSkill(root, 'beta', ['name: alpha', 'description: 当用户要 beta 时使用']);
         fs.mkdirSync(path.join(root, '.claude', 'skills', 'no-skill-file'), { recursive: true });
         const r = scanSkills(root);
         assert.deepEqual(r.listed, 3, 'a directory with no SKILL.md is still listed');
@@ -2401,12 +2401,12 @@ function selftestCases() {
       };
       try {
         const clean = mk();
-        writeSkill(clean, 'alpha', ['name: alpha', 'description: when the user asks for alpha']);
+        writeSkill(clean, 'alpha', ['name: alpha', 'description: 当用户要 alpha 时使用']);
         const a = run(clean);
         assert.deepEqual([a.code, a.out.ok, a.out.inScope], [0, true, 1]);
 
         const broken = mk();
-        writeSkill(broken, 'alpha', ['name: beta', 'description: when the user asks for alpha']);
+        writeSkill(broken, 'alpha', ['name: beta', 'description: 当用户要 alpha 时使用']);
         const b = run(broken);
         assert.deepEqual(b.code, 1, 'a finding is exit 1');
         assert.deepEqual(b.out.findings.map(f => f.code), ['NAME_MISMATCH']);
@@ -2444,7 +2444,7 @@ function selftestCases() {
     ['skills-lint: a finding outranks a shape that was not ruled on', () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-skills-'));
       try {
-        writeSkill(root, 'alpha', ['name: beta', 'description: when the user asks for alpha']);
+        writeSkill(root, 'alpha', ['name: beta', 'description: 当用户要 alpha 时使用']);
         writeSkill(root, 'gamma', ['name: gamma', 'description: >', '  folded over two lines']);
         const r = spawnSync(NODE, [path.join(HARNESS_DIR, 'harness.mjs'), 'skills-lint'], {
           cwd: root, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root },

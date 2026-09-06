@@ -122,9 +122,15 @@ elif [ -f setup.sh ] && [ -e .git ]; then
 else
   note "非框架仓，跳过发布脚本检查"
 fi
-for s in doctor.sh plan-lint.sh skill-description-lint.sh; do
+for s in doctor.sh plan-lint.sh; do
   [ -f ".claude/scripts/$s" ] && ok ".claude/scripts/$s 存在" || bad ".claude/scripts/$s 缺失"
 done
+# skill description 的 CSO 门（形状 + 措辞）已整条搬进引擎，存在性跟着挪到子命令上
+if [ -f .claude/harness/harness.mjs ] && grep -q "skills-lint" .claude/harness/harness.mjs; then
+  ok "harness skills-lint 子命令存在（skill description CSO 门）"
+else
+  bad "harness skills-lint 子命令缺失"
+fi
 
 # 运行时工具
 command -v git  >/dev/null 2>&1 && ok "git 可用"  || note "未找到 git；git 相关 hook 能力受限"

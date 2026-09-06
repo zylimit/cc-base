@@ -265,33 +265,46 @@ copy_claude_tree() {
   while IFS= read -r -d '' src; do
     rel=${src#"$src_dir"/}
     case "$rel" in
-      FRAMEWORK-MANIFEST.txt) continue ;;                          # 清单最后单独覆盖安装
-      settings.json) continue ;;                                   # 走 merge_settings，不直接覆盖
-      settings-windows.json) continue ;;                           # 无效产物（Claude Code 不加载），不传播
-      settings.local.json) continue ;;                             # 机器特定覆盖，不入装
-      .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
-      .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
-      .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
-      .stop-gate-strikes|.precompact-block-epoch|.async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
-      signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列（任意层级 basename）
-      evidence/*) continue ;;                                      # 运行态证据目录
-      harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常复制分发）
-      harness/state/*) continue ;;                                 # 证据哈希链 + 活跃 task 信封 + 评审会话（源机专属，装到别人项目里就是脏数据）
-      harness/waivers/*) continue ;;                               # 结构化 per-check 豁免
-      harness/trend/*) continue ;;                                 # 架构漂移趋势台账（arch-check --record 快照）
-      harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
-      .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常复制分发）
-      worktrees/*) continue ;;                                     # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，装进别人项目就是别人的仓）
-      tests/*) continue ;;                                         # 框架自测：默认不装，--with-tests 在循环外整目录拷（另三份表同此臂）
-      research/*) continue ;;                                      # 设计底本：不分发
-      agent-memory/*) continue ;;                                  # 本仓 sub-agent 记忆：不分发
-      *.bak|*.framework-new) continue ;;                           # 安装器自己的产物：开发机上留下的残留不该被装进别人项目（另三份排除表同此臂）
-      .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.claude/.gitignore 同条）
-      Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.claude/.gitignore 同条）
-      *.swp) continue ;;                                           # vim 交换文件（.claude/.gitignore 同条）
-      feedback/templates/*) ;;                                     # 保留模板（顶层 *.md 才是私人经验）
-      feedback/*/*) ;;                                              # 保留 feedback 子目录其他文件
-      feedback/*.md) continue ;;                                    # 私人进化经验（顶层 *.md）；INDEX 装后重置为模板
+      # @exclusions:begin （由 .claude/scripts/gen-exclusions.mjs 从 harness/exclusions.json 生成，手改会被 --check 抓出）
+      FRAMEWORK-MANIFEST.txt) continue ;;  # 清单自身不入清单
+      settings.json) continue ;;  # 天生合并对象，走 merge 逻辑
+      settings-windows.json) continue ;;  # 无效产物 / 机器特定
+      settings.local.json) continue ;;  # 无效产物 / 机器特定
+      .needs-review) continue ;;  # stop-gate 运行时状态
+      .needs-review.lock) continue ;;  # stop-gate 运行时状态
+      .tdd-exempt) continue ;;  # 闸门运行时标记
+      .red-verified) continue ;;  # 闸门运行时标记
+      .static-gate) continue ;;  # 闸门运行时标记
+      .degraded-review) continue ;;  # 闸门运行时标记
+      .fast-mode) continue ;;  # 运行态标记
+      .subagent-reminded) continue ;;  # 运行态标记
+      .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+      .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+      .async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+      signals.jsonl) continue ;;  # evolution 运行态信号队列
+      */signals.jsonl) continue ;;  # evolution 运行态信号队列
+      evidence/*) continue ;;  # 运行态证据目录
+      harness/receipts/*) continue ;;  # 大仓治理运行态回执（harness.mjs / catalog 本体照常入清单）
+      harness/state/*) continue ;;  # 证据哈希链 + 活跃 task 信封 + 评审会话（本机专属）
+      harness/waivers/*) continue ;;  # 结构化 per-check 豁免
+      harness/trend/*) continue ;;  # 架构漂移趋势台账（arch-check --record 快照）
+      harness/evidence/*) continue ;;  # 每条 check 的原始 stdout/stderr
+      .runtime/*) continue ;;  # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
+      worktrees/*) continue ;;  # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
+      tests/*) continue ;;  # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单
+      research/*) continue ;;  # 姊妹框架分析等设计底本：框架自己的维护记录，不分发
+      agent-memory/*) continue ;;  # 本仓 sub-agent 的战术记忆：审的是本仓，装进别人项目指向不存在的路径
+      *.bak) continue ;;  # 安装器产物
+      *.framework-new) continue ;;  # 安装器产物
+      .DS_Store) continue ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+      */.DS_Store) continue ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+      Thumbs.db) continue ;;  # Windows 缩略图缓存（.gitignore 同条）
+      */Thumbs.db) continue ;;  # Windows 缩略图缓存（.gitignore 同条）
+      *.swp) continue ;;  # vim 交换文件（.gitignore 同条）
+      feedback/templates/*) ;;  # 保留模板（框架资产）
+      feedback/*/*) ;;  # feedback 子目录其他文件
+      feedback/*.md) continue ;;  # 私人经验 + FEEDBACK-INDEX（装后重置为模板）
+      # @exclusions:end
     esac
     dest="$dest_dir/$rel"
     # manifest 分层判断：目标已存在且内容不同时才需要区分「可升级」vs「用户改过」

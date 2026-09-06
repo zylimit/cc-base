@@ -34,32 +34,46 @@ trap 'rm -f "$TMP"' EXIT
 while IFS= read -r -d '' src; do
   rel=${src#"$SRC"/}
   case "$rel" in
-    FRAMEWORK-MANIFEST.txt) continue ;;                          # 清单自身不入清单
-    settings.json) continue ;;                                   # 天生合并对象，走 merge 逻辑
-    settings-windows.json|settings.local.json) continue ;;       # 无效产物 / 机器特定
-    .needs-review|.needs-review.lock) continue ;;                # stop-gate 运行时状态
-    .tdd-exempt|.red-verified|.static-gate|.degraded-review) continue ;;  # 闸门运行时标记
-    .fast-mode|.subagent-reminded) continue ;;                   # 运行态标记
-    .stop-gate-strikes|.precompact-block-epoch|.async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
-    signals.jsonl|*/signals.jsonl) continue ;;                   # evolution 运行态信号队列
-    evidence/*) continue ;;                                      # 运行态证据目录
-    harness/receipts/*) continue ;;                              # 大仓治理运行态回执（harness.mjs / catalog 本体照常入清单）
-    harness/state/*) continue ;;                                 # 证据哈希链 + 活跃 task 信封 + 评审会话（本机专属）
-    harness/waivers/*) continue ;;                               # 结构化 per-check 豁免
-    harness/trend/*) continue ;;                                 # 架构漂移趋势台账（arch-check --record 快照）
-    harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
-    .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
-    worktrees/*) continue ;;                                     # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
-    tests/*) continue ;;                                         # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单
-    research/*) continue ;;                                      # 姊妹框架分析等设计底本：框架自己的维护记录，不分发
-    agent-memory/*) continue ;;                                  # 本仓 sub-agent 的战术记忆：审的是本仓，装进别人项目指向不存在的路径
-    *.bak|*.framework-new) continue ;;                           # 安装器产物
-    .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.gitignore 同条）
-    Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.gitignore 同条）
-    *.swp) continue ;;                                           # vim 交换文件（.gitignore 同条）
-    feedback/templates/*) ;;                                     # 保留模板（框架资产）
-    feedback/*/*) ;;                                             # feedback 子目录其他文件
-    feedback/*.md) continue ;;                                   # 私人经验 + FEEDBACK-INDEX（装后重置为模板）
+    # @exclusions:begin （由 scripts/gen-exclusions.mjs 从 harness/exclusions.json 生成，手改会被 --check 抓出）
+    FRAMEWORK-MANIFEST.txt) continue ;;  # 清单自身不入清单
+    settings.json) continue ;;  # 天生合并对象，走 merge 逻辑
+    settings-windows.json) continue ;;  # 无效产物 / 机器特定
+    settings.local.json) continue ;;  # 无效产物 / 机器特定
+    .needs-review) continue ;;  # stop-gate 运行时状态
+    .needs-review.lock) continue ;;  # stop-gate 运行时状态
+    .tdd-exempt) continue ;;  # 闸门运行时标记
+    .red-verified) continue ;;  # 闸门运行时标记
+    .static-gate) continue ;;  # 闸门运行时标记
+    .degraded-review) continue ;;  # 闸门运行时标记
+    .fast-mode) continue ;;  # 运行态标记
+    .subagent-reminded) continue ;;  # 运行态标记
+    .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+    .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+    .async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+    signals.jsonl) continue ;;  # evolution 运行态信号队列
+    */signals.jsonl) continue ;;  # evolution 运行态信号队列
+    evidence/*) continue ;;  # 运行态证据目录
+    harness/receipts/*) continue ;;  # 大仓治理运行态回执（harness.mjs / catalog 本体照常入清单）
+    harness/state/*) continue ;;  # 证据哈希链 + 活跃 task 信封 + 评审会话（本机专属）
+    harness/waivers/*) continue ;;  # 结构化 per-check 豁免
+    harness/trend/*) continue ;;  # 架构漂移趋势台账（arch-check --record 快照）
+    harness/evidence/*) continue ;;  # 每条 check 的原始 stdout/stderr
+    .runtime/*) continue ;;  # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
+    worktrees/*) continue ;;  # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
+    tests/*) continue ;;  # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单
+    research/*) continue ;;  # 姊妹框架分析等设计底本：框架自己的维护记录，不分发
+    agent-memory/*) continue ;;  # 本仓 sub-agent 的战术记忆：审的是本仓，装进别人项目指向不存在的路径
+    *.bak) continue ;;  # 安装器产物
+    *.framework-new) continue ;;  # 安装器产物
+    .DS_Store) continue ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+    */.DS_Store) continue ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+    Thumbs.db) continue ;;  # Windows 缩略图缓存（.gitignore 同条）
+    */Thumbs.db) continue ;;  # Windows 缩略图缓存（.gitignore 同条）
+    *.swp) continue ;;  # vim 交换文件（.gitignore 同条）
+    feedback/templates/*) ;;  # 保留模板（框架资产）
+    feedback/*/*) ;;  # feedback 子目录其他文件
+    feedback/*.md) continue ;;  # 私人经验 + FEEDBACK-INDEX（装后重置为模板）
+    # @exclusions:end
   esac
   printf '%s\t%s\n' "$rel" "$(norm_sha "$src")"
 done < <(find "$SRC" -type f -print0) | sort >"$TMP"

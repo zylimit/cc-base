@@ -357,6 +357,11 @@ ps1_drops=$(grep -cE -- '(-match|-contains).*\{[[:space:]]*return[[:space:]]*\}'
 
 echo "test-setup: ⑥ 四份排除表逐臂对照通过（基准 gen-manifest.sh $arm_count 条臂：setup.sh / release.mjs 臂序+处置全等，setup.ps1 token 集合全等）"
 
+# ---- ⑥c 单一真相源：三份生成表与 harness/exclusions.json 零漂移（手改任一份都在这红）----
+node "$ROOT/.claude/scripts/gen-exclusions.mjs" --check >/dev/null 2>&1 \
+  || fail "排除表口径：gen-exclusions.mjs --check 报漂移（有人手改了 gen-manifest.sh / setup.sh / setup.ps1 的 @exclusions 区而没改 harness/exclusions.json；跑 node .claude/scripts/gen-exclusions.mjs 重生）"
+echo "test-setup: ⑥c gen-exclusions --check 零漂移"
+
 # ---- ⑥b 行为面：系统垃圾既不入装、也不入清单 ----
 # 上面比的是字面，这里造真文件跑真安装器——规则还在但 case 臂序被挪到 keep 臂之后（
 # feedback/templates/.DS_Store 就会漏出去），字面比对看不出来。

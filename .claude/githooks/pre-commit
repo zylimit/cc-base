@@ -134,6 +134,13 @@ for pair in "secrets:scan-secrets.mjs" "instructions:scan-instructions.mjs" "syn
     fi
 done
 
+# ---------- 排除表单一真相源（只在框架仓本体有意义：目标项目没有 setup.sh，跳过不算失败）----------
+# 三份生成区（gen-manifest.sh / setup.sh / setup.ps1 的 @exclusions 区）与 harness/exclusions.json 漂移 → 1 阻断
+GENX="$ROOT/.claude/scripts/gen-exclusions.mjs"
+if [ -f "$GENX" ] && [ -f "$ROOT/setup.sh" ] && [ -f "$ROOT/.claude/harness/exclusions.json" ]; then
+    run_check "exclusions" lint node "$GENX" --check
+fi
+
 # ---------- 大仓治理（catalog 存在才启用；默认关，小项目零负担）----------
 if [ -f "$CATALOG" ]; then
     if [ ! -f "$ENGINE" ]; then

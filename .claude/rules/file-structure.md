@@ -30,7 +30,7 @@
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / skill-description-lint / fast-mode 开关 / gate-audit / statusline 状态行 / supervisor 进程守护）
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / fast-mode 开关 / gate-audit / statusline 状态行 / supervisor 进程守护）
         ├── tests/                         # 框架自测（selftest / test-setup / test-routing / test-fast-mode / test-gate-audit / test-three-file-sync-gate，cases/run-all.sh 统一跑）
         └── skills/
             ├── product-spec-builder/      # 需求收集

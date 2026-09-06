@@ -167,7 +167,7 @@
         - EVOLUTION.md 第四层提议创建新 Skill，用户确认后
         **手动调用**：/skill-builder
         前置条件：无
-        新建或改 skill 后跑 `.claude/scripts/skill-description-lint.sh` 校验 description（CSO，触发式开头、≤180 字），不过先修
+        新建或改 skill 后跑 `node .claude/harness/harness.mjs skills-lint` 校验 description（CSO，触发式开头、≤180 字），不过先修
 
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发

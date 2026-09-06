@@ -459,11 +459,25 @@ function cmdRulesAudit(flags = {}, subcommands = []) {
 const SKILLS_DIR = '.claude/skills';
 const SKILL_FILE = 'SKILL.md';
 
-// The same number .claude/scripts/skill-description-lint.sh enforces. That script owns the
-// wording half of the rule (trigger-shaped opening, no process-summary prose); this one owns
-// the shape the loader parses. Two halves of one rule, so the budget has to agree -- a skill
-// passing one gate and failing the other is a rule nobody can act on.
+// Both halves of the description rule live here now: the shape the loader parses, and the
+// wording that decides whether the model ever reaches for the skill. They used to be split
+// across a bash gate and this command, which meant a skill could pass one and fail the
+// other -- a rule nobody can act on. The bash half is retired; this is the only gate.
 const DESCRIPTION_BUDGET = 180;
+
+// A description earns its place by saying WHEN the skill applies, not by summarising what it
+// does: a summary gives the model nothing to match a situation against. The two shapes this
+// repository writes triggers in are the ones below, and opening on either word counts too.
+// Process-summary prose is only held against a description that has no trigger at all -- the
+// prose is the symptom there, the missing trigger is the fault.
+const TRIGGER_RES = [/当.*?时/, /由.*?调用/];
+const SUMMARY_TOKENS = ['生成', '通过', '分阶段', '输出', '支持', '执行', '内置', '维护'];
+
+/** Whether a description states when the skill applies, rather than what it does. */
+function isTriggerShaped(description) {
+  return TRIGGER_RES.some((re) => re.test(description))
+    || description.startsWith('当') || description.startsWith('由');
+}
 
 const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // Flags whose value the loader reads as a boolean. A quoted "false" is a non-empty string,
@@ -615,10 +629,18 @@ function lintSkillFile(dirName, relFile, text) {
   if (!description) {
     findings.push({ at: at(descField), code: 'MISSING_DESCRIPTION', detail: 'no description in the frontmatter; nothing tells the model when this skill applies' });
   } else {
-    // Code points, matching the character count skill-description-lint.sh measures.
+    // Code points, not bytes: the budget is written in characters.
     descriptionChars = Array.from(description).length;
     if (descriptionChars > DESCRIPTION_BUDGET) {
       findings.push({ at: at(descField), code: 'LONG_DESCRIPTION', detail: 'description is ' + descriptionChars + ' characters, over the budget of ' + DESCRIPTION_BUDGET });
+    }
+    if (!isTriggerShaped(description)) {
+      const hits = SUMMARY_TOKENS.filter((t) => description.includes(t));
+      findings.push({
+        at: at(descField), code: 'DESCRIPTION_NOT_TRIGGER_SHAPED',
+        detail: 'description 没写触发条件（须含「当…时」或「由…调用」），模型无从判断何时该用这个 skill'
+          + (hits.length ? '；且通篇是流程总结词：' + hits.join('、') : ''),
+      });
     }
   }
 
