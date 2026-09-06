@@ -35,7 +35,7 @@ CL="$TARGET/.claude"
 # hook 的依赖库是 hooks/lib/ 四件 .mjs——只点 harness.mjs 一件的话，另外三件漏装照样静默：
 # 缺哪一件都是「注册了但每次事件报 hook error」，装齐要逐件判。
 [ -f "$CL/harness/harness.mjs" ]         || fail "harness/harness.mjs 未安装"
-for m in io gatelog fastmode harness; do
+for m in io gatelog tier harness; do
   [ -f "$CL/hooks/lib/$m.mjs" ]          || fail "hooks/lib/$m.mjs 未安装"
 done
 [ -f "$CL/rules/harness-large-repo.md" ] || fail "rules/harness-large-repo.md 未安装"
