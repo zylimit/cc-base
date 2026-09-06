@@ -88,7 +88,7 @@ fi
 #   都只需 node + git；无 node 时它们自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
 HOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    for s in test-hooks-node.sh test-hooks-settings.sh test-tier.sh test-tier-hardening.sh; do
+    for s in test-hooks-node.sh test-hooks-settings.sh test-tier.sh test-tier-hardening.sh test-distribution.sh test-skills-lint-wording.sh; do
         echo "----- 运行 $s -----"
         bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     done
