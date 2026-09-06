@@ -626,5 +626,18 @@ chk "$([ "$(jq_ "$PXO" 'String(d.tier)')" = "fast" ] && echo 0 || echo 1)" \
     "tier=fast" "rc=$PXO_RC out=[$(show "$PXO")] err1=[$(printf '%s' "$ERRT" | head -1)]"
 
 echo ""
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PX-7 set_epoch 写在未来（红蓝复核 Medium：8h 窗口不许被整体平移）---"
+SB=$(newsb px-future); mkprofile "$SB"
+PX_FUT=$((NOW + 2592000))                                   # set_epoch 写到 30 天后
+mkruntime "$SB" fast "$PX_FUT" "$((PX_FUT + 28800))"        # 表面上合规：expires = set + 8h
+hrun "$SB" tier status
+PX_F_EXP=$(jq_ "$OUT" 'String(d.expiresEpoch)')
+chk "$([ "$PX_F_EXP" != "<not-json>" ] && [ "$PX_F_EXP" != "undefined" ] \
+      && [ "$PX_F_EXP" -le "$((NOW + 28800 + 300))" ] 2>/dev/null && echo 0 || echo 1)" \
+    "PX-7 set_epoch 在未来 → expiresEpoch ≤ now+8h（+5 分钟余量吃掉脚本 NOW 与引擎 now 的时差；锚点取 min(set_epoch, now)，未来时间戳换不来 30 天 fast）" \
+    "expiresEpoch ≤ $((NOW + 28800 + 300))" "expiresEpoch=$PX_F_EXP（set_epoch=$PX_FUT now=$NOW）"
+
 echo "==== test-tier-hardening：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]

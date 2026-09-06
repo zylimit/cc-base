@@ -188,7 +188,8 @@ export function readSession(root = defaultRoot(), now = Date.now()) {
       quarantine(root, 'tier', fp, `fast 会话缺 set_epoch/expires_epoch（8h 上限无处算），本次视为无覆盖回默认档`);
       return null;
     }
-    const cap = setAt + MAX_FAST_SECONDS;
+    // 锚点取 min(set_epoch, now)：set_epoch 写到未来会把 8h 窗口整体平移（红蓝复核 Medium：曾换来 30 天）
+    const cap = Math.min(setAt, Math.floor(now / 1000)) + MAX_FAST_SECONDS;
     if (exp > cap) { exp = cap; v = { ...v, expires_epoch: cap }; }
   }
   if (Number.isFinite(exp) && exp * 1000 <= now) return null;   // 到期自动失效，不靠人记得关
