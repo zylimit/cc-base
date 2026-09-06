@@ -263,7 +263,7 @@ sed -n '/^const MANIFEST_RULES = \[/,/^\];/p' "$RELEASE_MJS" \
 
 # 抽取自检：条数写死。抽取正则半坏（只抽到一部分）时当场红，别让后面的逐臂比对空转——
 # 下限式的 -ge 挡不住半坏。四份表增删臂时同步改这个数。
-EXPECTED_ARMS=35
+EXPECTED_ARMS=38
 arm_count=$(grep -c . "$TMP/tbl.gen" || true)
 [ "$arm_count" = "$EXPECTED_ARMS" ] \
   || fail "排除表口径：从 gen-manifest.sh 抽出 $arm_count 条臂，应为 $EXPECTED_ARMS（改过排除表就同步改这个数；数字对不上而表没动 = 抽取正则坏了，断言会空转）。release.mjs 相对它多出的臂：$(grep -vxF -f "$TMP/tbl.gen" "$TMP/tbl.release" | tr '\n' ' ' || true)"
@@ -302,6 +302,8 @@ ps1_token_for() {
                        printf '%s' '^harness/(receipts|state|waivers|trend|evidence)/' ;;
     '.runtime/*')      printf '%s' '^\.runtime/' ;;
     'worktrees/*')     printf '%s' '^worktrees/' ;;                      # Claude Code sub-agent 的 worktree 副本
+    'tests/*'|'research/*'|'agent-memory/*')
+                       printf '%s' '^(tests|research|agent-memory)/' ;;  # 分发面收口：三者一条正则
     '*.bak'|'*.framework-new'|'*.swp')
                        printf '%s' '\.(bak|framework-new|swp)$' ;;
     # keep 臂：ps1 只排顶层 feedback/*.md，模板与子目录天然保留，语义等价

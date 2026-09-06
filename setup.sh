@@ -17,8 +17,8 @@ die() {
 # 报清楚合法选项、退 2（和 die 的 1 分开，让调用方分得出「参数用错」和「装到一半失败」）。
 usage_die() {
   printf 'setup: %s\n' "$1" >&2
-  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [target_dir]\n' >&2
-  printf '合法选项：-win  -mac  -ubt  --dry-run\n' >&2
+  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [--with-tests] [target_dir]\n' >&2
+  printf '合法选项：-win  -mac  -ubt  --dry-run  --with-tests\n' >&2
   exit 2
 }
 
@@ -105,6 +105,7 @@ validate_target() {
 #   文件清单（重装要知道上次写到哪）。doctor.sh 和 SessionStart 横幅都看这个文件。
 # 两者都住在 .claude/.runtime/（排除表已挡，不入装），装完连空目录一起清掉。
 DRY_RUN=0
+WITH_TESTS=0
 TARGET_ROOT=""
 RUNTIME_DIR=""
 LOCK_FILE=""
@@ -281,6 +282,9 @@ copy_claude_tree() {
       harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
       .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常复制分发）
       worktrees/*) continue ;;                                     # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，装进别人项目就是别人的仓）
+      tests/*) continue ;;                                         # 框架自测：默认不装，--with-tests 在循环外整目录拷（另三份表同此臂）
+      research/*) continue ;;                                      # 设计底本：不分发
+      agent-memory/*) continue ;;                                  # 本仓 sub-agent 记忆：不分发
       *.bak|*.framework-new) continue ;;                           # 安装器自己的产物：开发机上留下的残留不该被装进别人项目（另三份排除表同此臂）
       .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.claude/.gitignore 同条）
       Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.claude/.gitignore 同条）
@@ -313,6 +317,16 @@ copy_claude_tree() {
     [ "$DRY_RUN" = "1" ] && continue
     copy_file "$src" "$dest"
   done < <(find "$src_dir" -type f -print0)
+  # --with-tests：框架自测整目录照拷（不走 manifest 分层——它们是框架的测试不是用户文件，升级时直接换新）
+  if [ "$WITH_TESTS" = "1" ] && [ -d "$src_dir/tests" ]; then
+    while IFS= read -r -d '' src; do
+      rel=${src#"$src_dir"/}
+      case "$rel" in tests/golden/*|tests/fixtures/*|tests/*) ;; *) continue ;; esac
+      plan_note create ".claude/$rel"
+      [ "$DRY_RUN" = "1" ] && continue
+      copy_file "$src" "$dest_dir/$rel"
+    done < <(find "$src_dir/tests" -type f -print0)
+  fi
 }
 
 merge_settings() {
@@ -381,6 +395,7 @@ main() {
       -mac) platform="mac" ;;
       -ubt) platform="ubt" ;;
       --dry-run) DRY_RUN=1 ;;
+      --with-tests) WITH_TESTS=1 ;;
       -*) usage_die "未知选项：$1" ;;
       *) target="$1" ;;
     esac

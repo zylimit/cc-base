@@ -45,6 +45,8 @@ runFailClosed(async () => {
 
     // evidence 账本是机器写的旁路记录，node_modules/out/dist 是产物，都不算「改了要记 progress」
     if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return;
+    // tdd-gate 的两个运行态标记（.claude/.gitignore 同条）：touch 一下不是改家底
+    if (/(^|\/)\.claude\/\.(tdd-exempt|red-verified)$/.test(p)) return;
     // .claude/ 下家底（CLAUDE.md / agents / skills / settings.json 等）改了也属「改了要记 progress」
     if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p) || /(^|\/)\.claude\//.test(p)) {
       codeDirty = true;

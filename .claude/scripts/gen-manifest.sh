@@ -50,6 +50,9 @@ while IFS= read -r -d '' src; do
     harness/evidence/*) continue ;;                              # 每条 check 的原始 stdout/stderr
     .runtime/*) continue ;;                                      # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
     worktrees/*) continue ;;                                     # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
+    tests/*) continue ;;                                         # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单
+    research/*) continue ;;                                      # 姊妹框架分析等设计底本：框架自己的维护记录，不分发
+    agent-memory/*) continue ;;                                  # 本仓 sub-agent 的战术记忆：审的是本仓，装进别人项目指向不存在的路径
     *.bak|*.framework-new) continue ;;                           # 安装器产物
     .DS_Store|*/.DS_Store) continue ;;                           # macOS 目录元数据（每层都会长，.gitignore 同条）
     Thumbs.db|*/Thumbs.db) continue ;;                           # Windows 缩略图缓存（.gitignore 同条）

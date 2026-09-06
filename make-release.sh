@@ -30,6 +30,13 @@ if [ -n "$FWDIR" ] && [ -d "$FB" ]; then
   [ -f "$TPL" ] && cp "$TPL" "$FB/FEEDBACK-INDEX.md"
 fi
 
+# 分发包只含引擎 + hooks + skills + agents + rules（+ tests 供 setup --with-tests）：
+# 框架自己的维护记录（progress / docs / research）与本仓 sub-agent 记忆不进包——它们指向的是本仓，
+# 装进别人项目就是噪声，而且 progress 里两次带出过开发者路径。
+rm -f "$PKG/progress.md" "$PKG/progress.archive.md"
+rm -rf "$PKG/docs"
+[ -n "$FWDIR" ] && rm -rf "$FWDIR/research" "$FWDIR/agent-memory"
+
 OUT="/tmp/$REPO-$VER.zip"
 rm -f "$OUT"
 # 打包：Windows（Git Bash/MINGW）下 python shutil 不认 /tmp 挂载会 FileNotFoundError（#9）→
@@ -61,10 +68,9 @@ with zipfile.ZipFile(path) as z:
     names = z.namelist()
 leaked = [
     n for n in names
-    if "/feedback/" in n
-    and n.endswith(".md")
-    and "/templates/" not in n
-    and not n.endswith("/FEEDBACK-INDEX.md")
+    if ("/feedback/" in n and n.endswith(".md") and "/templates/" not in n and not n.endswith("/FEEDBACK-INDEX.md"))
+    or n.endswith("/progress.md") or n.endswith("/progress.archive.md")
+    or "/docs/" in n or "/research/" in n or "/agent-memory/" in n
 ]
 if leaked:
     raise SystemExit("make-release: 私有 feedback 泄漏进包：" + ", ".join(leaked[:5]))

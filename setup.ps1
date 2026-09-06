@@ -14,7 +14,8 @@
 param(
   [string]$Target = '.',
   [switch]$Force,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$WithTests
 )
 $ErrorActionPreference = 'Stop'
 
@@ -257,6 +258,8 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   # Claude Code sub-agent worktree isolation: a whole copy of the repo under .claude/worktrees/<agent>/,
   # with its own .claude/ inside - someone else's repo, not framework files
   if ($relSlash -match '^worktrees/') { return }
+  # framework self-tests / design research / this repo's agent memory: not distributed (same arms as the other three tables)
+  if ($relSlash -match '^(tests|research|agent-memory)/') { return }
   # installer leftovers + editor swap files (same arms as the other three tables / .claude/.gitignore)
   if ($relSlash -match '\.(bak|framework-new|swp)$') { return }
   $dest = Join-Path $targetClaude $rel
@@ -284,6 +287,21 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   if ($DryRun) { return }
   Copy-WithBackup $_.FullName $dest
   Register-Write $relSlash
+}
+
+# -WithTests: copy the framework self-tests wholesale (no manifest layering - they are the framework's
+# tests, not user files, so an upgrade just replaces them). Same arm as setup.sh --with-tests.
+if ($WithTests -and (Test-Path (Join-Path $srcClaude 'tests'))) {
+  Get-ChildItem -Path (Join-Path $srcClaude 'tests') -Recurse -File -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
+    $relSlash = $rel -replace '\\', '/'
+    Add-Plan 'create' $relSlash
+    if ($DryRun) { return }
+    $dest = Join-Path $targetClaude $rel
+    New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
+    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+    Register-Write $relSlash
+  }
 }
 
 # -DryRun stops here. The three files the copy loop does not own get planned too: settings.json is

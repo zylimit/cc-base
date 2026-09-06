@@ -237,6 +237,8 @@ UNTRACKED_CASES="
 .needs-review|.claude/.needs-review|STATE_EXCLUDE_PATHS
 .needs-review.lock|.claude/.needs-review.lock|STATE_EXCLUDE_PATHS
 .fast-mode|.claude/.fast-mode|STATE_EXCLUDE_PATHS
+.tdd-exempt|.claude/.tdd-exempt|STATE_EXCLUDE_PATHS
+.red-verified|.claude/.red-verified|STATE_EXCLUDE_PATHS
 .runtime/supervisor/web/state.json|.claude/.runtime/|STATE_EXCLUDE_PREFIXES
 evidence/run-1.log|.claude/evidence/|STATE_EXCLUDE_PREFIXES
 harness/receipts/task-1.json|.claude/harness/receipts/|STATE_EXCLUDE_PREFIXES
@@ -293,6 +295,8 @@ TRACKED_CASES="
 .needs-review|:(exclude).claude/.needs-review
 .needs-review.lock|:(exclude).claude/.needs-review.lock
 .fast-mode|:(exclude).claude/.fast-mode
+.tdd-exempt|:(exclude).claude/.tdd-exempt
+.red-verified|:(exclude).claude/.red-verified
 .runtime/supervisor/web/state.json|:(exclude).claude/.runtime/**
 evidence/run-1.log|:(exclude).claude/evidence/**
 harness/receipts/task-1.json|:(exclude).claude/harness/receipts/**
@@ -391,8 +395,8 @@ fi
 #   改一条、删一条，都会在这里红并打印出差在哪，逼着上面两段的用例表跟着长。
 # 抽取自检写死条数（不写 >=）：抽取正则半坏时只抽到一部分，逐条比对会在空转而闸不响。
 CORE_FILE="$(cd "$(dirname "$ENTRY")" && pwd)/lib/core.mjs"
-EXP_EXCLUDE=11
-EXP_PATHS=3
+EXP_EXCLUDE=13
+EXP_PATHS=5
 EXP_PREFIXES=8
 
 # 从被测那份 core.mjs 里把数组字面量的字符串成员抠出来（单引号用 charCode 拼，避开 shell 引号地狱）

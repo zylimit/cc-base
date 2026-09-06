@@ -234,6 +234,8 @@ const STATE_EXCLUDE = [
   ':(exclude).claude/.needs-review',
   ':(exclude).claude/.needs-review.lock',
   ':(exclude).claude/.fast-mode',
+  ':(exclude).claude/.tdd-exempt',
+  ':(exclude).claude/.red-verified',
   ':(exclude).claude/.runtime/**',
   ':(exclude).claude/evidence/**',
   ':(exclude).claude/harness/receipts/**',
@@ -247,6 +249,8 @@ const STATE_EXCLUDE_PATHS = [
   '.claude/.needs-review',
   '.claude/.needs-review.lock',
   '.claude/.fast-mode',
+  '.claude/.tdd-exempt',
+  '.claude/.red-verified',
 ];
 const STATE_EXCLUDE_PREFIXES = [
   '.claude/.runtime/',

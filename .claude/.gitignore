@@ -4,6 +4,8 @@
 signals.jsonl
 .subagent-reminded
 .fast-mode
+.tdd-exempt
+.red-verified
 .stop-gate-strikes
 .precompact-block-epoch
 .async-verify-last
