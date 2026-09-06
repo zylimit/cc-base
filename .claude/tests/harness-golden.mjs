@@ -33,6 +33,11 @@
 // that enumerated this repo's tracked files or working-tree diff would change for reasons
 // that have nothing to do with behaviour, and a ruler that cries wolf gets ignored.
 //
+// Not every subcommand's stdout is recorded verbatim. The ones whose output is a contract --
+// parsed by a hook, a git hook, CI, a SKILL or the release flow -- are; for the rest the
+// baseline holds a sha256 of the same normalized stdout, because a 29k-line baseline is one
+// nobody reads. See S4b: a changed byte still fails --check either way.
+//
 // -------------------------------------------------------------------------------------
 // Normalization is deliberately narrow and keyed by field name, never by a blanket regex
 // over every string. `--probe` runs the matrix three times with only path substitution
@@ -781,6 +786,48 @@ function makeCtx(pathsOnly) {
   };
 }
 
+// ===========================================================================
+// S4b  stdout digests
+// ===========================================================================
+// Recording full stdout for every subcommand across nine scenarios produced a 29k-line
+// baseline, and a baseline that large is unreviewable: nobody reads the diff, so nobody
+// notices what moved inside it. Field-level contracts already live in selftest and the
+// test-*.sh suites; the golden file is a byte-level regression ruler, and a digest keeps
+// every bit of that: a changed byte still fails --check and still kills a mutant, it just
+// reports as one moved field instead of three hundred, and --check prints the actual
+// normalized stdout beside the mismatch so a failure is still attributable rather than two
+// hex strings staring at each other.
+//
+// The cut is by size, not by command name. Small outputs (a status line, a short JSON
+// verdict) stay verbatim because they read better inline than a hash and cost nothing;
+// anything past the threshold is folded. Tried the by-name route first (sixteen "contract"
+// commands kept whole) and it floored the file at 13.8k lines — the big JSON commands were
+// exactly the ones on that list.
+const FULL_STDOUT_MAX_CHARS = 400;
+
+// Carried on the replayed record only, and keyed by a symbol so it neither serializes into
+// the baseline nor appears as a flattened field.
+const FULL_PAYLOAD = Symbol('stdoutPayload');
+
+/**
+ * Fold a normalized command down to a stdout digest unless its stdout is small. The
+ * record side and the check side both come through here, so the baseline and the replay can
+ * only ever disagree for a real reason.
+ */
+function digestCommand(cmd) {
+  const payload = JSON.stringify({
+    stdout: cmd.stdout === undefined ? null : cmd.stdout,
+    stdoutText: cmd.stdoutText === undefined ? null : cmd.stdoutText,
+  });
+  if (payload.length <= FULL_STDOUT_MAX_CHARS) return cmd;
+  const out = { ...cmd };
+  delete out.stdout;
+  delete out.stdoutText;
+  out.stdoutSha256 = sha256Hex(payload);
+  Object.defineProperty(out, FULL_PAYLOAD, { value: payload, enumerable: false });
+  return out;
+}
+
 // The sandbox directory name changes per run, so it is substituted per record with the
 // concrete root before the generic rules run. Commands are normalized one at a time so a
 // per-command `volatile` map can add a mask that must not apply to the rest of the matrix.
@@ -792,7 +839,10 @@ function normalizeRecord(record, root, pathsOnly) {
     scenario: normalize(record.scenario, base, ''),
     commands: record.commands.map(c => {
       const spec = specById.get(c.id);
-      return normalize(c, { ...base, volatile: (spec && spec.volatile) || null }, '');
+      const norm = normalize(c, { ...base, volatile: (spec && spec.volatile) || null }, '');
+      // --probe is the exception: it exists to name the individual field that moved, and a
+      // digest would collapse exactly that into one line.
+      return pathsOnly ? norm : digestCommand(norm);
     }),
   };
 }
@@ -819,7 +869,9 @@ function flatten(value, prefix, out) {
 }
 
 function flattenCommand(cmd) {
-  const subject = { exitCode: cmd.exitCode, stdout: cmd.stdout, stderr: cmd.stderr };
+  const subject = cmd.stdoutSha256 !== undefined
+    ? { exitCode: cmd.exitCode, stdoutSha256: cmd.stdoutSha256, stderr: cmd.stderr }
+    : { exitCode: cmd.exitCode, stdout: cmd.stdout, stderr: cmd.stderr };
   if (cmd.stdoutText !== undefined) subject.stdoutText = cmd.stdoutText;
   return flatten(subject, '', new Map());
 }
@@ -846,13 +898,19 @@ function diffScenario(expected, actual) {
     const e = flattenCommand(expected.commands[i]);
     const a = flattenCommand(actual.commands[i]);
     const id = expected.commands[i].id;
+    const actualPayload = actual.commands[i][FULL_PAYLOAD];
     const keys = new Set([...e.keys(), ...a.keys()]);
     for (const k of keys) {
       assertions++;
       const ev = e.get(k);
       const av = a.get(k);
       if (JSON.stringify(ev) !== JSON.stringify(av)) {
-        diffs.push({ path: id + ' ' + k, expected: ev, actual: av });
+        const d = { path: id + ' ' + k, expected: ev, actual: av };
+        // Two digests are not a diagnosis. Hand the failure what the run actually printed.
+        if (k === '.stdoutSha256') {
+          d.actualFull = actualPayload === undefined ? '(unavailable)' : actualPayload;
+        }
+        diffs.push(d);
       }
     }
   }
@@ -1099,6 +1157,7 @@ function checkMatrix({ scenarioFilter = null, quiet = false } = {}) {
       say('    --- ' + d.path);
       say('    - expected: ' + show(d.expected));
       say('    + actual:   ' + show(d.actual));
+      if (d.actualFull !== undefined) say('    + actual stdout (normalized): ' + d.actualFull);
     }
     if (diffs.length > 25) say('    ... ' + (diffs.length - 25) + ' more differences suppressed');
   }

@@ -7,62 +7,8 @@
         "doctor"
       ],
       "exitCode": 0,
-      "stdout": {
-        "node": "<NODE>",
-        "catalogPresent": false,
-        "gitRepo": true,
-        "headCommit": "<SHA>",
-        "harnessDir": ".claude/harness",
-        "subcommands": [
-          "doctor",
-          "diff-hash",
-          "selftest",
-          "catalog-lint",
-          "impact",
-          "context-pack",
-          "receipt",
-          "verify",
-          "waiver",
-          "attributes",
-          "arch-check",
-          "fitness",
-          "adapters",
-          "adr-check",
-          "arch-trend",
-          "gate",
-          "ledger",
-          "gate-audit",
-          "retention",
-          "risk",
-          "task",
-          "budget",
-          "spec-lint",
-          "trace",
-          "spec",
-          "dod",
-          "review",
-          "review-pack",
-          "authorship",
-          "invariants",
-          "recap",
-          "archive",
-          "sync-check",
-          "rules-audit",
-          "skills-lint",
-          "claude-md-lint",
-          "init",
-          "cochange",
-          "release",
-          "tier"
-        ],
-        "waiversDirExists": true,
-        "activeWaivers": 1,
-        "attributesDeclared": 0,
-        "modulesWithLayer": 0,
-        "forbiddenEdges": 0,
-        "adaptersPresent": true
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "9c0fb128b25b52e81dfbbdfba533a684d3fcd3d266f60650df14286b9751ce8e"
     },
     {
       "id": "diff-hash",
@@ -147,49 +93,8 @@
         "golden-task"
       ],
       "exitCode": 0,
-      "stdout": {
-        "budgets": {
-          "maxTotalChars": 120000,
-          "maxFiles": 40,
-          "maxFileChars": 6000,
-          "maxDiffChars": 40000
-        },
-        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "included": [
-          {
-            "path": "<task-envelope>",
-            "bytes": 22,
-            "reason": "envelope"
-          },
-          {
-            "path": "<canonical-diff>",
-            "bytes": 777,
-            "reason": "diff"
-          },
-          {
-            "path": "auth/login.ts",
-            "bytes": 256,
-            "reason": "changed-file"
-          },
-          {
-            "path": "core/util.ts",
-            "bytes": 223,
-            "reason": "changed-file"
-          },
-          {
-            "path": "api/new-route.ts",
-            "bytes": 75,
-            "reason": "changed-file"
-          }
-        ],
-        "denied": [
-          "db/server.pem"
-        ],
-        "affected": [],
-        "degraded": true,
-        "packHash": "4e46b51d9fbb294ae304e5186a7cdecfc868da0fab48c0c376ae5df48fb92ced"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "268b7584c03a81fa30a8ff09d15368921118f3cf476784b82908044af1d7dc8a"
     },
     {
       "id": "receipt-write",
@@ -378,124 +283,8 @@
         "--all"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "scope": "all-tracked",
-        "scannedFiles": 16,
-        "rules": 5,
-        "counts": {
-          "error": 7,
-          "warning": 1,
-          "info": 0
-        },
-        "findings": [
-          {
-            "rule": "no-secret-literal",
-            "attributes": [
-              "security"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "auth/session.py",
-            "line": 6,
-            "excerpt": "api_key = \"placeholder0123456789\"",
-            "rationale": "a credential written into source is published the moment the repository is shared",
-            "fix": "read the value from the environment or a secrets manager; keep only a placeholder in code"
-          },
-          {
-            "rule": "no-pii-in-logs",
-            "attributes": [
-              "privacy"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "auth/session.py",
-            "line": 10,
-            "excerpt": "print(\"restoring session for email=\" + email)",
-            "rationale": "personal data in logs spreads to systems with weaker access control and longer retention",
-            "fix": "log a stable pseudonymous identifier instead of the personal field"
-          },
-          {
-            "rule": "no-silent-failure",
-            "attributes": [
-              "reliability"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "auth/session.py",
-            "line": 16,
-            "excerpt": "except Exception:",
-            "rationale": "an empty handler converts a failure into a wrong answer that nothing reports",
-            "fix": "handle the error, rethrow it, or log it with enough context to diagnose"
-          },
-          {
-            "rule": "no-unbounded-retry",
-            "attributes": [
-              "resilience"
-            ],
-            "severity": "warning",
-            "module": null,
-            "path": "auth/session.py",
-            "line": 11,
-            "excerpt": "while True:",
-            "rationale": "a retry loop with no bound or backoff turns a transient fault into a sustained outage",
-            "fix": "add a maximum attempt count and exponential backoff with jitter"
-          },
-          {
-            "rule": "no-secret-literal",
-            "attributes": [
-              "security"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "core/credential-shapes.ts",
-            "line": 8,
-            "excerpt": "aws: 'AKIAQQQQQQQQQQQQQQQQ',                 // scan-secrets:ignore shape fixture",
-            "rationale": "a credential written into source is published the moment the repository is shared",
-            "fix": "read the value from the environment or a secrets manager; keep only a placeholder in code"
-          },
-          {
-            "rule": "no-secret-literal",
-            "attributes": [
-              "security"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "core/credential-shapes.ts",
-            "line": 9,
-            "excerpt": "github: 'ghp_000000000000000000000000',      // scan-secrets:ignore shape fixture",
-            "rationale": "a credential written into source is published the moment the repository is shared",
-            "fix": "read the value from the environment or a secrets manager; keep only a placeholder in code"
-          },
-          {
-            "rule": "no-secret-literal",
-            "attributes": [
-              "security"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "core/credential-shapes.ts",
-            "line": 10,
-            "excerpt": "pkcs1: '-----BEGIN RSA PRIVATE KEY-----',    // scan-secrets:ignore shape fixture",
-            "rationale": "a credential written into source is published the moment the repository is shared",
-            "fix": "read the value from the environment or a secrets manager; keep only a placeholder in code"
-          },
-          {
-            "rule": "no-silent-failure",
-            "attributes": [
-              "reliability"
-            ],
-            "severity": "error",
-            "module": null,
-            "path": "db/client.ts",
-            "line": 7,
-            "excerpt": "} catch (e) {}",
-            "rationale": "an empty handler converts a failure into a wrong answer that nothing reports",
-            "fix": "handle the error, rethrow it, or log it with enough context to diagnose"
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "df3c525adc62ef55a70688516dc96e8d0e7cec1a81dfcbf9fbcdf5fd1ce54ed0"
     },
     {
       "id": "adapters-list",
@@ -504,149 +293,8 @@
         "list"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "adapters": [
-          {
-            "id": "sast-semgrep",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "semgrep",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://semgrep.dev/docs/getting-started/",
-            "rationale": "Rule-based SAST that scans in seconds and accepts repository-specific rules. Weakest on cross-function logic flaws."
-          },
-          {
-            "id": "sca-osv-scanner",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "osv-scanner",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://google.github.io/osv-scanner/",
-            "rationale": "High-precision dependency scanning against the OSV database; fast and low-noise enough to run as a per-change gate."
-          },
-          {
-            "id": "scan-trivy",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "trivy",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://trivy.dev/latest/getting-started/installation/",
-            "rationale": "Breadth in one binary: dependencies, container images, IaC, secrets, licences. Better as a scheduled sweep than a per-change gate."
-          },
-          {
-            "id": "secrets-gitleaks",
-            "attributes": [
-              "security",
-              "privacy"
-            ],
-            "class": "security",
-            "executable": "gitleaks",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/gitleaks/gitleaks",
-            "rationale": "History-aware secret detection. Complements the built-in fitness rule, which only sees the current working tree."
-          },
-          {
-            "id": "sbom-syft",
-            "attributes": [
-              "security"
-            ],
-            "class": "integrity",
-            "executable": "syft",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/anchore/syft",
-            "rationale": "Produces the artifact inventory (SBOM) that later vulnerability rescans and provenance attestation depend on."
-          },
-          {
-            "id": "pii-presidio",
-            "attributes": [
-              "privacy"
-            ],
-            "class": "privacy",
-            "executable": "presidio",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://microsoft.github.io/presidio/",
-            "rationale": "Detects personal data in text and structured data. Its own docs state it cannot find everything; treat it as one layer, not a boundary."
-          },
-          {
-            "id": "mutation-stryker",
-            "attributes": [
-              "reliability"
-            ],
-            "class": "test",
-            "executable": "npx",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://stryker-mutator.io/",
-            "rationale": "Measures whether the tests would actually catch a defect. Run per change with incremental mode; a nightly-only signal arrives after the merge."
-          },
-          {
-            "id": "contract-schemathesis",
-            "attributes": [
-              "reliability"
-            ],
-            "class": "integration",
-            "executable": "schemathesis",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://schemathesis.readthedocs.io/",
-            "rationale": "Generates adversarial requests from the API schema, covering inputs no hand-written case would include."
-          },
-          {
-            "id": "load-k6",
-            "attributes": [
-              "availability",
-              "performance",
-              "resilience"
-            ],
-            "class": "runtime",
-            "executable": "k6",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://grafana.com/docs/k6/latest/set-up/install-k6/",
-            "rationale": "Asserts latency and error-rate objectives under load. Its result describes a deployed system, not the current diff."
-          },
-          {
-            "id": "iac-checkov",
-            "attributes": [
-              "security",
-              "availability"
-            ],
-            "class": "security",
-            "executable": "checkov",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://www.checkov.io/",
-            "rationale": "Infrastructure misconfiguration is where availability and security failures usually originate rather than in application code."
-          },
-          {
-            "id": "slo-openslo",
-            "attributes": [
-              "availability",
-              "reliability"
-            ],
-            "class": "static",
-            "executable": "oslo",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/OpenSLO/oslo",
-            "rationale": "Validates service level objectives declared as code so the availability target is reviewable and machine-readable."
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "e38c0922bf61f4b4ab82e6590fcda2d7cf19e58ec665d0ef8c5a0e659bd69f0b"
     },
     {
       "id": "adr-check",
@@ -654,120 +302,8 @@
         "adr-check"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "records": 6,
-        "machineEnforced": 2,
-        "manualOnly": [
-          "ADR-006"
-        ],
-        "retired": [
-          "ADR-005"
-        ],
-        "failing": [
-          {
-            "id": "ADR-002",
-            "source": "Architecture-Design.md",
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)",
-            "unrecognized": [
-              "always-pass"
-            ]
-          },
-          {
-            "id": "ADR-004",
-            "source": "Architecture-Design.md",
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)",
-            "unrecognized": [
-              "the team keeps an eye on it"
-            ]
-          }
-        ],
-        "details": [
-          {
-            "id": "ADR-001",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [
-              {
-                "kind": "harness",
-                "id": "arch-check"
-              }
-            ],
-            "manualOnly": false,
-            "unrecognized": [],
-            "reason": "machine-enforced"
-          },
-          {
-            "id": "ADR-002",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": false,
-            "machineEnforced": [],
-            "manualOnly": false,
-            "unrecognized": [
-              "always-pass"
-            ],
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)"
-          },
-          {
-            "id": "ADR-003",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [
-              {
-                "kind": "fitness-rule",
-                "id": "no-secret-literal"
-              }
-            ],
-            "manualOnly": false,
-            "unrecognized": [],
-            "reason": "machine-enforced"
-          },
-          {
-            "id": "ADR-004",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": false,
-            "machineEnforced": [],
-            "manualOnly": false,
-            "unrecognized": [
-              "the team keeps an eye on it"
-            ],
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)"
-          },
-          {
-            "id": "ADR-005",
-            "source": "Architecture-Design.md",
-            "status": "superseded",
-            "retired": true,
-            "ok": true,
-            "machineEnforced": [],
-            "manualOnly": false,
-            "unrecognized": [
-              "replaced by ADR-001"
-            ],
-            "reason": "retired; exempt"
-          },
-          {
-            "id": "ADR-006",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [],
-            "manualOnly": true,
-            "unrecognized": [],
-            "reason": "manual enforcement declared"
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "631be617179289df7fc6df302883c91c0039c013f4f065e9dc091dd7a9719bef"
     },
     {
       "id": "arch-trend",
@@ -947,23 +483,8 @@
         "start"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "path": ".claude/harness/state/task.json",
-        "task": {
-          "id": "golden-task",
-          "goal": "exercise the task envelope end to end",
-          "scope": "the sandbox fixture tree",
-          "outOfScope": "anything outside the sandbox",
-          "existingPattern": "core/util.ts",
-          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
-          "escalation": "stop and report if the catalog itself needs changing",
-          "state": "active",
-          "baseCommit": "<SHA>",
-          "startedAt": "<TS>"
-        }
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "2931052541569c27814907f2a294eeebce59d7faa9f9beea8df971812d8dd1e2"
     },
     {
       "id": "task-start--incomplete",
@@ -994,25 +515,8 @@
         "status"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "active": true,
-        "task": {
-          "id": "golden-task",
-          "goal": "exercise the task envelope end to end",
-          "scope": "the sandbox fixture tree",
-          "outOfScope": "anything outside the sandbox",
-          "existingPattern": "core/util.ts",
-          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
-          "escalation": "stop and report if the catalog itself needs changing",
-          "state": "active",
-          "baseCommit": "<SHA>",
-          "startedAt": "<TS>"
-        },
-        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "note": null
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "087c8c29df0d929b30578ab231fcc6cfaf77ac1e6b3a3d77f9807b15a147d878"
     },
     {
       "id": "task-complete",
@@ -1144,68 +648,12 @@
         "<SPEC>"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "coverage": 0,
-        "minCoverage": 1,
-        "total": 3,
-        "verified": 0,
-        "unverified": [
-          "REQ-IMPORT-001",
-          "REQ-REPORT-002",
-          "REQ-EXPORT-003"
-        ],
-        "unimplemented": [
-          "REQ-IMPORT-001",
-          "REQ-REPORT-002",
-          "REQ-EXPORT-003"
-        ],
-        "dangling": [],
-        "danglingCount": 0,
-        "danglingInDocs": [],
-        "danglingInDocsCount": 0,
-        "rows": [
-          {
-            "id": "REQ-IMPORT-001",
-            "line": 22,
-            "tests": [],
-            "testCount": 0,
-            "codeCount": 0,
-            "modules": [],
-            "verified": false,
-            "implemented": false
-          },
-          {
-            "id": "REQ-REPORT-002",
-            "line": 23,
-            "tests": [],
-            "testCount": 0,
-            "codeCount": 0,
-            "modules": [],
-            "verified": false,
-            "implemented": false
-          },
-          {
-            "id": "REQ-EXPORT-003",
-            "line": 26,
-            "tests": [],
-            "testCount": 0,
-            "codeCount": 0,
-            "modules": [],
-            "verified": false,
-            "implemented": false
-          }
-        ],
-        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
-        "scanned": 21,
-        "truncated": false,
-        "degraded": false
-      },
       "stderr": [
         " UNVERIFIED  REQ-IMPORT-001 :: no test file references this id",
         " UNVERIFIED  REQ-REPORT-002 :: no test file references this id",
         " UNVERIFIED  REQ-EXPORT-003 :: no test file references this id"
-      ]
+      ],
+      "stdoutSha256": "47121f1aec8ff8752d6e7a69b2f91f3881467326079e1499a58fbe23f3ebd67f"
     },
     {
       "id": "spec",
@@ -1233,25 +681,8 @@
         "600"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
-        "total": 3,
-        "narrowed": false,
-        "reason": "--all requested; the whole requirement section is in scope",
-        "affected": [],
-        "selected": [
-          "REQ-IMPORT-001",
-          "REQ-REPORT-002",
-          "REQ-EXPORT-003"
-        ],
-        "budget": 600,
-        "chars": 328,
-        "rendered": 3,
-        "omitted": 0,
-        "view": "# Requirements in scope (all)\n\n3 of 3 requirement(s) selected; --all requested; the whole requirement section is in scope.\n\n- [REQ-IMPORT-001] 账单导入：用户上传 CSV 文件 → 系统按列映射解析并写入账目表 → 页面展示导入条数与失败行清单\n- [REQ-REPORT-002] 月度报表：用户选择月份并点击「生成报表」→ 系统按部门与科目汇总当月账目 → 展示汇总表并提供 CSV 下载\n- [REQ-EXPORT-003] 明细导出：用户点击「导出全年」→ 系统打包全年账目为 CSV → 浏览器下载文件\n"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "a35a0f37a50e83412dff4f3cbc1dd4989cc78d1c6156616c2000eb0107ca8584"
     },
     {
       "id": "dod",
@@ -1259,192 +690,6 @@
         "dod"
       ],
       "exitCode": 2,
-      "stdout": {
-        "ok": false,
-        "steps": [
-          {
-            "id": "catalog-lint",
-            "argv": [
-              "catalog-lint"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "catalog-missing",
-            "counts": null
-          },
-          {
-            "id": "spec-lint",
-            "argv": [
-              "spec-lint"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "spec-missing",
-            "counts": null
-          },
-          {
-            "id": "trace",
-            "argv": [
-              "trace"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "spec-missing",
-            "counts": null
-          },
-          {
-            "id": "attributes",
-            "argv": [
-              "attributes"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "catalog-missing",
-            "counts": null
-          },
-          {
-            "id": "arch-check",
-            "argv": [
-              "arch-check"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "catalog-missing",
-            "counts": null
-          },
-          {
-            "id": "adr-check",
-            "argv": [
-              "adr-check"
-            ],
-            "blocking": true,
-            "status": "FAIL",
-            "exit": 1,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "fitness",
-            "argv": [
-              "fitness",
-              "--all"
-            ],
-            "blocking": true,
-            "status": "FAIL",
-            "exit": 1,
-            "error": null,
-            "counts": {
-              "error": 7,
-              "warning": 1,
-              "info": 0
-            }
-          },
-          {
-            "id": "ledger",
-            "argv": [
-              "ledger"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "arch-trend",
-            "argv": [
-              "arch-trend",
-              "--gate"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "rules-audit",
-            "argv": [
-              "rules-audit"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "no-rules",
-            "counts": null
-          },
-          {
-            "id": "skills-lint",
-            "argv": [
-              "skills-lint"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "claude-md-lint",
-            "argv": [
-              "claude-md-lint"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "catalog-missing",
-            "counts": null
-          },
-          {
-            "id": "tier",
-            "argv": [
-              "tier",
-              "validate"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "risk",
-            "argv": [
-              "risk"
-            ],
-            "blocking": false,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": {
-              "error": 0,
-              "warning": 0
-            }
-          },
-          {
-            "id": "budget",
-            "argv": [
-              "budget"
-            ],
-            "blocking": false,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "catalog-missing",
-            "counts": null
-          }
-        ],
-        "blockingFailures": [
-          "adr-check",
-          "fitness"
-        ],
-        "established": 5,
-        "note": "static governance only; a satisfied result does not establish that the code works -- that is `gate`"
-      },
       "stderr": [
         " DEGRADED catalog-lint :: catalog-missing",
         " DEGRADED spec-lint :: spec-missing",
@@ -1462,7 +707,8 @@
         " PASS     risk",
         " DEGRADED budget :: catalog-missing",
         "Definition of Done: NOT satisfied (adr-check, fitness)"
-      ]
+      ],
+      "stdoutSha256": "bb118af5be06aa1d89622b65af157025b213edba5d325394bcf5e97355d03154"
     },
     {
       "id": "release",
@@ -1470,128 +716,6 @@
         "release"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "checks": [
-          {
-            "id": "worktree",
-            "status": "FAIL",
-            "blocking": true,
-            "summary": "4 uncommitted path(s); what would ship is not what was tested",
-            "evidence": {
-              "dirty": 4,
-              "paths": [
-                "api/new-route.ts",
-                "auth/login.ts",
-                "core/util.ts",
-                "db/server.pem"
-              ]
-            },
-            "nextStep": "git status --porcelain"
-          },
-          {
-            "id": "remote",
-            "status": "DEGRADED",
-            "blocking": true,
-            "summary": "no origin remote; local vs remote is UNKNOWN, which is not a pass",
-            "evidence": {
-              "branch": "main"
-            },
-            "nextStep": null
-          },
-          {
-            "id": "dod",
-            "status": "FAIL",
-            "blocking": true,
-            "summary": "blocking step(s) failed: adr-check, fitness",
-            "evidence": {
-              "exit": 2,
-              "steps": 15,
-              "blockingFailures": [
-                "adr-check",
-                "fitness"
-              ]
-            },
-            "nextStep": "node .claude/harness/harness.mjs dod --only adr-check,fitness"
-          },
-          {
-            "id": "manifest",
-            "status": "DEGRADED",
-            "blocking": true,
-            "summary": "no .claude/FRAMEWORK-MANIFEST.txt; this tree does not distribute a framework layer",
-            "evidence": null,
-            "nextStep": null
-          },
-          {
-            "id": "review-queue",
-            "status": "PASS",
-            "blocking": true,
-            "summary": "nothing waiting for review",
-            "evidence": {
-              "pending": 0
-            },
-            "nextStep": null
-          },
-          {
-            "id": "tier",
-            "status": "PASS",
-            "blocking": true,
-            "summary": "standard; the review and test gates were in force",
-            "evidence": {
-              "tier": "standard",
-              "source": "default",
-              "active": false
-            },
-            "nextStep": null
-          },
-          {
-            "id": "ci",
-            "status": "DEGRADED",
-            "blocking": true,
-            "summary": "no origin remote, so CI status is UNKNOWN -- unknown is not a pass",
-            "evidence": {
-              "head": "4818a1bd49a03b4f609ae27d81b54ad56374997b"
-            },
-            "nextStep": null
-          },
-          {
-            "id": "gate-fresh",
-            "status": "DEGRADED",
-            "blocking": true,
-            "summary": "no module catalog, so there is no verification gate for this tree to be fresh against",
-            "evidence": {
-              "catalog": "catalog-missing"
-            },
-            "nextStep": null
-          }
-        ],
-        "blockers": [
-          {
-            "id": "worktree",
-            "why": "4 uncommitted path(s); what would ship is not what was tested",
-            "nextStep": "git status --porcelain"
-          },
-          {
-            "id": "dod",
-            "why": "blocking step(s) failed: adr-check, fitness",
-            "nextStep": "node .claude/harness/harness.mjs dod --only adr-check,fitness"
-          }
-        ],
-        "degradedChecks": [
-          "remote",
-          "manifest",
-          "ci",
-          "gate-fresh"
-        ],
-        "established": 4,
-        "trustBoundary": {
-          "producerIdentityAuthenticated": false,
-          "ciProvenanceVerified": false,
-          "externalSignatureVerified": false,
-          "releaseAuthorized": false
-        },
-        "note": "assembly only: this command never tags, pushes, publishes or writes -- releasing stays a human decision"
-      },
       "stderr": [
         " FAIL     worktree      4 uncommitted path(s); what would ship is not what was tested",
         " DEGRADED remote        no origin remote; local vs remote is UNKNOWN, which is not a pass",
@@ -1605,7 +729,8 @@
         "   worktree -> git status --porcelain",
         "   dod -> node .claude/harness/harness.mjs dod --only adr-check,fitness",
         "Trust boundary: this is a release candidate attestation, not a release authorization -- producer identity, CI provenance and external signatures are all unverified here"
-      ]
+      ],
+      "stdoutSha256": "b19457f6b8ce0465460e09a62b5626fd778cd0e5e41e812b31b6b050c88f9279"
     },
     {
       "id": "review-pack",
@@ -1695,38 +820,8 @@
         "team"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "sub": "team",
-        "profile": "team",
-        "catalogPresent": false,
-        "affected": null,
-        "convened": [
-          {
-            "lens": "correctness",
-            "stage": 1,
-            "asks": "does it do what the requirement says, at the boundaries and in the error paths, not only on the happy path"
-          },
-          {
-            "lens": "testing",
-            "stage": 2,
-            "asks": "does a test fail without the fix, is every case reachable from an anchor, is a failure classified rather than retried"
-          },
-          {
-            "lens": "architecture",
-            "stage": 1,
-            "asks": "is the change inside its declared boundary, is every new edge in the catalog, does it respect the layer direction"
-          }
-        ],
-        "excluded": [],
-        "stages": {
-          "1": "code",
-          "2": "functional",
-          "3": "trust"
-        },
-        "maxRounds": 3
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "7e2fcd3786a2bb17b2f1396a3a317922fcabd512f77bc77ea8bd39d51871c9ae"
     },
     {
       "id": "review-start",
@@ -1874,37 +969,8 @@
         "status"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "sub": "status",
-        "stale": false,
-        "diffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "sessionDiffHash": "2eafce438fadf3ecf550813339b7c8628b4533c69515c9eab5991460462a3f5c",
-        "startedAt": "<TS>",
-        "profile": "team",
-        "catalogPresent": false,
-        "stage": 1,
-        "stageName": "code",
-        "requiredLenses": [
-          "correctness",
-          "testing",
-          "architecture"
-        ],
-        "reportedLenses": [
-          "correctness"
-        ],
-        "missingLenses": [
-          "architecture"
-        ],
-        "blue": true,
-        "round": 1,
-        "backlog": 0,
-        "verdict": null,
-        "authorshipEnforced": true,
-        "authorshipReason": null,
-        "lensesWithoutAgent": []
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "f9d6af6390be64b01425317eed7f26f37dcba86a8286d234414ee46e4351e017"
     },
     {
       "id": "review-backlog-add--protected",
@@ -1989,47 +1055,11 @@
         "golden-judge"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "sub": "verdict",
-        "verdict": null,
-        "blockers": [
-          "stage 1 (code) lens(es) never reported: architecture; a review that did not look cannot conclude"
-        ],
-        "stage": 1,
-        "stageName": "code",
-        "isFinal": false,
-        "round": 1,
-        "maxRounds": 3,
-        "escalate": false,
-        "errors": [],
-        "errorCount": 0,
-        "unableLenses": [],
-        "missingLenses": [
-          "architecture"
-        ],
-        "selfReviewed": [],
-        "requiredLenses": [
-          "correctness",
-          "testing",
-          "architecture"
-        ],
-        "recordedLenses": [
-          "correctness"
-        ],
-        "at": "<TS>",
-        "authorshipEnforced": true,
-        "authorshipReason": null,
-        "lensesWithoutAgent": [],
-        "authors": [
-          "golden-implementer"
-        ],
-        "advice": "no verdict: a review that did not look cannot conclude"
-      },
       "stderr": [
         "  BLOCKER  stage 1 (code) lens(es) never reported: architecture; a review that did not look cannot conclude",
         "no verdict: a review that did not look cannot conclude"
-      ]
+      ],
+      "stdoutSha256": "6e1a4cdc7e85d0c8574476ef287a9c861b4ad1519fe98bf14ffac7abe93eb5df"
     },
     {
       "id": "review-lens--by-author",
@@ -2062,55 +1092,11 @@
         "golden-judge"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "sub": "verdict",
-        "verdict": null,
-        "blockers": [
-          "stage 1 (code) lens(es) never reported: architecture; a review that did not look cannot conclude"
-        ],
-        "stage": 1,
-        "stageName": "code",
-        "isFinal": false,
-        "round": 1,
-        "maxRounds": 3,
-        "escalate": false,
-        "errors": [],
-        "errorCount": 0,
-        "unableLenses": [],
-        "missingLenses": [
-          "architecture"
-        ],
-        "selfReviewed": [
-          {
-            "lens": "correctness",
-            "agentId": "golden-implementer",
-            "files": [
-              "core/util.ts"
-            ]
-          }
-        ],
-        "requiredLenses": [
-          "correctness",
-          "testing",
-          "architecture"
-        ],
-        "recordedLenses": [
-          "correctness"
-        ],
-        "at": "<TS>",
-        "authorshipEnforced": true,
-        "authorshipReason": null,
-        "lensesWithoutAgent": [],
-        "authors": [
-          "golden-implementer"
-        ],
-        "advice": "no verdict: the review happened, but part of it was carried by the author of the change; have an agent that did not write these files report correctness again"
-      },
       "stderr": [
         "  BLOCKER  stage 1 (code) lens(es) never reported: architecture; a review that did not look cannot conclude",
         "no verdict: the review happened, but part of it was carried by the author of the change; have an agent that did not write these files report correctness again"
-      ]
+      ],
+      "stdoutSha256": "a8f0585298501d257a8b3de1e8163171c1bc7d59270cf5ce755a96d7aa0720bb"
     },
     {
       "id": "invariants",
@@ -2118,46 +1104,8 @@
         "invariants"
       ],
       "exitCode": 3,
-      "stdout": {
-        "ok": false,
-        "degraded": true,
-        "budget": 1200,
-        "chars": 296,
-        "omitted": 0,
-        "sources": {
-          "rules": null,
-          "progress": null
-        },
-        "missing": [
-          ".claude/CLAUDE.md (missing)",
-          "progress.md (missing)"
-        ],
-        "counts": {
-          "laws": 0,
-          "pinned": 0
-        },
-        "laws": [],
-        "pinned": [],
-        "state": {
-          "task": {
-            "id": "golden-task",
-            "state": "active",
-            "stale": false
-          },
-          "fastMode": {
-            "tier": "standard",
-            "source": "default",
-            "active": false,
-            "remainingHours": null
-          },
-          "gate": null,
-          "ledger": "empty",
-          "pendingReview": 0
-        },
-        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n## State of this tree now\n- active task: golden-task (active)\n- tier: standard (default)\n- last gate: never run\n- evidence ledger: empty\n- pending review: 0 file(s)\n\n",
-        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "373315d0fb944dd0f4d996a39aed3a7ed5c0357bae42cffa62cb51caf10ad2f1"
     },
     {
       "id": "invariants--budget",
@@ -2167,46 +1115,8 @@
         "200"
       ],
       "exitCode": 3,
-      "stdout": {
-        "ok": false,
-        "degraded": true,
-        "budget": 200,
-        "chars": 206,
-        "omitted": 5,
-        "sources": {
-          "rules": null,
-          "progress": null
-        },
-        "missing": [
-          ".claude/CLAUDE.md (missing)",
-          "progress.md (missing)"
-        ],
-        "counts": {
-          "laws": 0,
-          "pinned": 0
-        },
-        "laws": [],
-        "pinned": [],
-        "state": {
-          "task": {
-            "id": "golden-task",
-            "state": "active",
-            "stale": false
-          },
-          "fastMode": {
-            "tier": "standard",
-            "source": "default",
-            "active": false,
-            "remainingHours": null
-          },
-          "gate": null,
-          "ledger": "empty",
-          "pendingReview": 0
-        },
-        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n(5 item(s) omitted by the 200-char budget; raise --budget or read the file)\n",
-        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "a2c1bac028b3bc76266395e1a86538983067750d0fa8466587d71c8c9a79f8a6"
     },
     {
       "id": "recap",
@@ -2349,96 +1259,6 @@
         "init"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "applied": false,
-        "path": ".claude/harness/module-catalog.json",
-        "catalogPresent": false,
-        "trackedPaths": 21,
-        "granularity": "fine",
-        "maxModules": 50,
-        "overBudget": false,
-        "modules": 3,
-        "globalPaths": 2,
-        "ignoredPaths": 4,
-        "sourceIgnored": 1,
-        "rescued": 0,
-        "referenceEdges": [
-          {
-            "from": "api",
-            "to": "auth",
-            "evidence": [
-              "api/server.ts: ../auth/login"
-            ]
-          },
-          {
-            "from": "auth",
-            "to": "core",
-            "evidence": [
-              "auth/login.ts: ../core/util"
-            ]
-          }
-        ],
-        "referenceScan": {
-          "scanned": 15,
-          "unresolved": 6,
-          "truncated": false
-        },
-        "lint": {
-          "ok": true,
-          "errors": [],
-          "errorsOmitted": 0,
-          "warnings": [],
-          "stats": {
-            "modules": 3,
-            "trackedPaths": 21,
-            "unmapped": 0,
-            "overlaps": 0
-          }
-        },
-        "draft": {
-          "version": 1,
-          "_generated": {
-            "by": "harness.mjs init",
-            "reviewed": false,
-            "note": "drafted by harness.mjs init from the tracked file tree; riskTier is a placeholder, attributes / dependsOn / layer / forbiddenDependencies are decisions a human still owes this file"
-          },
-          "modules": [
-            {
-              "id": "api",
-              "paths": [
-                "api/**"
-              ],
-              "riskTier": "low"
-            },
-            {
-              "id": "auth",
-              "paths": [
-                "auth/**"
-              ],
-              "riskTier": "low"
-            },
-            {
-              "id": "core",
-              "paths": [
-                "core/**"
-              ],
-              "riskTier": "low"
-            }
-          ],
-          "global": [
-            "package.json",
-            "tsconfig.base.json"
-          ],
-          "ignored": [
-            "Architecture-Design.md",
-            "README.md",
-            "db/**",
-            "docs/**"
-          ]
-        },
-        "note": "dry run; rerun with --apply to write .claude/harness/module-catalog.json"
-      },
       "stderr": [
         "init: 3 module(s), 2 global path(s), 4 ignored path(s), from 21 tracked path(s) [fine]",
         "  module api  api/**  2 file(s)",
@@ -2449,7 +1269,8 @@
         "  edge api -> auth  api/server.ts: ../auth/login",
         "  edge auth -> core  auth/login.ts: ../core/util",
         "init: 1 source file(s) landed in ignored (single-file or non-source directories); promote the ones that are really modules"
-      ]
+      ],
+      "stdoutSha256": "f9ac9d841e7cea94ea7708de5961ddc401e8211f7e14e31cdc10cd10a006f40f"
     },
     {
       "id": "receipt-verify--missing",

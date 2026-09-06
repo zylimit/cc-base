@@ -7,62 +7,8 @@
         "doctor"
       ],
       "exitCode": 0,
-      "stdout": {
-        "node": "<NODE>",
-        "catalogPresent": true,
-        "gitRepo": false,
-        "headCommit": null,
-        "harnessDir": ".claude/harness",
-        "subcommands": [
-          "doctor",
-          "diff-hash",
-          "selftest",
-          "catalog-lint",
-          "impact",
-          "context-pack",
-          "receipt",
-          "verify",
-          "waiver",
-          "attributes",
-          "arch-check",
-          "fitness",
-          "adapters",
-          "adr-check",
-          "arch-trend",
-          "gate",
-          "ledger",
-          "gate-audit",
-          "retention",
-          "risk",
-          "task",
-          "budget",
-          "spec-lint",
-          "trace",
-          "spec",
-          "dod",
-          "review",
-          "review-pack",
-          "authorship",
-          "invariants",
-          "recap",
-          "archive",
-          "sync-check",
-          "rules-audit",
-          "skills-lint",
-          "claude-md-lint",
-          "init",
-          "cochange",
-          "release",
-          "tier"
-        ],
-        "waiversDirExists": true,
-        "activeWaivers": 1,
-        "attributesDeclared": 5,
-        "modulesWithLayer": 4,
-        "forbiddenEdges": 1,
-        "adaptersPresent": true
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "dfe37c801453b0c35313618880337ffb28a02efbfe4e5bc982f0807eaf37add4"
     },
     {
       "id": "diff-hash",
@@ -193,37 +139,8 @@
         "golden-task"
       ],
       "exitCode": 3,
-      "stdout": {
-        "budgets": {
-          "maxTotalChars": 120000,
-          "maxFiles": 40,
-          "maxFileChars": 6000,
-          "maxDiffChars": 40000
-        },
-        "diffHash": "0327d770fbe2b75b613c859dae87ad27100f36d43d365142ff76f5d4ffd93c59",
-        "included": [
-          {
-            "path": "<task-envelope>",
-            "bytes": 22,
-            "reason": "envelope"
-          },
-          {
-            "path": "<canonical-diff>",
-            "bytes": 7,
-            "reason": "diff"
-          }
-        ],
-        "denied": [],
-        "affected": [
-          "core",
-          "db",
-          "auth",
-          "api"
-        ],
-        "degraded": true,
-        "packHash": "82fa512aef7ca121a27c6e380d448978d41d5dd0be38c3cfde9f9a2ee9e75ac8"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "5e70d12853b8283af0f15188ab2d1b447621a6eebbdc404c75f5497efb59cca6"
     },
     {
       "id": "receipt-write",
@@ -332,61 +249,8 @@
         "attributes"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "declared": 5,
-        "byTier": {
-          "medium": 2,
-          "high": 2,
-          "critical": 1
-        },
-        "unwiredBlocking": 2,
-        "attributes": [
-          {
-            "module": "core",
-            "attribute": "reliability",
-            "tier": "medium",
-            "enforcement": "warn",
-            "wired": [
-              "always-pass"
-            ]
-          },
-          {
-            "module": "db",
-            "attribute": "privacy",
-            "tier": "high",
-            "enforcement": "block",
-            "wired": [],
-            "gap": "declared but no claiming check is wired"
-          },
-          {
-            "module": "auth",
-            "attribute": "security",
-            "tier": "critical",
-            "enforcement": "block",
-            "wired": [
-              "absent-binary"
-            ]
-          },
-          {
-            "module": "auth",
-            "attribute": "safety",
-            "tier": "high",
-            "enforcement": "block",
-            "wired": [],
-            "gap": "declared but no claiming check is wired"
-          },
-          {
-            "module": "api",
-            "attribute": "resilience",
-            "tier": "medium",
-            "enforcement": "warn",
-            "wired": [],
-            "gap": "declared but no claiming check is wired"
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "045435ac546d1addb1e8258deadc6c863f1959915f358288c717ed42a0d23953"
     },
     {
       "id": "arch-check",
@@ -474,149 +338,8 @@
         "list"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "adapters": [
-          {
-            "id": "sast-semgrep",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "semgrep",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://semgrep.dev/docs/getting-started/",
-            "rationale": "Rule-based SAST that scans in seconds and accepts repository-specific rules. Weakest on cross-function logic flaws."
-          },
-          {
-            "id": "sca-osv-scanner",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "osv-scanner",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://google.github.io/osv-scanner/",
-            "rationale": "High-precision dependency scanning against the OSV database; fast and low-noise enough to run as a per-change gate."
-          },
-          {
-            "id": "scan-trivy",
-            "attributes": [
-              "security"
-            ],
-            "class": "security",
-            "executable": "trivy",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://trivy.dev/latest/getting-started/installation/",
-            "rationale": "Breadth in one binary: dependencies, container images, IaC, secrets, licences. Better as a scheduled sweep than a per-change gate."
-          },
-          {
-            "id": "secrets-gitleaks",
-            "attributes": [
-              "security",
-              "privacy"
-            ],
-            "class": "security",
-            "executable": "gitleaks",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/gitleaks/gitleaks",
-            "rationale": "History-aware secret detection. Complements the built-in fitness rule, which only sees the current working tree."
-          },
-          {
-            "id": "sbom-syft",
-            "attributes": [
-              "security"
-            ],
-            "class": "integrity",
-            "executable": "syft",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/anchore/syft",
-            "rationale": "Produces the artifact inventory (SBOM) that later vulnerability rescans and provenance attestation depend on."
-          },
-          {
-            "id": "pii-presidio",
-            "attributes": [
-              "privacy"
-            ],
-            "class": "privacy",
-            "executable": "presidio",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://microsoft.github.io/presidio/",
-            "rationale": "Detects personal data in text and structured data. Its own docs state it cannot find everything; treat it as one layer, not a boundary."
-          },
-          {
-            "id": "mutation-stryker",
-            "attributes": [
-              "reliability"
-            ],
-            "class": "test",
-            "executable": "npx",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://stryker-mutator.io/",
-            "rationale": "Measures whether the tests would actually catch a defect. Run per change with incremental mode; a nightly-only signal arrives after the merge."
-          },
-          {
-            "id": "contract-schemathesis",
-            "attributes": [
-              "reliability"
-            ],
-            "class": "integration",
-            "executable": "schemathesis",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://schemathesis.readthedocs.io/",
-            "rationale": "Generates adversarial requests from the API schema, covering inputs no hand-written case would include."
-          },
-          {
-            "id": "load-k6",
-            "attributes": [
-              "availability",
-              "performance",
-              "resilience"
-            ],
-            "class": "runtime",
-            "executable": "k6",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://grafana.com/docs/k6/latest/set-up/install-k6/",
-            "rationale": "Asserts latency and error-rate objectives under load. Its result describes a deployed system, not the current diff."
-          },
-          {
-            "id": "iac-checkov",
-            "attributes": [
-              "security",
-              "availability"
-            ],
-            "class": "security",
-            "executable": "checkov",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://www.checkov.io/",
-            "rationale": "Infrastructure misconfiguration is where availability and security failures usually originate rather than in application code."
-          },
-          {
-            "id": "slo-openslo",
-            "attributes": [
-              "availability",
-              "reliability"
-            ],
-            "class": "static",
-            "executable": "oslo",
-            "available": "<ENV>",
-            "wired": false,
-            "install": "https://github.com/OpenSLO/oslo",
-            "rationale": "Validates service level objectives declared as code so the availability target is reviewable and machine-readable."
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "e38c0922bf61f4b4ab82e6590fcda2d7cf19e58ec665d0ef8c5a0e659bd69f0b"
     },
     {
       "id": "adr-check",
@@ -624,115 +347,8 @@
         "adr-check"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "records": 6,
-        "machineEnforced": 3,
-        "manualOnly": [
-          "ADR-006"
-        ],
-        "retired": [
-          "ADR-005"
-        ],
-        "failing": [
-          {
-            "id": "ADR-004",
-            "source": "Architecture-Design.md",
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)",
-            "unrecognized": [
-              "the team keeps an eye on it"
-            ]
-          }
-        ],
-        "details": [
-          {
-            "id": "ADR-001",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [
-              {
-                "kind": "harness",
-                "id": "arch-check"
-              }
-            ],
-            "manualOnly": false,
-            "unrecognized": [],
-            "reason": "machine-enforced"
-          },
-          {
-            "id": "ADR-002",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [
-              {
-                "kind": "check",
-                "id": "always-pass"
-              }
-            ],
-            "manualOnly": false,
-            "unrecognized": [],
-            "reason": "machine-enforced"
-          },
-          {
-            "id": "ADR-003",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [
-              {
-                "kind": "fitness-rule",
-                "id": "no-secret-literal"
-              }
-            ],
-            "manualOnly": false,
-            "unrecognized": [],
-            "reason": "machine-enforced"
-          },
-          {
-            "id": "ADR-004",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": false,
-            "machineEnforced": [],
-            "manualOnly": false,
-            "unrecognized": [
-              "the team keeps an eye on it"
-            ],
-            "reason": "names nothing recognizable (phantom reference reads as enforced but is not)"
-          },
-          {
-            "id": "ADR-005",
-            "source": "Architecture-Design.md",
-            "status": "superseded",
-            "retired": true,
-            "ok": true,
-            "machineEnforced": [],
-            "manualOnly": false,
-            "unrecognized": [
-              "replaced by ADR-001"
-            ],
-            "reason": "retired; exempt"
-          },
-          {
-            "id": "ADR-006",
-            "source": "Architecture-Design.md",
-            "status": "accepted",
-            "retired": false,
-            "ok": true,
-            "machineEnforced": [],
-            "manualOnly": true,
-            "unrecognized": [],
-            "reason": "manual enforcement declared"
-          }
-        ]
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "2ed517e55fc594f1bb5b0e5a12eb77d083cf332adce01c9d368037be3b917800"
     },
     {
       "id": "arch-trend",
@@ -854,25 +470,8 @@
         "gate-audit"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "scope": "catalog checks in the harness ledger (hook gates are audited by .claude/scripts/gate-audit.sh)",
-        "gateRuns": 0,
-        "declaredChecks": 3,
-        "neverIntervened": [
-          "absent-binary",
-          "always-fail",
-          "always-pass"
-        ],
-        "neverExecuted": [
-          "absent-binary",
-          "always-fail",
-          "always-pass"
-        ],
-        "suppressed": [],
-        "advice": "These checks have never failed or blocked. Either they are genuinely stable, or they never actually run. Confirm with evidence before keeping them -- a gate that has caught nothing is cost plus false confidence."
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "ec51361048d8aa95df582970afbb0f6d160b45c094b8c7cde69ab0e222767314"
     },
     {
       "id": "retention",
@@ -921,23 +520,8 @@
         "start"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "path": ".claude/harness/state/task.json",
-        "task": {
-          "id": "golden-task",
-          "goal": "exercise the task envelope end to end",
-          "scope": "the sandbox fixture tree",
-          "outOfScope": "anything outside the sandbox",
-          "existingPattern": "core/util.ts",
-          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
-          "escalation": "stop and report if the catalog itself needs changing",
-          "state": "active",
-          "baseCommit": null,
-          "startedAt": "<TS>"
-        }
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "d6c17c331788927505194c7ba928766158a9b7243a36b2021e12256ab4bd274e"
     },
     {
       "id": "task-start--incomplete",
@@ -968,25 +552,8 @@
         "status"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "active": true,
-        "task": {
-          "id": "golden-task",
-          "goal": "exercise the task envelope end to end",
-          "scope": "the sandbox fixture tree",
-          "outOfScope": "anything outside the sandbox",
-          "existingPattern": "core/util.ts",
-          "verification": "harness.mjs gate -> expect exit 0 and gate PASS",
-          "escalation": "stop and report if the catalog itself needs changing",
-          "state": "active",
-          "baseCommit": null,
-          "startedAt": "<TS>"
-        },
-        "diffHash": null,
-        "note": null
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "85dab0393884f422150336c5e99e0c9b2bf2da8e4ad9aea399e3baf8e1fd0042"
     },
     {
       "id": "task-complete",
@@ -1027,36 +594,11 @@
         "risk"
       ],
       "exitCode": 1,
-      "stdout": {
-        "ok": false,
-        "findings": [
-          {
-            "severity": "error",
-            "code": "UNWIRED_ATTRIBUTE",
-            "module": "db",
-            "attribute": "privacy",
-            "tier": "high",
-            "message": "module \"db\" declares privacy at tier high but no check in its verification plan claims that attribute"
-          },
-          {
-            "severity": "error",
-            "code": "UNWIRED_ATTRIBUTE",
-            "module": "auth",
-            "attribute": "safety",
-            "tier": "high",
-            "message": "module \"auth\" declares safety at tier high but no check in its verification plan claims that attribute"
-          }
-        ],
-        "counts": {
-          "error": 2,
-          "warning": 0
-        },
-        "catalogPresent": true
-      },
       "stderr": [
         "UNWIRED_ATTRIBUTE: module \"db\" declares privacy at tier high but no check in its verification plan claims that attribute",
         "UNWIRED_ATTRIBUTE: module \"auth\" declares safety at tier high but no check in its verification plan claims that attribute"
-      ]
+      ],
+      "stdoutSha256": "01a25c42296864d3320f703c183367197f0b6063f83ee5e7dfd7b83f9dd9dcbb"
     },
     {
       "id": "spec-lint",
@@ -1179,25 +721,8 @@
         "600"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "file": "<ROOT>/.claude/tests/fixtures/golden/product-spec-sample.md",
-        "total": 3,
-        "narrowed": false,
-        "reason": "--all requested; the whole requirement section is in scope",
-        "affected": [],
-        "selected": [
-          "REQ-IMPORT-001",
-          "REQ-REPORT-002",
-          "REQ-EXPORT-003"
-        ],
-        "budget": 600,
-        "chars": 328,
-        "rendered": 3,
-        "omitted": 0,
-        "view": "# Requirements in scope (all)\n\n3 of 3 requirement(s) selected; --all requested; the whole requirement section is in scope.\n\n- [REQ-IMPORT-001] 账单导入：用户上传 CSV 文件 → 系统按列映射解析并写入账目表 → 页面展示导入条数与失败行清单\n- [REQ-REPORT-002] 月度报表：用户选择月份并点击「生成报表」→ 系统按部门与科目汇总当月账目 → 展示汇总表并提供 CSV 下载\n- [REQ-EXPORT-003] 明细导出：用户点击「导出全年」→ 系统打包全年账目为 CSV → 浏览器下载文件\n"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "a35a0f37a50e83412dff4f3cbc1dd4989cc78d1c6156616c2000eb0107ca8584"
     },
     {
       "id": "dod",
@@ -1205,188 +730,6 @@
         "dod"
       ],
       "exitCode": 2,
-      "stdout": {
-        "ok": false,
-        "steps": [
-          {
-            "id": "catalog-lint",
-            "argv": [
-              "catalog-lint"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "spec-lint",
-            "argv": [
-              "spec-lint"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "spec-missing",
-            "counts": null
-          },
-          {
-            "id": "trace",
-            "argv": [
-              "trace"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "spec-missing",
-            "counts": null
-          },
-          {
-            "id": "attributes",
-            "argv": [
-              "attributes"
-            ],
-            "blocking": true,
-            "status": "FAIL",
-            "exit": 1,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "arch-check",
-            "argv": [
-              "arch-check"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "non-git",
-            "counts": null
-          },
-          {
-            "id": "adr-check",
-            "argv": [
-              "adr-check"
-            ],
-            "blocking": true,
-            "status": "FAIL",
-            "exit": 1,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "fitness",
-            "argv": [
-              "fitness",
-              "--all"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "non-git",
-            "counts": null
-          },
-          {
-            "id": "ledger",
-            "argv": [
-              "ledger"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "arch-trend",
-            "argv": [
-              "arch-trend",
-              "--gate"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "rules-audit",
-            "argv": [
-              "rules-audit"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "no-rules",
-            "counts": null
-          },
-          {
-            "id": "skills-lint",
-            "argv": [
-              "skills-lint"
-            ],
-            "blocking": true,
-            "status": "PASS",
-            "exit": 0,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "claude-md-lint",
-            "argv": [
-              "claude-md-lint"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": "non-git",
-            "counts": null
-          },
-          {
-            "id": "tier",
-            "argv": [
-              "tier",
-              "validate"
-            ],
-            "blocking": true,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": null,
-            "counts": null
-          },
-          {
-            "id": "risk",
-            "argv": [
-              "risk"
-            ],
-            "blocking": false,
-            "status": "FAIL",
-            "exit": 1,
-            "error": null,
-            "counts": {
-              "error": 2,
-              "warning": 0
-            }
-          },
-          {
-            "id": "budget",
-            "argv": [
-              "budget"
-            ],
-            "blocking": false,
-            "status": "DEGRADED",
-            "exit": 3,
-            "error": null,
-            "counts": null
-          }
-        ],
-        "blockingFailures": [
-          "attributes",
-          "adr-check"
-        ],
-        "established": 6,
-        "note": "static governance only; a satisfied result does not establish that the code works -- that is `gate`"
-      },
       "stderr": [
         " PASS     catalog-lint",
         " DEGRADED spec-lint :: spec-missing",
@@ -1404,7 +747,8 @@
         " FAIL     risk",
         " DEGRADED budget",
         "Definition of Done: NOT satisfied (attributes, adr-check)"
-      ]
+      ],
+      "stdoutSha256": "0385d770edb5fb6db110638714ee1d5184d297c4cc8a0af5f71a1addefd735d4"
     },
     {
       "id": "release",
@@ -1492,38 +836,8 @@
         "team"
       ],
       "exitCode": 0,
-      "stdout": {
-        "ok": true,
-        "sub": "team",
-        "profile": "team",
-        "catalogPresent": true,
-        "affected": null,
-        "convened": [
-          {
-            "lens": "correctness",
-            "stage": 1,
-            "asks": "does it do what the requirement says, at the boundaries and in the error paths, not only on the happy path"
-          },
-          {
-            "lens": "testing",
-            "stage": 2,
-            "asks": "does a test fail without the fix, is every case reachable from an anchor, is a failure classified rather than retried"
-          },
-          {
-            "lens": "architecture",
-            "stage": 1,
-            "asks": "is the change inside its declared boundary, is every new edge in the catalog, does it respect the layer direction"
-          }
-        ],
-        "excluded": [],
-        "stages": {
-          "1": "code",
-          "2": "functional",
-          "3": "trust"
-        },
-        "maxRounds": 3
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "680f4959ee3ac3ae627abadfa82b26edc2eaaea76e0668379d88325fe02fbdd8"
     },
     {
       "id": "review-start",
@@ -1774,46 +1088,8 @@
         "invariants"
       ],
       "exitCode": 3,
-      "stdout": {
-        "ok": false,
-        "degraded": true,
-        "budget": 1200,
-        "chars": 296,
-        "omitted": 0,
-        "sources": {
-          "rules": null,
-          "progress": null
-        },
-        "missing": [
-          ".claude/CLAUDE.md (missing)",
-          "progress.md (missing)"
-        ],
-        "counts": {
-          "laws": 0,
-          "pinned": 0
-        },
-        "laws": [],
-        "pinned": [],
-        "state": {
-          "task": {
-            "id": "golden-task",
-            "state": "active",
-            "stale": false
-          },
-          "fastMode": {
-            "tier": "standard",
-            "source": "default",
-            "active": false,
-            "remainingHours": null
-          },
-          "gate": null,
-          "ledger": "empty",
-          "pendingReview": 0
-        },
-        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n## State of this tree now\n- active task: golden-task (active)\n- tier: standard (default)\n- last gate: never run\n- evidence ledger: empty\n- pending review: 0 file(s)\n\n",
-        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "373315d0fb944dd0f4d996a39aed3a7ed5c0357bae42cffa62cb51caf10ad2f1"
     },
     {
       "id": "invariants--budget",
@@ -1823,46 +1099,8 @@
         "200"
       ],
       "exitCode": 3,
-      "stdout": {
-        "ok": false,
-        "degraded": true,
-        "budget": 200,
-        "chars": 206,
-        "omitted": 5,
-        "sources": {
-          "rules": null,
-          "progress": null
-        },
-        "missing": [
-          ".claude/CLAUDE.md (missing)",
-          "progress.md (missing)"
-        ],
-        "counts": {
-          "laws": 0,
-          "pinned": 0
-        },
-        "laws": [],
-        "pinned": [],
-        "state": {
-          "task": {
-            "id": "golden-task",
-            "state": "active",
-            "stale": false
-          },
-          "fastMode": {
-            "tier": "standard",
-            "source": "default",
-            "active": false,
-            "remainingHours": null
-          },
-          "gate": null,
-          "ledger": "empty",
-          "pendingReview": 0
-        },
-        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n(5 item(s) omitted by the 200-char budget; raise --budget or read the file)\n",
-        "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
-      },
-      "stderr": []
+      "stderr": [],
+      "stdoutSha256": "a2c1bac028b3bc76266395e1a86538983067750d0fa8466587d71c8c9a79f8a6"
     },
     {
       "id": "recap",
