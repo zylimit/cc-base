@@ -44,6 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
+import { out, err, oneLine, repoRoot, gitFileList, headFileCount, indexContent } from './lib.mjs';
 
 const NUL = String.fromCharCode(0);
 
@@ -186,27 +187,6 @@ if (opts.error) {
   process.exit(2);
 }
 
-// Synchronous writes: an async stdout write followed by exit can truncate the
-// JSON line, and a truncated contract line is an invisible failure.
-function out(s) { try { fs.writeSync(1, s); } catch (_e) { process.stdout.write(s); } }
-function err(s) { try { fs.writeSync(2, s); } catch (_e) { process.stderr.write(s); } }
-
-/** git's own diagnostics are multi-line; a diagnostic line that wraps is unreadable. */
-function oneLine(s) {
-  return String(s === undefined || s === null ? '' : s).replace(/\s+/g, ' ').trim();
-}
-
-/** @returns {string|null} absolute repository root, or null if this is not one. */
-function repoRoot() {
-  try {
-    const r = execFileSync('git', ['rev-parse', '--show-toplevel'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-    return r || null;
-  } catch (_e) {
-    return null;
-  }
-}
-
 const root = repoRoot();
 if (root === null) {
   err('scan-secrets: not a git repository; refusing to guess the file set\n');
@@ -218,47 +198,6 @@ try {
 } catch (e) {
   err('scan-secrets: cannot enter repository root ' + root + ': ' + oneLine((e && e.code) || e) + '\n');
   process.exit(3);
-}
-
-/** @returns {string[]|null} null means git refused to list. */
-function gitFileList(staged) {
-  const args = staged
-    ? ['-c', 'core.quotePath=false', 'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']
-    : ['-c', 'core.quotePath=false', 'ls-files', '-z'];
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 })
-      .split(NUL).filter(Boolean);
-  } catch (_e) {
-    return null;
-  }
-}
-
-/**
- * How many paths HEAD's tree holds. Only used to tell two very different things
- * apart when the listing comes back empty: a repository that genuinely has no
- * tracked file (fine) versus a listing that stopped describing this repository.
- * @returns {number} -1 when there is no HEAD to ask.
- */
-function headFileCount() {
-  try {
-    const raw = execFileSync('git', ['-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'],
-      { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-    return raw.split(NUL).filter(Boolean).length;
-  } catch (_e) {
-    return -1;
-  }
-}
-
-/**
- * Contents of a path AS STAGED. Taking names from the index and bytes from the
- * working tree is wrong in both directions at once: a key staged and then wiped
- * from disk slips through, and a key that exists only on disk blocks a commit
- * that does not contain it.
- * @returns {Buffer} throws if the blob cannot be read.
- */
-function indexContent(p) {
-  return execFileSync('git', ['-c', 'core.quotePath=false', 'show', ':' + p],
-    { maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 /**

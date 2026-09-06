@@ -44,7 +44,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { emit, isGitRepo, projectRoot, toPosixPath } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 
 // ===========================================================================
 // S22.1 what counts as a rule line, and what the four classes are
@@ -1020,7 +1020,7 @@ function claudeMdNote(r) {
 }
 
 function cmdClaudeMdLint(flags = {}) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     const note = 'no module catalog to read (' + loaded.error + '); nothing declares which modules are high risk, '
       + 'and a scan that never ran is not a clean one';

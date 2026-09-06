@@ -1349,6 +1349,49 @@ chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
     "PG-12 只改已跟踪的 src/a.cjs、progress.md 没动 → block（.cjs 单臂，与 PG-11 各自独立沙箱，谁也顶不了谁）" \
     'rc=0 且含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
 
+# PG-14/PG-15：C2 改走 io.mjs 的 classifyChange 后，.tdd-exempt / .red-verified 归 ignore
+#   （与 three-file-sync-gate 同一张表）。这俩是闸自己写的运行态标记，不是家底改动——
+#   只有它们脏时拦压缩，等于逼人为自己刚落的标记去记一次 progress。
+#   夹具用 `progress git`（progress 在前）：progress.md 先落盘再 git add -A，随首次提交进库且干净，
+#   否则 progDirty 恒为真、C2 走不到，两条断言在改前改后都绿，锁不住任何东西。
+SB=$(newsb pg-c2runtime progress git)
+touch "$SB/.claude/.tdd-exempt" "$SB/.claude/.red-verified"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "PG-14 工作树只有 .claude/.tdd-exempt 与 .red-verified 脏 → 放行（运行态标记不算代码/家底改动）" \
+    "rc=0 stdout 空" "rc=$RC out=[$(show "$OUT")]"
+
+# 对照组另起沙箱：跟 PG-14 共用一个会被 10 分钟冷却顶掉（PG-14 一旦回归成拦停，这条就跟着假红）。
+# 代码文件放仓根不放 src/：整个 src/ 未跟踪时 porcelain 折叠成 "src/"，落不进扩展名表，脏的是目录不是代码。
+SB=$(newsb pg-c2runtime2 progress git)
+touch "$SB/.claude/.tdd-exempt" "$SB/.claude/.red-verified"
+printf 'x\n' > "$SB/z.ts"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
+    "PG-15 两个标记之外还有真代码改动 z.ts → 照旧 block（豁免只放这两个标记，别把 C2 整条关掉）" \
+    'rc=0 且 stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+# PG-16（红锁）：整个 src/ 未跟踪时，git status --porcelain 默认把它折叠成一条 "src/"，
+#   目录名落不进扩展名表 → 判 other → C2 认定「没有代码脏」，整个新模块首次落盘这一形态
+#   （最常见的开发姿势）逃过压缩前守门。修法在 hook 侧（porcelainZ 展开未跟踪目录），不在本文件。
+SB=$(newsb pg-c2untracked progress git)
+mkdir -p "$SB/src"; printf 'x\n' > "$SB/src/z.ts"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
+    "PG-16 新代码落在未跟踪的新目录 src/ 里、progress.md 没动 → 应 block（未跟踪目录被折叠，别让整个新模块逃过 C2）" \
+    'rc=0 且 stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+# PG-17（PG-16 修复的反噬面）：porcelain 展开未跟踪目录后，node_modules/ 与 .claude/evidence/
+#   这类原先靠「整目录折叠成一条」躲开判定的路径，会逐文件涌进改动集——接不住就是每次装完依赖、
+#   每次闸写完账本都拦一次压缩。ignore 表按文件路径写，这条锁的就是展开后它仍然接得住。
+SB=$(newsb pg-c2ignoredirs progress git)
+mkdir -p "$SB/node_modules/x"; printf 'x\n' > "$SB/node_modules/x/i.js"
+mkdir -p "$SB/.claude/evidence"; printf 'x\n' > "$SB/.claude/evidence/a.log"
+run_hook precompact-gate "$SB" '{"trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "PG-17 未跟踪的 node_modules/ 与 .claude/evidence/ 展开成逐个文件 → 仍放行（ignore 表接得住展开，别让装依赖/写账本拦压缩）" \
+    "rc=0 stdout 空" "rc=$RC out=[$(show "$OUT")]"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- RD recap-on-dirty（SessionStart，hookSpecificOutput）---"

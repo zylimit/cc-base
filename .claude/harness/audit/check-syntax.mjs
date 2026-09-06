@@ -45,36 +45,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import {
+  makeCli, out, err, oneLine, repoRoot, toRepoRelative,
+  gitFileList, headFileCount, indexSet, indexContent,
+} from './lib.mjs';
 
-const NUL = String.fromCharCode(0);
 const BOM = 0xFEFF;
 const TAB = String.fromCharCode(9);
 
-function parseArgs(argv) {
-  const opts = { json: false, staged: false, paths: null };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--json') opts.json = true;
-    else if (a === '--staged') opts.staged = true;
-    else if (a === '--paths') {
-      // A dangling --paths would mean "check nothing", which prints as a clean
-      // run over a file set that was never given.
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith('-')) return { usage: '--paths needs a comma-separated value' };
-      opts.paths = v;
-      i++;
-    } else if (a.startsWith('--paths=')) {
-      opts.paths = a.slice('--paths='.length);
-      if (opts.paths === '') return { usage: '--paths= needs a comma-separated value' };
-    } else return { error: a };
-  }
-  if (opts.paths !== null && opts.paths.split(',').map(s => s.trim()).filter(Boolean).length === 0) {
-    return { usage: '--paths resolved to an empty file set' };
-  }
-  return opts;
-}
+const { parseArgs, usageExit } = makeCli('check-syntax');
 
 const opts = parseArgs(process.argv.slice(2));
 if (opts.error || opts.usage) {
@@ -82,30 +63,6 @@ if (opts.error || opts.usage) {
     (opts.error ? 'unknown argument ' + opts.error : opts.usage) +
     '\nusage: check-syntax.mjs [--staged] [--paths a,b] [--json]\n');
   process.exit(2);
-}
-
-function out(s) { try { fs.writeSync(1, s); } catch (_e) { process.stdout.write(s); } }
-function err(s) { try { fs.writeSync(2, s); } catch (_e) { process.stderr.write(s); } }
-
-function usageExit(msg) {
-  err('check-syntax: ' + msg + '\nusage: check-syntax.mjs [--staged] [--paths a,b] [--json]\n');
-  process.exit(2);
-}
-
-/** git's own diagnostics are multi-line; a diagnostic line that wraps is unreadable. */
-function oneLine(s) {
-  return String(s === undefined || s === null ? '' : s).replace(/\s+/g, ' ').trim();
-}
-
-/** @returns {string|null} absolute repository root, or null if this is not one. */
-function repoRoot() {
-  try {
-    const r = execFileSync('git', ['rev-parse', '--show-toplevel'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-    return r || null;
-  } catch (_e) {
-    return null;
-  }
 }
 
 // --paths is written by the caller against the caller's directory, so it has to
@@ -131,54 +88,6 @@ if (root !== null) {
   }
 }
 
-/** Repository-relative and slash-separated, or null when the path is outside. */
-function toRepoRelative(abs) {
-  if (root === null) return null;
-  const rel = path.relative(root, abs);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return rel.split(path.sep).join('/');
-}
-
-function gitFileList(staged) {
-  const args = staged
-    ? ['-c', 'core.quotePath=false', 'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']
-    : ['-c', 'core.quotePath=false', 'ls-files', '-z'];
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 })
-      .split(NUL).filter(Boolean);
-  } catch (_e) {
-    return null;
-  }
-}
-
-/**
- * How many paths HEAD's tree holds. Only used to tell two very different things
- * apart when the listing comes back empty: a repository that genuinely has no
- * tracked file (fine) versus a listing that stopped describing this repository.
- * @returns {number} -1 when there is no HEAD to ask.
- */
-function headFileCount() {
-  try {
-    const raw = execFileSync('git', ['-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'],
-      { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-    return raw.split(NUL).filter(Boolean).length;
-  } catch (_e) {
-    return -1;
-  }
-}
-
-let indexCache = null;
-function indexSet() {
-  if (indexCache === null) indexCache = new Set(gitFileList(false) || []);
-  return indexCache;
-}
-
-/** @returns {Buffer} contents AS STAGED; throws if the blob cannot be read. */
-function indexContent(p) {
-  return execFileSync('git', ['-c', 'core.quotePath=false', 'show', ':' + p],
-    { maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-}
-
 const failures = [];
 const skippedClasses = [];
 const undecidable = [];
@@ -197,7 +106,7 @@ let files;
 let source;
 
 if (absPaths !== null) {
-  files = root === null ? rawPaths : absPaths.map(p => toRepoRelative(p) || p);
+  files = root === null ? rawPaths : absPaths.map(p => toRepoRelative(root, p) || p);
   source = fromIndex ? 'staged+paths' : 'paths';
   // A named path that is not there is the failure mode this family exists to
   // prevent -- checking nothing and reporting clean. It is a degradation, not a

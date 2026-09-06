@@ -114,6 +114,61 @@ export function git(args, opts = {}) {
   return run('git', args, opts);
 }
 
+/**
+ * `git status --porcelain -z` 的记录解析：按 NUL 切段，R/C 记录后跟的那条裸旧路径也算进改动集。
+ * -z 形态每条记录是 `XY <path>`、路径不加引号，必须按 NUL 切不能按行读——按行读会把含空格/
+ * 换行的路径切碎，rename 的旧路径还会整条漏掉。三个闸原先各抄一份，抄漏一处就是一处静默漏判。
+ * 只解析、不替调用方判成败：status / error / stderr 原样带出——git 跑不成时有的闸静默放行、
+ * 有的 fail-closed 拦停、有的要点名 ENOENT，在这里替它们决定就把这三种处境抹成一种。
+ * @param {string} root 仓内目录（作 cwd）
+ * @param {string[]} extraArgs 追加参数（如 ['--', '.'] 限定项目子树、['-uall'] 展开未跟踪目录）
+ * @returns {{status:number,error:(Error|null),stderr:string,paths:string[]}}
+ */
+export function porcelainZ(root, extraArgs = []) {
+  const st = git(['status', '--porcelain', '-z', ...extraArgs], { cwd: root });
+  const recs = String(st.stdout || '').split('\0');
+  const paths = [];
+  for (let i = 0; i < recs.length; i++) {
+    const rec = recs[i];
+    if (!rec) continue;
+    const status = rec.slice(0, 2);
+    paths.push(rec.slice(3));
+    if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
+      i += 1;
+      if (recs[i]) paths.push(recs[i]);
+    }
+  }
+  return { status: st.status, error: st.error, stderr: st.stderr, paths };
+}
+
+/**
+ * 一条改动路径归哪一类（三文档命中 / 不算数 / 代码家底 / 其它）。
+ * 判定顺序即优先级：三文档按全名先认，再滤掉不算数的，剩下才按扩展名与 .claude/ 家底算代码。
+ *   'ignore' —— evidence 是机器写的旁路账本，node_modules/out/dist 是产物，
+ *               .claude/.tdd-exempt|.red-verified 是 tdd-gate 的运行态标记：touch 一下不是改家底。
+ * 判「改了要记 progress」的闸共用这一份表，各闸再把 kind 映射回自己的标志。
+ * @returns {'progress'|'spec'|'changelog'|'ignore'|'code'|'other'}
+ */
+export function classifyChange(p) {
+  if (p === 'progress.md') return 'progress';
+  if (p === 'Product-Spec.md') return 'spec';
+  if (p === 'Product-Spec-CHANGELOG.md') return 'changelog';
+  if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return 'ignore';
+  if (/(^|\/)\.claude\/\.(tdd-exempt|red-verified)$/.test(p)) return 'ignore';
+  if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p) || /(^|\/)\.claude\//.test(p)) return 'code';
+  return 'other';
+}
+
+/**
+ * 剥掉仓根到项目目录的前缀（porcelain 路径恒相对仓根，项目是父仓子目录时带前缀）。
+ * 剥不掉 = 这条改动不在项目子树内，返回 null 让调用方跳过——别把仓外改动算进项目账。
+ * 项目即仓根时 prefix 为空串，原样直通。
+ */
+export function relToProject(p, prefix) {
+  if (!prefix) return p;
+  return p.startsWith(prefix) ? p.slice(prefix.length) : null;
+}
+
 /** 异常文本（只取首行，进 stderr 与账本的都是一行）。 */
 export function errText(e) {
   return String((e && (e.stack || e.message)) || e || 'unknown').split('\n')[0];

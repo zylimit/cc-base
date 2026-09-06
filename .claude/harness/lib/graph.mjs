@@ -10,7 +10,7 @@ import {
   changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot,
   errDetail, readTextFile, recordCorruptState, repoRelative, toPosixPath,
 } from './core.mjs';
-import { classifyPath, loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
+import { classifyPath, loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 
 // ===========================================================================
 // S5 impact
@@ -92,7 +92,7 @@ function analyzeImpact(changed, catalog, { nonGit = false, truncated = false } =
 }
 
 function cmdImpact(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ affected: [], direct: [], expansionReasons: [loaded.error], verification: {}, degraded: true }, 3);
   }
@@ -226,7 +226,7 @@ function findCycles(edges) {
 }
 
 function cmdArchCheck(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }
@@ -666,7 +666,7 @@ function countCoChanges(commits, catalog, maxFiles) {
 }
 
 function cmdCoChange(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     process.stderr.write('cochange: ' + loaded.error + '; module pairs are the only granularity '
       + 'this reports, and file pairs would be thousands of rows nobody can judge\n');

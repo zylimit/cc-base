@@ -36,7 +36,7 @@ import {
   errDetail, normalizeTier, readStdin, readTextFile, recordCorruptState, splitNul, toPosixPath,
   withDirLock,
 } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { hasCodeChange, writeReceipt } from './quality.mjs';
 import {
@@ -632,7 +632,7 @@ function reviewStart(flags) {
     return emit({ ok: false, degraded: true, reason: 'no-change',
       detail: 'there is nothing under review' }, 3);
   }
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
   let affected = null;
   if (catalog) {
@@ -787,7 +787,7 @@ function reviewVerdictCmd(flags) {
     process.stderr.write('review verdict: ' + f.reason + '\n');
     return emit({ ok: false, sub: 'verdict', ...f }, f.stale ? 4 : 3);
   }
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
   const ledger = readAuthorship();
   const authors = authorSetFor(ledger.records, changedSet());
@@ -950,7 +950,7 @@ function cmdReview(flags = {}, positional = []) {
   if (sub === 'backlog') return reviewBacklog(flags, positional[1] || 'list');
   if (sub === 'status') return reviewStatus();
   if (sub === 'team') {
-    const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+    const loaded = loadCatalogFlag(flags);
     const catalog = loaded.ok ? loaded.catalog : null;
     let affected = null;
     if (catalog && isGitRepo()) {

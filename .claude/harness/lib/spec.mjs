@@ -40,7 +40,7 @@ import {
   changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny, parseCsv, projectRoot,
   toPosixPath,
 } from './core.mjs';
-import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
+import { loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 
 // ===========================================================================
@@ -461,7 +461,7 @@ function loadTrace(flags) {
     return { ok: false, error: 'non-git', detail: 'trace enumerates references via git ls-files', file: src.file, lint,
       note: 'not a git repository; the set of files that could reference a requirement cannot be enumerated' };
   }
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
   const testGlobs = typeof flags.tests === 'string' ? parseCsv(flags.tests) : DEFAULT_TEST_GLOBS;
   const corpus = referenceCorpus(catalog, src.file);

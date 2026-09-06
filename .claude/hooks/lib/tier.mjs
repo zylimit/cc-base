@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { porcelainZ } from './io.mjs';
 
 export const TIERS = ['fast', 'standard', 'strict'];
 export const MAX_FAST_SECONDS = 8 * 3600;   // fast 档硬上限，写侧截断、读侧再夹一次
@@ -244,7 +245,7 @@ function dirtyPaths(root) {
   if (dirtyCache.has(root)) return dirtyCache.get(root);
   // -uall 不能省：未跟踪目录默认会被折叠成一条 `?? .claude/`，`.claude/hooks/**` 就永远命不中，
   // 治理面升档在「家底目录整个还没进版本库」的项目里等于不存在。
-  const st = spawnSync('git', ['status', '--porcelain', '-z', '-uall'], { shell: false, encoding: 'utf8', cwd: root });
+  const st = porcelainZ(root, ['-uall']);
   const out = [];
   if (st.error && st.error.code === 'ENOENT' && !dirtyCache.has('__git_warned__')) {
     // git 二进制不在：按设计不抬（不是抬），但要出声——静默等于「今天家底改动不算数」没人知道。
@@ -252,20 +253,9 @@ function dirtyPaths(root) {
     dirtyCache.set('__git_warned__', true);
     process.stderr.write('[tier] 找不到 git，治理面自动升档本轮跳过（按当前档跑）\n');
   }
+  // 只有 git 真跑成了才算「看过工作树」：非 0 退出时不拿半截 stdout 当改动集。
   if (st.status === 0) {
-    // -z 形态：每条记录 `XY <path>`，R/C 另跟一条裸旧路径——必须按 NUL 切，不能按行读。
-    const recs = String(st.stdout || '').split('\0');
-    for (let i = 0; i < recs.length; i++) {
-      const rec = recs[i];
-      if (!rec) continue;
-      const status = rec.slice(0, 2);
-      const p = rec.slice(3);
-      if (!isRuntimeState(p)) out.push(p);
-      if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
-        i += 1;
-        if (recs[i] && !isRuntimeState(recs[i])) out.push(recs[i]);
-      }
-    }
+    for (const p of st.paths) if (!isRuntimeState(p)) out.push(p);
   }
   dirtyCache.set(root, out);
   return out;

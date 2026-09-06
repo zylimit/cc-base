@@ -54,8 +54,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import process from 'node:process';
+import {
+  makeCli, out, err, oneLine, repoRoot, toRepoRelative,
+  gitFileList, headFileCount, indexSet, indexContent,
+} from './lib.mjs';
 
 const NUL = String.fromCharCode(0);
 
@@ -217,30 +220,7 @@ const RULE_IDS = new Set(RULES.map(r => r.id));
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
-function parseArgs(argv) {
-  const opts = { staged: false, json: false, paths: null };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--staged') opts.staged = true;
-    else if (a === '--json') opts.json = true;
-    else if (a === '--paths') {
-      // A dangling --paths used to mean "scan nothing", which prints as
-      // scanned=0 exit 0 -- a green that says the file set was checked when no
-      // file set was ever given. The same trap eats a following flag.
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith('-')) return { usage: '--paths needs a comma-separated value' };
-      opts.paths = v;
-      i++;
-    } else if (a.startsWith('--paths=')) {
-      opts.paths = a.slice('--paths='.length);
-      if (opts.paths === '') return { usage: '--paths= needs a comma-separated value' };
-    } else return { error: a };
-  }
-  if (opts.paths !== null && opts.paths.split(',').map(s => s.trim()).filter(Boolean).length === 0) {
-    return { usage: '--paths resolved to an empty file set' };
-  }
-  return opts;
-}
+const { parseArgs, usageExit } = makeCli('scan-instructions');
 
 const opts = parseArgs(process.argv.slice(2));
 if (opts.error || opts.usage) {
@@ -248,33 +228,6 @@ if (opts.error || opts.usage) {
     (opts.error ? 'unknown argument ' + opts.error : opts.usage) +
     '\nusage: scan-instructions.mjs [--staged] [--paths a,b] [--json]\n');
   process.exit(2);
-}
-
-// Synchronous writes: process.stdout.write to a pipe is async and a following
-// exit can truncate it. A truncated JSON line would be an invisible failure.
-function out(s) { try { fs.writeSync(1, s); } catch (_e) { process.stdout.write(s); } }
-function err(s) { try { fs.writeSync(2, s); } catch (_e) { process.stderr.write(s); } }
-
-function usageExit(msg) {
-  err('scan-instructions: ' + msg +
-    '\nusage: scan-instructions.mjs [--staged] [--paths a,b] [--json]\n');
-  process.exit(2);
-}
-
-/** git's own diagnostics are multi-line; a diagnostic line that wraps is unreadable. */
-function oneLine(s) {
-  return String(s === undefined || s === null ? '' : s).replace(/\s+/g, ' ').trim();
-}
-
-/** @returns {string|null} absolute repository root, or null if this is not one. */
-function repoRoot() {
-  try {
-    const r = execFileSync('git', ['rev-parse', '--show-toplevel'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-    return r || null;
-  } catch (_e) {
-    return null;
-  }
 }
 
 // --paths is written by the caller against the caller's directory, so it has to
@@ -300,65 +253,6 @@ if (root !== null) {
   }
 }
 
-/** Repository-relative and slash-separated, or null when the path is outside. */
-function toRepoRelative(abs) {
-  if (root === null) return null;
-  const rel = path.relative(root, abs);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return rel.split(path.sep).join('/');
-}
-
-/** @returns {string[]|null} null means git refused to list. */
-function gitFileList(staged) {
-  const args = staged
-    ? ['-c', 'core.quotePath=false', 'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']
-    : ['-c', 'core.quotePath=false', 'ls-files', '-z'];
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 })
-      .split(NUL).filter(Boolean);
-  } catch (_e) {
-    return null;
-  }
-}
-
-/**
- * How many paths HEAD's tree holds. Only used to tell two very different things
- * apart when the listing comes back empty: a repository that genuinely has no
- * tracked file (fine) versus a listing that stopped describing this repository
- * (the subdirectory bug, and anything like it in future).
- * @returns {number} -1 when there is no HEAD to ask.
- */
-function headFileCount() {
-  try {
-    const raw = execFileSync('git', ['-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'],
-      { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-    return raw.split(NUL).filter(Boolean).length;
-  } catch (_e) {
-    return -1;
-  }
-}
-
-/** Everything the index holds, for existence questions that must not consult the disk. */
-let indexCache = null;
-function indexSet() {
-  if (indexCache === null) {
-    indexCache = new Set(gitFileList(false) || []);
-  }
-  return indexCache;
-}
-
-/**
- * Contents of a path AS STAGED. --staged used to take its names from the index
- * and its bytes from the working tree, which is wrong in both directions at
- * once: a payload staged and then wiped from disk went unreported, and a
- * payload that exists only on disk blocked a commit that did not contain it.
- * @returns {Buffer} throws if the blob cannot be read.
- */
-function indexContent(p) {
-  return execFileSync('git', ['-c', 'core.quotePath=false', 'show', ':' + p],
-    { maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-}
-
 // ---------------------------------------------------------------------------
 // File set. --paths narrows WHICH files; --staged decides WHERE bytes come from.
 // They used to be mutually exclusive, with --paths silently winning, so
@@ -372,7 +266,7 @@ const fromIndex = opts.staged;
 const missingPaths = [];
 
 if (absPaths !== null) {
-  candidates = root === null ? rawPaths : absPaths.map(p => toRepoRelative(p) || p);
+  candidates = root === null ? rawPaths : absPaths.map(p => toRepoRelative(root, p) || p);
   source = opts.staged ? 'staged+paths' : 'paths';
   // An explicit list naming something that is not there is a typo, not a repo
   // state: scanning zero of the files the caller asked for and reporting clean

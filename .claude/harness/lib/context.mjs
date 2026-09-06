@@ -9,7 +9,7 @@ import {
   canonicalDiff, changedPaths, emit, isDenied, isStateExcluded, loadHarnessConfig, parseCsv,
   projectRoot, sha256, stableJson, toPosixPath,
 } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 
 // ===========================================================================
@@ -107,7 +107,7 @@ function cmdContextPack(flags) {
   }
 
   // Catalog optional: present -> compute affected modules; absent -> degraded, no affected.
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
 
   // Changed paths: --changed csv override, else real working-tree diff.

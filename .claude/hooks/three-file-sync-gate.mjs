@@ -15,7 +15,7 @@
 //   当成「树是干净的」。不读 stdin：判定只来自工作树，喂什么都不影响结论。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, git, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
+import { projectDir, git, porcelainZ, classifyChange, relToProject, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 runFailClosed(async () => {
@@ -37,55 +37,33 @@ runFailClosed(async () => {
   let changelogDirty = false;
   let firstCode = '';
 
-  // 把单条改动路径归类到三文档命中 / 代码改动标志。
-  const classifyPath = (p) => {
-    if (p === 'progress.md') progDirty = true;
-    else if (p === 'Product-Spec.md') specDirty = true;
-    else if (p === 'Product-Spec-CHANGELOG.md') changelogDirty = true;
-
-    // evidence 账本是机器写的旁路记录，node_modules/out/dist 是产物，都不算「改了要记 progress」
-    if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return;
-    // tdd-gate 的两个运行态标记（.claude/.gitignore 同条）：touch 一下不是改家底
-    if (/(^|\/)\.claude\/\.(tdd-exempt|red-verified)$/.test(p)) return;
-    // .claude/ 下家底（CLAUDE.md / agents / skills / settings.json 等）改了也属「改了要记 progress」
-    if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p) || /(^|\/)\.claude\//.test(p)) {
-      codeDirty = true;
-      if (!firstCode) firstCode = p;
+  // 剥掉仓根到项目目录的前缀（剥不掉的跳过不分类，-- . 限定后理论上不该有），再把 kind
+  // 映射回本闸的四个标志。前缀剥法与分类表都在 io.mjs，precompact-gate 用的是同一份。
+  const take = (p) => {
+    const rel = relToProject(p, prefix);
+    if (rel === null) return;
+    switch (classifyChange(rel)) {
+      case 'progress': progDirty = true; break;
+      case 'spec': specDirty = true; break;
+      case 'changelog': changelogDirty = true; break;
+      case 'code':
+        codeDirty = true;
+        if (!firstCode) firstCode = rel;
+        break;
+      default: break;
     }
   };
 
-  // 剥掉仓根到项目目录的前缀再喂 classifyPath；剥不掉前缀的路径（-- . 限定后理论上不该有）
-  // 跳过不分类。项目即仓根时 prefix 为空，原样直通。
-  const classifyRel = (p) => {
-    let rel = p;
-    if (prefix) {
-      if (!rel.startsWith(prefix)) return;
-      rel = rel.slice(prefix.length);
-    }
-    classifyPath(rel);
-  };
-
-  // --porcelain -z：NUL 分隔、路径不加引号，必须按 NUL 切不能按行读。
+  // -z 记录解析（NUL 切、R/C 的 new/old 双记录）在 io.mjs。
   // -- . 限定只看项目子树内改动（cwd 已定到项目目录），仓外无关改动不进改动集。
-  // rename/copy 记录是两段：`XY <new-path>` NUL `<old-path>` NUL（旧路径裸路径无前缀），
-  // 故 X/Y 命中 R/C 时要再读一段裸 old-path，new/old 都计入改动集。
-  const st = git(['status', '--porcelain', '-z', '--', '.'], { cwd: root });
+  // -uall 不能省：未跟踪的新目录默认折叠成一条 `newmod/`，目录名匹配不上扩展名表，整个新模块就逃过了 C2。
+  const st = porcelainZ(root, ['-uall', '--', '.']);
   if (st.status !== 0) {
     // git 自己跑不成（索引损坏 / git 不在）= 工作树压根没被看过，放行就是把「没看」当成「干净」
     const head = String(st.stderr || '').split(/\r?\n/).filter((l) => l.trim() !== '').slice(0, 2).join(' ').slice(0, 300);
     throw new Error(`git status --porcelain -z 以 ${st.status} 退出：${head || '（无 stderr）'}`);
   }
-  const recs = st.stdout.split('\0');
-  for (let i = 0; i < recs.length; i++) {
-    const rec = recs[i];
-    if (!rec) continue;
-    const status = rec.slice(0, 2);
-    classifyRel(rec.slice(3));
-    if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
-      i += 1;
-      if (recs[i]) classifyRel(recs[i]);
-    }
-  }
+  for (const p of st.paths) take(p);
 
   const reasons = [];
 

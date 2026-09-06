@@ -45,6 +45,11 @@ function loadCatalog(catalogPath) {
   }
 }
 
+/** Resolve the --catalog flag into a loadCatalog call: a string path, else the default. */
+function loadCatalogFlag(flags) {
+  return loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+}
+
 /**
  * Shallow structural validation: version present, modules is an array, each module
  * has a non-empty id and a paths array. Does not run the linter's cross-checks.
@@ -253,7 +258,7 @@ function trackedFiles(cap) {
 }
 
 function cmdCatalogLint(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }
@@ -275,6 +280,6 @@ function cmdCatalogLint(flags) {
 
 export {
   CATCH_ALL_GLOBS,
-  loadCatalog, validateSchema, classifyPath, moduleForPath, hasDependencyCycle, lintCatalog,
+  loadCatalog, loadCatalogFlag, validateSchema, classifyPath, moduleForPath, hasDependencyCycle, lintCatalog,
   trackedFiles, cmdCatalogLint,
 };

@@ -13,7 +13,7 @@ import {
   repoRelative,
   sha256, stableJson, whichCmd,
 } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { tierState } from './tier.mjs';
 
@@ -573,7 +573,7 @@ function fastModeActive() {
  *   no catalog / non-git, or every check skipped -> 3 (degraded, nothing was established)
  */
 function verifyPlanCmd(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return { result: { state: 'DEGRADED', degraded: true, error: loaded.error, detail: loaded.detail, checks: [], affected: [] }, code: 3 };
   }
@@ -917,7 +917,7 @@ function assessAttributes(affectedIds, catalog, checkResults, waivers = []) {
  * them. A blocking-tier attribute with no claiming check is a visible gap -> exit 1.
  */
 function cmdAttributes(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }

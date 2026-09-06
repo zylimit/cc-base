@@ -11,7 +11,7 @@
 // 档位（profile.json）：off 静默放行；advise（fast 档）出 systemMessage + 记账不拦；block 走原逻辑。
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readStdinRaw, readTextFile, pendingReviewFiles, git, emit, gateModeOf, runFailOpen } from './lib/io.mjs';
+import { projectDir, readStdinRaw, readTextFile, pendingReviewFiles, git, porcelainZ, classifyChange, relToProject, emit, gateModeOf, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
 const COOLDOWN_SECONDS = 600;
@@ -47,35 +47,18 @@ runFailOpen(async () => {
     let codeDirty = false;
     let progDirty = false;
 
-    const classifyPath = (p) => {
-      if (p === 'progress.md') progDirty = true;
-      if (/(^|\/)(\.claude\/evidence|node_modules|out|dist)\//.test(p)) return;
-      // 扩展名表与 three-file-sync-gate 同表，改一处要同步另一处
-      if (/\.(sh|ps1|mjs|cjs|ts|tsx|js|jsx|py|css|go|rs)$/.test(p)) { codeDirty = true; return; }
-      if (/(^|\/)\.claude\//.test(p)) codeDirty = true;
-    };
-    const classifyRel = (p) => {
-      let rel = p;
-      if (prefix) {
-        if (!rel.startsWith(prefix)) return;
-        rel = rel.slice(prefix.length);
-      }
-      classifyPath(rel);
+    // 剥前缀 → 归类，两步都用 io.mjs 那份（与 three-file-sync-gate 同一张表，不再各抄一份）
+    const take = (p) => {
+      const rel = relToProject(p, prefix);
+      if (rel === null) return;
+      const kind = classifyChange(rel);
+      if (kind === 'progress') progDirty = true;
+      else if (kind === 'code') codeDirty = true;
     };
 
-    // -z 形态：每条记录 `XY <path>`，R/C 另跟一条旧路径记录——必须按 NUL 切，不能按行读
-    const st = git(['status', '--porcelain', '-z', '--', '.'], { cwd: root });
-    const recs = st.stdout.split('\0');
-    for (let i = 0; i < recs.length; i++) {
-      const rec = recs[i];
-      if (!rec) continue;
-      const status = rec.slice(0, 2);
-      classifyRel(rec.slice(3));
-      if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
-        i += 1;
-        if (recs[i]) classifyRel(recs[i]);
-      }
-    }
+    // -z 记录解析（NUL 切 + R/C 双记录）在 io.mjs；git 跑不成时 paths 为空 = 本轮不判脏，静默放行。
+    // -uall 同 three-file-sync-gate：未跟踪的新目录不展开就整个逃过 C2。
+    for (const p of porcelainZ(root, ['-uall', '--', '.']).paths) take(p);
     if (codeDirty && !progDirty) {
       dirtyReason = '工作树有未提交代码/家底改动但 progress.md 未同步（本轮决策还没进项目记忆）';
     }

@@ -6,6 +6,8 @@
 #   除外。
 # 红测试：现状闸的代码集只认 .sh/.ps1/.ts/.py 等扩展名，不含 .md/.json，故「只改家底 .md/.json」
 #   漏判不拦 → 本测试的家底用例 FAIL；修复（.claude/** 纳入、排除 .claude/evidence/）后 → PASS。
+# 红测试②：整个新目录未跟踪时 porcelain 折叠成一条 `newmod/`，目录名落不进扩展名表 → 「新模块
+#   首次落盘」整段漏判不拦 → 该用例 FAIL；修复（porcelain 展开未跟踪目录）后 → PASS。
 # 同带：① 只改普通代码 .sh 仍拦（对照绿，防修复回归）② 只改 .claude/evidence/ 不拦（边界）。
 # 临时 git 仓建在 scratchpad，trap 清理。
 set -eu
@@ -79,6 +81,19 @@ echo "── 绿对照：只改普通代码 .sh，progress 未同步 → 应拦�
   fi
 }
 
+echo "── 红：新代码落在未跟踪的新目录里，progress 未同步 → 应拦停 ──"
+{
+  t="$TMP/repo"; fresh_repo "$t"
+  mkdir -p "$t/newmod"
+  printf 'echo hi\n' > "$t/newmod/app.sh"
+  out=$(run_gate "$t")
+  if printf '%s' "$out" | grep -q '"decision":"block"'; then
+    pass "新建 newmod/app.sh（整个 newmod/ 未跟踪）→ 闸拦停"
+  else
+    fail "新建 newmod/app.sh（整个 newmod/ 未跟踪）→ 闸放行了，漏判：git status --porcelain 把未跟踪目录折叠成一条 newmod/，目录名匹配不上扩展名表（期望 decision:block，实得：[${out}]）"
+  fi
+}
+
 echo "── 边界：只改 .claude/evidence/ 账本，progress 未同步 → 不应拦停 ──"
 {
   t="$TMP/repo"; fresh_repo "$t"
@@ -94,7 +109,7 @@ echo "── 边界：只改 .claude/evidence/ 账本，progress 未同步 → �
 echo ""
 echo "==== test-three-file-sync-gate：PASS=$PASS FAIL=$FAIL ===="
 if [ "$FAIL" -gt 0 ]; then
-  echo "test-three-file-sync-gate: failed（家底 .md/.json 改动未纳入闸的代码集，漏判不拦）" >&2
+  echo "test-three-file-sync-gate: failed（见上方 FAIL 行：闸的改动集有漏判）" >&2
   exit 1
 fi
 echo "test-three-file-sync-gate: passed（家底改动拦停、普通代码拦停、evidence 放行均符合契约）"

@@ -30,7 +30,7 @@ import {
   changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   readStdin, splitNul,
 } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { loadReceipts, receiptIntact, safeTaskId } from './quality.mjs';
 import {
@@ -259,7 +259,7 @@ function cmdTask(flags = {}, positional = []) {
   }
 
   if (sub === 'complete') {
-    const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+    const loaded = loadCatalogFlag(flags);
     if (!loaded.ok) {
       return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
     }
@@ -392,7 +392,7 @@ function countDiffLines() {
  * purpose", not as a refusal.
  */
 function cmdBudget(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }

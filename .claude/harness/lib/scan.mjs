@@ -11,7 +11,7 @@ import {
   catalogFilePath, changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny,
   normalizeTier, parseCsv, projectRoot, repoRelative, toPosixPath, whichCmd,
 } from './core.mjs';
-import { loadCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
+import { loadCatalog, loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 
 // ===========================================================================
 // S13 fitness  (built-in day-one quality-attribute rules; no external tools)
@@ -139,7 +139,7 @@ function scanFitness(files, catalog, rules) {
 }
 
 function cmdFitness(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
   const rules = loadFitnessRules();
   const root = projectRoot();
@@ -208,7 +208,7 @@ function cmdAdapters(flags, positional = []) {
   const catalogue = loadAdapters();
   if (sub === 'list') {
     const want = typeof flags.attribute === 'string' ? flags.attribute : null;
-    const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+    const loaded = loadCatalogFlag(flags);
     const wiredIds = loaded.ok ? Object.keys(loaded.catalog.checks || {}) : [];
     const list = catalogue
       .filter(a => !want || (a.attributes || []).includes(want))
@@ -417,7 +417,7 @@ function cmdAdrCheck(flags) {
   if (records.length === 0) {
     return emit({ ok: true, records: 0, note: 'no ADR records found (' + fileName + ' / ' + dirName + '); nothing to enforce' }, 0);
   }
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const knownChecks = loaded.ok ? Object.keys(loaded.catalog.checks || {}) : [];
   const knownRules = loadFitnessRules().map(r => r.id);
   const assessed = assessAdrRecords(records, knownChecks, knownRules);

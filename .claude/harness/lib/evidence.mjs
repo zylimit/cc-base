@@ -38,7 +38,7 @@ import {
   parseCsv, projectRoot, quarantineFilePath, readTextFile, recordCorruptState, repoRelative,
   sha256, toPosixPath, withDirLock,
 } from './core.mjs';
-import { loadCatalog } from './catalog.mjs';
+import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import {
   claimingChecks, fastModeActive, loadWaivers, requiredChecks, resolveCheck, runCheck,
@@ -524,7 +524,7 @@ function waiversApplied(checks, waivers) {
  * where a deferred-evidence problem belongs -- not silently inside a green.
  */
 function cmdGate(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({
       gate: 'DEGRADED', degraded: true, reason: loaded.error, detail: loaded.detail,
@@ -692,7 +692,7 @@ function auditGates(entries, catalog) {
  * from an empty list would report every check as never-executed -- a confident wrong answer.
  */
 function cmdGateAudit(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   if (!loaded.ok) {
     return emit({ ok: false, degraded: true, error: loaded.error, detail: loaded.detail }, 3);
   }
@@ -1136,7 +1136,7 @@ function readQuarantine() {
 
 /** `risk` subcommand: catalog optional; any error-severity finding exits 1. */
 function cmdRisk(flags) {
-  const loaded = loadCatalog(typeof flags.catalog === 'string' ? flags.catalog : undefined);
+  const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
   const state = readLedgerState();
   const cp = changedPaths();
