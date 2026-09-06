@@ -68,7 +68,7 @@ mkrepo() {
 
 # use_real_audit <dir> —— 把真的三只审计脚本放进临时仓（真行为，不打桩）。
 use_real_audit() {
-    cp "$AUDIT/scan-secrets.mjs" "$AUDIT/scan-instructions.mjs" "$AUDIT/check-syntax.mjs" \
+    cp "$AUDIT/lib.mjs" "$AUDIT/scan-secrets.mjs" "$AUDIT/scan-instructions.mjs" "$AUDIT/check-syntax.mjs" \
        "$1/.claude/harness/audit/"
     cp "$AUDIT/instructions-allowlist.json" "$1/.claude/harness/audit/" 2>/dev/null || true
 }

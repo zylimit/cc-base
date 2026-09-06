@@ -4,6 +4,7 @@
 > 格式：每条一行，`- [标题](文件名.md) — 一句话描述`
 > 模板：templates/feedback-topic-template.md
 
+- [大批量重构收口、发版前须主动扫重复代码并给出裁定](batch-refactor-closeout-scan-duplication-before-release.md) — 多 Phase/跨目录重构或新增改造收口、发版前，主 Agent 主动做一次重复代码/可提炼逻辑扫描，不等用户提醒；扫描量化留痕（工具/窗口/克隆数），裁定「做/不做」都写理由，防止为了抽象而抽象
 - [脚手架交付应复制即用且保持项目根目录清爽](copy-ready-clean-scaffold-layout.md) — 「复制即用」为默认交付契约（`.claude/` 复制过去即工作），安装器只是可选便利；目标项目根目录暴露文件压到最少，维护资产收进隐藏配置目录
 - [地基未稳不助推看盘类锦上添花，重计算签字前须成本预估](foundation-first-no-premature-dashboards-cost-preflight-serial-dev.md) — 数据未准、基本功能未稳时看盘/报表/指标卡类需求默认泼冷水降级挂账；含重计算的规格签字前附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口
 - [hook 解释器选 pwsh 7，不用 Windows PowerShell 5.1](hook-interpreter-use-pwsh7-not-powershell51.md) — 本机配置 hook / 脚本解释器时 PowerShell 一律用 pwsh 7 绝对路径（含空格加引号、bash 命令串用正斜杠），其余裸 powershell.exe hook 超时时按同法逐个替换
