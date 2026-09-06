@@ -4,27 +4,18 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { readStdinJson, out, runFailOpen } from './lib/io.mjs';
 
-// 判定走共享库，动态 import——库缺失时按「什么都没开」处理（不播报，只出正常横幅）：
+// 判定走共享库，动态 import——库缺失时按「什么都没开」处理（不播报档位，只出正常横幅）：
 // 与本 hook 反向用法一致，其余 hook 静默、本横幅必须喊出来，缺库也不能因此崩掉开场。
 
-/** 当前档位；档位未启用（没装 profile.json）返回 null，由下面的旧开关分支接手。 */
-async function tierState(root) {
+/** 当前档位（缺 profile.json 就是内置默认表，不再有第二个开关文件可读）；判定库起不来返回 null。 */
+async function tierNow(root) {
   try {
     const m = await import('./lib/tier.mjs');
-    if (!m.loadProfile(root).present) return null;
-    return m.effectiveTier({ projectDir: root });
+    const t = m.effectiveTier({ projectDir: root });
+    const session = m.readSession(root);
+    return { ...t, reason: (session && session.reason) || '' };
   } catch (_e) {
     return null;
-  }
-}
-
-/** 旧开关是否还开着（只在档位未启用时问）。 */
-async function legacyFastActive(root) {
-  try {
-    const m = await import('./lib/fastmode.mjs');
-    return m.fastModeActive(root);
-  } catch (_e) {
-    return false;
   }
 }
 
@@ -53,31 +44,27 @@ runFailOpen(async () => {
     out('⚠️ 上次安装未完成（.claude/.runtime/install.marker）：重跑 setup.sh 补装完再干活。');
   }
 
-  // 档位播报：防 fast 忘关，也让自动升档说得出「为什么今天全是硬拦」。
-  const tier = root ? await tierState(root) : null;
-  if (tier) {
-    if (tier.tier === 'fast') {
-      const left = hoursLeft(tier.expiresEpoch);
-      out(`‼️ tier: fast（${left === null ? '无过期时间' : `剩 ${left} h`}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
-      return;
-    }
-    if (tier.source === 'raise') {
-      const hits = (tier.raisedBy || []).slice(0, 3).join('、');
-      out(`tier: ${tier.tier}（来源 raise：工作树改了 ${hits}${(tier.raisedBy || []).length > 3 ? ' 等' : ''}）——治理面改动自动升档，本轮闸按最严跑。`);
-    }
-  } else if (root && fs.existsSync(path.join(root, '.claude', '.fast-mode'))) {
-    // 档位未启用（没装 profile.json）时的旧开关口径：开着就喊、过期就说已自动失效。
-    if (await legacyFastActive(root)) {
-      out('‼️ FAST-MODE ON：全部门闸静默中（.claude/.fast-mode）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。');
-      return;
-    }
-    out('fast-mode 已过期自动失效（TTL 到期或开关文件格式非法），严格模式已恢复；如需继续请重新 fast-mode.sh on，不用就 off 清掉开关文件。');
-  }
-
-  // compact/resume 不重复输出
+  // compact/resume 不重复播报——档位那行跟着同一条纪律走，唯一例外是 fast：
+  // 它是反向用法（别的闸静默、就它必须喊），压缩边界之后照喊，不然最该被记住的一条正好没了。
   const ev = readStdinJson();
   const source = ev ? String(ev.source || '') : '';
-  if (source === 'compact' || source === 'resume') return;
+  const quiet = source === 'compact' || source === 'resume';
+
+  // 档位播报：防 fast 忘关，也让自动升档说得出「为什么今天全是硬拦」。
+  const tier = root ? await tierNow(root) : null;
+  if (tier && tier.tier === 'fast') {
+    const left = hoursLeft(tier.expiresEpoch);
+    out(`‼️ tier: fast（${left === null ? '无过期时间' : `剩 ${left} h`}${tier.reason ? `，${tier.reason}` : ''}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
+    return;
+  }
+  if (quiet) return;
+
+  if (tier) {
+    const hits = (tier.raisedBy || []).slice(0, 3).join('、');
+    out(tier.source === 'raise'
+      ? `tier: ${tier.tier}（来源 raise：工作树改了 ${hits}${(tier.raisedBy || []).length > 3 ? ' 等' : ''}）——治理面改动自动升档，本轮闸按最严跑。`
+      : `tier: ${tier.tier}（来源 ${tier.source}）`);
+  }
 
   out(BANNER);
 });

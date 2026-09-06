@@ -33,7 +33,8 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   TIER_ENFORCEMENT,
-  changedPaths, emit, errDetail, gitFingerprint, headCommit, isStateExcluded, normalizeTier,
+  changedPaths, emit, errDetail, gitFingerprint, headCommit, isStateExcluded, matchAny,
+  normalizeTier,
   parseCsv, projectRoot, quarantineFilePath, readTextFile, recordCorruptState, repoRelative,
   sha256, toPosixPath, withDirLock,
 } from './core.mjs';
@@ -43,6 +44,7 @@ import {
   claimingChecks, fastModeActive, loadWaivers, requiredChecks, resolveCheck, runCheck,
   verifyPlan, waiversDir,
 } from './quality.mjs';
+import { governancePaths } from './tier.mjs';
 
 // ---------------------------------------------------------------------------
 // S17.1 runtime state locations + atomic write
@@ -872,11 +874,6 @@ function readWaiverFiles() {
 // the thing being edited is the thing doing the catching. Naming it is not a verdict -- it is
 // a warning that this diff wants the strictest review the repository has, which is a call for
 // a person to make.
-const GOVERNANCE_PREFIXES = [
-  '.claude/hooks/', '.claude/harness/', '.claude/skills/', '.claude/agents/', '.claude/rules/',
-  '.github/',
-];
-const GOVERNANCE_FILES = ['.claude/CLAUDE.md'];
 // Findings are named, not summarised, but a warning that prints two hundred paths is a wall
 // nobody reads. The count beside the list is never capped.
 const GOVERNANCE_LIST_CAP = 20;
@@ -886,16 +883,21 @@ const GOVERNANCE_LIST_CAP = 20;
  * its own ledger and evidence logs under .claude/harness/, and changedPaths() does not filter
  * those (the filtering lives on the fingerprint side, in canonicalDiff / isStateExcluded), so
  * without this line the warning would light up permanently the moment anybody ran a gate --
- * and a warning that is always on is a warning nobody reads twice. Pure.
+ * and a warning that is always on is a warning nobody reads twice.
+ * The path list is profile.raise.paths, the same table the tier dial raises on: this warning
+ * and the automatic raise to strict are two readings of one question ("is this diff editing
+ * the judge"), and two hand-maintained copies of that answer drift the day somebody adds a
+ * directory to one of them. Injectable so selftest can state the table it is asserting about.
  * @param {string[]} changed
+ * @param {string[]} [globs]
  * @returns {string[]}
  */
-function governanceSurface(changed) {
+function governanceSurface(changed, globs = governancePaths()) {
   const out = [];
   for (const p of (changed || [])) {
     const rel = toPosixPath(p);
     if (isStateExcluded(rel)) continue;
-    if (GOVERNANCE_FILES.includes(rel) || GOVERNANCE_PREFIXES.some(pre => rel.startsWith(pre))) out.push(rel);
+    if (matchAny(rel, globs)) out.push(rel);
   }
   return out.sort();
 }

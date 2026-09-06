@@ -52,7 +52,8 @@
           "claude-md-lint",
           "init",
           "cochange",
-          "release"
+          "release",
+          "tier"
         ],
         "waiversDirExists": true,
         "activeWaivers": 1,
@@ -84,7 +85,7 @@
       "exitCode": 0,
       "stdout": {
         "ok": true,
-        "tests": 287
+        "tests": 292
       },
       "stderr": []
     },
@@ -1784,6 +1785,18 @@
             "counts": null
           },
           {
+            "id": "tier",
+            "argv": [
+              "tier",
+              "validate"
+            ],
+            "blocking": true,
+            "status": "DEGRADED",
+            "exit": 3,
+            "error": null,
+            "counts": null
+          },
+          {
             "id": "risk",
             "argv": [
               "risk"
@@ -1832,6 +1845,7 @@
         " DEGRADED rules-audit :: no-rules",
         " PASS     skills-lint",
         " FAIL     claude-md-lint",
+        " DEGRADED tier",
         " PASS     risk",
         " PASS     budget",
         "Definition of Done: NOT satisfied (catalog-lint, arch-check, adr-check, fitness, claude-md-lint)"
@@ -1879,7 +1893,7 @@
             "summary": "blocking step(s) failed: catalog-lint, arch-check, adr-check, fitness, claude-md-lint",
             "evidence": {
               "exit": 2,
-              "steps": 14,
+              "steps": 15,
               "blockingFailures": [
                 "catalog-lint",
                 "arch-check",
@@ -1909,11 +1923,13 @@
             "nextStep": null
           },
           {
-            "id": "fast-mode",
+            "id": "tier",
             "status": "PASS",
             "blocking": true,
-            "summary": "closed; the review and test gates were in force",
+            "summary": "standard; the review and test gates were in force",
             "evidence": {
+              "tier": "standard",
+              "source": "default",
               "active": false
             },
             "nextStep": null
@@ -1977,7 +1993,7 @@
         " FAIL     dod           blocking step(s) failed: catalog-lint, arch-check, adr-check, fitness, claude-md-lint",
         " DEGRADED manifest      no .claude/FRAMEWORK-MANIFEST.txt; this tree does not distribute a framework layer",
         " PASS     review-queue  nothing waiting for review",
-        " PASS     fast-mode     closed; the review and test gates were in force",
+        " PASS     tier          standard; the review and test gates were in force",
         " DEGRADED ci            no origin remote, so CI status is UNKNOWN -- unknown is not a pass",
         " FAIL     gate-fresh    no passing gate record is bound to this working tree, so what would ship was never verified",
         "Release readiness: NOT ready (worktree, dod, gate-fresh)",
@@ -2499,7 +2515,7 @@
         "ok": false,
         "degraded": true,
         "budget": 1200,
-        "chars": 313,
+        "chars": 323,
         "omitted": 0,
         "sources": {
           "rules": null,
@@ -2522,6 +2538,8 @@
             "stale": false
           },
           "fastMode": {
+            "tier": "standard",
+            "source": "default",
             "active": false,
             "remainingHours": null
           },
@@ -2532,7 +2550,7 @@
           "ledger": "intact",
           "pendingReview": 0
         },
-        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n## State of this tree now\n- active task: golden-task (active)\n- fast mode: off\n- last gate: BLOCKED (bound to the current diff)\n- evidence ledger: intact\n- pending review: 0 file(s)\n\n",
+        "text": "# INVARIANTS -- re-derived from files, not recalled from context\n\n! not read: .claude/CLAUDE.md (missing), progress.md (missing)\n\n## State of this tree now\n- active task: golden-task (active)\n- tier: standard (default)\n- last gate: BLOCKED (bound to the current diff)\n- evidence ledger: intact\n- pending review: 0 file(s)\n\n",
         "note": "neither .claude/CLAUDE.md nor progress.md yielded a constraint; the state block is all this could re-derive"
       },
       "stderr": []
@@ -2572,6 +2590,8 @@
             "stale": false
           },
           "fastMode": {
+            "tier": "standard",
+            "source": "default",
             "active": false,
             "remainingHours": null
           },
@@ -3103,7 +3123,7 @@
       "stderr": [
         "unknown subcommand: cc-base-golden-absent-subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release, tier",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -3114,7 +3134,7 @@
         "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
         "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
         "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
-        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-tier debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording",
@@ -3133,7 +3153,8 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / tier / CI / gate-fresh, assembled and never acted on",
+        "  tier        status|set|explain|validate: which gates run at full strength right now, and why",
         "planned (not-implemented):"
       ]
     },
@@ -3145,7 +3166,7 @@
       "stderr": [
         "missing subcommand",
         "usage: node harness.mjs <subcommand>",
-        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release",
+        "implemented: doctor, diff-hash, selftest, catalog-lint, impact, context-pack, receipt, verify, waiver, attributes, arch-check, fitness, adapters, adr-check, arch-trend, gate, ledger, gate-audit, retention, risk, task, budget, spec-lint, trace, spec, dod, review, review-pack, authorship, invariants, recap, archive, sync-check, rules-audit, skills-lint, claude-md-lint, init, cochange, release, tier",
         "  attributes  static wiring audit: declared quality attributes vs claiming checks",
         "  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift",
         "  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)",
@@ -3156,7 +3177,7 @@
         "  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed",
         "  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)",
         "  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies",
-        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task",
+        "  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-tier debt, stale task",
         "  task        start|status|complete: six-field envelope in, four blocking conditions out",
         "  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal",
         "  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording",
@@ -3175,7 +3196,8 @@
         "  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification",
         "  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one",
         "  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports",
-        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on",
+        "  release     is this commit shippable: worktree / remote / dod / manifest / review queue / tier / CI / gate-fresh, assembled and never acted on",
+        "  tier        status|set|explain|validate: which gates run at full strength right now, and why",
         "planned (not-implemented):"
       ]
     },

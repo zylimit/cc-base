@@ -26,7 +26,7 @@
 //   dod           every static governance check, by its own exit code
 //   manifest      FRAMEWORK-MANIFEST.txt vs what the generator would write right now
 //   review-queue  .claude/.needs-review still holding files
-//   fast-mode     an open window means this batch skipped the review and test gates
+//   tier          the fast tier means this batch skipped the review and test gates
 //   ci            the CI conclusion for this exact HEAD
 //   gate-fresh    a passing gate record bound to this exact working tree
 //
@@ -54,7 +54,7 @@
 // output where it cannot be left behind -- structure rather than a sentence in a README.
 //
 // Depends on core / catalog and evidence (the ledger gate-fresh reads) / spec (dodStatus, so
-// the three states are mapped in one place rather than two) / memory (fast-mode and
+// the three states are mapped in one place rather than two) / memory (the tier and
 // review-queue state, same semantics the stop gate and `invariants` already use). Nothing
 // imports it except harness.mjs and selftest.
 //
@@ -117,7 +117,7 @@ function errHead(r) {
 // S27.2 check 1 -- worktree
 // ===========================================================================
 // Runtime state is excluded by the same rule the diff fingerprint uses (isStateExcluded), so
-// an open fast-mode flag or a fresh evidence log is not "uncommitted work". Everything else
+// an open fast window or a fresh evidence log is not "uncommitted work". Everything else
 // is: what would ship is the commit, and anything sitting beside it was never tested by the
 // thing that tested the commit.
 
@@ -454,18 +454,21 @@ function checkReviewQueue() {
     { pending }, 'cat .claude/.needs-review');
 }
 
-// Fast Mode is debt, not a mode. An open window means this batch skipped the review and test
-// gates, so there is deliberately no flag here to wave it through -- a release-side exemption
-// would be a waiver with none of a waiver's owner, expiry or compensation. Closing it is one
-// command, and if the batch really was reviewed, closing it costs nothing.
-function checkFastMode() {
+// The fast tier is debt, not a mode. An open window means this batch skipped the review and
+// test gates, so there is deliberately no flag here to wave it through -- a release-side
+// exemption would be a waiver with none of a waiver's owner, expiry or compensation. Closing
+// it is one command, and if the batch really was reviewed, closing it costs nothing.
+// Anything other than fast passes: standard is the normal posture and strict is stricter than
+// normal, so the only question this check has is whether the gates were lowered for this batch.
+function checkTier() {
   const state = fastModeState();
   if (!state.active) {
-    return result('fast-mode', 'PASS', 'closed; the review and test gates were in force', { active: false }, null);
+    return result('tier', 'PASS', state.tier + '; the review and test gates were in force',
+      { tier: state.tier, source: state.source, active: false }, null);
   }
-  return result('fast-mode', 'FAIL',
-    'open, so this batch skipped the review and test gates -- that is debt, not a state',
-    { active: true, remainingHours: state.remainingHours },
+  return result('tier', 'FAIL',
+    'fast, so this batch skipped the review and test gates -- that is debt, not a state',
+    { tier: state.tier, source: state.source, active: true, remainingHours: state.remainingHours },
     'bash .claude/scripts/fast-mode.sh off');
 }
 
@@ -636,7 +639,7 @@ function checkGateFresh() {
 // ===========================================================================
 
 const RELEASE_CHECKS = [
-  checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkFastMode, checkCi,
+  checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkTier, checkCi,
   checkGateFresh,
 ];
 
@@ -711,7 +714,7 @@ export {
   MANIFEST_RULES, RELEASE_CHECKS, NOTE, TRUST_BOUNDARY, TRUST_NOTE,
   caseGlobToRegExp, manifestIncludes, normalizedSha, parseManifest, manifestFindings,
   ciBuckets, releaseVerdict, result, capped,
-  checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkFastMode, checkCi,
+  checkWorktree, checkRemote, checkDod, checkManifest, checkReviewQueue, checkTier, checkCi,
   gateEstablished, checkGateFresh,
   cmdRelease,
 };

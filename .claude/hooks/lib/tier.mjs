@@ -9,16 +9,12 @@
 //   ③ 治理面自动升档       —— 工作树里改了 raise.paths 命中的家底文件 → 抬到 raise.to
 // 地板（floor）在这三者之外：安全护栏 / 发布授权 / 压缩后回注 / 通知，profile 只能往里加、不能往外拿。
 //
-// **档位是否启用，看 profile.json 在不在**（与「catalog 在不在决定大仓治理是否启用」同构）：
-//   - 在  → 按三档表跑，旧的 .claude/.fast-mode 一概不读（留着的老开关文件不许悄悄放水）；
-//   - 不在 → 档位未启用，整套退回 Phase D 语义：读 .fast-mode，开着则非地板闸静默放行，
-//            关着走 standard 列。判定来源是 fastmode.mjs，**静态 import**：那份文件缺了，
-//            本模块随之加载失败，调用方（io.gateModeOf）退到 standard 列走严格——
-//            「少一个文件 = 闸整个消失」是这条链上最贵的静默失效，宁可整模块起不来也不装没事。
+// **profile.json 缺席不等于没有档位**：缺文件就按下面这份内置默认表跑（与照原样装了一份同义），
+// 旧的 .claude/.fast-mode 一概不读——两个开关文件并存过一次就够了（#38），留着的老开关
+// 不许还能悄悄放水；要放水就走 `tier set fast`，那条路留理由、有上限、会过期。
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fastModeActive as legacyFlagActive } from './fastmode.mjs';
 
 export const TIERS = ['fast', 'standard', 'strict'];
 
@@ -197,7 +193,29 @@ function globToRe(glob) {
   return new RegExp(`^${re}$`);
 }
 
-/** 工作树改动路径（含未跟踪）。git 不可用 / 跑不成 → 空数组（不抬，不是抬）。 */
+/**
+ * 运行态目录：工具自己写出来的东西，不算「有人改了治理面」。
+ * 少了这一条，跑一次 gate 落一行账本、读到一份坏状态记一条 quarantine，工作树就永远脏在
+ * `.claude/harness/**` 上，档位从此钉在 strict 再也下不来——一直响的警报等于没有警报。
+ * 与引擎 core.mjs 的 STATE_EXCLUDE 同一份集合（按目录写，新增一种运行态自动被覆盖）；
+ * hook 不 import 引擎，所以这里抄一份精简版。
+ */
+const STATE_PREFIXES = [
+  '.claude/.runtime/',
+  '.claude/evidence/',
+  '.claude/harness/receipts/',
+  '.claude/harness/waivers/',
+  '.claude/harness/trend/',
+  '.claude/harness/state/',
+  '.claude/harness/evidence/',
+  '.claude/worktrees/',
+];
+const STATE_FILES = ['.claude/.needs-review', '.claude/.needs-review.lock', '.claude/.fast-mode'];
+function isRuntimeState(p) {
+  return STATE_FILES.includes(p) || STATE_PREFIXES.some((pre) => p.startsWith(pre));
+}
+
+/** 工作树改动路径（含未跟踪，去掉运行态）。git 不可用 / 跑不成 → 空数组（不抬，不是抬）。 */
 const dirtyCache = new Map();
 function dirtyPaths(root) {
   if (dirtyCache.has(root)) return dirtyCache.get(root);
@@ -212,10 +230,11 @@ function dirtyPaths(root) {
       const rec = recs[i];
       if (!rec) continue;
       const status = rec.slice(0, 2);
-      out.push(rec.slice(3));
+      const p = rec.slice(3);
+      if (!isRuntimeState(p)) out.push(p);
       if (/^[RC]/.test(status) || /^.[RC]/.test(status)) {
         i += 1;
-        if (recs[i]) out.push(recs[i]);
+        if (recs[i] && !isRuntimeState(recs[i])) out.push(recs[i]);
       }
     }
   }
@@ -234,21 +253,17 @@ function raisedBy(root, profile) {
 
 /**
  * 当前生效档位。
- * @returns {{tier:string, source:'default'|'session'|'raise'|'legacy', raisedBy?:string[], expiresEpoch?:number}}
- *   source=legacy 只出现在「档位未启用（无 profile.json）且旧 .fast-mode 还开着」这一种兼容形态。
+ * @returns {{tier:string, source:'default'|'session'|'raise', raisedBy?:string[], expiresEpoch?:number}}
  */
 export function effectiveTier({ projectDir = defaultRoot(), now = Date.now() } = {}) {
-  const { profile, present } = loadProfile(projectDir);
-
-  if (!present) {
-    return legacyFlagActive(projectDir)
-      ? { tier: 'fast', source: 'legacy' }
-      : { tier: 'standard', source: 'default' };
-  }
-
+  const { profile } = loadProfile(projectDir);
   const session = readSession(projectDir, now);
-  let tier = session ? session.tier : (rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default);
-  let source = session ? 'session' : 'default';
+  const def = rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default;
+  const tier = session ? session.tier : def;
+  // 与默认同档的会话记录不算覆盖：`tier set standard`（`fast-mode.sh off` 走的就是它）写的是
+  // 一份「回到默认」的记录，关掉之后 source 还报 session，就再也分不出「用户把档位钉住了」
+  // 和「刚把 fast 关掉」——而这两种处境下该说的话完全不同。
+  const source = session && session.tier !== def ? 'session' : 'default';
   const out = { tier, source };
   if (session && Number.isFinite(Number(session.expires_epoch))) out.expiresEpoch = Number(session.expires_epoch);
 
@@ -271,15 +286,15 @@ function isGuard(id, profile) {
   return GUARDS.has(id);
 }
 
+/** 某 hook 是拦停闸还是记账闸（引擎的 `tier explain` 要说清它是哪一类才谈得上取值域）。 */
+export function kindOf(id, root = defaultRoot()) {
+  const { profile } = loadProfile(root);
+  return isGuard(id, profile) ? 'guard' : 'recorder';
+}
+
 /** 某种类的最严值：未登记的闸按最严跑，不会因为漏登记就静默。 */
 function strictestFor(guard) {
   return guard ? 'block' : 'on';
-}
-
-/** standard 列（档位未启用时的取值，也是「判定库都没了」时调用方的兜底口径）。 */
-function standardOf(id) {
-  const row = DEFAULT_PROFILE.hooks[id];
-  return row ? row.standard : strictestFor(GUARDS.has(id));
 }
 
 const warned = new Set();
@@ -297,14 +312,11 @@ function warnUnregistered(id) {
  */
 export function gateMode(id, ctx = {}) {
   const root = ctx.projectDir || defaultRoot();
-  const { profile, present } = loadProfile(root);
+  const { profile } = loadProfile(root);
   const guard = isGuard(id, profile);
 
   const floor = Array.isArray(profile.floor) ? profile.floor : [];
   if (BUILTIN_FLOOR.has(id) || floor.includes(id)) return strictestFor(guard);
-
-  // 档位未启用 → Phase D 语义（.fast-mode 开着就静默放行，关着走 standard 列）
-  if (!present) return legacyFlagActive(root) ? 'off' : standardOf(id);
 
   const legal = guard ? GUARD_MODES : RECORDER_MODES;
   const ov = profile.overrides && profile.overrides[id];

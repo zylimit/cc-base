@@ -15,7 +15,6 @@
       "Read(**/credentials.json)"
     ],
     "ask": [
-      "Bash(git push*)",
       "Bash(gh release *)",
       "Bash(npm publish*)",
       "Bash(docker push*)"

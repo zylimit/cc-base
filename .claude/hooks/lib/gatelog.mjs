@@ -5,9 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function gateLog(hook, reason) {
+// root 只有引擎侧会传：hook 一律由宿主起、CLAUDE_PROJECT_DIR 必有，而 `tier set` 是人在命令行
+// 敲的，那个变量常常不在——账本少记的正是「档位被谁调过」这一类最该留痕的行。
+export function gateLog(hook, reason, root = process.env.CLAUDE_PROJECT_DIR) {
   try {
-    const root = process.env.CLAUDE_PROJECT_DIR;
     if (!root) return;
     const firstLine = String(reason === undefined || reason === null ? '' : reason).split(/\r?\n/)[0];
     const ts = new Date().toISOString().replace(/\.\d+Z$/, 'Z');

@@ -878,7 +878,7 @@ const REPO_SUBCOMMANDS = 'doctor,diff-hash,selftest,catalog-lint,impact,context-
   + 'verify,waiver,attributes,arch-check,fitness,adapters,adr-check,arch-trend,'
   + 'gate,ledger,gate-audit,retention,risk,task,budget,spec-lint,trace,spec,dod,'
   + 'review,review-pack,authorship,invariants,recap,archive,sync-check,rules-audit,skills-lint,'
-  + 'claude-md-lint,init,cochange,release';
+  + 'claude-md-lint,init,cochange,release,tier';
 const REPO_SELFTEST_FLOOR = 106;
 
 /** Run the harness against this checkout rather than a sandbox. */

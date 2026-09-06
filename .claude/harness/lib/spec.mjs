@@ -635,6 +635,12 @@ const DOD_STEPS = [
   { id: 'rules-audit', argv: ['rules-audit'], blocking: true },
   { id: 'skills-lint', argv: ['skills-lint'], blocking: true },
   { id: 'claude-md-lint', argv: ['claude-md-lint'], blocking: true },
+  // The dial's own configuration, in the same group for the same reason: a profile that lists
+  // a hook nothing registers, or that is stricter at fast than at standard, changes which
+  // gates run and says nothing while doing it. Appended rather than inserted -- every entry
+  // added mid-list renumbers the rest of a recorded baseline, and a hundred lines of
+  // positional churn is where a real change hides. Degrades where no profile is installed.
+  { id: 'tier', argv: ['tier', 'validate'], blocking: true },
   // Signals, not verdicts. `budget` is documented as a split-or-escalate prompt and `risk`
   // reports decay that may be entirely expected; failing the build on either would get the
   // whole command switched off, which costs more than the two findings are worth.

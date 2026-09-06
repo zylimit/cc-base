@@ -27,13 +27,18 @@
 //   lib/rules.mjs     S22 rules-audit + S23 skills-lint + S24 claude-md-lint
 //   lib/init.mjs      S25 init
 //   lib/release.mjs   S27 release readiness (assembly only; publishes nothing)
+//   lib/tier.mjs      S28 tier dial: status / set / explain / validate. The only section that
+//                     imports outside the engine -- the judgement lives in the single resolver
+//                     .claude/hooks/lib/tier.mjs, and reading it from there is what keeps the
+//                     engine from becoming a second answer to "is fast mode on".
 //   lib/selftest.mjs  selftestCases() and its fixture
 // Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
 // quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
 // quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
 // catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
 // rules -> core, catalog; init -> core, catalog, graph, evidence; release -> core, catalog,
-// evidence, spec, memory; selftest -> all of the above; this file -> all of the above. No cycles.
+// evidence, spec, memory; tier -> core + hooks/lib/tier.mjs; quality, memory, evidence and
+// release -> tier; selftest -> all of the above; this file -> all of the above. No cycles.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -58,12 +63,13 @@ import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.
 import { cmdClaudeMdLint, cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
 import { cmdInit } from './lib/init.mjs';
 import { cmdRelease } from './lib/release.mjs';
+import { cmdTier } from './lib/tier.mjs';
 import { selftestCases } from './lib/selftest.mjs';
 
 // ===========================================================================
 // S0 CLI dispatch
 // ===========================================================================
-const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init', 'cochange', 'release'];
+const IMPLEMENTED_SUBCOMMANDS = ['doctor', 'diff-hash', 'selftest', 'catalog-lint', 'impact', 'context-pack', 'receipt', 'verify', 'waiver', 'attributes', 'arch-check', 'fitness', 'adapters', 'adr-check', 'arch-trend', 'gate', 'ledger', 'gate-audit', 'retention', 'risk', 'task', 'budget', 'spec-lint', 'trace', 'spec', 'dod', 'review', 'review-pack', 'authorship', 'invariants', 'recap', 'archive', 'sync-check', 'rules-audit', 'skills-lint', 'claude-md-lint', 'init', 'cochange', 'release', 'tier'];
 const NOT_IMPLEMENTED_SUBCOMMANDS = [];
 
 // Which flags each subcommand actually reads. parseArgs collects any `--x` it is handed, and
@@ -132,6 +138,9 @@ const SUBCOMMAND_FLAGS = {
   // subcommand could plausibly grow -- --skip-ci, --allow-dirty, --force -- is a waiver with
   // none of a waiver's owner, expiry or compensation, granted by whoever is in a hurry.
   'release': [],
+  // `explain <hook-id>` and `set <tier>` are positional; the two flags below belong to `set`
+  // alone, and `set` rejects --hours for a tier that has no expiry rather than dropping it.
+  'tier': ['hours', 'reason'],
 };
 
 /**
@@ -236,6 +245,7 @@ function main() {
     case 'cochange':     return cmdCoChange(flags);
     // No flags argument: the row above is empty, so there is nothing to hand it.
     case 'release':      return cmdRelease();
+    case 'tier':         return cmdTier(flags, positional);
     default:
       return die(usage(cmd), 3);
   }
@@ -256,7 +266,7 @@ function usage(cmd) {
     '  ledger      recompute the hash chain and re-verify evidence digests (--no-verify-evidence to skip); any break fails closed\n' +
     '  gate-audit  catalog checks that never failed, and the ones a waiver suppressed (hook gates: .claude/scripts/gate-audit.sh)\n' +
     '  retention   prune evidence/packs by age and count; refuses to sweep unless the chain verifies\n' +
-    '  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-mode debt, stale task\n' +
+    '  risk        state decay: broken chain, expired waiver, unwired attribute, fail streak, fast-tier debt, stale task\n' +
     '  task        start|status|complete: six-field envelope in, four blocking conditions out\n' +
     '  budget      blast radius vs catalog.budget; over the line is a split-or-escalate signal\n' +
     '  spec-lint   requirement document must be decidable: section shape, template residue, arrow form, undecidable wording\n' +
@@ -275,7 +285,8 @@ function usage(cmd) {
     '  claude-md-lint  a high-risk module states its boundaries in its own directory: purpose / boundaries / invariants / verification\n' +
     '  init        infer a catalog draft from the tracked tree; prints it, --apply writes it, and never overwrites one\n' +
     '  cochange    module pairs history keeps changing together with no dependsOn to explain it; --gate judges, the default reports\n' +
-    '  release     is this commit shippable: worktree / remote / dod / manifest / review queue / fast-mode / CI / gate-fresh, assembled and never acted on\n' +
+    '  release     is this commit shippable: worktree / remote / dod / manifest / review queue / tier / CI / gate-fresh, assembled and never acted on\n' +
+    '  tier        status|set|explain|validate: which gates run at full strength right now, and why\n' +
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 

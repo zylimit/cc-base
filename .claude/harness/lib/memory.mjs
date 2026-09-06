@@ -41,7 +41,7 @@ import {
   splitNul, toPosixPath,
 } from './core.mjs';
 import { readLedgerState, readTaskRecord, verifyLedgerChain, writeAtomic } from './evidence.mjs';
-import { fastModeActive } from './quality.mjs';
+import { tierState } from './tier.mjs';
 import { latestGateRecord } from './task.mjs';
 import { REQUIREMENT_SECTION, parseRequirements, sectionNamed, splitSections } from './spec.mjs';
 
@@ -235,18 +235,20 @@ function extractIronLaws(text) {
   return out;
 }
 
-/** Fast Mode as state rather than as a boolean: an open window is a debt with a clock. */
+/**
+ * The tier as state rather than as a boolean: a fast window is a debt with a clock on it.
+ * Read through the one resolver, so the window this reports and the window the hooks act on
+ * are the same window -- the field name stays `fastMode` because `release` and the golden
+ * baseline read it, and what it describes is unchanged.
+ */
 function fastModeState() {
-  const active = fastModeActive();
-  let remainingHours = null;
-  try {
-    const raw = fs.readFileSync(path.join(projectRoot(), '.claude', '.fast-mode'), 'utf8');
-    // Same CRLF normalisation as fastModeActive -- active:true beside remainingHours:null would be
-    // this one file answering two ways.
-    const m = raw.replace(/\r\n/g, '\n').match(/^expires_epoch=(\d+)$/m);
-    if (m) remainingHours = Math.max(0, Math.round((Number(m[1]) * 1000 - Date.now()) / 360000) / 10);
-  } catch (_e) { /* absent flag is the normal case */ }
-  return { active, remainingHours: active ? remainingHours : null };
+  const t = tierState();
+  return {
+    tier: t.tier,
+    source: t.source,
+    active: t.fast,
+    remainingHours: t.fast ? t.remainingHours : null,
+  };
 }
 
 /** Files still waiting for review, by the same list semantics the stop gate uses. */
@@ -290,10 +292,14 @@ function stateLines(state) {
   lines.push('- active task: ' + (state.task
     ? state.task.id + ' (' + state.task.state + (state.task.stale ? ', stale >72h' : '') + ')'
     : 'none'));
-  lines.push('- fast mode: ' + (state.fastMode.active
-    ? 'OPEN' + (state.fastMode.remainingHours === null ? '' : ' (' + state.fastMode.remainingHours + 'h left)')
-      + ' -- review/test gates are being skipped, and that is a debt'
-    : 'off'));
+  // Named `tier:` rather than `fast mode:` because the dial now has three positions, and the
+  // two that are not fast still change which gates block. The debt wording is kept for fast:
+  // a lowered gate is deferred evidence, not a setting somebody chose and finished with.
+  lines.push('- tier: ' + state.fastMode.tier + ' (' + state.fastMode.source + ')'
+    + (state.fastMode.active
+      ? (state.fastMode.remainingHours === null ? '' : ', ' + state.fastMode.remainingHours + 'h left')
+        + ' -- review/test gates are being skipped, and that is a debt'
+      : ''));
   lines.push('- last gate: ' + (state.gate
     ? state.gate.verdict + (state.gate.boundToCurrentDiff ? ' (bound to the current diff)' : ' (NOT bound to the current diff)')
     : 'never run'));

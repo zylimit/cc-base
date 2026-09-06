@@ -57,6 +57,7 @@ function probePython(cwd) {
 
 async function main() {
   const mode = await gateModeOf('pre-commit-check');
+  let engineBroken = false;
   if (mode === 'off') return;
 
   // 脚本内自判触发命令：非 git commit 输入直接放行
@@ -147,6 +148,7 @@ async function main() {
       say(r.stdout.trimEnd());
       fail = true;
     } else if (!rcInContract(r.status, 0, 3)) {
+      engineBroken = true;
       // 契约外退出码（verify 契约只有 0/2/3）= 引擎自己崩了、门压根没跑成，放行就是假绿
       say(`❌ 大仓四态质量门跑不起来（harness verify 以契约外退出码 ${r.status} 退出，契约只有 0/2/3），commit 被阻止：`);
       say(errHead(r.stderr) || '（引擎无 stderr 输出）');
@@ -156,13 +158,18 @@ async function main() {
   }
 
   if (fail) {
-    // advise 档（fast）：门跑了、也说了不过，但不拦这次 commit——欠账记账本，别悄悄咽下去
+    // 记账要说清是「门没过」还是「门没跑成」——两件事的下一步不一样（去修代码 / 去看引擎），
+    // 混成一句话，gate-audit 事后就分不出这道闸到底拦下过什么。
+    const why = engineBroken ? '大仓质量门跑不起来（引擎契约外退出码）' : '编译/语法门禁未通过';
+    // advise 档（fast）：门跑了、也说了不过，但不拦这次 commit——欠账记账本，别悄悄咽下去。
+    // 引擎崩了也照此办理：advise 的语义是「本档不拦 commit」，不因失败原因不同临时变硬拦；
+    // 但绝不静默——诊断照出、账本照记，欠的账在那儿。
     if (mode === 'advise') {
-      say('[fast] 以上编译/语法门禁未通过，fast 档不拦本次 commit——欠账仍在，回 standard 前请修掉。');
-      gateLog('pre-commit-check', '[fast] 编译/语法门禁未通过，advise 档放行 commit');
+      say(`[fast] 以上${why}，fast 档不拦本次 commit——欠账仍在，回 standard 前请修掉。`);
+      gateLog('pre-commit-check', `[fast] ${why}，advise 档放行 commit`);
       return;
     }
-    gateLog('pre-commit-check', '编译/语法门禁未通过，commit 被阻止');
+    gateLog('pre-commit-check', `${why}，commit 被阻止`);
     process.exitCode = 2;
   }
 }

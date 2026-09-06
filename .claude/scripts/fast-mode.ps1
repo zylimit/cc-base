@@ -1,26 +1,46 @@
 #!/usr/bin/env pwsh
-# fast-mode.ps1 -- fast-mode master switch manager (PowerShell equivalent of fast-mode.sh).
-# Flag file .claude/.fast-mode stores expires_epoch (unix seconds); while unexpired, every hook
-# under .claude/hooks/ passes through silently. Expired flag auto-reverts to strict mode.
+# fast-mode.ps1 -- the old tier switch, now a thin shell (PowerShell equivalent of fast-mode.sh).
+# on/off/status all forward to the engine's `tier` subcommand; this script parses nothing and
+# writes nothing. There is one reader (.claude/hooks/lib/tier.mjs) and one writer
+# (harness.mjs tier set -> .claude/.runtime/tier.json); the old .claude/.fast-mode is neither
+# read nor written any more -- two switch files coexisting is exactly how #38 happened.
 # Usage: pwsh .claude/scripts/fast-mode.ps1 on [hours] | off | status   (no args = status; hours defaults to 24)
+# The 8-hour cap is applied and explained by the engine; 24 stays here only as the old default.
 param(
     [string]$Action = 'status',
     [string]$Hours = '24'
 )
 
 $ErrorActionPreference = 'Stop'
+# A non-zero exit from the engine is an answer (2 = usage error), not a PowerShell failure.
+# PowerShell 7.3+ turns native non-zero exits into terminating errors when ErrorActionPreference
+# is Stop, which would swallow the engine's own exit code and report 1 for every one of them.
+$PSNativeCommandUseErrorActionPreference = $false
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$flag = Join-Path $projectDir '.claude/.fast-mode'
+$harness = Join-Path $projectDir '.claude/harness/harness.mjs'
 
-function Get-FastModeExpiryEpoch {
-    if (-not (Test-Path -LiteralPath $flag -PathType Leaf)) { return $null }
+# stdout carries JSON for machines; only the engine's human line on stderr is passed through.
+# When the engine cannot run, say so and give the way out that does not need it: fast expires
+# on its own within 8 hours, and the runtime file can be deleted by hand.
+function Invoke-Tier {
+    param([string[]]$EngineArgs)
+    if (-not (Test-Path -LiteralPath $harness -PathType Leaf)) {
+        Write-Error "engine missing ($harness): the tier cannot be changed here. Delete .claude/.runtime/tier.json to force the default back; a fast window expires within 8h anyway." -ErrorAction Continue
+        exit 3
+    }
+    if (-not $env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR = $projectDir }
+    # stderr goes through a file rather than 2>&1: merging the two streams would put the JSON
+    # and the human line in one pipeline, and telling them apart afterwards is guesswork.
+    $tmp = [System.IO.Path]::GetTempFileName()
     try {
-        $line = Get-Content -LiteralPath $flag -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '^expires_epoch=(\d+)$' } |
-            Select-Object -First 1
-        if (-not $line) { return $null }
-        return [int64]($line -replace '^expires_epoch=', '')
-    } catch { return $null }
+        & node $harness @EngineArgs 1>$null 2>$tmp
+        $rc = $LASTEXITCODE
+        $err = (Get-Content -LiteralPath $tmp -Raw)
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+    if ($err) { Write-Output $err.Trim() }
+    exit $rc
 }
 
 switch ($Action) {
@@ -29,37 +49,16 @@ switch ($Action) {
             Write-Error 'hours must be a positive integer (e.g. fast-mode.ps1 on 3)' -ErrorAction Continue
             exit 2
         }
-        $h = [int64]$Hours
-        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $expires = $now + ($h * 3600)
-        # LF, not the CRLF Set-Content writes on Windows: lib-fast-mode.sh reads this same file with
-        # sed, whose $ does not match across a trailing \r, so a CRLF flag reads on to the engine and
-        # off to every bash hook.
-        $body = "enabled_epoch=$now`nexpires_epoch=$expires`nhours=$h`n"
-        [System.IO.File]::WriteAllText($flag, $body, [System.Text.UTF8Encoding]::new($false))
-        Write-Output "fast-mode: on ($flag created/renewed, auto-expires in ${h}h; run off to restore strict mode when done)"
+        Invoke-Tier @('tier', 'set', 'fast', '--hours', $Hours, '--reason', 'fast-mode.ps1')
     }
     'off' {
-        Remove-Item -LiteralPath $flag -Force -ErrorAction SilentlyContinue
-        Write-Output 'fast-mode: off (flag file removed, hooks back to strict enforcement)'
+        Invoke-Tier @('tier', 'set', 'standard', '--reason', 'fast-mode.ps1 off')
     }
     'status' {
-        $expiry = Get-FastModeExpiryEpoch
-        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        if ($null -ne $expiry -and $expiry -gt $now) {
-            $left = [math]::Ceiling(($expiry - $now) / 60)
-            Write-Output "fast-mode: on (about $left minutes remaining: $flag)"
-        }
-        elseif (Test-Path -LiteralPath $flag) {
-            Write-Output "fast-mode: expired (flag file still present: $flag; re-run on if still needed, or off to clean up)"
-        }
-        else {
-            Write-Output 'fast-mode: off'
-        }
+        Invoke-Tier @('tier', 'status')
     }
     default {
         Write-Error 'usage: pwsh .claude/scripts/fast-mode.ps1 on [hours]|off|status' -ErrorAction Continue
         exit 2
     }
 }
-exit 0

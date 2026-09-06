@@ -30,7 +30,9 @@
 #       TC 坏状态 / TL 旧入口薄壳 / TG 引擎接线
 set -eu
 
-ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+# CC_BASE_ROOT 覆盖是给「拿候选实现验修得好」留的口子：把本脚本拷去 /tmp、指向打过补丁的
+# 仓库副本跑同一批断言，零改动本仓。不设时按脚本自身位置推。
+ROOT=${CC_BASE_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}
 HARNESS="$ROOT/.claude/harness/harness.mjs"
 HOOKS="$ROOT/.claude/hooks"
 SCRIPTS="$ROOT/.claude/scripts"
@@ -97,6 +99,11 @@ newsb() {
     mkdir -p "$d/.claude/harness" "$d/.claude/hooks/lib" "$d/.claude/scripts" \
              "$d/.claude/evidence" "$d/.claude/.runtime" "$d/src"
     cp "$ROOT/.claude/settings.json" "$d/.claude/settings.json" 2>/dev/null || true
+    # 引擎整台搬进沙箱：tier 的判定与 quarantine 落点都从**引擎自身位置**推，跑仓里那份
+    # 会把沙箱的答案写回本仓。lib/ 按目录整拷、不枚举模块名（拆库后少一个就是起不来的假红）。
+    mkdir -p "$d/.claude/harness/lib"
+    cp "$ROOT/.claude/harness/harness.mjs" "$d/.claude/harness/" 2>/dev/null || true
+    cp "$ROOT"/.claude/harness/lib/*.mjs "$d/.claude/harness/lib/" 2>/dev/null || true
     cp "$HOOKS"/*.mjs "$d/.claude/hooks/" 2>/dev/null || true
     cp -R "$HOOKS/lib/." "$d/.claude/hooks/lib/" 2>/dev/null || true
     cp "$SCRIPTS/fast-mode.sh" "$d/.claude/scripts/" 2>/dev/null || true
@@ -121,6 +128,9 @@ const p = JSON.parse(fs.readFileSync(src, "utf8"));
 if (mut) { eval(mut); }
 fs.writeFileSync(dest, JSON.stringify(p, null, 2) + "\n");
 ' "$FIX" "$d/.claude/harness/profile.json" "$mut"
+    # 提交掉：.claude/harness/** 在 raise.paths 里，profile 与引擎以未跟踪状态留着，
+    # 每个沙箱都会被自动升档抬成 strict，TT/TE/TC 那些「默认档」的断言就全成了红。
+    ( cd "$d" && git add -A -f .claude/harness && git commit -qm profile ) >/dev/null 2>&1
 }
 
 # mktier <沙箱> <fast|standard|strict> [live|expired|badjson|crlf] —— 造运行态覆盖文件。
@@ -531,7 +541,8 @@ if command -v pwsh >/dev/null 2>&1; then
     chk "$([ "$TLP_OFF" -eq 0 ] && [ "$(jq_ "$OUT" 'String(d.tier)')" = "standard" ] && echo 0 || echo 1)" \
         "TL-7 fast-mode.ps1 off → effective 回 default" \
         "off rc=0 且随后 tier=standard" "off rc=$TLP_OFF status=[$(show "$OUT")]"
-    NONASCII=$(LC_ALL=C grep -c '[^ -~	]' "$SCRIPTS/fast-mode.ps1" 2>/dev/null || echo 0)
+    # grep -c 零命中时自己就印 0 并 rc 1，再 `|| echo 0` 会拼成两行「0\n0」，和 "0" 比永远不等。
+    NONASCII=$(LC_ALL=C grep -c '[^ -~	]' "$SCRIPTS/fast-mode.ps1" 2>/dev/null || true)
     chk "$([ "${NONASCII:-1}" = "0" ] && echo 0 || echo 1)" \
         "TL-8 fast-mode.ps1 仍是纯 ASCII（Pinned 约束；改薄壳时最容易顺手带进中文）" \
         "非 ASCII 行数=0" "非 ASCII 行数=${NONASCII:-?}"

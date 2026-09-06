@@ -62,6 +62,7 @@ import {
 import {
   ciBuckets, manifestFindings, manifestIncludes, normalizedSha, parseManifest, releaseVerdict, result,
 } from './release.mjs';
+import { validateProfile } from './tier.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append
@@ -3101,9 +3102,9 @@ function selftestCases() {
       assert.deepEqual([clean.ok, clean.exit, clean.blockers.length], [true, 0, 0],
         'a degraded check reports unknown and does not move the exit code');
 
-      const blocked = releaseVerdict([fail('fast-mode', 'bash .claude/scripts/fast-mode.sh off'), degraded('ci')]);
+      const blocked = releaseVerdict([fail('tier', 'bash .claude/scripts/fast-mode.sh off'), degraded('ci')]);
       assert.deepEqual([blocked.ok, blocked.exit], [false, 1]);
-      assert.deepEqual(blocked.blockers.map(b => b.id), ['fast-mode']);
+      assert.deepEqual(blocked.blockers.map(b => b.id), ['tier']);
       for (const b of blocked.blockers) {
         assert.ok(typeof b.nextStep === 'string' && b.nextStep.length > 0,
           b.id + ': a blocker without a command to run is a diagnosis with empty hands');
@@ -3118,11 +3119,78 @@ function selftestCases() {
     // each `release` runs `dod` as a child, and this case list is itself replayed nine times
     // by the golden matrix. The three blocking conditions are therefore raised together and
     // asserted individually, which still proves each is detected and named on its own.
+    // S28 tier -- the profile validator, over injected profiles so every rule is reachable
+    // without a repository. The CLI half (set / status / explain, the eight-hour cap, the
+    // runtime file's shape) is covered by .claude/tests/test-tier.sh, which drives the real
+    // binary; what is asserted here is the judgement these rules make.
+    ['tier: the shipped profile passes its own validator', () => {
+      const registered = Object.keys(BASE_PROFILE.hooks).concat(BASE_PROFILE.floor).sort();
+      assert.deepEqual(validateProfile(BASE_PROFILE, registered), [],
+        'the profile this framework ships has to survive the rule set it ships with');
+    }],
+
+    ['tier: a row that is stricter at a lower tier is named, and lowering fast alone is not', () => {
+      const bad = profileWith(p => { p.hooks['stop-gate'].fast = 'block'; p.hooks['stop-gate'].standard = 'advise'; });
+      const f = validateProfile(bad, registeredOf(bad));
+      assert.deepEqual(f.map(x => [x.code, x.hook]), [['NOT_MONOTONIC', 'stop-gate']],
+        'fast <= standard <= strict is what makes "the tier was lowered" mean one thing: ' + JSON.stringify(f));
+
+      const ok = profileWith(p => { p.hooks['stop-gate'].fast = 'off'; });
+      assert.deepEqual(validateProfile(ok, registeredOf(ok)), [],
+        'control: a genuinely looser fast column is the point of the table, not a violation');
+    }],
+
+    ['tier: the floor cannot be given a row, and a recorder cannot be given a guard mode', () => {
+      const floored = profileWith(p => {
+        p.hooks['secret-exfil-guard'] = { kind: 'guard', fast: 'block', standard: 'block', strict: 'block' };
+      });
+      assert.deepEqual(validateProfile(floored, registeredOf(floored)).map(x => [x.code, x.hook]),
+        [['FLOOR_IN_TABLE', 'secret-exfil-guard']],
+        'a row for a floor gate is an adjustable dial on something that has none');
+
+      const miscast = profileWith(p => { p.hooks['mark-review-needed'].standard = 'block'; });
+      assert.deepEqual(validateProfile(miscast, registeredOf(miscast)).map(x => [x.code, x.hook]),
+        [['BAD_MODE', 'mark-review-needed']], 'a recorder has two positions, not three');
+    }],
+
+    ['tier: a registered hook with no row, and a row for no hook, are both violations', () => {
+      const dropped = profileWith(p => { delete p.hooks['tdd-gate']; });
+      assert.deepEqual(validateProfile(dropped, registeredOf(BASE_PROFILE)).map(x => [x.code, x.hook]),
+        [['UNREGISTERED', 'tdd-gate']],
+        'running at full strength as a fallback is a backstop, not somebody deciding');
+
+      const invented = profileWith(p => {
+        p.hooks['not-a-hook-at-all'] = { kind: 'guard', fast: 'off', standard: 'block', strict: 'block' };
+      });
+      assert.deepEqual(validateProfile(invented, registeredOf(BASE_PROFILE)).map(x => [x.code, x.hook]),
+        [['NOT_A_HOOK', 'not-a-hook-at-all']],
+        'a row nothing reads is worse than no row, because it reads as configured');
+    }],
+
+    ['tier: misspelled keys are violations rather than silence, at both levels', () => {
+      const top = profileWith(p => { p.tiers = { fast: {} }; });
+      assert.deepEqual(validateProfile(top, registeredOf(top)).map(x => x.code), ['UNKNOWN_FIELD']);
+
+      const row = profileWith(p => { p.hooks['tdd-gate'].fastest = 'off'; });
+      assert.deepEqual(validateProfile(row, registeredOf(row)).map(x => [x.code, x.hook]),
+        [['UNKNOWN_ROW_FIELD', 'tdd-gate']],
+        'a misspelled tier name is dropped in silence and the tier it meant keeps its default');
+
+      const target = profileWith(p => { p.raise.to = 'paranoid'; });
+      assert.deepEqual(validateProfile(target, registeredOf(target)).map(x => x.code), ['BAD_RAISE_TO'],
+        'an unknown target tier makes the automatic raise a no-op that reads as configured');
+    }],
+
     ['release: a clean tree passes, three defects each get named with a command, and a non-repo establishes nothing', () => {
       const roots = [];
       try {
         const root = newGitRepo(roots, 'release');
-        commitFiles(root, { 'src/app.ts': 'export const APP = 1;\n' }, 'release fixture base');
+        // The profile is committed rather than written afterwards: it is not runtime state, so
+        // an untracked one would show up as uncommitted work in the very check being asserted.
+        commitFiles(root, {
+          'src/app.ts': 'export const APP = 1;\n',
+          '.claude/harness/profile.json': FIXTURE_PROFILE,
+        }, 'release fixture base');
 
         const clean = runRelease(root);
         assert.deepEqual([clean.code, clean.out.ok, clean.out.blockers.length], [0, true, 0],
@@ -3145,23 +3213,22 @@ function selftestCases() {
 
         fs.appendFileSync(path.join(root, 'src', 'app.ts'), 'export const B = 2;\n', 'utf8');
         fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
-        fs.writeFileSync(path.join(root, '.claude', '.fast-mode'),
-          'enabled_epoch=1\nexpires_epoch=4102444800\nhours=24\n', 'utf8');
+        writeTierState(root);
         fs.writeFileSync(path.join(root, '.claude', '.needs-review'), 'src/app.ts\nsrc/b.ts\n', 'utf8');
 
         const dirty = runRelease(root);
         assert.deepEqual([dirty.code, dirty.out.ok], [1, false]);
-        assert.deepEqual(dirty.out.blockers.map(b => b.id).sort(), ['fast-mode', 'review-queue', 'worktree']);
+        assert.deepEqual(dirty.out.blockers.map(b => b.id).sort(), ['review-queue', 'tier', 'worktree']);
         for (const b of dirty.out.blockers) {
           assert.ok(typeof b.nextStep === 'string' && b.nextStep.length > 0,
             b.id + ': every blocker names the command that resolves it');
           assert.ok(dirty.err.includes(b.id + ' -> ' + b.nextStep),
             b.id + ': the human channel carries the same command as the JSON one: ' + dirty.err);
         }
-        // The two flag files just written are runtime state, and runtime state is not
-        // uncommitted work -- counting it would make every fast-mode session look dirty.
+        // The two state files just written are runtime state, and runtime state is not
+        // uncommitted work -- counting it would make every fast session look dirty.
         assert.deepEqual(dirty.out.checks.find(c => c.id === 'worktree').evidence.paths, ['src/app.ts']);
-        assert.deepEqual(dirty.out.checks.find(c => c.id === 'fast-mode').evidence.active, true);
+        assert.deepEqual(dirty.out.checks.find(c => c.id === 'tier').evidence.active, true);
         assert.deepEqual(dirty.out.checks.find(c => c.id === 'review-queue').evidence.pending, 2);
 
         const loose = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ccbase-selftest-release-loose-')));
@@ -3272,7 +3339,7 @@ function selftestCases() {
         const root = newGitRepo(roots, 'all-skipped');
         commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'skip fixture base');
         writeSkippableCatalog(root);
-        writeFastMode(root);
+        writeTierState(root);
 
         const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
         assert.deepEqual([ver.out.affected, ver.out.checks.map(c => c.state)], [['pay'], ['SKIPPED']],
@@ -3288,9 +3355,9 @@ function selftestCases() {
           + 'the record being right does not help a caller that only reads the code: '
           + JSON.stringify({ code: gated.code, gate: gated.out.gate, reason: gated.out.reason }));
 
-        // Control: close the fast-mode window and the same catalog runs for real. A green here
+        // Control: let the fast window expire and the same catalog runs for real. A green here
         // is what proves the two results above come from the skipping and not from the fixture.
-        writeFastMode(root, 'enabled_epoch=1\nexpires_epoch=1\nhours=24\n');
+        writeTierState(root, JSON.stringify({ tier: 'fast', reason: 'expired fixture', by: 'user', set_epoch: 1, expires_epoch: 2 }) + '\n');
         const real = runIn(root, ['verify', '--changed', 'pay/a.ts']);
         assert.deepEqual([real.code, real.out.state, real.out.checks.map(c => c.state)], [0, 'PASS', ['PASS']],
           'control: with the window shut the check executes and the gate passes for a reason: '
@@ -3376,21 +3443,21 @@ function selftestCases() {
       }
     }],
 
-    ['fast-mode: a damaged flag file reads as closed, and the damage is recorded rather than inferred away', () => {
+    ['tier: a damaged runtime file reads as closed, and the damage is recorded rather than inferred away', () => {
       const roots = [];
       try {
-        const root = newGitRepo(roots, 'unreadable-fastmode');
-        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'fast-mode fixture base');
+        const root = newGitRepo(roots, 'unreadable-tier');
+        commitFiles(root, { 'pay/a.ts': 'export const a = 1;\n' }, 'tier fixture base');
         writeSkippableCatalog(root);
-        writeFastMode(root, 'this file was half written and carries no expiry at all\n');
+        writeTierState(root, 'this file was half written and is not JSON at all\n');
 
         const ver = runIn(root, ['verify', '--changed', 'pay/a.ts']);
         // Regression guard, green before the fix as well: closed is already the direction both
         // the engine and lib-fast-mode.sh take, and it is the direction that must not drift --
         // a flag file nobody can read must never open the window.
         assert.deepEqual([ver.out.fastActive, ver.out.checks.map(c => c.state)], [false, ['PASS']],
-          'a flag file with no readable expiry does not open the window, in the engine exactly as '
-          + 'in lib-fast-mode.sh: ' + JSON.stringify(ver.out));
+          'a runtime file nobody can parse does not open the window; it reads as no override at '
+          + 'all, in the engine exactly as in every hook: ' + JSON.stringify(ver.out));
 
         const qRel = '.claude/harness/state/quarantine.jsonl';
         const q = path.join(root, qRel);
@@ -3398,9 +3465,9 @@ function selftestCases() {
           'but "closed" is the whole of what gets reported today, and a switch file somebody '
           + 'damaged then leaves no trace at all -- the same silence a tampered one would leave');
         const lines = fs.readFileSync(q, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
-        assert.ok(lines.some(l => l && String(l.path) === '.claude/.fast-mode'),
-          'and the line names the file, so "why did fast mode stop working" has an answer: '
-          + JSON.stringify(lines));
+        assert.ok(lines.some(l => l && String(l.path) === '.claude/.runtime/tier.json' && l.kind === 'tier'),
+          'and the line names the file and what kind of state it was, so "why is the tier not '
+          + 'what I set" has an answer: ' + JSON.stringify(lines));
       } finally {
         for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
       }
@@ -4081,6 +4148,7 @@ function selftestCases() {
         // Empty and meant to stay empty: --skip-ci / --allow-dirty would each be a waiver
         // granted by whoever is in a hurry, with no owner, expiry or compensation.
         'release': [],
+        'tier': ['hours', 'reason'],
       };
       const INVENTED = 'cc-base-absent-flag';
       const run = (argv) => {
@@ -4382,11 +4450,42 @@ function writeSkippableCatalog(root) {
   }, null, 2) + '\n', 'utf8');
 }
 
-/** Open the fast-mode window (or damage it) without going through the shell switch. */
-function writeFastMode(root, body) {
-  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.claude', '.fast-mode'),
-    body === undefined ? 'enabled_epoch=1\nexpires_epoch=4102444800\nhours=24\n' : body, 'utf8');
+/** The profile this framework ships, as the validator cases' starting point. */
+const BASE_PROFILE = JSON.parse(fs.readFileSync(path.join(HARNESS_DIR, 'profile.json'), 'utf8'));
+
+/** A deep copy of the shipped profile with one mutation applied. */
+function profileWith(mutate) {
+  const p = JSON.parse(JSON.stringify(BASE_PROFILE));
+  mutate(p);
+  return p;
+}
+
+/** The hook ids a profile accounts for, standing in for what settings.json registers. */
+function registeredOf(profile) {
+  return Object.keys(profile.hooks).concat(profile.floor).sort();
+}
+
+/**
+ * A profile that enables the tier dial and never raises on its own: these fixtures set the
+ * tier explicitly, and an automatic raise on their own untracked files would answer for them.
+ */
+const FIXTURE_PROFILE = JSON.stringify({
+  version: 1, default: 'standard', floor: [], hooks: {},
+  raise: { to: 'strict', paths: [] }, overrides: {},
+}, null, 2) + '\n';
+
+/** Open the fast window (or damage the file) without going through the shell switch. */
+function writeTierState(root, body) {
+  const harnessDir = path.join(root, '.claude', 'harness');
+  fs.mkdirSync(harnessDir, { recursive: true });
+  if (!fs.existsSync(path.join(harnessDir, 'profile.json'))) {
+    fs.writeFileSync(path.join(harnessDir, 'profile.json'), FIXTURE_PROFILE, 'utf8');
+  }
+  fs.mkdirSync(path.join(root, '.claude', '.runtime'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', '.runtime', 'tier.json'),
+    body === undefined
+      ? JSON.stringify({ tier: 'fast', reason: 'selftest fixture', by: 'user', set_epoch: 1, expires_epoch: 4102444800 }) + '\n'
+      : body, 'utf8');
 }
 
 /** Write a file under a fixture root, creating its directory. Returns the absolute path. */

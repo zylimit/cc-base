@@ -83,16 +83,18 @@ fi
 #   引擎崩掉给契约外退出码时闸不许静默放行的那 28 条红锁，已并进 test-hooks-node.sh 的
 #   SG / PC 组（原 test-hook-failopen.sh 随 Phase D 退役）。
 #   与 cases/test-harness.sh 分工——那份锁「引擎端到端链路该有的行为」，这两份锁「闸自己的行为」。
+#   test-tier.sh 跟在后面：档位（profile.json + .runtime/tier.json）决定每个闸此刻怎么跑，
+#   它锁的是那张表与 tier 子命令本身，闸的行为对不对由前两份判。
 #   都只需 node + git；无 node 时它们自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
 HOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    for s in test-hooks-node.sh test-hooks-settings.sh; do
+    for s in test-hooks-node.sh test-hooks-settings.sh test-tier.sh; do
         echo "----- 运行 $s -----"
         bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     done
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——hook 行为与注册面回归跳过，未执行 != 通过。"
-    HOOKS_NOTE="；hook 行为/注册面回归 SKIPPED（无 node）"
+    HOOKS_NOTE="；hook 行为/注册面/档位回归 SKIPPED（无 node）"
 fi
 # 证据层红锁：账本读不出来要降级、并发追加不许断链、证据被改写要有命令看得见、
 #   闸的范围不许由调用方伪造、被压制的失败不许冒充「从没跑过」。

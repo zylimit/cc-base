@@ -101,6 +101,8 @@ paths:
       · **没有豁免 flag，一个都不给**：`--skip-ci` / `--allow-dirty` / `--force` 每一个都是 waiver 的翻版——没有 owner、没有到期、没有补偿，由当下最赶时间的人签发。`release` 的 flag 白名单表空着，且要一直空着（`--任何东西` 一律 rc 2）。
       · **每条阻断项都带「下一步该敲什么命令」**，JSON 的 `blockers[].nextStep` 与 stderr 末尾那几行是同一份——空手的诊断没人会用第二次。
 
+    - **tier status|set|explain|validate**：档位盘（fast / standard / strict）——哪些闸此刻按最严跑、为什么。判定不在这儿写第二遍：`.claude/hooks/lib/tier.mjs` 是唯一解析器，引擎从它 import（依赖方向只许「引擎 → hook lib」，反过来不行；#38 就是同一个开关三处各解析一遍，一边判开一边判关）。`status` 报生效档 + 来源（default / session / raise）+ 剩余时长 + 每个 hook 此刻的模式表；`set <档> [--hours N] [--reason …]` 是 `.claude/.runtime/tier.json` 的**唯一写入方**（hook 只读不写），**fast 必须给 `--reason`**（降档是决定，没写理由的决定和事故读起来一样）、`--hours` 只对 fast 有效且**上限 8 小时**（超了截断并在 stderr 说明——旧开关默认 24 小时、常被发现开了好几天），每次落盘同时往 `.claude/evidence/gate-block.log` 记一行 `tier`；`explain <hook-id>` 说清某个闸在三档各是什么、当前值、来源（default/session/raise/override/floor）；`validate` 校验 `profile.json`：三档单调（每 hook fast ≤ standard ≤ strict）、floor 不出现在档位表、kind 与取值域匹配（guard 三态 / recorder 两态）、raise.to 合法、顶层与行内无未知字段、**已注册 hook（从 settings.json 的 `args[0]` 现算，不另存一份名单）必须在表里或在 floor**、表里不许有不存在的 hook id。`profile.json` 不在 ≠ 档位关掉——缺文件按内置默认表跑，只是没有可校验的文件，故 `validate` rc 3 降级（什么都没校验，不是通过）。`dod` 里是阻断步；`release` 的 `tier` 项 effective ≠ fast 才 PASS；`risk` 的 `GOVERNANCE_SURFACE_CHANGED` 与自动升档读的是同一份 `raise.paths`。旧入口 `.claude/scripts/fast-mode.sh|.ps1` 已变薄壳，只转发 `tier set` / `tier status`，自己不解析也不落盘。
+
     预算默认值（catalog.contextPack 可覆盖）：maxTotalChars=120000 / maxFiles=40 / maxFileChars=6000 / maxDiffChars=40000。
 
 [退出码契约（源码确认）]
@@ -155,6 +157,9 @@ paths:
     | claude-md-lint | 四节齐 / 无 high-critical 模块 | 缺文件 / 缺节 / 空节 | — | 无 catalog / 非 git / 模块根派生不出 | — |
     | init | 草案产出（dry-run 或 --apply 写成功） | --apply 时 catalog 已存在 / 草案自检不过 catalog-lint / 写盘失败 | — | 非 git / tracked 清单空或截断 | — |
     | release | 阻断项全过（降级项照列，不改退出码） | 有阻断项（`blockers[]` 逐条带下一步命令） | — | 非 git / 八条全降级（什么都没建立） | — |
+    | tier status / explain | 总是 / 已知 hook id | — | explain 未知 hook id / 缺 id | — | — |
+    | tier set | 写入成功 | 写盘失败 | 用法错（未知档名 / fast 缺 --reason / --hours 非正数或给了无过期的档） | — | — |
+    | tier validate | profile 合规 | 有违规 / profile 读不出来 | — | 无 profile.json（档位未启用） | — |
     | unknown / missing | — | — | — | 总是 | — |
     | 未知 flag（任一子命令） | — | — | 总是 | — | — |
 

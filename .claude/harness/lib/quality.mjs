@@ -15,6 +15,7 @@ import {
 } from './core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
+import { tierState } from './tier.mjs';
 
 // ===========================================================================
 // S7 receipt  (diff-bound review receipts; stale/tamper -> exit 4)
@@ -553,26 +554,16 @@ function verifyPlan(changed, catalog, { fastActive = false, nonGit = false, runC
   };
 }
 
-/** True if fast-mode flag file is present and unexpired (mirrors lib-fast-mode.sh). */
+/**
+ * True when the fast tier is in force. The reading comes from the one resolver
+ * (.claude/hooks/lib/tier.mjs, through lib/tier.mjs) rather than from a flag file opened here:
+ * this function used to parse .claude/.fast-mode itself, which is how one switch came to be
+ * read open by the engine and closed by every bash hook (#38). The name is kept because three
+ * sections and a golden baseline call it, and what it answers is unchanged -- fast is now a
+ * tier rather than a flag.
+ */
 function fastModeActive() {
-  const flag = path.join(projectRoot(), '.claude', '.fast-mode');
-  let raw;
-  try { raw = fs.readFileSync(flag, 'utf8'); } catch (_e) { return false; }
-  // CRLF is stripped before matching rather than tolerated inside the pattern: fast-mode.ps1 wrote
-  // this file with Windows line endings, and the two readers then disagreed about it -- JS counts a
-  // lone \r as a line terminator so this matched, while the sed in lib-fast-mode.sh did not. A switch
-  // that reads open to the engine and closed to every bash hook is worse than either answer alone.
-  const m = raw.replace(/\r\n/g, '\n').match(/^expires_epoch=(\d+)$/m);
-  if (!m) {
-    // Closed is the answer either way, and it is the right one -- lib-fast-mode.sh fails
-    // closed on the same input, and a switch nobody can read must never open the window.
-    // But closed is also what an absent file answers, so a damaged switch and a switch
-    // nobody ever set leave exactly the same trace: none. Then "why did fast mode stop
-    // working" has nowhere to be answered from.
-    recordCorruptState({ kind: 'fast-mode', path: flag, reason: 'no readable expires_epoch line' });
-    return false;
-  }
-  return Number(m[1]) * 1000 > Date.now();
+  return tierState().fast;
 }
 
 /**
