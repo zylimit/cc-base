@@ -13,6 +13,7 @@
 - [permissions.ask 列表与用户「全部放行」指令冲突](settings-ask-list-conflicts-with-user-authorize-continuous-execution.md) — 用户抱怨反复被要求确认时先查 `.claude/settings.json` 的 `permissions.ask` 列表和 hook 的 `permissionDecision`，别只辩解"我没问"；用户明确全部放行后记进 progress.md 决策并清理冲突的 ask 规则，安全护栏条目不在放行范围
 - [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意
 - [研究下钻按指定递归深度执行，不能用平级数量冒充深度](recursive-research-depth-not-fanout.md) — 用户要求「向下多打 N 层/加强吸收」= 委派树递归下钻（主 Agent 分轮驱动、逐层收窄边界），不是同层加并行研究者；验收核实际层数与每层新增分析价值
+- [Sub-Agent 派单要给最小上下文，不让它自己推导/复核/写长回执](subagent-dispatch-minimal-context-not-self-derivation.md) — 派单只给「文件:行+改成什么+一条验证命令」且 ≤8 次工具调用；复核收拢主 Agent 一次做；≤5 行机械改动主 Agent 直接改不起实例；reviewer 一次一个问题——4 行夹具修正滚到 60 轮的教训
 - ✅[已毕业] [完成声明需当场新鲜证据：不可跳步五步闸](completion-claims-need-fresh-verification-five-step-gate.md) — 任何"完成/通过/修好"结论前必须有当场跑出的新鲜证据，走不可跳步五步闸；子 Agent 自述/空回复≠结果正确，禁凭表层信息断言再事后追认
 - ✅[已毕业] [押后事项非点名批准不得重启；长耗时计算先报耗时拿批准；数据呈现≠数据重算](deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md) — 用户押后/否决过的事项只有点名批准才能重启，含糊指令先复述问清；超过几分钟的长耗时计算启动前报预计耗时拿批准；用户要"看数"用现成数据答，数据呈现≠数据重算
 - ✅[已毕业] [部署验收：以宿主真实状态为准做独立核查，不轻信子 Agent 回复状态](deploy-acceptance-independent-verification.md) — 部署验收以宿主真实状态为准，独立核查三件套（容器时间戳+镜像tag / 健康检查 / live冒烟），不以子 Agent 回复状态为唯一依据
