@@ -21,7 +21,7 @@ paths:
     [交付阶段]
         触发：Product Spec 生成完成后自动执行
 
-        用户签字闸：先让用户审查已写入的 Product-Spec.md，明确批准后才进入 dev-planner 规划阶段。用户没点头不往下走——有改动回 product-spec-builder 改完再请批。
+        用户签字闸：签字的形式是 product-spec-builder 的 [复述理解]——用用户自己的案例讲一遍上线后那次会怎么发生，用户挑不出错即为批准；挑出错回 product-spec-builder 改完再复述。不另发「请批准」。没过复述不进 dev-planner。
 
         输出：
             "✅ **Product Spec 已生成！**
@@ -30,7 +30,8 @@ paths:
             
             ---
             
-            先过一遍 Product-Spec.md，确认写的就是你要的。**批准了我再往下规划开发计划。**
+            [复述：按 Spec 用用户的案例讲一遍那次会怎么发生，末尾一个具体的「那次是不是这样」]
+            Spec 里 `[推断]` N 条、`[待定]` M 条（列出），不影响开工的已标押后。
             
             ## 📘 接下来
             
@@ -184,9 +185,9 @@ paths:
         第一步：明确变更内容
             调用 product-spec-builder（迭代模式）
                 ↓
-            通过追问明确变更内容 → 更新 Product-Spec.md → 更新 Product-Spec-CHANGELOG.md
+            按其 [交互深度分档] 判档；确认档以上先问三件事：为什么改、原来哪条判断错了、影响哪些已确认条目 → 更新 Product-Spec.md（标记与来源、澄清记录）→ 更新 Product-Spec-CHANGELOG.md（写为什么改、原判断哪里错、影响）
                 ↓
-            用户签字闸：让用户审查更新后的 Product-Spec.md，明确批准变更后才进入第二步。没点头不更新开发计划。
+            用户签字闸：形式同 [交付阶段]——复述改后那次会怎么发生，用户挑不出错即批准；直推档改完复述一句即过。没过复述不更新开发计划。
 
         第二步：更新开发计划
             调用 dev-planner（迭代模式）
