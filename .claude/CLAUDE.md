@@ -40,7 +40,7 @@
     - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死（预告这一下靠自觉，完成侧才有 `notify.mjs` 兜底）。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。
     - **接收审查意见/反馈不表演式认同**：收到 code-review 结论或用户反馈时，禁"你说得对/好建议/这就改"这类空话——要么复述对方的技术要求确认自己理解到位，要么不清楚就先问，要么有技术理由就顶回去；确认无误直接动手，行动优先于表态。反馈含糊先停下问清，不凭猜分批实现，以免漏掉关联项。细则见 feedback/receiving-review-no-performative-agreement.md。
     - **三文件同步铁律**：决策 / 约束 / 完成一出现就**即时**写 progress.md；需求变更**成对**更新 Product-Spec.md + Product-Spec-CHANGELOG.md（只改一个不算）；三文件存在即维护、始终一致（项目可能只有 progress.md——如框架本体无 Spec/CHANGELOG，存在即维护、不存在的不强造）。不许只更一个、不许事后补、不许攒着批量记；每个工作单元（派单收尾 / 发版 / 做出取舍 / 需求变更）当下即同步对应文件——Stop 阶段 `three-file-sync-gate.mjs` 按工作树实际未提交改动兜底拦停，大仓启用后 `sync-check` 另判「记忆落后于代码」与「Spec 改了没配 CHANGELOG」。决策（选型 / 取舍 / 否决 / 撤回）进 progress.md 的 Decisions 段，不许埋进 Done 叙述充数；完成项进 Done，约束进 Pinned。收尾自检（回复 / 交付前过）：三文件都同步了吗？决策有没有混进 Done？——答不齐不算完成。细则见 feedback/three-file-sync-clearable-context-recap-recovery.md。
-    - **持续观察和记录**：当用户给出修正、反馈或改进意见时，派发 feedback-observer sub-agent 记录。不依赖主 Agent 自觉写入。
+    - **纠正要当场落地、让用户看见改了什么（铁律）**：用户给出修正、反馈或改进意见时，按序做三件事——① 先把纠正应用到当前产物（Spec 条目 / 派单包 / 进行中的工作）和 progress.md（Decisions 三要素：依据 / 适用范围 / 取代哪条），② 派发 feedback-observer 记录（传入已落地的改变），③ 回用户一句「这次纠正改了：X 文件 Y 段 / Decisions 某条」。只记一条 feedback、只道歉不算落地；纠正针对工作方法且用户说「以后都」时，顺手在对应 skill / rule 做最小改动并在回显里点名。
     - 当收到 `detect-feedback-signal.mjs` 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ Design-Brief.md（次之）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
     - **主 Agent 职责边界（铁律）**：编码 / 审查 / 部署 / 测试四个环节，主 Agent 一律不亲自动手，只「写提示词 + 委派 + 验收」。派发目标（全部为 Claude Code Sub-Agent，用 Task/Agent 工具派发 fresh 实例）：编码=implementer；审查=code-reviewer；部署=deployer；测试=tester（写测≠被测作者，必须派与实现者不同的 fresh 实例）。仅文档类（Product-Spec / CHANGELOG / DEV-PLAN）不受此约束，主 Agent 可直接写；主 Agent 自己动 Edit/Write 写业务源码时 `no-direct-code-guard.mjs` 当场警告。细则见 feedback/main-agent-no-direct-coding.md。
@@ -149,7 +149,7 @@
 
 [项目记忆规则]
     - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）；大仓启用后 `recap` 子命令按预算从同样三份派生处境，不从摘要来
-    - **必须主动调用** progress-recorder agent 来记录重要决策、任务变更、完成事项等关键信息到 progress.md
+    - **必须主动调用** progress-recorder agent 来记录重要决策、任务变更、完成事项等关键信息到 progress.md；Decisions 每条带三要素（依据 / 适用范围 / 取代哪条），被取代的旧条标「→ 被取代」——下一阶段、下一角色、下一次会话靠这三样判断一条规则还算不算数、在哪算数
     - 检测到以下情况时**立即自动触发** progress-recorder：
         • 出现"决定使用/最终选择/将采用"等决策语言
         • 出现"必须/不能/要求"等约束语言  

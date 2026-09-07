@@ -58,7 +58,12 @@ user-invocable: false
 与项目无关 → 不写，让 Claude Code 默认行为处理
 不重复写 — 同一条信息只进一个系统
 
-[写入流程] 1. 读取 .claude/feedback/FEEDBACK-INDEX.md（如不存在，从 templates/feedback-index-template.md 创建）2. 检查是否已有同主题 feedback（去重）- 已有 → 更新内容 + occurrences +1 + 更新 updated - 没有 → 创建新文件 + 更新索引 3. 文件名用 kebab-case，简短描述主题 4. 按 templates/feedback-topic-template.md 格式写入 5. 更新 FEEDBACK-INDEX.md
+[写入流程]
+    1. 读取 .claude/feedback/FEEDBACK-INDEX.md（如不存在，从 templates/feedback-index-template.md 创建）
+    2. 检查是否已有同主题 feedback（去重）——已有 → 更新内容 + occurrences +1 + 更新 updated；与旧条冲突 → 新条 supersedes 写旧文件名，旧条 updated 加一行「被 <新文件> 修正」；没有 → 创建新文件 + 更新索引
+    3. 文件名用 kebab-case，简短描述主题
+    4. 按 templates/feedback-topic-template.md 格式写入。scope / exceptions / supersedes 从上下文判断，判断不了写清「未说明」，不编；applied_to 与「本次落地」段照主 Agent 传入的「已落地的改变」写，主 Agent 没传就写 pending——pending 是给主 Agent 看的，说明纠正还没生效
+    5. 更新 FEEDBACK-INDEX.md
 
 [文件规范]
 存放位置：.claude/feedback/
@@ -67,4 +72,8 @@ user-invocable: false
 内容模板：.claude/feedback/templates/feedback-topic-template.md
 
 [返回格式]
-执行完毕后返回给主 Agent：- 有新记录："记录了 1 条 feedback：[标题]（[文件名]）" - 更新已有："更新了 [文件名]，occurrences: N → N+1" - 无信号："无新 feedback"
+执行完毕后返回给主 Agent：
+- 有新记录："记录了 1 条 feedback：[标题]（[文件名]）；落点建议：[哪个 skill / rule 的哪一段该改，或「当前产物已够，不动本体」]"
+- 更新已有："更新了 [文件名]，occurrences: N → N+1；落点建议：[同上]"
+- applied_to 为 pending 时在摘要里点明："落地 pending——主 Agent 尚未把纠正应用到当前产物"
+- 无信号："无新 feedback"

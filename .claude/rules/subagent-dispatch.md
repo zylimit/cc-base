@@ -31,7 +31,7 @@ paths:
     - 主 Agent 提供完整任务上下文（Spec 条目、交付清单、涉及文件、项目结构），Sub-Agent 不继承 session 历史
     - Sub-Agent 不知道之前的 Task 做了什么。如果需要上下文，主 Agent 必须显式提供
     - 这不是可选的最佳实践，是隔离保证：防止 Task A 的错误假设污染 Task B
-    - **统一派单包**：每次派发明确六字段——**Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Verification**（本任务允许且需要的最小客观核查；用户明确豁免时写明豁免）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。不适用的字段写 N/A，不让 fresh 实例靠猜；大仓启用后这六字段由 `task` 子命令机器校验，缺哪个点哪个。
+    - **统一派单包**：每次派发明确七字段——**Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Business Context**（业务上下文：这个 Task 为什么做、谁受益、Spec「规则与例外」里相关的条目、progress.md Pinned / Decisions 里适用于本 Task 的规则（引日期）、用户教过的相关纠正（feedback 文件名）——从 Spec 与 progress.md 抄，不让 fresh 实例猜；编码 / 审查 / 测试类派单不许写 N/A）/ **Verification**（本任务允许且需要的最小客观核查；用户明确豁免时写明豁免）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。其余不适用的字段写 N/A；大仓启用后由 `task` 子命令机器校验，缺哪个点哪个。
     - **写测独立性**：tester 必须是与写该代码的 implementer **不同**的 fresh 实例——自码自测会把作者的错误假设原样写进断言（confirmation bias）。详见 feedback/test-independence-author-not-tester.md；大仓启用后 `record-authorship.mjs` 每次编辑自动记谁写了哪些文件，`review` 的 verdict 据此拒绝出自审 ACCEPT
     - **并行**：跨 Task 编码**默认串行**（沿用 per-Task review→fix 循环），同文件改动或有依赖一律串行；**只读/可汇总**的工作（审查、测试、探索）才是并行甜区，见下「Workflow 编排模式」。用户说「加速/快点」≠ 授权并行铺开——加速的正解是砍范围、串行提效、减少返工。
 
@@ -39,7 +39,7 @@ paths:
 
     **Sub-Agent 回传纪律（防回传消息灌爆主 Agent 上下文）**：
     - Sub-Agent 的**最终回传消息**是唯一进主 Agent 上下文的东西。回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译输出位置 / 测试运行器输出位置 / 时间戳）+ 关键提炼，**不贴全文/原始长日志**。长报告压成要点。
-    - **统一回执信封**：所有 Sub-Agent 回传先给通用信封，再追加角色专属内容——**Status**（四态，见下；tester 可用 PASS/FAIL 表示运行器结果）/ **Changed**（实际修改的文件或产物；只读角色写 None）/ **Verified**（实际执行并得到结果的核查）/ **Not verified**（没执行或无法证明的事项，必须列出）/ **Needs review by**（需主 Agent、用户或其他专职角色接管的事项）/ **Evidence**（路径 / commit / 输出位置 / 时间戳等句柄，不贴长日志）。
+    - **统一回执信封**：所有 Sub-Agent 回传先给通用信封，再追加角色专属内容——**Status**（四态，见下；tester 可用 PASS/FAIL 表示运行器结果）/ **Changed**（实际修改的文件或产物；只读角色写 None）/ **Verified**（实际执行并得到结果的核查）/ **Not verified**（没执行或无法证明的事项，必须列出）/ **Business assumptions**（做这个 Task 时对业务的假设——Spec 没写、自己补的判断，逐条列，没有写 None）/ **Counter-examples**（发现的反例——代码能做对但 Spec 与业务对不上的地方、Business Context 里的规则与现场矛盾的地方；有就报「需求存疑」，主 Agent 回流 product-spec-builder 迭代模式，没有写 None）/ **Needs review by**（需主 Agent、用户或其他专职角色接管的事项）/ **Evidence**（路径 / commit / 输出位置 / 时间戳等句柄，不贴长日志）。
     - **implementer 四态自评开头**：implementer 回传消息须以自评状态四选一开头——**DONE**（完成、无遗留疑虑）/ **DONE_WITH_CONCERNS**（完成但有疑虑，逐条列出疑虑点）/ **NEEDS_CONTEXT**（缺上下文做不下去，列明缺什么）/ **BLOCKED**（受阻，说明阻塞在哪、需要什么）。主 Agent 据此前置决策（补上下文 / 先解阻塞 / 直接进 review），不必等 code-reviewer 才把疑虑暴露出来。四态即信封的 Status 字段，各 Sub-Agent 同样以之开头。
     - **禁原样重试**：收到 BLOCKED / NEEDS_CONTEXT 后，重派必须至少变更一项（上下文 / 范围 / 角色 / 模型）——同一 prompt 同一模型原样重发一遍属于赌运气。
     翻证据外包下判断自留、单次派单 >60min 的分解红线、四级升级阶梯的完整细则见 .claude/rules/subagent-dispatch.md——派发前、收到 BLOCKED / NEEDS_CONTEXT 时必须先读该文件。

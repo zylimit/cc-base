@@ -9,6 +9,7 @@ paths:
 [三套系统的边界（feedback / 用户 memory / agent memory）]
     - feedback 记录到 .claude/feedback/ 目录，由 evolution-engine 扫描并生成进化建议，用于改进 Skill 和规则
     - memory 记录到用户的 memory/ 目录，用于跨 session 记住用户偏好和项目上下文
-    - 用户修正 AI 行为时，必须走 feedback 流程（派发 feedback-observer），不能只写 memory
+    - 用户修正 AI 行为时，必须走 feedback 流程（派发 feedback-observer），不能只写 memory；纠正分两类落地——**业务规则**（这个项目里的事实、取舍、既定）进 progress.md Decisions / Pinned 三要素，下一角色靠派单包 Business Context 拿到；**工作方法**（AI 该怎么问、怎么做）进 feedback，feedback 的 applied_to 记它落到了哪里，pending 表示还没生效
+    - 一条 feedback 的 scope / exceptions / supersedes 是它能不能被正确使用的前提：没有范围的规则会被用到不该用的地方，没有取代关系的新规则会和旧规则并存打架
     - **agent memory（第三类，别和前两者混）**：code-reviewer / tester 挂了 `memory: project` 持久记忆，存的是角色自己的战术笔记（本项目高发缺陷模式 / flaky 区），由角色自维护、无人工审核——它不承载框架规则（那是 feedback 的事），也不承载项目事实。
     - **Claude Code 原生 auto memory 的边界**：原生 auto memory（~/.claude/projects/<repo>/memory/）默认开启，只许存机器本地琐碎（构建命令、调试线索）；**决策 / 约束 / 完成事项只认 progress.md**——三文件同步铁律不因 auto memory 存了什么而豁免，恢复上下文以 /recap 三份文件为准、不以 auto memory 为准。
