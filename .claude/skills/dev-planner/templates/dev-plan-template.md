@@ -30,6 +30,9 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
 - [交付物2]
 - [交付物3]
 
+**验证的假设**：
+- [无 / Spec 哪条 [推断]或[待定]、哪项技术未知，本 Phase 用什么证明它成立]
+
 **关键文件**：
 - `src/path/to/file1.tsx` — [用途说明]
 - `src/path/to/file2.ts` — [用途说明]
@@ -44,6 +47,9 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
 
 **交付内容**：
 - [交付物列表]
+
+**验证的假设**：
+- [无 / Spec 哪条 [推断]或[待定]、哪项技术未知，本 Phase 用什么证明它成立]
 
 **关键文件**：
 - [文件路径 + 用途]
@@ -101,6 +107,9 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
 - 深色/浅色/跟随系统主题切换（ThemeProvider）
 - Tailwind CSS 语义色彩系统
 
+**验证的假设**：
+- Electron 与 Next.js 组合在目标机器上能打包启动（技术未知）——`npm run build` 出包并能打开主窗口即成立
+
 **关键文件**：
 - `src/components/layout/app-layout.tsx` — 主布局
 - `src/components/layout/left-sidebar.tsx` — 左侧栏
@@ -126,6 +135,9 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
 - 聊天 API（/api/chat）— Claude API 流式调用 + SSE 输出
 - 前端聊天界面：用户消息 + Agent 消息 + 流式渲染
 - 会话列表 + 新建会话 + 切换会话
+
+**验证的假设**：
+- 无
 
 **关键文件**：
 - `src/lib/db.ts` — 数据库初始化 + 表创建
@@ -184,7 +196,10 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
    - 每条描述一个可感知的交付物
    - 基础设施 Phase 可以写"XX 表 + CRUD API"
    - 业务功能 Phase 要写用户能做什么
-3. **关键文件**：
+3. **验证的假设**：
+- 无
+
+**关键文件**：
    - 使用完整的项目内相对路径
    - 每个文件附用途说明
    - 不列测试文件和配置文件（除非是 Phase 的核心交付物）
@@ -198,5 +213,7 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
    - 标注在哪个 Phase 创建
    - 后续 Phase 如果新增列（migration），在该 Phase 的交付内容中说明
 7. **Phase 顺序**：
-   - 基础设施（骨架/数据库/路由）→ 核心功能 → 辅助功能 → 收尾（i18n/打包/部署）
-   - 不违反依赖关系
+   - 核心价值流程（含它依赖的最小骨架）→ 验证核心假设的 Phase → 重要功能 → 辅助功能 → 收尾（i18n/打包/部署）
+   - 依赖关系只做校正，不做主轴
+8. **验证的假设**：
+   - 每个 Phase 必填，可为「无」；写清假设来源（Spec 的 [推断]/[待定] 条目或技术未知）和成立的证据

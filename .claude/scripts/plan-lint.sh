@@ -71,7 +71,7 @@ for index, match in enumerate(phase_matches):
     section = text[start:end]
     title = match.group(0).strip()
     ln = line_no(start)
-    for anchor in ["**交付内容**", "**关键文件**", "**Task 清单**", "**验收标准**"]:
+    for anchor in ["**交付内容**", "**验证的假设**", "**关键文件**", "**Task 清单**", "**验收标准**"]:
         if anchor not in section:
             fail(f"L{ln} {title} 缺字段 {anchor}")
     # 3) 任务粒度：每个 Phase ≥ 1 个 Task

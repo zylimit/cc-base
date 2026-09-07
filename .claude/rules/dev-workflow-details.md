@@ -142,6 +142,7 @@ paths:
             Stage 1 Spec Compliance 结果：
                 → 通过 → 进入 Stage 2
                 → 失败 → 派发 implementer 补实现 → 重新派发 code-reviewer
+                → 报告含「❓ 需求存疑」（或 implementer / tester 回执带反例）→ 主 Agent 调 product-spec-builder 迭代模式，反例作输入；Spec 改了则回流 dev-planner 更新受影响 Task 再重审，用户确认 Spec 没错则记进澄清记录关闭存疑——存疑不阻塞其余条目进 Stage 2
                 ↓
             Stage 2 Code Quality 结果：
                 → 通过 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task

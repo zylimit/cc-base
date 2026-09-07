@@ -458,13 +458,14 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
             3. 读取 Design-Brief.md 中该 Task 涉及的视觉方向和页面备注
             4. 如有设计工具 MCP 已连接，通过设计工具找到该 Task 对应的设计页面，读取该页面及其组件的精确数值。每个 Task 都重新读取，不凭记忆
             5. 明确该 Task 的交付目标：功能上实现什么、视觉上做成什么样
+            5b. 读派单包 Business Context：这个 Task 为什么做、谁受益、相关规则与例外。实现中遇到 Spec 没写的分支，按规则与例外推；推不出来的记为「业务假设」进回执，不静默选一个
 
             编码：
             6. 严格按参照文档实现，逐个组件对照设计数值编码
 
             开发后——对照验证 + Review 循环：
             7. 读取代码实际值，逐项与设计数值核对，有偏差则修正
-            8. 对照 Product-Spec.md 确认功能行为符合描述
+            8. 对照 Product-Spec.md 确认功能行为符合描述；再对照 Business Context 核一遍业务含义——代码对 Spec 但 Spec 对不上规则 / 例外（例外那次会走错）→ 回执报「需求存疑」+ 反例，不自行改需求
             9. 派发 code-reviewer 执行两阶段审查。code-reviewer 同样对照 Product-Spec.md、Design-Brief.md、DEV-PLAN.md 和设计稿审查
             10. Stage 1 失败（功能缺失）→ 补实现 → 重新派发 code-reviewer
             11. Stage 2 失败（代码质量）→ 调用 bug-fixer 修复 → 重新派发 code-reviewer
