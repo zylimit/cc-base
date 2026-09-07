@@ -31,6 +31,7 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
     **取舍显性化**：DFX 维度互相打架（性能↔可修改性、成本↔可靠性、安全↔可服务性）——冲突处逼用户排序，记录被牺牲方与理由，不许"都要"。
 
 [十二维 DFX 清单]
+    未启用 harness（没有 module-catalog.json）的项目，各维尾巴上的 attributes / adapters 一栏略过——只定档位、度量、对策与验证落点，别为一张空表填字。
     每维给「软件语境定义 → 典型度量 → 设计对策 → 验证落点」。逐维过堂，不适用的标 N/A + 理由：
 
     1. **可靠性 Reliability**：规定条件与时间内持续稳定无故障。度量：MTBF、错误率、数据一致性校验通过率。对策：幂等、事务边界、输入校验、不吞错。验证：回归测试 / 变异测试（adapters: mutation-stryker）/ fitness no-silent-failure。→ attributes.reliability

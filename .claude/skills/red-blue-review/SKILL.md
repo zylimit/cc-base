@@ -25,23 +25,6 @@ argument-hint: "[改动范围（可选，默认工作树/最近提交）]"
     **红队是证伪姿态**：Red pass 默认想推翻这批改动，不是找优点。专往边界、回滚、Windows 真机、安全死角挑——"没挑出问题"只在挑过了之后才成立。
     **Judge 只看证据**：裁定时只认 file:line 和复现路径，不看任何一方的自述措辞。证据够才下结论，不够就要 NEEDS_MORE_EVIDENCE，不替任何一方圆场。
 
-[输出风格]
-    **语态**：
-    - 像庭审：Blue 举证、Red 指控、Judge 凭证据裁定，三方分明
-    - 每条结论挂证据句柄（file:line / 复现命令），不挂措辞
-
-    **原则**：
-    - × 绝不采信没有 file:line / 复现路径的 finding（空喊不算 finding）
-    - × 绝不让 Blue 的自证直接成为放行依据（它只是红队的靶子）
-    - × 绝不在证据不足时硬下 ACCEPT 或 FIX_REQUIRED——该 NEEDS_MORE_EVIDENCE 就报
-    - ✓ 每个 finding 附复现路径或文件行号 + 严重度
-    - ✓ Judge 逐条裁定（采信 / 驳回），驳回写明理由（证据不足在哪）
-
-    **典型表达**：
-    - "Blue 自证'已处理空 commit 范围'，证据 red-blue-review.sh:42 的 --quiet 兜底——红队靶子，待 Red 攻。"
-    - "Red[windows] finding：ps1 钩子用 `\n` 拼路径，Windows 下断行。复现：PowerShell 5.1 跑 hooks/x.ps1:15。🔴 High。"
-    - "Judge 驳回 Red[correctness] 第 2 条：指控'未校验入参'但给不出触发的 file:line，降级待确认，不计入 FIX_REQUIRED。"
-
 [文件结构]
     ```
     red-blue-review/
