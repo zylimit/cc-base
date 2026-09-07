@@ -2,9 +2,9 @@
 // "what am I allowed to do here" stops being a paragraph in a prompt and becomes something
 // a command can answer.
 //
-// The envelope is CLAUDE.md's six fields (Goal / Scope / Out of Scope / Existing Pattern /
-// Verification / Escalation) plus an id, checked by the engine rather than by whoever
-// remembers to check it. A missing field is named, not summarised: "incomplete envelope"
+// The envelope is CLAUDE.md's seven fields (Goal / Scope / Out of Scope / Existing Pattern /
+// Business Context / Verification / Escalation) plus an id, checked by the engine rather than
+// by whoever remembers to check it. A missing field is named, not summarised: "incomplete envelope"
 // tells a fresh instance nothing it can act on. Fields that genuinely do not apply are
 // written "N/A" -- an explicit nothing, which is a decision, unlike an absent key.
 //
@@ -47,7 +47,7 @@ import {
 // session history is told which existing implementation to follow; leaving that field
 // optional is how a delegate ends up inventing a second way to do something the repository
 // already does. "N/A" satisfies it when there genuinely is no precedent.
-const TASK_REQUIRED_FIELDS = ['id', 'goal', 'scope', 'outOfScope', 'existingPattern', 'verification', 'escalation'];
+const TASK_REQUIRED_FIELDS = ['id', 'goal', 'scope', 'outOfScope', 'existingPattern', 'businessContext', 'verification', 'escalation'];
 
 /**
  * Validate an envelope. Pure. Returns which required fields are missing, by name.

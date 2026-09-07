@@ -521,7 +521,7 @@
       ],
       "exitCode": 0,
       "stderr": [],
-      "stdoutSha256": "d6c17c331788927505194c7ba928766158a9b7243a36b2021e12256ab4bd274e"
+      "stdoutSha256": "bcbe8a8f027681e3737c36735d74fba9cc160fa6ebd45ff9f954f3e01869a377"
     },
     {
       "id": "task-start--incomplete",
@@ -536,13 +536,14 @@
           "scope",
           "outOfScope",
           "existingPattern",
+          "businessContext",
           "verification",
           "escalation"
         ],
         "detail": null
       },
       "stderr": [
-        "task envelope is incomplete; missing: scope, outOfScope, existingPattern, verification, escalation"
+        "task envelope is incomplete; missing: scope, outOfScope, existingPattern, businessContext, verification, escalation"
       ]
     },
     {
@@ -553,7 +554,7 @@
       ],
       "exitCode": 0,
       "stderr": [],
-      "stdoutSha256": "85dab0393884f422150336c5e99e0c9b2bf2da8e4ad9aea399e3baf8e1fd0042"
+      "stdoutSha256": "562fc66ed29d09d131c8d8d3b284111b79c4e542a269f6879db821b3f4927336"
     },
     {
       "id": "task-complete",

@@ -209,7 +209,7 @@ const RECEIPT_INPUT = JSON.stringify({
   scope: 'sandbox fixture tree',
 });
 
-// A complete six-field envelope, and one missing four of them. The second is the point:
+// A complete seven-field envelope, and one missing all but id and goal. The second is the point:
 // `task start` has to name each absent field rather than answer "incomplete".
 const TASK_INPUT = JSON.stringify({
   id: 'golden-task',
@@ -217,6 +217,7 @@ const TASK_INPUT = JSON.stringify({
   scope: 'the sandbox fixture tree',
   outOfScope: 'anything outside the sandbox',
   existingPattern: 'core/util.ts',
+  businessContext: 'why: the fixture must exercise every required field; who benefits: the next reader',
   verification: 'harness.mjs gate -> expect exit 0 and gate PASS',
   escalation: 'stop and report if the catalog itself needs changing',
 });

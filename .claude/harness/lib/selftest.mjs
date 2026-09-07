@@ -104,7 +104,8 @@ function selftestCases() {
   });
   const envelope = (over = {}) => ({
     id: 'T1', goal: 'g', scope: 's', outOfScope: 'o',
-    existingPattern: 'p', verification: 'v', escalation: 'e', ...over,
+    existingPattern: 'p', businessContext: 'why: a fresh instance needs the reason; who benefits: the next delegate',
+    verification: 'v', escalation: 'e', ...over,
   });
   const okReceipt = (over = {}) => {
     const r = { taskId: 'T1', baseCommit: 'c0', diffHash: 'D0', reviewer: 'rev', verdict: 'ACCEPT', scope: 's', timestamp: '2020-01-01T00:00:00.000Z', ...over };
@@ -1348,7 +1349,7 @@ function selftestCases() {
     }],
     ['envelope: a non-object is missing everything', () => {
       const v = validateEnvelope('not an envelope');
-      assert.equal(v.missing.length, 7);
+      assert.equal(v.missing.length, 8);
       assert.ok(v.detail.includes('JSON object'));
     }],
     ['envelope: an id of only illegal characters is rejected by name', () => {
@@ -3846,7 +3847,9 @@ function selftestCases() {
         const abs = path.join(root, rel);
         const envelope = JSON.stringify({
           id: 'NEW', goal: 'g', scope: 'pay/**', outOfScope: 'N/A',
-          existingPattern: 'N/A', verification: 'unit', escalation: 'N/A',
+          existingPattern: 'N/A',
+          businessContext: 'why: dispatcher must see who can repair which model; who benefits: customer service',
+          verification: 'unit', escalation: 'N/A',
         });
 
         const fresh = runIn(root, ['task', 'start'], envelope);
@@ -3905,7 +3908,9 @@ function selftestCases() {
         fs.appendFileSync(path.join(root, 'pay', 'a.ts'), 'export const b = 2;\n', 'utf8');
         const envelope = JSON.stringify({
           id: 'NEW', goal: 'g', scope: 'pay/**', outOfScope: 'N/A',
-          existingPattern: 'N/A', verification: 'unit', escalation: 'N/A',
+          existingPattern: 'N/A',
+          businessContext: 'why: dispatcher must see who can repair which model; who benefits: customer service',
+          verification: 'unit', escalation: 'N/A',
         });
 
         // Every condition of the hard gate satisfied for real: an active task, a PASS gate that
