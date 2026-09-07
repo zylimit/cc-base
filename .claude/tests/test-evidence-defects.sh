@@ -182,7 +182,7 @@ gate_records() {
 # start_task <沙箱> <id> —— 写一份合规六字段信封。
 start_task() {
     run_stdin "$1" \
-        "{\"id\":\"$2\",\"goal\":\"g\",\"scope\":\"s\",\"outOfScope\":\"o\",\"existingPattern\":\"p\",\"verification\":\"v\",\"escalation\":\"e\"}" \
+        "{\"id\":\"$2\",\"goal\":\"g\",\"scope\":\"s\",\"outOfScope\":\"o\",\"existingPattern\":\"p\",\"businessContext\":\"b\",\"verification\":\"v\",\"escalation\":\"e\"}" \
         task start
 }
 
