@@ -68,6 +68,45 @@ const REQUIREMENT_SECTION = '\u529f\u80fd\u9700\u6c42';
 const PLACEHOLDER_TOKENS = ['TBD', 'TODO', '\u5f85\u5b9a', '\u5f85\u8865'];
 const MARKER_SHAPE_TOKENS = new Set(['TBD', 'TODO']);
 
+// The other half of template residue: a double-brace slot copied from the template and never
+// replaced. Same shape predev-lint reports, so the two gates cannot disagree about what an
+// unfilled slot looks like. Brace-free and single-line, because a slot spanning lines is prose
+// that happens to start with a brace, not a slot anyone forgot to fill.
+const TEMPLATE_SLOT_RE = /\{\{[^{}\n]*\}\}/g;
+
+/** What an unfilled slot says, in one place: the fenced scan and the open-text scan share it. */
+function slotMessage(slot) {
+  return 'unfilled template slot ' + JSON.stringify(slot)
+    + ' copied from the template and never replaced; a slot is the template asking a question, not an answer';
+}
+
+// Whether a fence is an example or a deliverable is told by its info string, not by the file it
+// sits in. A fence tagged with one of these is showing how the syntax works, and the slot inside
+// it is the demonstration. An untagged fence, or one tagged markdown or yaml, is content someone
+// still has to fill in, so the slot scan goes in there.
+const TEMPLATE_FENCE_LANGS = new Set([
+  'html', 'vue', 'jinja', 'hbs', 'handlebars', 'mustache', 'njk', 'liquid',
+  'js', 'ts', 'jsx', 'tsx', 'svelte', 'php',
+]);
+
+// The fence marker plus whatever the opening line carries after it; the first word of that is the
+// language the block is written in.
+const FENCE_RE = /^\s{0,3}(?:```|~~~)(.*)$/;
+
+/** The language a fence opens with, lowercased; '' when the fence is untagged. Pure. */
+function fenceLanguage(info) {
+  return String(info || '').trim().split(/\s+/)[0].toLowerCase();
+}
+
+// The one place a deferral token is subject matter rather than an unfinished sentence: the
+// pending-questions section the new Product-Spec template gives it. Composed from the token
+// instead of hand-escaped, so the section name and the token cannot drift apart. Five cells is
+// what the template promises of a row -- question, area, who decides, when needed, interim
+// default -- and that promise is what makes the deferral legible to the next reader.
+const PENDING_TOKEN = PLACEHOLDER_TOKENS[2];
+const PENDING_SECTION = PENDING_TOKEN + '\u95ee\u9898';   // pending questions
+const PENDING_ROW_CELLS = 5;
+
 // Terms that cannot be decided, and therefore cannot be accepted. Scanned inside requirement
 // items only: the overview and the scenarios are sales prose, where "quickly" is a fair thing
 // to say and flagging it would train everyone to ignore the whole check.
@@ -97,6 +136,14 @@ const ARROW_RE = /(?:\u2192|->|=>)/g;
 
 const BULLET_RE = /^\s{0,1}(?:[-*+]|\d+[.)])\s+/;
 
+// A heading is written for a reader, so it may carry numbering and an aside the section name
+// itself does not have: "3.2 <name> (fill in after review)" announces <name>. Neither part
+// belongs to the name. The numbering is typed with whatever punctuation the keyboard is in, so
+// the full-width stop and parenthesis come off with their ASCII twins -- the same set the
+// pre-development gate strips, or one file gets two verdicts.
+const SECTION_NUMBER_RE = /^\d+(?:\.\d+)*[.\u3001\uff0e)\uff09]?\s*/;
+const SECTION_ASIDE_RE = /\s*[(\uff08][^()\uff08\uff09]*[)\uff09]\s*$/;
+
 /** Inline code spans hide type parameters and tag examples that are not placeholders. */
 function stripCodeSpans(line) {
   return String(line).replace(/`[^`]*`/g, '``');
@@ -106,21 +153,30 @@ function stripCodeSpans(line) {
  * Split a markdown document into level-2 sections, ignoring headings inside fenced blocks.
  * Content before the first `## ` heading belongs to no section (preamble). Pure.
  * @param {string} text
- * @returns {{lines:string[],fenced:boolean[],sections:Array<{title:string,line:number,from:number,to:number}>}}
+ * @returns {{lines:string[],fenced:boolean[],fenceLang:Array<string|null>,unclosedFences:number[],sections:Array<{title:string,line:number,from:number,to:number}>}}
  */
 function splitSections(text) {
   const lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
   const fenced = [];
+  const fenceLang = [];
+  const unclosedFences = [];
   const sections = [];
   let inFence = false;
+  let lang = null;
+  let openedAt = 0;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    if (/^\s{0,3}(?:```|~~~)/.test(l)) {
+    const fm = FENCE_RE.exec(l);
+    if (fm) {
+      if (!inFence) { lang = fenceLanguage(fm[1]); openedAt = i + 1; }
       fenced.push(true);           // the fence marker itself counts as fenced
+      fenceLang.push(lang);        // and belongs to the block it opens or closes
       inFence = !inFence;
+      if (!inFence) { lang = null; openedAt = 0; }
       continue;
     }
     fenced.push(inFence);
+    fenceLang.push(inFence ? lang : null);
     if (inFence) continue;
     const m = /^##\s+(.+?)\s*$/.exec(l);
     if (m) {
@@ -128,12 +184,26 @@ function splitSections(text) {
       sections.push({ title: m[1].replace(/[*`#]/g, '').trim(), line: i + 1, from: i + 1, to: lines.length });
     }
   }
-  return { lines, fenced, sections };
+  if (inFence) unclosedFences.push(openedAt);
+  return { lines, fenced, fenceLang, unclosedFences, sections };
 }
 
-/** The section whose title contains `label`, or null. Pure. */
+/** A heading title reduced to the section name it announces. Pure. */
+function sectionTitleName(title) {
+  return String(title).replace(SECTION_NUMBER_RE, '').replace(SECTION_ASIDE_RE, '').trim();
+}
+
+/**
+ * The section named `label`, or null. A title that is the name -- once numbering and a trailing
+ * aside are set aside -- wins over one that merely contains it, because a section written about
+ * another one ("how to fill in <name>") is usually written first and would otherwise take the
+ * anchor from it. Containment stays as the fallback: it is what lets a title of the shape
+ * "<name>: a story about the work today" answer for <name>. Pure.
+ */
 function sectionNamed(doc, label) {
-  return doc.sections.find(s => s.title.includes(label)) || null;
+  return doc.sections.find(s => sectionTitleName(s.title) === label)
+    || doc.sections.find(s => s.title.includes(label))
+    || null;
 }
 
 /** True when a section carries no content of its own (headings and blanks do not count). */
@@ -175,7 +245,22 @@ function parseRequirements(doc) {
 // S19.2 spec-lint  (structure, residue, undecidable wording)
 // ===========================================================================
 
-/** Angle-bracket runs that are not recognizable markup. Pure. */
+// A threshold is written with the same two characters a template slot is: "first paint <1s |
+// concurrency >100" hands the scan the span between a less-than and the greater-than of the next
+// comparison, and every latency budget in a specification becomes an unfilled hole. Two shapes
+// say comparison rather than slot -- a candidate carrying a table divider, and one that opens on
+// a digit, an equals sign or a minus once its leading blanks are set aside and picks the
+// measurement back up past the closing bracket. One side alone settles nothing: a prompt reading
+// <2-3 cases that actually happened> opens on a digit just the same, and what gives it away is
+// that the line ends at the bracket. Room around the operator is still a measurement, and room
+// around a slot does not fill the slot in: whitespace decides nothing on its own, so
+// < database choice > stays the hole it looks like.
+const COMPARISON_SPAN_RE = /^[0-9=-]/;
+// What may pick the measurement back up on the far side of the greater-than: the same three,
+// plus the currency mark a price budget opens on.
+const COMPARISON_TAIL_RE = /^[0-9=$-]/;
+
+/** Angle-bracket runs that are neither recognizable markup nor a comparison. Pure. */
 function placeholderBrackets(line) {
   const out = [];
   const re = /<([^<>\n]{1,200})>/g;
@@ -183,7 +268,10 @@ function placeholderBrackets(line) {
   while (m) {
     const inner = m[1].trim();
     const head = inner.replace(/^\//, '').split(/[\s/>]/)[0].toLowerCase();
-    if (!HTML_TAGS.has(head)) out.push('<' + inner + '>');
+    const tail = line.slice(m.index + m[0].length).trimStart();
+    const comparison = m[1].includes('|')
+      || (COMPARISON_SPAN_RE.test(m[1].trimStart()) && COMPARISON_TAIL_RE.test(tail));
+    if (!HTML_TAGS.has(head) && !comparison) out.push('<' + inner + '>');
     m = re.exec(line);
   }
   return out;
@@ -202,6 +290,22 @@ function placeholderMarker(line, tok) {
     || new RegExp('^\\s*(?:[-*+]|\\d+[.)])?\\s*' + tok + '\\s*[.\\u3002]?\\s*$').test(text);
 }
 
+// An escaped pipe is content, not a divider: "A \| B, which one" is one question in one cell,
+// and splitting on it turns a five-cell row into six and then reports the row that answered
+// everything. Set aside before the split and restored as a plain pipe after, so a row that reads
+// as five cells to whoever wrote it is five cells here.
+const CELL_PIPE_SENTINEL = '\u0000';
+
+/** The cells of a markdown table row, trimmed; null when the line is not a row. Pure. */
+function tableCells(line) {
+  const t = String(line).trim();
+  if (!t.startsWith('|')) return null;
+  return t.replace(/\\\|/g, CELL_PIPE_SENTINEL)
+    .replace(/^\|/, '').replace(/\|$/, '')
+    .split('|')
+    .map(c => c.split(CELL_PIPE_SENTINEL).join('|').trim());
+}
+
 /**
  * Lint one requirement document. Errors: a required section missing or empty, template
  * residue, a requirement item with no arrow. Warnings: undecidable wording, partial
@@ -215,6 +319,14 @@ function lintSpecDoc(text, file) {
   const add = (severity, code, line, message, extra = {}) => {
     findings.push({ severity, code, file, line, message, ...extra });
   };
+
+  // A fence nobody closed is not a formatting nit: every line after it is read as code, so the
+  // rest of the document quietly stops being checked. Reported at the opener, because that is the
+  // line someone has to go fix.
+  for (const line of doc.unclosedFences) {
+    add('error', 'UNCLOSED_FENCE', line, 'fence opened at line ' + line
+      + ' is never closed; everything after it is skipped as code -- close it');
+  }
 
   const present = [];
   const missing = [];
@@ -233,13 +345,51 @@ function lintSpecDoc(text, file) {
     }
   }
 
+  // The pending-questions section exempts the deferral word, not the section. Its heading names
+  // the section, so it carries the token as subject matter; its rows are judged by shape on top
+  // of wording -- five cells, none empty, since a question nobody owns and nobody dated defers
+  // nothing and only records that someone typed the heading. Every other marker keeps its meaning
+  // inside a row: one whose question only says TBD, or names the other bare token, has its five
+  // cells and still records nothing. Every other line in there is an ordinary line of the
+  // document: the markers and unfilled angle brackets are reported exactly as they are anywhere
+  // else, so a sub-heading inside is no hiding place.
+  const pending = sectionNamed(doc, PENDING_SECTION);
   for (let i = 0; i < doc.lines.length; i++) {
-    if (doc.fenced[i]) continue;
+    if (doc.fenced[i]) {
+      // Inside a fence only the slots are read, and only where the fence is not itself showing
+      // how the syntax works. The rest of the residue stays unread in there: an angle bracket in
+      // a code block is code, and a deferral marker is a note someone wrote into an example.
+      if (TEMPLATE_FENCE_LANGS.has(doc.fenceLang[i])) continue;
+      for (const slot of doc.lines[i].match(TEMPLATE_SLOT_RE) || []) {
+        add('error', 'PLACEHOLDER', i + 1, slotMessage(slot));
+      }
+      continue;
+    }
     const line = stripCodeSpans(doc.lines[i]);
     for (const ph of placeholderBrackets(line)) {
       add('error', 'PLACEHOLDER', i + 1, 'template placeholder ' + JSON.stringify(ph) + ' was never filled in; a half-written requirement is worse than an absent one');
     }
+    for (const slot of line.match(TEMPLATE_SLOT_RE) || []) {
+      add('error', 'PLACEHOLDER', i + 1, slotMessage(slot));
+    }
+    const inPending = !!pending && i >= pending.from - 1 && i < pending.to;
+    if (inPending && i === pending.from - 1) continue;
+    if (inPending) {
+      const cells = tableCells(line);
+      if (cells) {
+        const shaped = cells.length === PENDING_ROW_CELLS;
+        if (!shaped || cells.some(c => !c)) {
+          add('error', 'PLACEHOLDER', i + 1, shaped
+            ? 'pending question row leaves a cell empty (question, area, who decides, when needed,'
+              + ' interim default); a question nobody owns defers nothing'
+            : 'pending question row has ' + cells.length + ' cells, not the ' + PENDING_ROW_CELLS
+              + ' the template asks for (question, area, who decides, when needed, interim default);'
+              + ' a row of another shape defers nothing legibly');
+        }
+      }
+    }
     for (const tok of PLACEHOLDER_TOKENS) {
+      if (inPending && tok === PENDING_TOKEN) continue;
       if (placeholderMarker(line, tok)) {
         add('error', 'PLACEHOLDER', i + 1, 'unfinished marker "' + tok + '" in a requirement document; decide it or delete it');
       }

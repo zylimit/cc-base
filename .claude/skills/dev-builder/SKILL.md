@@ -18,6 +18,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
 
     可选：
     - Design-Brief.md → 缺失则标记"无设计规范模式"
+    - DESIGN.md → 有则 token（颜色 / 字体 / 圆角 / 间距 / 组件）直接进主题配置，不凭感觉配色
     - 设计工具 MCP → 缺失则标记"无设计稿模式"
     - gh CLI → 有则可自动创建 GitHub 仓库和 push
     - playwright → 有则可做 UI 自动化测试
@@ -263,11 +264,13 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     - 读取代码中的实际值（Tailwind class / style），逐项与设计数值核对
     - 查看设计稿，确认布局结构一致
     - 有偏差先修正再提交
+    - 对照 design-brief-builder/references/ui-quality-floor.md 的 MUST 项自查：对比度 ≥4.5:1、焦点可见、触控目标够大、Brief 里该页的必需状态都做了
     - 让用户在浏览器中确认最终视觉效果
     
     如无设计工具（降级模式）：
-    - 以 Design-Brief.md 为主要参照
-    - 如无 Design-Brief → 以 Product-Spec.md 文字描述为参照
+    - 以 DESIGN.md 的 token 与 Design-Brief.md 的页面规格为主要参照
+    - 如无 DESIGN.md / Design-Brief → 以 Product-Spec.md 文字描述为参照
+    参照顺序：设计工具中的设计稿 → DESIGN.md → Design-Brief.md → Product-Spec.md，冲突时前者为准
 
     **联网搜索策略**
     以下场景必须先 WebSearch 再动手：
@@ -415,7 +418,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         第一步：Plan + TaskList
             这一步是编码的前置条件，不可跳过，不需要用户确认。没有 Plan 和 TaskList 不允许写任何代码。
             1. 读取该 Phase 的交付清单和关键文件
-            2. 如有设计工具 MCP 已连接，查看该 Phase 涉及的页面，读取精确数值。如无设计工具，以 Design-Brief.md 或 Product-Spec.md 为参照
+            2. 如有设计工具 MCP 已连接，查看该 Phase 涉及的页面，读取精确数值。如无设计工具，以 DESIGN.md 的 token、Design-Brief.md 的页面规格或 Product-Spec.md 为参照
             3. 探索现有代码，理解当前结构
             4. 规划实现步骤，明确先做什么、后做什么
             5. 用 TaskCreate 列出具体任务清单，每个页面、组件、功能一个 Task
@@ -428,7 +431,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
             开发前——加载参照文档：
             1. 读取 DEV-PLAN.md 中该 Task 对应的交付清单和关键文件
             2. 读取 Product-Spec.md 中该 Task 涉及的功能描述
-            3. 读取 Design-Brief.md 中该 Task 涉及的视觉方向和页面备注
+            3. 读取 Design-Brief.md 中该 Task 涉及的 SCREEN 规格、必需状态和页面备注；如有 DESIGN.md，读取用到的 token
             4. 如有设计工具 MCP 已连接，通过设计工具找到该 Task 对应的设计页面，读取该页面及其组件的精确数值。每个 Task 都重新读取，不凭记忆
             5. 明确该 Task 的交付目标：功能上实现什么、视觉上做成什么样
             5b. 读派单包 Business Context：这个 Task 为什么做、谁受益、相关规则与例外。实现中遇到 Spec 没写的分支，按规则与例外推；推不出来的记为「业务假设」进回执，不静默选一个

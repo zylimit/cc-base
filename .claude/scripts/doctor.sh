@@ -122,7 +122,7 @@ elif [ -f setup.sh ] && [ -e .git ]; then
 else
   note "非框架仓，跳过发布脚本检查"
 fi
-for s in doctor.sh plan-lint.sh; do
+for s in doctor.sh plan-lint.sh predev-lint.mjs ui-audit.mjs; do
   [ -f ".claude/scripts/$s" ] && ok ".claude/scripts/$s 存在" || bad ".claude/scripts/$s 缺失"
 done
 # skill description 的 CSO 门（形状 + 措辞）已整条搬进引擎，存在性跟着挪到子命令上

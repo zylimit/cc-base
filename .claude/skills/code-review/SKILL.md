@@ -17,7 +17,8 @@ argument-hint: "[审查范围（可选，默认本轮改动）]"
 
     可选（增强审查能力）：
     - DEV-PLAN.md → 有则可对照 Phase 交付清单检查
-    - Design-Brief.md → 有则可对照视觉规范
+    - Design-Brief.md → 有则可对照页面规格、必需状态与文案
+    - DESIGN.md → 有则前言 token（颜色 / 字体 / 圆角 / 间距 / 组件）是数值基准，与代码主题配置逐项比对
     - 设计工具 MCP（Pencil / Figma 等）→ 有则可提取设计数值与代码对比
     - Playwright plugin → 有则可自动化 UI 交互测试
     - git → 有则可用 git diff 追溯变更范围
@@ -68,7 +69,10 @@ argument-hint: "[审查范围（可选，默认本轮改动）]"
         - 如有设计工具 MCP → 提取设计数值，与代码中的 Tailwind class / style 逐项比对
         - 查看设计稿视觉效果作为参考
         - 对比：布局、组件、颜色、间距、交互状态
-        - 如有 Design-Brief.md → 对照色彩方向、信息密度、交互风格
+        - 如有 DESIGN.md → token 与代码主题配置逐项比对，硬编码的颜色 / 字号 / 圆角标偏差
+        - 如有 Design-Brief.md → 对照色彩方向、信息密度、交互风格；每个 SCREEN 的必需状态（空 / 加载 / 错误 / 部分 / 成功 / 离线 / 无权限 / 冲突）在代码里逐个找到，缺的按未实现记
+        - 质量地板：按 design-brief-builder/references/ui-quality-floor.md 的 MUST 项抽查（对比度 ≥4.5:1、焦点可见、触控目标、动效可关）；有 `.claude/evidence/ui-audit/ui-audit.json` 则引用其 pass 与对比度结果作证据
+        参照顺序：设计工具中的设计稿 → DESIGN.md → Design-Brief.md → Product-Spec.md，冲突时前者为准
 
     --- Stage 2: Code Quality（做好了没有？）---
     Stage 1 全部通过后才执行 Stage 2。如果 Stage 1 有 HIGH priority 问题，报告中标注"Stage 2 未执行，请先修复 Stage 1 问题"。
@@ -143,7 +147,8 @@ argument-hint: "[审查范围（可选，默认本轮改动）]"
     [第一步：加载比对基准]
         读取 Product-Spec.md → 提取审查范围内涉及的功能需求，编号列出
         读取 DEV-PLAN.md → 读取当前 Phase 或 Task 的交付清单和关键文件
-        如有 Design-Brief.md → 读取审查范围内涉及的视觉方向和页面备注
+        如有 Design-Brief.md → 读取审查范围内涉及的 SCREEN 规格、必需状态与页面备注
+        如有 DESIGN.md → 读取前言 token，作为颜色 / 字体 / 圆角 / 间距的数值基准
         如有设计工具 MCP → 通过设计工具找到审查范围对应的设计页面，读取这些页面及其组件的精确数值，作为 UI 一致性比对的基准
         确定审查范围：
         - 全量审查（/code-review）→ Spec 所有功能

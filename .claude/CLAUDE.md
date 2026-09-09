@@ -7,7 +7,7 @@
     1. **需求收集** → 调用 product-spec-builder，生成 Product-Spec.md
     2. **架构设计** → 调用 arch-designer，生成 Architecture-Design.md（可选，M/L 档项目推荐；L 档同步产出 module-catalog 骨架）
     3. **DFX 设计** → 调用 dfx-designer，生成 DFX-Spec.md（可选，与架构设计配套；把质量属性定成可验收指标）
-    4. **设计规范** → 调用 design-brief-builder，生成 Design-Brief.md（可选）
+    4. **设计规范** → 调用 design-brief-builder，生成 Design-Brief.md + DESIGN.md（可选；前者是体验脊柱，后者是代码直接读的视觉 token）
     5. **设计图制作** → 调用 design-maker，通过设计工具生成完整设计稿（可选）
     6. **开发计划** → 调用 dev-planner，生成 DEV-PLAN.md
     7. **项目开发** → 调用 dev-builder，实现项目代码
@@ -17,7 +17,7 @@
     11. **构建发布** → 调用 release-builder，打包或部署上线（按需）
 
 [文件结构]
-    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md（可选）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
+    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md（可选）/ DESIGN.md（可选，与 Design-Brief 配套）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
     完整目录树见 .claude/rules/file-structure.md——生成/核对项目结构之前必须先读该文件。
 
 [运行模型——纯 Claude Code + Sub-Agent]
@@ -42,7 +42,7 @@
     - **三文件同步铁律**：决策 / 约束 / 完成一出现就**即时**写 progress.md；需求变更**成对**更新 Product-Spec.md + Product-Spec-CHANGELOG.md（只改一个不算）；三文件存在即维护、始终一致（项目可能只有 progress.md——如框架本体无 Spec/CHANGELOG，存在即维护、不存在的不强造）。不许只更一个、不许事后补、不许攒着批量记；每个工作单元（派单收尾 / 发版 / 做出取舍 / 需求变更）当下即同步对应文件——Stop 阶段 `three-file-sync-gate.mjs` 按工作树实际未提交改动兜底拦停，大仓启用后 `sync-check` 另判「记忆落后于代码」与「Spec 改了没配 CHANGELOG」。决策（选型 / 取舍 / 否决 / 撤回）进 progress.md 的 Decisions 段，不许埋进 Done 叙述充数；完成项进 Done，约束进 Pinned。收尾自检（回复 / 交付前过）：三文件都同步了吗？决策有没有混进 Done？——答不齐不算完成。细则见 feedback/three-file-sync-clearable-context-recap-recovery.md。
     - **纠正要当场落地、让用户看见改了什么（铁律）**：用户给出修正、反馈或改进意见时，按序做三件事——① 先把纠正应用到当前产物（Spec 条目 / 派单包 / 进行中的工作）和 progress.md（Decisions 三要素：依据 / 适用范围 / 取代哪条），② 派发 feedback-observer 记录（传入已落地的改变），③ 回用户一句「这次纠正改了：X 文件 Y 段 / Decisions 某条」。只记一条 feedback、只道歉不算落地；纠正针对工作方法且用户说「以后都」时，顺手在对应 skill / rule 做最小改动并在回显里点名。
     - 当收到 `detect-feedback-signal.mjs` 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
-    - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ Design-Brief.md（次之）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
+    - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ DESIGN.md（token 数值）→ Design-Brief.md（页面规格与状态）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
     - **主 Agent 职责边界（铁律）**：编码 / 审查 / 部署 / 测试四个环节，主 Agent 一律不亲自动手，只「写提示词 + 委派 + 验收」。派发目标（全部为 Claude Code Sub-Agent，用 Task/Agent 工具派发 fresh 实例）：编码=implementer；审查=code-reviewer；部署=deployer；测试=tester（写测≠被测作者，必须派与实现者不同的 fresh 实例）。仅文档类（Product-Spec / CHANGELOG / DEV-PLAN）不受此约束，主 Agent 可直接写；主 Agent 自己动 Edit/Write 写业务源码时 `no-direct-code-guard.mjs` 当场警告。细则见 feedback/main-agent-no-direct-coding.md。
     - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。执行类 Sub-Agent 一返回，`subagent-acceptance-reminder.mjs` 就把这条铁律注回来。
       不可跳步的五步闸——任何"完成/通过/修好"的结论出口前都要走完：① 先想清哪条命令能证明这个结论 ② 跑全量、全新的该命令，不复用上一条消息的旧输出 ③ 读完整输出、看 exit code、数失败数 ④ 确认输出确实支持结论（不是输出有了就算）⑤ 才许开口下结论。禁用"应该/大概/估计/看起来"这类没跑过就下的措辞；没有当场跑出的新鲜证据，不报完成。细则见 feedback/deploy-acceptance-independent-verification.md、feedback/completion-claims-need-fresh-verification-five-step-gate.md。
@@ -79,9 +79,9 @@
     各 Skill 一行一个（`/名 - 自动触发；手动入口；前置条件`）；执行方式与话术全在 .claude/rules/dev-workflow-details.md「各 Skill 执行方式」——触发即调，怎么执行去那读：
     - /product-spec-builder - 自动：用户表达想要开发产品、应用、工具时；用户描述产品想法、功能需求时；用户要修改 UI、改界面、调整布局时（迭代模式）；用户要增加功能、新增功能时（迭代模式）；用户要改需求、调整功能、修改逻辑时（迭代模式）。手动：/product-spec-builder
     - /arch-designer - 自动：Product-Spec 批准后判为 M/L 档（多模块 / 有边界诉求 / 大规模）时建议调用；用户说"架构设计"、"模块划分"、"技术架构"、"分层"、"架构评审"时。手动：/arch-designer。前置：Product-Spec.md 必须存在
-    - /dfx-designer - 自动：arch-designer 完成后建议顺路做 DFX 定档；用户说"DFX"、"非功能需求"、"可靠性/可测试性/可服务性设计"、"DFX 评审"时。手动：/dfx-designer。前置：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
+    - /dfx-designer - 自动：arch-designer 完成后建议顺路做 DFX 定档；用户说"DFX"、"非功能需求"、"质量属性"、"可靠性/可测试性/可服务性设计"、"威胁建模"、"DFX 评审"时。手动：/dfx-designer。前置：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
     - /design-brief-builder - 手动：/design-brief-builder。前置：Product-Spec.md 必须存在
-    - /design-maker - 手动：/design-maker。前置：Product-Spec.md 和 Design-Brief.md 必须存在
+    - /design-maker - 手动：/design-maker。前置：Product-Spec.md 和 Design-Brief.md 必须存在（DESIGN.md 有则 token 进 prompt）
     - /dev-planner - 手动：/dev-planner。前置：Product-Spec.md 必须存在
     - /dev-builder - 手动：/dev-builder。前置：Product-Spec.md 和 DEV-PLAN.md 必须存在
     - /bug-fixer - 自动：code-review 发现问题后，自动调用修复（review → fix 闭环的一部分）；用户报告 bug、功能异常、编译错误、运行时错误时；用户说"这个功能坏了"、"报错了"、"不正常"时。手动：/bug-fixer。前置：项目代码已创建

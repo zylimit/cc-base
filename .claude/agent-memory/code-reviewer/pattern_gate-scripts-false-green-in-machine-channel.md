@@ -30,3 +30,15 @@ findings 数组，但 **exit code 与 JSON 的 `ok` 字段只由 error 级命中
    不是普通文件、`git show :path` 直接失败）让每次运行恒 rc 3。恒红等于没红，
    接闸的人下一步就是忽略 rc 3。「本该出范围」和「该扫没扫成」必须分成两个桶。
 相关：[[project_cc-base-is-a-framework-repo]]
+
+2026-09-10 又添一个落点：⑧ **rc 诚实、证据文件不诚实**。`ui-audit.mjs` 引擎缺席时老实退 3、
+stdout 不出 JSON，但**上一轮的 `.claude/evidence/ui-audit/ui-audit.json` 原样留着**（`pass:true`），
+而 code-review skill 明写「有该文件则引用其 pass 作证据」——报告里还没有时间戳 / run id，
+陈旧不可辨。凡是「闸写一份证据文件、别人读那份文件」的设计，固定造：先跑一次成功留档 → 再制造
+失败/缺席 → 看那份文件是被覆盖成失败态、被删、还是原样躺着。三选一里只有前两种是诚实的。
+
+⑨ **修了一个退出码的旧证据，别的退出码照留**（2026-09-10，⑧ 的续）。`ui-audit.mjs` 把
+「引擎缺席」修成了会把旧报告覆写为 `absent:true / pass:false`，但只挂在 rc 3 那一条路上：
+目标路径写错走 `usageExit` rc 2，直接 `process.exit` 在覆写之前，上一轮的 `pass:true` 原样躺着。
+查检：把「没跑成」的**每一个**出口（用法错 / 目标不存在 / flag 解析失败 / 中途异常 rc 2）
+各走一遍，每次都 `cat` 那份证据文件——只验缺席那一条等于只修了一个门。

@@ -74,6 +74,18 @@ if command -v node >/dev/null 2>&1; then
         echo "----- 运行 $s -----"
         bash "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     done
+    # 前期文档闸与设计稿审计的两套测试：test-ui-audit 在没有浏览器引擎的机器上 U5 只能 SKIPPED，
+    #   套件按 golden 的约定退 3——「没跑」要在最后一行说出来，不让 CI 把它读成通过。
+    for s in test-predev-lint.sh test-ui-audit.sh; do
+        echo "----- 运行 $s -----"
+        PREDEV_RC=0
+        bash "$TESTS_DIR/$s" || PREDEV_RC=$?
+        if [ "$PREDEV_RC" -eq 3 ]; then
+            AUDIT_NOTE="$AUDIT_NOTE；$s 有 SKIPPED（无浏览器引擎，未执行 != 通过）"
+        elif [ "$PREDEV_RC" -ne 0 ]; then
+            STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
+        fi
+    done
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——audit 三只哨兵的两套测试跳过，未执行 != 通过。"
     AUDIT_NOTE="；audit 测试 SKIPPED（无 node）"

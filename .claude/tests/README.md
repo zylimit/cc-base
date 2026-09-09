@@ -48,6 +48,10 @@ bash .claude/tests/cases/run-all.sh
   退出码 0=断言全过 / 1=有断言红 / 3=有整组没跑成（缺 node 或 git，未执行 != 通过）。
   CI 跑的是 pwsh 7、真实用户跑的是 powershell.exe 5.1，绿了只说明逻辑对——两者在
   Console 编码默认值和 stderr 处理上不同，差在哪写在脚本头。
+- **test-predev-lint.sh / test-ui-audit.sh** 锁前期文档闸与设计稿审计两支脚本（`scripts/predev-lint.mjs`、
+  `scripts/ui-audit.mjs`）：夹具在 mktemp 沙箱里现造，五份随 skill 发布的范例拼成一个 root 做 dogfood；
+  ui-audit 靠 cwd 下植入的 `playwright-core` 桩把渲染路径整条跑通，真渲染那条（U5）没有引擎只能 SKIPPED，
+  套件 FAIL=0 但 SKIPPED>0 时退 3，`run-all.sh` 把 3 记进汇总行的 SKIPPED 注记而不判失败——未执行 != 通过。
 - **cases/*.sh** 是真触发测试，**需要真 claude CLI，会耗 token**（多 Agent 路由实测）。
   `run-all.sh` 会 `command -v claude` 探测：没有 CLI 就明确打印
   `SKIPPED: 无 claude CLI` 并只跑 selftest——**绝不因缺 CLI 静默假绿**

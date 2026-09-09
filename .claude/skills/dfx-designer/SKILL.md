@@ -1,12 +1,13 @@
 ---
 name: dfx-designer
-description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"非功能需求"、"可靠性设计"、"可测试性"、"可服务性"、"DFX 评审"时使用。
+description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"非功能需求"、"质量属性"、"可靠性设计"、"可测试性"、"可服务性"、"威胁建模"、"DFX 评审"时使用。
 ---
 
 [任务]
     DFX（Design For eXcellence）是评价设计优劣、为设计决策提供依据的方法论——产品竞争力不止功能，还在客户可感知的与内部效率所需的质量属性。本 skill 双职能：
-    **设计模式（Design-in）**：把 12 个 DFX 维度逐一过堂，产出可度量的 DFX-Spec.md（目标值 / 度量方式 / 设计对策 / 验证手段），并把结论落进 harness 质量门（attributes 档位 + adapters 接线）。
-    **评审模式（Review）**：拿 12 维清单对既有 Architecture-Design.md（或现有系统）做 DFX 评审，输出评分卡（满足 / 风险 / 缺口 + 整改建议）——DFX 不直接产生设计方案，它逼设计方案自证。
+    **设计模式（Design-in）**：把 13 个 DFX 维度逐一过堂，产出可度量的 DFX-Spec.md（目标值 / 度量方式 / 设计对策 / 验证手段），并把结论落进 harness 质量门（attributes 档位 + adapters 接线）。
+    **评审模式（Review）**：拿 13 维清单对既有 Architecture-Design.md（或现有系统）做 DFX 评审，输出评分卡（满足 / 风险 / 缺口 + 整改建议）——DFX 不直接产生设计方案，它逼设计方案自证。
+    维度口径以华为 DFX 为骨，对齐 ISO/IEC 25010:2023（见 [ISO/IEC 25010:2023 映射]）——同一个词在 Spec、架构、质量门里只有一个意思。
 
 [依赖检测]
     Skill 启动时第一步自动执行：
@@ -16,6 +17,8 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
 
     可选（降级模式）：
     - Architecture-Design.md → 有则按模块逐个定档（推荐先跑 /arch-designer）；没有则全局定档，标注"待架构设计后按模块细化"
+    - Design-Brief.md → 有则 25010 的「交互能力」直接引用它的可访问性与响应式条目和八态，DFX 不重定；没有则在待办记一行「交互能力等 Design-Brief」
+    - Product-Spec 的「非功能与隐含合规」段 → 有则作为 [隐含合规扫描] 的起点；「AI 能力」段 → 有则 [AI 产品附加行] 必填
     - `.claude/harness/module-catalog.json` → 有则把定档结果直接写进 modules[].attributes；没有则只出文档
     - 已有 DFX-Spec.md → 进入迭代/评审模式
 
@@ -24,20 +27,41 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
 
     **场景化提需**：质量属性用六要素场景表达（来源 / 刺激 / 环境 / 制品 / 响应 / 响应度量），例：「支付高峰期（环境）下游超时（刺激）时，订单模块（制品）应降级排队并在 30s 内恢复（响应），错误率 <0.1%（度量）」。场景才可测试，形容词不可。
 
-    **档位经济学**：一刀切的严格度是缺陷——把每个维度在每个模块上定档（critical/high/medium/low/minimal/none），none/minimal 必须给书面理由。原型不该背支付系统的成本。
+    **档位经济学**：一刀切的严格度是缺陷——把每个维度在每个模块上定档（critical/high/medium/low/minimal/none），none/minimal 必须给书面理由。原型不该背支付系统的成本。S 档每维一行「刺激 → 响应 → 度量」即可，六要素只展开 critical/high；空表是好事，别为凑齐 13 行编度量。
 
     **验证闭环**：每条 DFX 需求写明验证手段落在哪（fitness 规则 / adapters 工具 / 测试用例 / supervisor / 人工评审），能接 harness 质量门的接进去——没有验证手段的 DFX 条目是许愿不是设计。
 
     **取舍显性化**：DFX 维度互相打架（性能↔可修改性、成本↔可靠性、安全↔可服务性）——冲突处逼用户排序，记录被牺牲方与理由，不许"都要"。
 
-[十二维 DFX 清单]
+    **隐含合规先扫**：法规与行业标准用户多半不说——不是不重要，是默认你知道。个人数据、资金、医疗、未成年人、无障碍这些词一出现，对应的法规就已经是需求；启动阶段按 [隐含合规扫描] 过一遍，命中的进 DFX-Spec 合规表并回写 Spec。
+
+[ISO/IEC 25010:2023 映射]
+    九个特性谁守、落在哪：DFX 只守它能出度量的，功能与交互交给 Spec 和 Design-Brief，不重复定档。
+
+    | 25010 特性 | 子特性 | 落在哪 / 谁守 |
+    |---|---|---|
+    | 功能适合性 | 完整 / 正确 / 恰当 | Product-Spec 成功判据与功能需求；DFX 不重复 |
+    | 性能效率 | 时间行为 / 资源利用 / 容量 | 第 6 维性能 + 第 13 维能效 |
+    | 兼容性 | 共存 / 互操作 | 互操作 → Architecture-Design 对外契约与依赖规则；共存 → 第 8 维可安装性 |
+    | 交互能力（原易用性） | 可识别 / 易学 / 可操作 / 用户错误防护 / 用户参与 / 包容性 / 用户协助 / 自描述 | Design-Brief 的可访问性与响应式地板、八态、文案；DFX 总表只引用 Brief 条目编号 |
+    | 可靠性 | 无故障 / 可用性 / 容错 / 可恢复 | 第 1 维可靠性（无故障）+ 第 2 维韧性（容错 / 可恢复）+ 第 7 维可服务性（可用性度量） |
+    | 安全性 | 保密 / 完整 / 不可抵赖 / 可追责 / 真实性 / 抗性 | 第 3 维安全 + 威胁表；可追责落审计日志 |
+    | 可维护性 | 模块化 / 可复用 / 可分析 / 可修改 / 可测试 | 第 9 维可测试性 + 第 10 维可修改性 + 第 11 维归一化 |
+    | 灵活性（原可移植性） | 适应 / 可伸缩 / 可安装 / 可替换 | 第 8 维可安装性 + 第 10 维可扩展性；伸缩的数字进性能预算或韧性场景 |
+    | 功能安全（2023 新增） | 运行约束 / 风险识别 / 失效安全 / 危险警示 / 安全集成 | 第 4 维功能安全——五个子特性就是过堂提纲 |
+
+    隐私（第 5 维）与成本（第 12 维）不是 25010 特性：隐私由法规驱动（GDPR / PIPL / ISO 27701），成本是华为 DFX 特有——保留，映射栏写「—」。
+
+[十三维 DFX 清单]
     未启用 harness（没有 module-catalog.json）的项目，各维尾巴上的 attributes / adapters 一栏略过——只定档位、度量、对策与验证落点，别为一张空表填字。
     每维给「软件语境定义 → 典型度量 → 设计对策 → 验证落点」。逐维过堂，不适用的标 N/A + 理由：
 
     1. **可靠性 Reliability**：规定条件与时间内持续稳定无故障。度量：MTBF、错误率、数据一致性校验通过率。对策：幂等、事务边界、输入校验、不吞错。验证：回归测试 / 变异测试（adapters: mutation-stryker）/ fitness no-silent-failure。→ attributes.reliability
     2. **韧性 Resilience**（可靠性的姊妹维，故障后的恢复力）：主动识别风险、快速恢复、抗并发冲击、宕机自动拉起。度量：MTTR、恢复点目标 RPO/恢复时间目标 RTO、最大并发下错误率。对策：有界重试 + 退避、熔断、限流、超时预算、supervisor 守护。验证：fitness no-unbounded-retry / 压测（adapters: load-k6）/ supervisor 熔断实测。→ attributes.resilience
     3. **安全性 Security（网络与信息安全）**：防未授权访问 / 破坏 / 窃听 / 篡改。度量：高危漏洞数=0、密钥扫描零命中、依赖 CVE 关闭时限。对策：最小权限、输入消毒、密钥外置、审计日志。验证：adapters sast-semgrep / sca-osv-scanner / secrets-gitleaks / fitness no-secret-literal。→ attributes.security
+       威胁表：Spec 或架构命中九类触发之一——项目外文件访问 / 网络或外部 API / Secret / 用户或 AI 生成的 HTML / 命令执行 / 删除·覆盖·发布 / 大文件与媒体解析 / iframe·postMessage·Bridge / 长任务与并发写回——该项必有一行 THR（资产 / 入口 / 威胁 / 影响 / 缓解 / 验证 / 关联 ID）。没有威胁表的安全定档只是个形容词。
     4. **功能安全 Safety**：故障或失效不对人身 / 环境 / 设备造成实质伤害（涉物理世界 / 医疗 / 车辆 / 工控时必填，纯信息系统可 minimal+理由）。度量：危险失效率、失效安全默认（fail-safe）覆盖率。对策：失效模式分析（简版 FMEA：每关键功能问"坏了会伤到什么？"）、双重确认、安全默认值。验证：fitness no-unreferenced-deferral（high 档）/ 专项测试。→ attributes.safety
+       按 25010 五子特性过堂：运行约束（哪些操作在什么状态下禁止）/ 风险识别（哪些失效会伤到人或设备）/ 失效安全（失效时落到哪个安全态）/ 危险警示（怎么提前告诉人）/ 安全集成（对接外部设备或系统时谁兜底）。
     5. **隐私 Privacy**：个人与企业数据收集 / 使用 / 存储 / 销毁合规（GDPR 等）。度量：PII 字段清单覆盖率、日志 PII 零泄漏、数据删除 SLA。对策：数据分级、最小收集、匿名化 / 假名化、隐私边界模块化（arch 禁边）。验证：fitness no-pii-in-logs / adapters pii-presidio / arch-check forbiddenDependencies。→ attributes.privacy
     6. **性能 Performance**：响应时间 / 吞吐 / 资源占用。度量：P95/P99 延迟、QPS、内存/CPU 上限。对策：预算分解（每层延迟预算）、缓存策略、批处理。验证：adapters load-k6 / 基准测试。→ attributes.performance
     7. **可服务性 Serviceability（含可观测性）**：出事时运维能看见、能定位、能干预。度量：故障定位时间、日志/指标/追踪三件套覆盖率、告警误报率。对策：结构化日志、健康检查端点、诊断命令。验证：supervisor health-url 实测 / 演练。→ attributes.availability 或自定义 check
@@ -46,14 +70,39 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
     10. **可修改性/可扩展性 Modifiability/Extensibility**：变更成本随时间不发散。度量：典型变更触碰文件数、undeclared 边数趋势（`arch-trend` 棘轮：只许降不许升）。对策：七大原则（开闭扩展点 / 单一职责切分）、契约稳定。验证：arch-check + `arch-check --record`→`arch-trend --gate` 漂移棘轮 / code-review Stage 2。→ attributes.maintainability
     11. **归一化 Normalization（减少多样性）**：同类问题一个解法。度量：重复轮子数、技术栈栈数、同功能组件种数。对策：公共库下沉（合成复用）、技术雷达（采用/试用/淘汰）、脚手架统一。验证：code-review 归一 lens / 依赖清单审计（adapters sbom-syft）。
     12. **成本 Cost（开发/运行/维护）**：度量：云资源月账、构建时长（可制造性的软件投影：CI 一次全量构建 + 测试的时钟时间）、人均维护模块数。对策：规模分级（S 档不背 L 档成本）、按量伸缩、缓存与冷热分层。验证：账单看板 / CI 时长趋势。
+    13. **能效 Energy efficiency**（节能减排的软件投影）：单位业务量耗多少算力与电。度量：每千次请求 CPU 秒、空闲态资源占用、批任务在时间窗内的完成率。对策：按需伸缩、空闲降频、批处理与缓存、轮询改推送。验证：资源监控趋势 / 账单看板。本地小工具、无常驻进程的可 N/A + 理由。
 
-    映射速查（DFX 维 → harness attributes）：可靠性→reliability、韧性→resilience、安全→security、功能安全→safety、隐私→privacy、性能→performance、可服务性→availability、可测试性+可修改性+归一化→maintainability、可安装性+成本→无直接属性（进 DFX-Spec 验收表，靠 checks/评审守）。
+    映射速查（DFX 维 → harness attributes）：可靠性→reliability、韧性→resilience、安全→security、功能安全→safety、隐私→privacy、性能→performance、可服务性→availability、可测试性+可修改性+归一化→maintainability、可安装性+成本+能效→无直接属性（进 DFX-Spec 验收表，靠 checks/评审守）。
+
+[AI 产品附加行]
+    Spec 有「AI 能力」段时必填，没有则整段略过。每行同样要度量与验证，不许空：
+    - **自主性分级**：L0 只建议 / L1 出草稿、人确认后生效 / L2 自动执行、可撤销 / L3 自动执行、不可撤销。默认 ≤L2；L3 必须有用户书面理由，并在审批门里单列。
+    - **审批门**：哪些动作必须过人——对外发送、花钱、删改数据、触达第三方；与 Design-Brief 的审批面（agent-ux-patterns）是同一张清单，两处不许各写各的。
+    - **熔断**：错误率 / 单次成本 / 连续失败次数 / 运行时长任一越线即停，回退到人工路径；阈值是数字。
+    - **成本上限**：单次与每日的 token / 调用 / 金额预算；超限后的行为（拒绝 / 降级模型 / 排队）写明。
+    - **可追溯**：每次 AI 动作留输入 / 输出 / 模型版本 / 提示词版本，能回放。
+
+[隐含合规扫描]
+    读 Spec 的行业词、数据字段、用户人群，对下表命中；不确定的 WebSearch 当年现行版本再定；命中项进 DFX-Spec 合规表（法规 / 触发原因 / 影响维度 / 对策 / 验证 / 回写 Spec 条目），Spec 没写的成对回写 Spec「非功能与隐含合规」+ CHANGELOG（澄清类）。
+
+    | 一出现就是需求的词 | 常见法规 / 标准 | 影响维度 |
+    |---|---|---|
+    | 个人数据、手机号、身份证、位置 | GDPR / PIPL / 数据出境评估 | 隐私 |
+    | 支付、资金、发票、对账 | PCI DSS / 反洗钱留痕 / 电子发票规范 | 安全 + 可靠性 |
+    | 医疗、健康、诊断、器械 | HIPAA / IEC 62304 医疗器械软件 | 功能安全 + 隐私 |
+    | 未成年人、学生、家长 | COPPA / 防沉迷 / 家长同意 | 隐私 + 交互能力 |
+    | 政务、公共服务、面向公众 | WCAG 2.2 / 各国无障碍法 | Design-Brief 可访问性地板 |
+    | 审批、签字、留痕、审计 | SOX / 电子签名法 | 安全（可追责）+ 可服务性 |
+    | 开源依赖、二次分发 | 许可证（GPL 传染 / 商用限制） | 归一化 + 成本 |
+    | 加密、跨境、出口 | 商用密码管理 / 加密出口管制 | 安全 |
+    | 等保、行业专网、内网 | 等保 2.0 / 行业分级保护 | 安全 + 可服务性 |
 
 [定档策略]
     - 按模块 × 维度定档，不全局一刀切：支付模块 security:critical，营销落地页 security:medium。
     - 六档语义（同 quality-attributes.md）：critical/high 阻断、medium 告警、low/minimal 记录、none 留痕退出；none/minimal 必须给 reason。
     - 追问三件套逼档位落地：「这个模块坏 1 小时，损失什么？」（可靠性/韧性档）「里面的数据泄了，上什么新闻？」（安全/隐私档）「谁半夜起来修它？」（可服务性档）。
     - 冲突排序：给出本项目的 DFX 优先级栈（如「安全 > 可靠 > 成本 > 性能」），前排维度冲突时压后排；记录进 DFX-Spec 供后续所有取舍引用。
+    - 越档要理由：S 档上 critical、纯信息系统给 safety 定 high，都得在取舍记录里写为什么更简单的档位不够。
 
 [评审模式（Review）]
     对 Architecture-Design.md（或现有系统）出 DFX 评分卡：
@@ -64,7 +113,10 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
 
 [信息充足度判断]
     可以生成 DFX-Spec 的条件：
-    - ✅ 12 维逐个过堂（适用的有场景 + 度量 + 对策 + 验证落点；不适用的有 N/A 理由）
+    - ✅ 13 维逐个过堂（适用的有场景 + 度量 + 对策 + 验证落点；不适用的有 N/A 理由）
+    - ✅ 隐含合规扫描做过，命中项每条有对策与验证或明确不适用
+    - ✅ 九类触发命中的每项都有 THR 行
+    - ✅ Spec 有 AI 能力段的，附加行五项齐
     - ✅ 关键模块（riskTier high 或用户点名）已按模块定档
     - ✅ DFX 优先级栈已排序且用户确认
     - ✅ critical/high 档位的验证落点具体到工具/测试/闸（不许"后续补"）
@@ -72,17 +124,17 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
 [工作流程]
     [启动阶段]
         第一步：执行 [依赖检测]；判模式（无 DFX-Spec → 设计模式；有 Architecture-Design 且用户要"评审" → 评审模式）。
-        第二步：读 Product-Spec 提取业务关键点（钱 / 个人数据 / 物理世界交互 / 用户量级）——这些直接决定 security/privacy/safety 起始档。
+        第二步：读 Product-Spec 提取业务关键点（钱 / 个人数据 / 物理世界交互 / 用户量级）——这些直接决定 security/privacy/safety 起始档；同时按 [隐含合规扫描] 对表，命中的先告诉用户「这些词一出现，这些法规就是需求了」。
         第三步：合规或行业标准不确定时（GDPR / 等保 / 行业规范）→ WebSearch 确认再定档。
 
     [过堂阶段]（设计模式）
-        按 [十二维 DFX 清单] 逐维过堂，运用 [定档策略] 追问；每维产出：场景（六要素）+ 度量 + 对策 + 验证落点 + 各关键模块档位。
+        按 [十三维 DFX 清单] 逐维过堂，运用 [定档策略] 追问；每维产出：场景（六要素；S 档一行短式）+ 度量 + 对策 + 验证落点 + 各关键模块档位。安全维带威胁表，Spec 有 AI 能力段的带 [AI 产品附加行]。
         过堂完排 DFX 优先级栈并让用户确认。
 
     [输出阶段]
-        第一步：读 templates/dfx-spec-template.md，填充生成 DFX-Spec.md（根目录）。
+        第一步：读 templates/dfx-spec-template.md，填充生成 DFX-Spec.md（根目录）；生成后跑 `node .claude/scripts/predev-lint.mjs`（优先级栈至少两项且一项一行、维度总表度量列含数字或 N/A、无占位残留），不过先修再往下。
         第二步：有 catalog → 把定档写进 modules[].attributes（none/minimal 带 reason），推荐 adapters：跑 `node .claude/harness/harness.mjs adapters list --attribute <x>` 给出各维接线建议；用户点头后 `adapters add <id>` 接线并提醒把 check 加进对应模块 verification。跑 `attributes` 子命令确认无 blocking 缺口或如实报告缺口清单。
-        第三步：三文件同步——档位决策与优先级栈进 progress.md Decisions。
+        第三步：三文件同步——档位决策与优先级栈进 progress.md Decisions；合规扫描回写的 Spec 条目成对进 Spec + CHANGELOG。
         第四步：引导下一步：
             "✅ **DFX-Spec 已生成！**
 
@@ -94,7 +146,7 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
              - 后续任何时候说\"DFX 评审\"可对设计或实现重跑评分卡"
 
     [评审输出]（评审模式）
-        输出评分卡（12 维 × 三态 + 整改建议清单 + 机器事实附录），不改任何文件；建议用户按缺口回 /arch-designer 或 /dev-planner。
+        输出评分卡（13 维 × 三态 + 整改建议清单 + 机器事实附录），不改任何文件；建议用户按缺口回 /arch-designer 或 /dev-planner。
 
 [初始化]
     执行 [启动阶段]

@@ -13,7 +13,8 @@ paths:
     ├── Product-Spec-CHANGELOG.md          # 需求变更记录
     ├── Architecture-Design.md             # 架构设计文档（可选，M/L 档项目）
     ├── DFX-Spec.md                        # DFX 质量属性设计（可选，与架构设计配套）
-    ├── Design-Brief.md                    # 设计规范文档（可选）
+    ├── Design-Brief.md                    # 设计规范文档（可选，体验脊柱：信息架构 / 页面规格 / 八态 / 文案 / 可访问性）
+    ├── DESIGN.md                          # 视觉 token 与规则（可选，与 Design-Brief 配套，Google design.md 规范，代码直接读 token）
     ├── DEV-PLAN.md                        # 分阶段开发计划
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
     │   ├── src/
@@ -37,14 +38,14 @@ paths:
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / fast-mode 开关 / gate-audit / statusline 状态行 / supervisor 进程守护）
-        ├── tests/                         # 框架自测（selftest / test-setup / test-routing / test-fast-mode / test-gate-audit / test-three-file-sync-gate，cases/run-all.sh 统一跑）
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / statusline 状态行 / supervisor 进程守护）
+        ├── tests/                         # 框架自测（selftest / test-setup / test-routing / test-fast-mode / test-gate-audit / test-three-file-sync-gate / test-predev-lint / test-ui-audit，cases/run-all.sh 统一跑）
         └── skills/
             ├── product-spec-builder/      # 需求收集
-            ├── arch-designer/             # 架构设计（七大原则 + 模块划分 + ADR）
-            ├── dfx-designer/              # DFX 设计（12 维质量属性定档）
-            ├── design-brief-builder/      # 设计规范
-            ├── design-maker/              # 设计图制作
+            ├── arch-designer/             # 架构设计（不变量 + 模块划分 + C4 + ADR + 押后决定）
+            ├── dfx-designer/              # DFX 设计（13 维质量属性定档 + 合规扫描 + 威胁表）
+            ├── design-brief-builder/      # 设计规范（Design-Brief.md + DESIGN.md，references 含风格词汇表 / 质量地板 / Agent 交互模式）
+            ├── design-maker/              # 设计图制作（方向样张 + 两遍法 + ui-audit 验收）
             ├── dev-planner/               # 开发计划
             ├── dev-builder/               # 项目开发
             ├── bug-fixer/                 # Bug 修复

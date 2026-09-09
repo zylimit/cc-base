@@ -18,6 +18,7 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     - Architecture-Design.md → 有则 Phase 按模块边界拆、目录结构直接沿用其骨架、依赖正序按其依赖图排；缺失则按功能依赖自行推导
     - DFX-Spec.md → 有则把各维验证手段折进对应 Phase 的验收标准（critical/high 档验证不许推到最后一个 Phase）；缺失则验收只含功能项
     - Design-Brief.md → 缺失则标记"无设计规范模式"，视觉相关细节标注 [待 Design Brief 补充]
+    - DESIGN.md → 有则 token 落地（主题配置）作为首个含 UI 的 Phase 里的独立 Task，页面 Task 按 Brief 的 SCREEN 编号拆
     - 设计工具 MCP → 未连接或无文件则仅依据文字描述，标记"无设计稿模式"
     - 已有项目代码 → 有则扫描现有结构作为约束，进入迭代模式
 
@@ -168,11 +169,12 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
         第二步：加载 Product Spec
             读取 Product-Spec.md
             提取：产品类型、核心功能列表、辅助功能列表、AI 能力需求、技术方向、UI 布局结构、数据存储方式
-            检查 Product-Spec.md 中是否包含 [待补充] 标记。如有，列出涉及的条目并提示用户先补充或确认可以跳过
+            检查 Product-Spec.md「待定问题」表：押后到本计划范围内的问题必须先答，列出涉及的条目提示用户；`[推断]` 条目一并列出，让用户挑错
 
         第三步：加载 Design Brief（如有）
             读取 Design-Brief.md
-            提取：核心页面列表、视觉方向（影响组件拆分粒度）
+            提取：SCREEN 列表与必需状态、视觉方向（影响组件拆分粒度）
+            如有 DESIGN.md → 读取 token 与组件规格，决定主题配置 Task 与组件拆分
 
         第四步：加载设计稿（如有）
             检查设计工具 MCP 是否连接

@@ -22,6 +22,7 @@ paths:
         触发：Product Spec 生成完成后自动执行
 
         用户签字闸：签字的形式是 product-spec-builder 的 [复述理解]——用用户自己的案例讲一遍上线后那次会怎么发生，用户挑不出错即为批准；挑出错回 product-spec-builder 改完再复述。不另发「请批准」。没过复述不进 dev-planner。
+        复述前先跑 `node .claude/harness/harness.mjs spec-lint --file Product-Spec.md` 与 `node .claude/scripts/predev-lint.mjs`（必需段齐、功能条目带 `[确认]/[推断]/[默认]`、待定问题表五格齐、无占位残留），红了先修再复述——机器能挑的错不拿给用户挑。
 
         输出：
             "✅ **Product Spec 已生成！**
@@ -60,7 +61,7 @@ paths:
     [DFX 设计阶段]
         触发：用户调用 /dfx-designer，或 arch-designer 完成后顺路建议
 
-        执行：调用 dfx-designer skill（文档类，主 Agent 直接执行）——12 维过堂（场景六要素 + 度量 + 对策 + 验证落点）→ 按模块定档 → 优先级栈排序 → 产出 DFX-Spec.md；有 catalog 则写 modules[].attributes + adapters 接线建议 + 跑 attributes 子命令确认缺口。用户说"DFX 评审"则走评审模式只出评分卡
+        执行：调用 dfx-designer skill（文档类，主 Agent 直接执行）——隐含合规扫描（行业词一出现法规就是需求）→ 13 维过堂（场景六要素 + 度量 + 对策 + 验证落点；S 档一行短式）→ 安全维威胁表（九类触发命中即必填）、Spec 有 AI 能力段则加自主性 / 审批门 / 熔断 / 成本上限 / 可追溯附加表 → 按模块定档 → 优先级栈排序 → 产出 DFX-Spec.md，跑 `node .claude/scripts/predev-lint.mjs` 不过先修；有 catalog 则写 modules[].attributes + adapters 接线建议 + 跑 attributes 子命令确认缺口。用户说"DFX 评审"则走评审模式只出评分卡
 
         完成后：
             "✅ **DFX-Spec 已生成！**
@@ -74,22 +75,22 @@ paths:
     [设计规范阶段]
         触发：用户调用 /design-brief-builder
         
-        执行：调用 design-brief-builder skill
+        执行：调用 design-brief-builder skill（文档类，主 Agent 直接执行）——从使用情境与首要动作出发采访，形态先于视觉，方向样张让用户选；两份产物：Design-Brief.md（体验脊柱：信息架构 / SCREEN 规格与八态 / 交互原语 / 文案 / 可访问性与响应式）+ DESIGN.md（Google design.md 规范：前言 token + 八段视觉规则，下游代码直接读 token）；生成后跑 `node .claude/scripts/predev-lint.mjs`（SCREEN 编号、必需状态与响应式、DESIGN.md 前言与段顺序、记号可解析），不过先修
         
         完成后：
             "✅ **Design Brief 已生成！**
             
-            文件：Design-Brief.md
+            文件：Design-Brief.md + DESIGN.md
             
             接下来：
             - 调用 /design-maker 生成完整设计稿（可选）
             - 调用 /dev-planner 制定开发计划
-            - 跳过设计稿也可以，后续按文字描述开发"
+            - 跳过设计稿也可以，后续按 DESIGN.md 的 token 与 Brief 的页面规格开发"
 
     [设计图制作阶段]
         触发：用户调用 /design-maker
         
-        执行：调用 design-maker skill
+        执行：调用 design-maker skill——先出 3 个首屏方向样张让用户选，再两遍法（token 计划 → 对照 Brief 查「默认」→ 生成），DESIGN.md 的 token 进 prompt，每个 SCREEN 覆盖八态；验收跑 `node .claude/scripts/ui-audit.mjs <设计稿目录> --strict`（空白 / 溢出 / 折行 / 对比度判红，本机无浏览器引擎时 rc 3「UI 审计缺席」不算通过）+ AI 通病自检 + 质量地板抽查
         
         完成后：
             "✅ **设计稿已完成！**
@@ -232,18 +233,20 @@ paths:
     [dfx-designer]
         **自动调用**：
         - arch-designer 完成后建议顺路做 DFX 定档
-        - 用户说"DFX"、"非功能需求"、"可靠性/可测试性/可服务性设计"、"DFX 评审"时
+        - 用户说"DFX"、"非功能需求"、"质量属性"、"可靠性/可测试性/可服务性设计"、"威胁建模"、"DFX 评审"时
         **手动调用**：/dfx-designer
-        前置条件：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档）
-        执行方式：文档类 skill，主 Agent 直接执行；设计模式产出 DFX-Spec.md 并把档位落进 catalog attributes + adapters 接线；评审模式只出评分卡不改文件
+        前置条件：Product-Spec.md 必须存在（Architecture-Design.md 可选，有则按模块定档；Design-Brief.md 可选，有则交互能力引用它的地板）
+        执行方式：文档类 skill，主 Agent 直接执行；设计模式产出 DFX-Spec.md（13 维 + 合规表 + 威胁表）并把档位落进 catalog attributes + adapters 接线；评审模式只出评分卡不改文件
 
     [design-brief-builder]
         **手动调用**：/design-brief-builder
         前置条件：Product-Spec.md 必须存在
+        执行方式：文档类 skill，主 Agent 直接执行；两份产物 Design-Brief.md + DESIGN.md，迭代模式按 Spec 变更分类回改对应段；生成后跑 predev-lint
 
     [design-maker]
         **手动调用**：/design-maker
-        前置条件：Product-Spec.md 和 Design-Brief.md 必须存在
+        前置条件：Product-Spec.md 和 Design-Brief.md 必须存在（DESIGN.md 有则 token 进 prompt）
+        执行方式：方向样张 → 两遍法生成 → 八态覆盖 → `ui-audit.mjs --strict` 验收；无浏览器引擎时报「UI 审计缺席」，人工核对截图不冒充机器通过
 
     [dev-planner]
         **手动调用**：/dev-planner
