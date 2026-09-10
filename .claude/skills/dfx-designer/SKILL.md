@@ -57,7 +57,7 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
     每维给「软件语境定义 → 典型度量 → 设计对策 → 验证落点」。逐维过堂，不适用的标 N/A + 理由：
 
     1. **可靠性 Reliability**：规定条件与时间内持续稳定无故障。度量：MTBF、错误率、数据一致性校验通过率。对策：幂等、事务边界、输入校验、不吞错。验证：回归测试 / 变异测试（adapters: mutation-stryker）/ fitness no-silent-failure。→ attributes.reliability
-    2. **韧性 Resilience**（可靠性的姊妹维，故障后的恢复力）：主动识别风险、快速恢复、抗并发冲击、宕机自动拉起。度量：MTTR、恢复点目标 RPO/恢复时间目标 RTO、最大并发下错误率。对策：有界重试 + 退避、熔断、限流、超时预算、supervisor 守护。验证：fitness no-unbounded-retry / 压测（adapters: load-k6）/ supervisor 熔断实测。→ attributes.resilience
+    2. **韧性 Resilience**（可靠性的姊妹维，故障后的恢复力）：主动识别风险、快速恢复、抗并发冲击、宕机自动拉起。度量：MTTR、恢复点目标 RPO/恢复时间目标 RTO、最大并发下错误率。对策：填「延迟与重试预算」表（模板 §3）——超时自上而下分解到每层、各层预算之和 ≤ 端到端；重试给三个数字：每请求最多 3 次、每客户端 retry/total ≤ 10%、全链路只指定一层做重试其余层写 0（重试逐层相乘，5 层各 3 次就是 3⁵=243 次，「有界重试」四个字挡不住）；再加熔断、限流、supervisor 守护。验证：predev-lint 算这张表（各层之和 ≤ 端到端、重试层数 = 1）/ fitness no-unbounded-retry / 压测（adapters: load-k6）/ supervisor 熔断实测。→ attributes.resilience
     3. **安全性 Security（网络与信息安全）**：防未授权访问 / 破坏 / 窃听 / 篡改。度量：高危漏洞数=0、密钥扫描零命中、依赖 CVE 关闭时限。对策：最小权限、输入消毒、密钥外置、审计日志。验证：adapters sast-semgrep / sca-osv-scanner / secrets-gitleaks / fitness no-secret-literal。→ attributes.security
        威胁表：Spec 或架构命中九类触发之一——项目外文件访问 / 网络或外部 API / Secret / 用户或 AI 生成的 HTML / 命令执行 / 删除·覆盖·发布 / 大文件与媒体解析 / iframe·postMessage·Bridge / 长任务与并发写回——该项必有一行 THR（资产 / 入口 / 威胁 / 影响 / 缓解 / 验证 / 关联 ID）。没有威胁表的安全定档只是个形容词。
     4. **功能安全 Safety**：故障或失效不对人身 / 环境 / 设备造成实质伤害（涉物理世界 / 医疗 / 车辆 / 工控时必填，纯信息系统可 minimal+理由）。度量：危险失效率、失效安全默认（fail-safe）覆盖率。对策：失效模式分析（简版 FMEA：每关键功能问"坏了会伤到什么？"）、双重确认、安全默认值。验证：fitness no-unreferenced-deferral（high 档）/ 专项测试。→ attributes.safety
@@ -129,10 +129,15 @@ description: 当架构设计完成后要做 DFX 设计，或用户说"DFX"、"�
 
     [过堂阶段]（设计模式）
         按 [十三维 DFX 清单] 逐维过堂，运用 [定档策略] 追问；每维产出：场景（六要素；S 档一行短式）+ 度量 + 对策 + 验证落点 + 各关键模块档位。安全维带威胁表，Spec 有 AI 能力段的带 [AI 产品附加行]。
+        第 6 维性能之前先算三个数——纯算术，一行代码都没有就能算出「这个设计撑不住」，而这类结论晚到就是选型级返工：
+        - 容量：`QPS = 日请求量 / 86400`、`峰值 QPS ≈ 均值 × 10`、`存储 = 单条字节 × 日写入 × 保留天数 × 副本数`
+        - 利用率天花板：目标利用率 ρ 下排队放大 `≈ 1/(1−ρ)`——跑到 80% 利用率，尾延迟是空载的 5 倍，定容量时把这个系数算进去
+        - 扇出宽度：一次请求扇出 N 个依赖、每个慢的概率 p，至少一个慢的概率是 `1−(1−p)^N`——N=50、p=1% 时是 39%
+        这三条不上机器闸（输入是估算值，机器判不了真假），改在总表的性能行注明：这些数字是拿这三条算过的，还是拍的——拍的就写「拍的」，别让下游当预算用。
         过堂完排 DFX 优先级栈并让用户确认。
 
     [输出阶段]
-        第一步：读 templates/dfx-spec-template.md，填充生成 DFX-Spec.md（根目录）；生成后跑 `node .claude/scripts/predev-lint.mjs`（优先级栈至少两项且一项一行、维度总表度量列含数字或 N/A、无占位残留），不过先修再往下。
+        第一步：读 templates/dfx-spec-template.md，填充生成 DFX-Spec.md（根目录）；生成后跑 `node .claude/scripts/predev-lint.mjs`（优先级栈至少两项且一项一行、维度总表度量列含数字或 N/A、延迟与重试预算表各层之和 ≤ 端到端且只有一层重试、无占位残留），不过先修再往下。
         第二步：有 catalog → 把定档写进 modules[].attributes（none/minimal 带 reason），推荐 adapters：跑 `node .claude/harness/harness.mjs adapters list --attribute <x>` 给出各维接线建议；用户点头后 `adapters add <id>` 接线并提醒把 check 加进对应模块 verification。跑 `attributes` 子命令确认无 blocking 缺口或如实报告缺口清单。
         第三步：三文件同步——档位决策与优先级栈进 progress.md Decisions；合规扫描回写的 Spec 条目成对进 Spec + CHANGELOG。
         第四步：引导下一步：

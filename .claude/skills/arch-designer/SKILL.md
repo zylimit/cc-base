@@ -31,7 +31,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
 
     **依赖单向**：所有模块依赖必须画得出方向、说得出理由；出现双向依赖或环 = 边界划错了，回去重划。这是七大原则里依赖倒置 + 迪米特在架构级的投影。
 
-    **决策留痕**：每个重大取舍（风格选型 / 存储 / 通信方式 / 边界划法）都记 ADR——背景与问题、决策驱动、候选与各自优劣、结论、后果、被拒备选、**执法方式**。没有被拒备选的"决策"是没想过的决策；没有执法方式的约束会漂移。
+    **决策留痕**：每个重大取舍（风格选型 / 存储 / 通信方式 / 边界划法）都记 ADR——背景与问题、决策驱动、候选与各自优劣、结论、后果、被拒备选、**执法方式**、**revisit-if**、**reversal**。没有被拒备选的"决策"是没想过的决策；没有执法方式的约束会漂移；没有 revisit-if，前提早就不成立了还在照着建；没有 reversal，撤不回来的选型会被当成随手能改的那种拍板。
 
     **可执行优先**：写进文档的架构约束，能落 machine 闸的就落——forbiddenDependencies / layers 进 module-catalog.json，让 arch-check 每次变更盯着；只留在文档里的边界三个月后就是废纸。
 
@@ -86,7 +86,10 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
     - 数据与状态：谁拥有哪些数据（single writer）；共享数据经谁的契约暴露。
     - 一致性约定：独立构建者会各写各的那些默认——命名（实体 / 文件 / 接口 / 事件）、数据与格式（id / 日期 / 错误形状 / 信封）、状态与横切（变更方式 / 错误处理 / 日志 / 配置 / 鉴权）。一行一条，能被 code-review 对照。
     - 运行与部署包络：环境（本地 / 测试 / 生产）、部署拓扑、基础设施与供应商、运维（日志 / 监控 / 备份 / 发布回滚）——每项决定 / 押后 / 未定三选一，不留白。
-    - 关键决策 ADR：至少覆盖 风格选型 / 存储 / 模块间通信；每条含背景与问题 / 决策驱动 / 候选与优劣 / 结论 / 后果 / 被拒备选与理由 / 执法方式。执法方式的值会被 `adr-check` 机器校验：必须包含至少一个可识别 token——catalog check id / fitness 规则 id（如 no-secret-literal）/ harness 能力名（arch-check / layers / forbiddenDependencies / fitness / verify / receipt）/ 或显式人工标记（"人工评审"）；指向不存在的闸（幽灵引用）会 fail——读起来像被执法实际没有，比不写更糟。
+    - 关键决策 ADR：至少覆盖 风格选型 / 存储 / 模块间通信；每条含背景与问题 / 决策驱动 / 候选与优劣 / 结论 / 后果 / 被拒备选与理由 / 执法方式 / revisit-if / reversal。后三项都被 `adr-check` 机器校验，缺一条即 fail 并点名该条 ADR：
+      - **执法方式**：必须包含至少一个可识别 token——catalog check id / fitness 规则 id（如 no-secret-literal）/ harness 能力名（arch-check / layers / forbiddenDependencies / fitness / verify / receipt）/ 或显式人工标记（"人工评审"）；指向不存在的闸（幽灵引用）会 fail——读起来像被执法实际没有，比不写更糟。
+      - **revisit-if**：写**什么条件出现时这条决策不再成立**，写条件不写日期（合格：日活超过 5 万 / 需要多租户 / 团队超过 3 人 / 这个第三方停止维护；不合格：三个月后再看 / 视情况 / 持续关注）。日期式空话会 fail——它到没到期跟前提变没变没关系，而前提早就不成立了还在照着建，等发现时是整片返工。判据保守，混着日期写了真条件的放过。
+      - **reversal**：写**撤回它要做什么、大概多久**（合格：换掉 ORM——改 storage 模块的 12 个文件 + 一次数据迁移，约 3 天）。**写不出撤回步骤的就是单向门**：值里显式写「单向门」，不算 fail，但会单列进 `adr-check` 的单向门清单，并要在 §9 押后决定或 §11 风险里点名、交给用户拍板——不可逆的选型不该按可逆的速度拍。
     - 押后决定：有意不在这一层定的事，每条一句为什么可以等、什么条件下要回来定。
 
     **尽量落定**：
@@ -118,7 +121,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
     - ✅ 依赖方向可画成无环图；禁边已列
     - ✅ 一致性约定至少覆盖命名 / 数据格式 / 错误处理三行
     - ✅ 运行与部署包络四项各有三态之一
-    - ✅ 关键决策 ≥3 条 ADR（含决策驱动、候选优劣、执法方式）
+    - ✅ 关键决策 ≥3 条 ADR（含决策驱动、候选优劣、执法方式、revisit-if、reversal）
     - ✅ 每个不变量都能回答「两个独立单元会不会选得不兼容」；答不上的已移到押后
     S 档轻量模式只须：范式与技术栈定 + 目录结构定 + 关键决策 ≤3 条 + 包络一行 + 押后一行。
 
@@ -138,6 +141,8 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
         × 部署环境「以后再说」整段留白——每项写决定 / 押后 / 未定，押后要带回来定的条件。
         × ADR 只写结论不写候选——没有被拒备选的决策是没想过的决策。
         × 执法方式写「大家注意」——必须指到 arch-check / catalog check / fitness 规则或「人工评审」，幽灵引用比不写更糟。
+        × revisit-if 写「三个月后再看」——日期到没到跟前提变没变没关系；写「日活超过 5 万」这种一眼能判真假的条件。
+        × reversal 写不出来就跳过——写不出撤回步骤本身就是结论：标「单向门」，进 §11 交用户拍板。
         × 把 Spec 每条功能的类图画进来——归 dev-builder。
 
 [工作流程]
@@ -153,7 +158,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
     [输出阶段]
         第一步：读 templates/architecture-design-template.md，填充生成 Architecture-Design.md（根目录）；mermaid 图必须是合法语法，不放空图；模板注释不留在成品里。
         第二步：L 档（或用户要求）→ 生成 `.claude/harness/module-catalog.json` 骨架：modules（id/paths/dependsOn/forbiddenDependencies/layer/riskTier）+ layers + global + ignored 雏形；paths 按目录结构骨架预填并注明"随编码校准"；跑 `node .claude/harness/harness.mjs catalog-lint` 报告结果（新项目多数路径未存在属正常，说明白即可）。
-        第三步：跑 `node .claude/harness/harness.mjs adr-check` 校验 ADR 执法引用——failing 逐条修（补执法方式或改成显式人工评审）到 rc 0 再交付；manualOnly 清单如实报给用户（哪些决策只有人守）。再跑 `node .claude/scripts/predev-lint.mjs`（必需段、ADR 四字段、占位符）。
+        第三步：跑 `node .claude/harness/harness.mjs adr-check` 校验 ADR 执法引用与 revisit-if / reversal——failing 逐条修（补执法方式或改成显式人工评审、补失效条件、补撤回代价或标单向门）到 rc 0 再交付；manualOnly 清单如实报给用户（哪些决策只有人守），oneWayDoors 清单单独报（这个项目有几扇门走出去回不来），并确认每扇门都在 §9 或 §11 里点了名。再跑 `node .claude/scripts/predev-lint.mjs`（必需段、ADR 四字段、占位符）。
         第四步：三文件同步——架构关键决策即时进 progress.md 的 Decisions（依据 / 适用范围 / 取代）。
         第五步：引导下一步：
             "✅ **架构设计已生成！**

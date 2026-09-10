@@ -121,6 +121,17 @@ write_dfx() { # <dir> [variant]
                  printf '%s\n' '| 可服务性 | medium | 现场排障 | report | 结构化日志 | 定位耗时 N/A |' '' ;;
         esac
         printf '%s\n' '## 取舍记录' '- 放弃多副本：三人班组不值当，接受单点。'
+        # 延迟与重试预算表按档位选填，只有 budget_* 变体带这张表；不带的那份走「老文档不该被新闸弄红」。
+        case "$v" in budget_*) printf '%s\n' '' '## 延迟与重试预算' '| 层 | 预算 | 重试 | 失败时 |' '| --- | --- | --- | --- |' ;; esac
+        case "$v" in
+            budget_ok)    printf '%s\n' '| 网关 | 50ms | 0 | 返回 503 |' '| 派单服务 | 300ms | 1 次 | 转人工 |' '| 数据库 | 100ms | 0 | 报错重来 |' '| 端到端 | 800ms | — | 提示重试 |' ;;
+            budget_over)  printf '%s\n' '| 网关 | 500ms | 0 | 返回 503 |' '| 派单服务 | 400ms | 1 次 | 转人工 |' '| 端到端 | 800ms | — | 提示重试 |' ;;
+            budget_retry) printf '%s\n' '| 网关 | 50ms | 2 次 | 返回 503 |' '| 派单服务 | 300ms | 1 次 | 转人工 |' '| 端到端 | 800ms | — | 提示重试 |' ;;
+            budget_mute)  printf '%s\n' '| 网关 | 50ms | 0 | 返回 503 |' '| 派单服务 | 300ms | 0 | 转人工 |' '| 端到端 | 800ms | — | 提示重试 |' ;;
+            budget_noted) printf '%s\n' '| 网关 | 50ms | 0 | 返回 503 |' '| 派单服务 | 300ms | 0 | 转人工 |' '| 端到端 | 800ms | — | 提示重试 |' \
+                                        '' '全链路不重试，失败即报错，靠幂等键兜重复。' ;;
+            budget_unit)  printf '%s\n' '| 网关 | 5s | 0 | 返回 503 |' '| 派单服务 | 5 秒 | 1 次 | 转人工 |' '| 端到端 | 8000ms | — | 提示重试 |' ;;
+        esac
     } > "$d/DFX-Spec.md"
 }
 
@@ -136,6 +147,14 @@ expect_code() { # <dir> <code> <说明>
     run_json "$1"
     if [ "$RC" -eq 1 ] && contains "$2" "$OUT"; then r=0; else r=1; fi
     chk "$r" "$3" "rc=1 且 --json 含 $2" \
+        "rc=$RC；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
+}
+
+expect_soft() { # <dir> <关键词> <说明>   warning 不改 rc；只看 rc 会把「报了黄字」和「一声没吭」当成一回事
+    local r
+    run_json "$1"
+    if [ "$RC" -eq 0 ] && contains "$2" "$OUT"; then r=0; else r=1; fi
+    chk "$r" "$3" "rc=0 且 --json 含 $2" \
         "rc=$RC；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
 }
 
@@ -215,6 +234,24 @@ if [ "$RC" -eq 1 ] && [ "$PH" = "$TPLL $EQL" ]; then r=0; else r=1; fi
 chk "$r" "P47 模板原句「<2-3 个真实发生过的案例…>」是没填的占位（取自$TPL_SRC），不是比较式" \
     "rc=1；PLACEHOLDER=[$TPLL $EQL]（三行比较式 $C1 / $C2 / $C3 不许报）" \
     "rc=$RC；PLACEHOLDER=[$PH]"
+
+# ---------------------------------------------------------------------------
+# 延迟与重试预算表：算术与重试层数（本批新增）
+# ---------------------------------------------------------------------------
+D=$(newdir); write_dfx "$D" budget_over;  expect_code "$D" BUDGET_OVER_END_TO_END "P50 各层预算之和 900ms 超过端到端 800ms"
+D=$(newdir); write_dfx "$D" budget_retry; expect_code "$D" RETRY_LAYERS_OVER_ONE  "P51 两层都写了重试（重试逐层相乘，不许两层以上）"
+D=$(newdir); write_dfx "$D" budget_mute;  expect_soft "$D" RETRY_NONE_UNEXPLAINED "P52 一层都不重试又没写理由 → 只警告不拦（rc 0）"
+D=$(newdir); write_dfx "$D" budget_ok;    expect_soft "$D" '"warnings": 0'        "P53 合规表（50+300+100 ≤ 800、只一层重试、fallback 都填了）→ rc 0 零 warning"
+D=$(newdir); write_dfx "$D" budget_noted; expect_soft "$D" '"warnings": 0'        "P54 零重试但表下写明「全链路不重试…」→ 不再报 RETRY_NONE_UNEXPLAINED"
+# P55 列头写的是 ms，「5s」「5 秒」要按 5000 求和；读成 5 就是差一千倍的假通过——所以判和值本身，不只判 code。
+D=$(newdir); write_dfx "$D" budget_unit; run_json "$D"
+if [ "$RC" -eq 1 ] && contains '10000ms 超过端到端 8000ms' "$OUT"; then r=0; else r=1; fi
+chk "$r" "P55 「5s」与「5 秒」都按 5000ms 求和" "rc=1 且消息里的和是 10000ms（不是 10ms）" "rc=$RC；输出：$(brief "$OUT")"
+# P56 老文档地板：没有这张表的 DFX-Spec 一条都不许触发——新闸不能把存量文档弄红。
+D=$(newdir); write_dfx "$D"; run_json "$D"; HIT=""
+for c in BUDGET_OVER_END_TO_END RETRY_LAYERS_OVER_ONE RETRY_NONE_UNEXPLAINED; do contains "$c" "$OUT" && HIT="$HIT $c"; done
+if [ "$RC" -eq 0 ] && [ -z "$HIT" ]; then r=0; else r=1; fi
+chk "$r" "P56 没有预算表的 DFX-Spec 不触发这三条（表按档位选填，没写就没写）" "rc=0 且三个 code 一个都不出现" "rc=$RC；出现的：${HIT:-无}"
 
 echo "  [NOTE] 未覆盖：--out/多 root、DESIGN.md 前言的 YAML 异常形态、Brief 与 Spec 编号双向一致。"
 

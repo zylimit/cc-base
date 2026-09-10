@@ -14,3 +14,4 @@
 - [审 .sh/.ps1 → .mjs 单运行时移植的六条攻法](pattern_shell-to-node-hook-port.md) — 红锁钉得住退出码，漏的在并发锁 / 降级量级 / 夹具真杀宿主进程
 - [占位闸先对表模板槽语法，再数退出路径](pattern_gate-vocabulary-vs-artifact-templates.md) — 闸只认 `<>`、三份模板用 `{{}}`/`[x]` → 原封不动的模板 ok=true；口径要逐个 exit 点问
 - [审优先级链判定 + 用户可改配置的四条攻法](pattern_priority-chain-and-config-single-point.md) — 突变全绿常因兜底答案与被删分支撞车；顶层 JSON.parse 是整台引擎的单点故障
+- [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的六条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 两个解析器一警一哑 / 退休词撞模板括注 / 覆盖判据宽于失败消息

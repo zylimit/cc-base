@@ -51,7 +51,7 @@ description: 设计稿验收、dev-builder 写界面、code-review 审 UI 一致
     SHOULD 测 iOS 低电量模式与 macOS Safari；优先非受控输入；CDN 域 `preconnect`；关键字体 `preload` + `font-display: swap`；用静音循环视频代替 GIF 并给静态与减动效替代。
 
 [深色模式与主题]
-    MUST 深色主题在 `<html>` 上设 `color-scheme: dark`；原生 `<select>` 显式 `background-color` 与 `color`。
+    MUST 深色主题在 `<html>` 上设 `color-scheme: dark`；原生 `<select>` 显式 `background-color` 与 `color`；底色从 `#121212` 起，不用纯黑；层级靠白色叠加表达（4dp 约 9% 白），不靠更黑；主色在暗色下降饱和；最底层与白字对比 ≥ 15.8:1。
     SHOULD `<meta name="theme-color">` 与页面底色一致。
 
 [设计]

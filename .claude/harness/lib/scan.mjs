@@ -257,7 +257,27 @@ function cmdAdapters(flags, positional = []) {
 // Sources scanned: inline `### ADR-xxx` blocks in Architecture-Design.md (arch-designer
 // format) and standalone docs/adr/*.md files (one record per file). Both optional.
 
+// Two more fields are required for the same reason enforcement is. `revisit-if` names the
+// condition that ends the decision -- a premise that quietly expired is still being built on
+// until someone writes down what would falsify it. `reversal` names what undoing it costs;
+// a decision nobody can undo gets waved through at the speed of a reversible one unless the
+// cost is on the page. Writing "\u5355\u5411\u95e8" instead of steps is accepted, not failed, and listed
+// separately -- an honest one-way door is a fact to count, a hidden one is the accident.
+
 const ADR_RETIRED_RE = /superseded|deprecated|rejected|retired|\u5df2\u5e9f\u5f03|\u5e9f\u5f03|\u5df2\u53d6\u4ee3|\u5df2\u5426\u51b3|\u5df2\u66ff\u4ee3/i;
+const ADR_ONEWAY_RE = /\u5355\u5411\u95e8|one-?way\s*door/i;
+// "in three months" is a calendar reminder, not a condition: it fires whether or not the
+// premise moved, and it goes stale the day it is written. Two shapes are flagged, and keeping
+// them apart is the whole point. Self-contained phrases ("wait and see", "as appropriate")
+// mean the same wherever they sit. A time window does not: the characters for "after a year"
+// are also the opening of "backend from 2026 on", so matching the window on its own reds a
+// perfectly good condition. The window therefore only counts when it ends the value or is
+// followed by a re-evaluation verb; otherwise it is just a sentence those characters pass
+// through. Even then, a value naming any real trigger is let through -- a false red on a
+// judgement call costs more here than a miss, because the field only works if people trust it.
+const ADR_REVISIT_VAGUE_RE = /(\u4ee5\u540e\u518d|\u4e4b\u540e\u518d|\u518d\u770b|\u518d\u8bf4|\u518d\u8bae|\u5230\u65f6\u5019|\u89c6\u60c5\u51b5|\u770b\u60c5\u51b5|\u914c\u60c5|\u6301\u7eed\u5173\u6ce8|\u4fdd\u6301\u5173\u6ce8|\u5b9a\u671f(\u8bc4\u5ba1|\u56de\u987e|\u68c0\u67e5|\u590d\u76d8)|\u5f85\u5b9a|TBD|later|as needed|periodically|keep an eye)/i;
+const ADR_REVISIT_STALE_RE = /(\u4e2a\u6708|\u4e2a\u661f\u671f|\u661f\u671f|\u5468|\u5b63\u5ea6|\u5e74|\u5929)(\u4e4b|\u4ee5)?\u540e(\s*$|[\s\uff0c,\u3001;\uff1b]*(\u518d\u770b|\u518d\u8bf4|\u518d\u8bae|\u518d\u5b9a|\u518d\u8bc4\u4f30|\u518d\u8ba8\u8bba|\u518d\u51b3\u5b9a|\u518d\u786e\u8ba4|\u91cd\u65b0\u8bc4\u4f30|\u91cd\u65b0\u8bc4\u5ba1|\u91cd\u65b0\u5ba1\u89c6|\u91cd\u65b0\u8003\u8651|\u91cd\u65b0\u8ba8\u8bba|\u91cd\u4f30|\u56de\u987e|\u590d\u76d8|\u590d\u5ba1|revisit|re-?evaluate|reassess|review))/i;
+const ADR_REVISIT_CONDITION_RE = /(\u8d85\u8fc7|\u8d85\u51fa|\u5927\u4e8e|\u5c0f\u4e8e|\u4f4e\u4e8e|\u9ad8\u4e8e|\u8fbe\u5230|\u4e0d\u8db3|\u4e0d\u518d|\u4e00\u65e6|\u5982\u679c|\u82e5|\u5f53|\u9700\u8981|\u8981\u6c42|\u51fa\u73b0|\u65b0\u589e|\u5f15\u5165|\u63a5\u5165|\u5207\u6362|\u6362\u6210|\u505c\u6b62\u7ef4\u62a4|\u505c\u670d|\u4e0b\u7ebf|\u4e0a\u7ebf|\u5931\u8d25|\u53d1\u751f|\u5230\u671f|\u671f\u6ee1|\u8fc7\u671f|>|<|\u2265|\u2264|exceed|more than|over |when |if |need|require|reach|drop|stop|EOL|deprecat)/i;
 const ADR_MANUAL_RE = /\u4eba\u5de5|\u8bc4\u5ba1|manual|review/i;
 // Harness capabilities that ARE machine enforcement when named directly.
 const ADR_HARNESS_CAPS = ['arch-check', 'forbiddendependencies', 'layers', 'catalog-lint', 'fitness', 'verify', 'receipt', 'attributes', 'stop-gate', 'pre-commit', 'supervisor', 'arch-trend'];
@@ -302,6 +322,8 @@ function parseInlineAdrs(content) {
       title: starts[i].title,
       status: adrField(block, ['\u72b6\u6001', 'Status']) || 'accepted',
       enforcedRaw: adrField(block, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
+      revisitRaw: adrField(block, ['revisit-if', 'revisit if', '\u5931\u6548\u6761\u4ef6', '\u91cd\u65b0\u8bc4\u4f30\u6761\u4ef6']),
+      reversalRaw: adrField(block, ['reversal', '\u64a4\u56de\u4ee3\u4ef7', '\u64a4\u56de\u6210\u672c']),
     });
   }
   return out;
@@ -337,6 +359,9 @@ function resolveEnforcement(fragment, knownChecks, knownRules) {
  * least one known machine token or an explicit manual marker; zero recognizable tokens
  * (missing field, or only phantom names) fails. Unrecognized fragments riding along a
  * known one are surfaced, not failed -- prose is allowed, silence about it is not.
+ * It must also declare revisit-if and reversal. All problems of one record are reported
+ * together in `reason` rather than one per pass, so a single read tells the author
+ * everything that record needs.
  * @param {Array<{id,title?,status,enforcedRaw,source?}>} records
  * @param {string[]} knownChecks
  * @param {string[]} knownRules
@@ -351,16 +376,31 @@ function assessAdrRecords(records, knownChecks, knownRules) {
     const manual = resolved.filter(t => t.kind === 'manual');
     const unknown = resolved.filter(t => t.kind === 'unknown');
     const recognized = machine.length + manual.length;
-    const ok = retired || recognized > 0;
+    const revisit = stripMdDecoration(r.revisitRaw || '');
+    const reversal = stripMdDecoration(r.reversalRaw || '');
+    const oneWayDoor = !retired && ADR_ONEWAY_RE.test(reversal);
+    const problems = [];
+    if (!retired) {
+      if (recognized === 0 && fragments.length === 0) problems.push('no enforcement declared (\u6267\u6cd5\u65b9\u5f0f/Enforced-by missing)');
+      else if (recognized === 0) problems.push('names nothing recognizable (phantom reference reads as enforced but is not)');
+      if (!revisit) problems.push('no expiry condition declared (revisit-if/\u5931\u6548\u6761\u4ef6 missing)');
+      else if ((ADR_REVISIT_VAGUE_RE.test(revisit) || ADR_REVISIT_STALE_RE.test(revisit)) && !ADR_REVISIT_CONDITION_RE.test(revisit)) {
+        problems.push('revisit-if is a date or a wait-and-see note, not a condition ("' + revisit + '"); name what has to happen instead (\u65e5\u6d3b\u8d85\u8fc7 5 \u4e07 / \u9700\u8981\u591a\u79df\u6237 / \u7b2c\u4e09\u65b9\u505c\u6b62\u7ef4\u62a4)');
+      }
+      if (!reversal) problems.push('no reversal cost declared (reversal/\u64a4\u56de\u4ee3\u4ef7 missing; write the steps and rough duration, or declare \u5355\u5411\u95e8)');
+    }
+    const ok = retired || problems.length === 0;
     out.push({
-      id: r.id, source: r.source || null, status: r.status || 'accepted', retired,
+      id: r.id, title: r.title || null, source: r.source || null, status: r.status || 'accepted', retired,
       ok,
       machineEnforced: machine.map(t => ({ kind: t.kind, id: t.id })),
       manualOnly: !retired && machine.length === 0 && manual.length > 0,
       unrecognized: unknown.map(t => t.text),
+      oneWayDoor,
+      revisit: revisit || null,
+      reversal: reversal || null,
       reason: retired ? 'retired; exempt'
-        : recognized === 0 && fragments.length === 0 ? 'no enforcement declared (\u6267\u6cd5\u65b9\u5f0f/Enforced-by missing)'
-        : recognized === 0 ? 'names nothing recognizable (phantom reference reads as enforced but is not)'
+        : problems.length > 0 ? problems.join('; ')
         : machine.length > 0 ? 'machine-enforced'
         : 'manual enforcement declared',
     });
@@ -393,6 +433,8 @@ function parseAdrDir(root, dir) {
       source: repoRelative(path.join(abs, n)),
       status: adrField(content, ['\u72b6\u6001', 'Status']) || 'accepted',
       enforcedRaw: adrField(content, ['\u6267\u6cd5\u65b9\u5f0f', 'Enforced-by', 'Enforced by']),
+      revisitRaw: adrField(content, ['revisit-if', 'revisit if', '\u5931\u6548\u6761\u4ef6', '\u91cd\u65b0\u8bc4\u4f30\u6761\u4ef6']),
+      reversalRaw: adrField(content, ['reversal', '\u64a4\u56de\u4ee3\u4ef7', '\u64a4\u56de\u6210\u672c']),
     });
   }
   return out;
@@ -427,7 +469,10 @@ function cmdAdrCheck(flags) {
     machineEnforced: assessed.records.filter(r => r.ok && !r.retired && !r.manualOnly).length,
     manualOnly: assessed.records.filter(r => r.manualOnly).map(r => r.id),
     retired: assessed.records.filter(r => r.retired).map(r => r.id),
-    failing: assessed.failing.map(r => ({ id: r.id, source: r.source, reason: r.reason, unrecognized: r.unrecognized })),
+    // Not a failure and not buried in details either: how many doors this project cannot walk
+    // back through is a number the owner should be able to read off the top of the report.
+    oneWayDoors: assessed.records.filter(r => r.oneWayDoor).map(r => ({ id: r.id, title: r.title, source: r.source, reversal: r.reversal })),
+    failing: assessed.failing.map(r => ({ id: r.id, title: r.title, source: r.source, reason: r.reason, unrecognized: r.unrecognized })),
     details: assessed.records,
   }, assessed.failing.length === 0 ? 0 : 1);
 }

@@ -425,6 +425,119 @@ function lintArch(doc, sink) {
   scanPlaceholders(doc, sink);
 }
 
+// 延迟与重试预算表：超时不自上而下分解，每层都觉得自己不慢、端到端却是各层之和；重试不指定层，
+// 就在链路上逐层相乘，5 层各 3 次是 243 次。表按档位选填，认表头不认段号——没有这张表就不查。
+const BUDGET_END = '端到端';
+
+/** 「120」「120ms」「≤120」「1.2s」都读得出毫秒数；读不出返回 null，由调用方点名这一行，不当 0 混进求和。 */
+function parseMs(cell) {
+  const m = /^[≤＜<≈约~]*\s*(\d+(?:\.\d+)?)\s*(ms|毫秒|s|秒)?$/.exec(String(cell == null ? '' : cell).trim().replace(/[,，]/g, ''));
+  if (!m) return null;
+  // 列头写的是 ms，一个「5s」被读成 5 就是差一千倍的假通过——单位写秒的乘回去。
+  return Math.round(Number(m[1]) * (m[2] === 's' || m[2] === '秒' ? 1000 : 1));
+}
+
+// 明确的零：留白、0、破折号、N/A、「无」「不重试」——这些是写的人表过态了。
+const RETRY_ZERO = /^(?:0\s*次?|—|–|-|n\s*\/\s*a|无|不重试|不做重试)$/i;
+
+/** 重试次数三态：读出数字 / 明确的零 / 读不出（返回 null，由调用方点名，绝不当 0）。
+ *  带括注是正常写法（`3（指数退避）`、`最多 3 次`、`3x`），先认数字再放过尾注，不逼人删注释；
+ *  真读不出的必须出声——把解析失败当成「没有重试」，就是拿一个不可达的输入把缺陷盖成预期，比不检查更坏。 */
+function parseRetry(cell) {
+  const t = String(cell == null ? '' : cell).trim();
+  if (!t || RETRY_ZERO.test(t)) return 0;
+  const m = /^(?:最多|至多|重试|retry|[≤＜<])?\s*(\d+)\s*(?:次|x|times?)?(?:\s*[（(].*[)）])?$/i.exec(t);
+  return m ? Number(m[1]) : null;
+}
+
+/** 按表头认这张表（同时有「预算」列与「重试」列），返回表头行号、列位与数据行。 */
+function findBudgetTable(doc) {
+  for (let i = 0; i < doc.lines.length; i++) {
+    if (doc.fenced[i]) continue;
+    const head = cells(stripCode(doc.lines[i]));
+    if (!head || head.every(isSepCell)) continue;
+    const budget = head.findIndex(h => h.includes('预算'));
+    const retry = head.findIndex(h => h.includes('重试'));
+    if (budget < 0 || retry < 0) continue;
+    if (i + 1 >= doc.lines.length || !isSepRow(doc.lines[i + 1])) continue;
+    const fallback = head.findIndex(h => /fallback/i.test(h) || h.includes('兜底') || h.includes('失败时'));
+    const rows = [];
+    for (let k = i + 2; k < doc.lines.length && !doc.fenced[k]; k++) {
+      const c = cells(stripCode(doc.lines[k]));
+      if (!c) break;
+      if (!c.every(isSepCell)) rows.push({ line: k + 1, c });
+    }
+    return { line: i + 1, budget, retry, fallback, rows };
+  }
+  return null;
+}
+
+const NO_RETRY_NOTE = /不重试|不做重试|不自动重试|零重试|无重试/;
+
+/** 零重试是正当设计（人工重提交 + 幂等键往往比自动重试安全），闸只挡重试放大，不逼人编造一层重试；
+ *  但「想过了不重试」与「忘了填」在表里长得一样，所以看端到端行和表下紧跟的那段注解里有没有明写这个决定。
+ *  理由充不充分机器判不了，只判有没有写。 */
+function hasNoRetryNote(doc, t) {
+  const parts = [];
+  for (const { c } of t.rows) if ((c[0] || '').includes(BUDGET_END)) parts.push(c.join(' '));
+  let seen = false;
+  for (let i = t.rows.length ? t.rows[t.rows.length - 1].line : t.line + 1; i < doc.lines.length; i++) {
+    const l = doc.lines[i];
+    if (/^#{1,6}\s+/.test(l)) break;
+    if (!l.trim()) { if (seen) break; continue; }
+    if (doc.fenced[i] || cells(l)) break;   // 又一张表或围栏，表下的注解到此为止
+    seen = true;
+    parts.push(l);
+  }
+  return NO_RETRY_NOTE.test(parts.join('\n'));
+}
+
+function lintBudgetTable(doc, sink) {
+  const t = findBudgetTable(doc);
+  if (!t) return;   // 这张表按档位选填，没写就没写，不在这里逼
+
+  let sum = 0;
+  let end = null;
+  let endLine = t.line;
+  let unreadableRetry = 0;
+  const retrying = [];
+  for (const { line, c } of t.rows) {
+    const name = c[0] || '这一行';
+    const isEnd = name.includes(BUDGET_END);
+    const ms = parseMs(c[t.budget]);
+    if (ms === null) {
+      sink.warn('BUDGET_UNREADABLE', line, `「${name}」的预算「${c[t.budget] || ''}」读不出毫秒数，这一行不参与求和——写成 120 / 120ms / ≤120 都认`);
+    } else if (isEnd) {
+      if (end === null) { end = ms; endLine = line; }
+    } else sum += ms;
+
+    const n = parseRetry(c[t.retry]);
+    if (n === null) {
+      unreadableRetry += 1;
+      sink.warn('RETRY_UNREADABLE', line, `「${name}」的重试次数「${c[t.retry] || ''}」读不出数字，这一行没算进重试层数——写 0 / 1 / 3 次 / 3（指数退避）都认；读不出还当它没重试，正是假绿的来路`);
+    } else if (!isEnd && n) retrying.push(`${name} ${n} 次`);
+
+    if (t.fallback >= 0 && !(c[t.fallback] || '').trim()) {
+      sink.warn('BUDGET_NO_FALLBACK', line, `「${name}」没写失败时的 fallback——超时之后干什么，不写就是出事当天现编`);
+    }
+  }
+
+  if (end === null) {
+    sink.warn('BUDGET_NO_END_TO_END', t.line, '预算表没有「端到端」行，各层之和没有对照物——末行补一行端到端预算，这条算术才校得动');
+  } else if (sum > end) {
+    sink.err('BUDGET_OVER_END_TO_END', endLine,
+      `各层预算之和 ${sum}ms 超过端到端 ${end}ms（多 ${sum - end}ms）——分不下去的预算，上线后就是每层都说自己不慢、端到端照样超`);
+  }
+
+  if (retrying.length > 1) {
+    sink.err('RETRY_LAYERS_OVER_ONE', t.line,
+      `${retrying.length} 层都在重试（${retrying.join('、')}）——重试逐层相乘，5 层各 3 次就是 243 次；不许两层以上，最多留一层、其余写 0`);
+  } else if (!retrying.length && !unreadableRetry && !hasNoRetryNote(doc, t)) {
+    sink.warn('RETRY_NONE_UNEXPLAINED', t.line,
+      '一层都没写重试，也没说为什么——不重试本身是正当选择，但要在端到端行或表下写明这个决定，别让下游把它当成漏填');
+  }
+}
+
 function lintDfx(doc, sink) {
   const stack = sectionNamed(doc, '优先级栈');
   if (stack) {
@@ -460,6 +573,8 @@ function lintDfx(doc, sink) {
       }
     }
   }
+
+  lintBudgetTable(doc, sink);
   scanPlaceholders(doc, sink);
 }
 

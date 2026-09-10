@@ -9,6 +9,7 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     先出三个首屏方向样张让用户选，再出全稿；生成前走两遍法把「给任何页面都会给的默认」挑出来；产物过 UI 审计与质量地板才交付。
     确保 Product Spec 中每个有 UI 的功能都有对应页面，每个页面覆盖八态。
     分三个阶段，每阶段完成后向用户确认再进入下一阶段。
+    本机没有 odc 时不退出：前期功课照做，改出一份提示词交用户拿去任意工具生成（[提示词模式]）。
 
 [工具安装]
     **Open Design CLI（odc）** —— 生成侧唯一依赖，本地 daemon 驱动，内部调用 Claude/Codex agent 生成 HTML。
@@ -22,10 +23,11 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     必需：Product-Spec.md → 缺失则提示先调用 /product-spec-builder
     必需：Design-Brief.md → 缺失则提示先调用 /design-brief-builder
     强烈建议：DESIGN.md → 缺失则从 Design-Brief 的视觉方向临时抽一组 token 写进 prompt，产物标「未经 DESIGN.md」，并建议回 /design-brief-builder 补
-    必需：odc daemon 在跑 → `odc daemon status --json | grep -v '^\[plugins\]'` 返回 `"ok": true`；
-          未起则 `odc daemon start --headless --serve-web --no-open --port 17456` 后重试
+    分路：`which odc` 查得到 → `odc daemon status --json | grep -v '^\[plugins\]'` 要返回 `"ok": true`，
+          未起则 `odc daemon start --headless --serve-web --no-open --port 17456` 后重试，走 Phase 1-3 的生成流程；
+          查不到 odc → 进 [提示词模式]，不退出不报错，开口第一句告诉用户这次走的是哪条路
     可选：`node -e "require('playwright-core')"` 成功 → 验收跑 ui-audit；失败 → 报告注明「UI 审计缺席」
-    缺必需项 → 退出，提示补全后重新调用
+    缺 Product-Spec.md 或 Design-Brief.md → 退出，提示补全后重新调用
 
 [第一性原则]
     **完整覆盖原则**：Product Spec 中每个有 UI 的功能、Design-Brief 里每个 SCREEN 都必须在生成 prompt 里点名，确保产物覆盖。漏一个页面，开发时就少一个参照。
@@ -38,6 +40,7 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
 
 [设计交付物]
     - `demo/design-plan.md`：两遍法的设计计划与自审记录（token 摘录、线框、大胆一处、通病自检结果、选定方向）
+    - `demo/design-prompt.md`：整段可粘的生成提示词（提示词模式下的产物，交用户拿去任意工具生成）
     - `demo/directions/direction-{1,2,3}.html`：三个首屏方向样张（同一页面三种完整人格，不是换色）
     - `demo/index.html`：全稿——**给开发**编码核心参照；**给领导/干系人**评审时浏览器直接打开看，可点可交互
     - `demo/ui-audit/`：审计 JSON 与截图（有引擎时）
@@ -57,7 +60,7 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     4. 拿不准时列 2-3 个候选给用户选；选定后记下短 ID 备用
 
 [Phase 1：准备]
-    1. 检测依赖（[依赖检测]），daemon 必须在跑
+    1. 检测依赖（[依赖检测]），有 odc 时 daemon 必须在跑；没有 odc 转 [提示词模式]
     2. 读 Product-Spec.md → 提取真实样本数据、关键流程、成功判据里的可见指标
     3. 读 Design-Brief.md → 提取 SCREEN 清单（页面目的 / 首要动作 / 首屏开在哪 / 布局 / 内容层级 / 八态 / 响应式）、CMP 清单、交互原语、文案规则、动效「只留哪一处」、§A（Agent 形态时）
     4. 读 DESIGN.md → 前言 token 全量 + 八段 prose + Do's and Don'ts + Motion；缺 DESIGN.md 时从 Brief 视觉方向临时抽 token 并标注
@@ -69,7 +72,7 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
        拿不准列候选给用户选
     7. **两遍法第一遍——写 `demo/design-plan.md`**：token 摘录（4-6 个具名色、字族角色、圆角与间距刻度）；每个 SCREEN 一段 ASCII 线框 + 对齐说明（左对齐 / 居中 / 两端）；首屏开在题材最有特征的什么上；大胆放在哪一处；动效只留哪一处；组件复用清单
     8. **两遍法第二遍——自审**：逐项对照 style-vocabulary 的 AI 通病清单（五类聚簇、排版通病、动效通病、首屏通病）与 DESIGN.md 的 Don'ts；命中的写「原本 → 改成 → 为什么」进 design-plan.md；brief 钉死的照 brief
-    9. **构建生成 prompt**（写入临时文件 `design-prompt.md`）——一份 prompt 两条路通用，视觉规范必须写进正文（odc 有 design-system 注入，AI Studio 路全靠 prompt）：
+    9. **构建生成 prompt**（写入临时文件 `design-prompt.md`，[提示词模式] 下落盘到 `demo/design-prompt.md`）——一份 prompt 两条路通用，视觉规范必须写进正文（odc 有 design-system 注入，交人拿去生成的那条全靠 prompt，2C 与 [提示词模式] 都走它）：
        - **DESIGN.md 原文**（前言 token + 八段 prose + Do's and Don'ts + Motion），并声明「token 覆盖 design system 默认，不许出现 token 之外的 hex」
        - **设计计划**（design-plan.md 的线框、大胆一处、动效一处）
        - 逐页面：SCREEN 编号 + 布局分区 + 内容层级 + 真实内容 + 交互（每个交互写明「点击 X → Y」）+ 八态 + 响应式断点 + 页面间跳转关系
@@ -160,6 +163,22 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
      编码参照优先级：demo/index.html（最高）→ DESIGN.md（token）→ Design-Brief.md（行为）→ Product-Spec.md
 
      调用 /dev-planner 制定开发计划，设计稿作为 Phase 拆分和编码实现的核心参照。"
+
+[提示词模式]
+    没有 odc 时的另一条路：前期功课一步不省，只是 HTML 换成用户拿提示词去别处生成。
+    1. Phase 1 的 1-9 步照走，只跳过第 6 步——选 skill 是 odc 的东西，没有 odc 就没这回事；第 5 步选基底直接按 [视觉方向 → design system 映射] 的表挑，不跑 `design-systems list`。第 10 步没有 Phase 2 可进，换成下面第 3 步的交付话术
+    2. 第 9 步构建出来的那份 prompt 就是产物，与 odc 路只差两点：落盘到 `demo/design-prompt.md`，不写临时文件；「DESIGN.md 原文」那一项后面补上 DESIGN.md 硬约束节整表
+    3. 输出交付话术：
+
+    "✅ 设计提示词已生成（本机没有 odc，走的提示词模式）
+
+     **产物**：demo/design-prompt.md（整段可粘）；设计计划 demo/design-plan.md
+     **覆盖**：页面 N/N、八态逐页写明、真实样本数据 N 组；参照基底 <designSystemId>（token 以 DESIGN.md 为准，提示词里已写明覆盖）
+
+     ---
+
+     把 demo/design-prompt.md 整段粘到任意生成工具（网页版 Claude、v0、Lovable 等），生成的单文件 HTML 存回 demo/index.html。
+     存好回来说一声，我按 [验收] 过一遍质量地板，再跑 `node .claude/scripts/ui-slop-scan.mjs` 复核。"
 
 [初始化]
     执行 Phase 1 第 1 步。

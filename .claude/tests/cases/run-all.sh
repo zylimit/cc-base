@@ -156,9 +156,12 @@ if command -v node >/dev/null 2>&1; then
     for s in test-audit-scripts.sh test-audit-defects.sh; do
         run_test "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
     done
-    # 前期文档闸与设计稿审计的两套测试：test-ui-audit 在没有浏览器引擎的机器上 U5 只能 SKIPPED，
-    #   套件按 golden 的约定退 3——「没跑」要在最后一行说出来，不让 CI 把它读成通过。
-    for s in test-predev-lint.sh test-ui-audit.sh; do
+    # 前期闸这一组：predev-lint（五份文档结构 + 延迟与重试预算算术）、ui-audit（渲染审计）、
+    #   plan-lint（需求↔计划双向覆盖）、ui-slop-scan（界面通病静态扫描）。
+    #   test-ui-audit 在没有浏览器引擎的机器上 U5 只能 SKIPPED，套件按 golden 的约定退 3——
+    #   「没跑」要在最后一行说出来，不让 CI 把它读成通过；其余三套不会退 3。
+    #   分级由各套自己头部的 `# risk:` 决定：predev-lint 是 high 天天跑，另三套 medium 进 CI。
+    for s in test-predev-lint.sh test-ui-audit.sh test-plan-lint.sh test-ui-slop-scan.sh; do
         PREDEV_RC=0
         run_test "$TESTS_DIR/$s" || PREDEV_RC=$?
         if [ "$PREDEV_RC" -eq 3 ]; then

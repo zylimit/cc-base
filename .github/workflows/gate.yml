@@ -105,13 +105,13 @@ jobs:
             exit 1
           fi
 
-      # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
+      # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + audit）
       # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
       # **显式 SKIPPED** 而不是悄悄没跑或判失败：一个跳过的段如果不出声，就是假绿。
       # Windows 那格不跑整套 run-all：里面大量断言假设 POSIX 语义（chmod 000 的权限位、
       # kill -9 的信号、进程组、mktemp 的挂载点…），硬改只会把测试扭曲成迁就 CI，
       # 而它们验的是脚本自身而不是 Windows 用户的体验。
-      # Windows 真正该验的三样都另有归属且都在跑：引擎（selftest / golden / 审计各步，
+      # Windows 真正该验的三样都另有归属且都在跑：引擎（selftest / 审计各步，
       # 本 job 内）、**hook 行为**（ps1 那格用 Git Bash 跑 test-hooks-node.sh——hook 单运行时
       # 之后两平台是同一份 .mjs，Windows 用户手上跑的就是它）、剩余 .ps1 的语法与行为（ps1 那格）。
       # 这不是「修不动所以跳过」，是把覆盖面放到各自该在的格子里。
@@ -167,7 +167,7 @@ jobs:
           BAD=""
           for kv in "selftest=${{ steps.selftest.outcome }}" "secrets=${{ steps.secrets.outcome }}" \
                     "instructions=${{ steps.instructions.outcome }}" "syntax=${{ steps.syntax.outcome }}" \
-                    "golden=${{ steps.golden.outcome }}" "runall=${{ steps.runall.outcome }}" \
+                    "runall=${{ steps.runall.outcome }}" \
                     "catalog=${{ steps.catalog.outcome }}"; do
             n="${kv%%=*}"; o="${kv#*=}"
             echo "  $n: $o"

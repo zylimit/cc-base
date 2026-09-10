@@ -82,3 +82,4 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 7. 技术栈表标经 WebSearch 验证的版本号；数据库表标在哪个 Phase 建，后续 migration 写进那个 Phase 的交付内容
 8. 开工前置段没有待定 / 推断 / 缺口时整段删掉，不留空壳
 9. Phase 顺序：核心价值流程（含它依赖的最小骨架）→ 验证核心假设 → 重要功能 → 辅助功能 → 收尾（i18n / 打包 / 部署）；依赖只做校正，不做主轴
+10. Spec 条目带 `[REQ-模块-编号]` 时，Task 描述里写上对应编号——plan-lint 双向查：需求没被任何 Task 引用、引用了 Spec 里没有的编号，都报错

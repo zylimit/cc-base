@@ -491,20 +491,85 @@ function selftestCases() {
     }],
     ['assessAdrRecords: machine ok / manual-only listed / missing fails / phantom fails / retired exempt', () => {
       const recs = [
-        { id: 'A1', status: 'accepted', enforcedRaw: 'arch-check / layers' },
-        { id: 'A2', status: 'accepted', enforcedRaw: '\u65e0\u6cd5\u673a\u5668\u6267\u6cd5\uFF0C\u9760\u8bc4\u5ba1' },
-        { id: 'A3', status: 'accepted', enforcedRaw: '' },
-        { id: 'A4', status: 'accepted', enforcedRaw: 'ghost-check-typo' },
+        { id: 'A1', status: 'accepted', enforcedRaw: 'arch-check / layers', revisitRaw: '\u65e5\u6d3b\u8d85\u8fc7 5 \u4e07', reversalRaw: '\u6539\u56de\u5355\u5e93\uFF0C\u7ea6 2 \u5929' },
+        { id: 'A2', status: 'accepted', enforcedRaw: '\u65e0\u6cd5\u673a\u5668\u6267\u6cd5\uFF0C\u9760\u8bc4\u5ba1', revisitRaw: '\u9700\u8981\u591a\u79df\u6237', reversalRaw: '\u62c6\u56de\u5355\u5b9e\u4f8b\uFF0C\u7ea6 1 \u5929' },
+        { id: 'A3', status: 'accepted', enforcedRaw: '', revisitRaw: '\u7b2c\u4e09\u65b9\u505c\u6b62\u7ef4\u62a4', reversalRaw: '\u6362\u56de\u539f\u5e93\uFF0C\u7ea6 3 \u5929' },
+        { id: 'A4', status: 'accepted', enforcedRaw: 'ghost-check-typo', revisitRaw: '\u4e00\u65e6\u5f15\u5165\u591a\u79df\u6237', reversalRaw: '\u56de\u6eda\u914d\u7f6e\uFF0C\u7ea6\u534a\u5929' },
         { id: 'A5', status: 'superseded', enforcedRaw: '' },
       ];
       const r = assessAdrRecords(recs, [], DEFAULT_FITNESS_RULES.map(x => x.id));
       const by = Object.fromEntries(r.records.map(x => [x.id, x]));
       assert.ok(by.A1.ok && !by.A1.manualOnly);
       assert.ok(by.A2.ok && by.A2.manualOnly);
-      assert.ok(!by.A3.ok);
+      assert.ok(!by.A3.ok && /enforcement/i.test(by.A3.reason));
       assert.ok(!by.A4.ok && /phantom|recognizable/.test(by.A4.reason));
+      // A5 declares none of the three fields; retirement exempts it from all of them.
       assert.ok(by.A5.ok && by.A5.retired);
       assert.equal(r.failing.length, 2);
+    }],
+    ['assessAdrRecords: revisit-if is required -- absence fails, and the reason names that field only', () => {
+      const r = assessAdrRecords([
+        { id: 'B1', status: 'accepted', enforcedRaw: 'arch-check', reversalRaw: '\u6539\u56de\u5355\u5e93\uFF0C\u7ea6 2 \u5929' },
+      ], [], []);
+      const rec = r.records[0];
+      assert.ok(!rec.ok, 'an active ADR that names no expiry condition must not pass');
+      assert.ok(/revisit-if|\u5931\u6548\u6761\u4ef6/.test(rec.reason), rec.reason);
+      assert.ok(!/reversal/.test(rec.reason), 'a declared reversal must not be reported missing');
+      assert.equal(r.failing.length, 1);
+    }],
+    ['assessAdrRecords: reversal is required -- absence fails, and the reason names that field only', () => {
+      const r = assessAdrRecords([
+        { id: 'B2', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u9700\u8981\u591a\u79df\u6237' },
+      ], [], []);
+      const rec = r.records[0];
+      assert.ok(!rec.ok, 'an active ADR that names no reversal cost must not pass');
+      assert.ok(/reversal|\u64a4\u56de\u4ee3\u4ef7/.test(rec.reason), rec.reason);
+      assert.ok(!/revisit-if|\u5931\u6548\u6761\u4ef6/.test(rec.reason), 'a declared revisit-if must not be reported missing');
+      assert.equal(r.failing.length, 1);
+    }],
+    ['assessAdrRecords: a record missing both fields reports both problems in one reason', () => {
+      const r = assessAdrRecords([
+        { id: 'B3', status: 'accepted', enforcedRaw: 'arch-check' },
+      ], [], []);
+      const rec = r.records[0];
+      assert.ok(!rec.ok);
+      assert.ok(/revisit-if|\u5931\u6548\u6761\u4ef6/.test(rec.reason), rec.reason);
+      assert.ok(/reversal|\u64a4\u56de\u4ee3\u4ef7/.test(rec.reason), rec.reason);
+    }],
+    ['assessAdrRecords: revisit-if written as a calendar reminder is not a condition', () => {
+      const recs = [
+        { id: 'C1', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u4e09\u4e2a\u6708\u540e\u518d\u770b', reversalRaw: '\u6539\u56de\u5355\u5e93\uFF0C\u7ea6 2 \u5929' },
+        { id: 'C2', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u89c6\u60c5\u51b5', reversalRaw: '\u6539\u56de\u5355\u5e93\uFF0C\u7ea6 2 \u5929' },
+      ];
+      const r = assessAdrRecords(recs, [], []);
+      const by = Object.fromEntries(r.records.map(x => [x.id, x]));
+      assert.ok(!by.C1.ok && /revisit-if/.test(by.C1.reason), by.C1.reason);
+      // The refused value is quoted back: the author has to see which words got rejected.
+      assert.ok(by.C1.reason.includes('\u4e09\u4e2a\u6708\u540e\u518d\u770b'));
+      assert.ok(!by.C2.ok && /revisit-if/.test(by.C2.reason), by.C2.reason);
+      assert.equal(r.failing.length, 2);
+    }],
+    ['assessAdrRecords: a time word riding along a real condition still passes (a false red costs more than a miss)', () => {
+      const r = assessAdrRecords([
+        { id: 'C3', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u534a\u5e74\u540e\u4ecd\u65e0\u4e8c\u5f00\u9700\u6c42\uFF0C\u6216\u65e5\u6d3b\u8d85\u8fc7 5 \u4e07', reversalRaw: '\u6539\u56de\u5355\u5e93\uFF0C\u7ea6 2 \u5929' },
+      ], [], []);
+      assert.ok(r.records[0].ok, r.records[0].reason);
+      assert.equal(r.failing.length, 0);
+    }],
+    ['assessAdrRecords: an explicit one-way-door reversal passes and is listed; a retired one is not', () => {
+      const recs = [
+        { id: 'D1', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u9700\u8981\u591a\u79df\u6237', reversalRaw: '\u5355\u5411\u95e8' },
+        { id: 'D2', status: 'accepted', enforcedRaw: 'arch-check', revisitRaw: '\u9700\u8981\u591a\u79df\u6237', reversalRaw: 'one-way door' },
+        { id: 'D3', status: 'superseded', enforcedRaw: '', reversalRaw: '\u5355\u5411\u95e8' },
+      ];
+      const r = assessAdrRecords(recs, [], []);
+      const by = Object.fromEntries(r.records.map(x => [x.id, x]));
+      assert.ok(by.D1.ok, by.D1.reason);
+      assert.ok(by.D1.oneWayDoor && by.D2.oneWayDoor);
+      assert.ok(!by.D3.oneWayDoor, 'a retired decision is not a live one-way door');
+      // The same selection the adr-check report makes when it lists one-way doors.
+      assert.deepEqual(r.records.filter(x => x.oneWayDoor).map(x => x.id), ['D1', 'D2']);
+      assert.equal(r.failing.length, 0);
     }],
     ['compareRatchet: single record -> baseline, not comparable', () => {
       const r = compareRatchet([{ undeclared: 5, forbidden: 0, cycles: 0 }]);
