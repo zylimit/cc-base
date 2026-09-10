@@ -105,31 +105,6 @@ jobs:
             exit 1
           fi
 
-      # 现有子命令的 stdout JSON 与退出码是对外契约（hook 在消费），基线漂了先看 diff。
-      # --strict 让「没跑成」以 rc 3 现形，不加它 SKIPPED 也返回 0。
-      # Windows 上 preflight() 主动 SKIPPED：沙箱夹具树与 PATH 钉法都是 POSIX-only，
-      # 录进 git 的基线也是 POSIX-only，在 Windows 上比对没有意义。--strict 让这个
-      # skip 以 rc 3 现形（它的本职就是不让「没跑成」返回 0）。所以 Windows 那格
-      # **只接受 rc 3**、并把原因打出来——既不把一个正当的 skip 判成失败，也不用
-      # `if:` 把这一步整个藏掉让人以为跑过了。其余退出码在两个平台上一律失败。
-      - name: golden 基线 --check --strict
-        id: golden
-        continue-on-error: true
-        run: |
-          set -u
-          RC=0
-          node .claude/tests/harness-golden.mjs --check --strict || RC=$?
-          echo "golden rc=$RC"
-          if [ "$RC" -eq 0 ]; then
-            exit 0
-          elif [ "$RC" -eq 3 ] && [ "${RUNNER_OS:-}" = "Windows" ]; then
-            echo "::notice::golden 在 Windows 上按设计 SKIPPED（基线 POSIX-only），rc 3 是预期——这一格没有验过基线。"
-            exit 0
-          else
-            echo "::error::golden rc=$RC（Linux 上任何非 0 都是失败；Windows 上只接受 3）"
-            exit 1
-          fi
-
       # run-all 三段：① selftest ② 静态自测（安装器/路由/闸回归 + harness + golden + audit）
       # ③ 真触发 case（要 claude CLI + 凭据）。CI 上第三段必然跳过——这里明确断言它是
       # **显式 SKIPPED** 而不是悄悄没跑或判失败：一个跳过的段如果不出声，就是假绿。

@@ -136,10 +136,10 @@ run_hook() { printf '%s' "$HOOK_IN" | (cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" 
 
 $FM on 4 >/dev/null 2>&1 || true
 OUT=$(run_hook); RC=$?
-if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
-  pass "fast 档：tdd-gate.mjs 静默放行（exit 0、无输出）"
+if [ "$RC" -eq 0 ] && [ -n "$OUT" ]; then
+  pass "fast 档：tdd-gate.mjs 只提醒不拦（exit 0、有提醒；三档都是 advise）"
 else
-  fail "fast 档：tdd-gate.mjs 未静默放行（exit $RC，输出：$OUT）"
+  fail "fast 档：tdd-gate.mjs 没照 advise 走（exit $RC，输出：$OUT）"
 fi
 
 # 手写一份过期的会话覆盖：过期即视为无覆盖，回 default(standard) 走 advise 提醒

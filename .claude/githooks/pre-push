@@ -1,238 +1,62 @@
 #!/bin/sh
-# cc-base :: githooks/pre-push —— push 是 HIGH 档动作，这是最后一道自动闸。
+# cc-base :: githooks/pre-push —— push 前最后一道自动闸，只留两项。
 #
-# push 把东西交出去，别人会在上面接着建。这一层跑的是**行为证明**（全量回归），
-# 与 pre-commit 分工明确：那边只跑快的静态检查，别让每次 commit 等几分钟；这边慢一点值得。
-#
-# 跑什么：
-#   CCBASE_PREPUSH_FULL=1（默认）  bash .claude/tests/cases/run-all.sh —— 全量回归
-#   CCBASE_PREPUSH_FULL=0          降档：只跑静态段（引擎 selftest + golden 基线 + 三只审计脚本
-#                                  + catalog-lint），**不跑** run-all 的安装器/路由/闸回归，
-#                                  也不跑真触发 case。这是降档闸，不是全量通过
-#   catalog 存在时额外：           node .claude/harness/harness.mjs gate
-#
-# 耗时预期：run-all 第三段有两个 `claude -p` 真触发 case（耗 token，通常几分钟）。开跑前会打印
-# 一行说明——别让人对着没输出的终端以为卡死。机器上没有 claude CLI 时 run-all 自己会打 SKIPPED。
-#
-# 退出码处理（**逐条检查各判各的**，不共用一张想当然的表）：
-#   run-all      0 全过 → 放行；非 0 → 阻断
-#   审计脚本     0 干净 / 1 有命中→阻断 / 2 用法错→阻断 / 3 降级→告警不阻断
-#   selftest     0 全过 / 1 有失败→阻断
-#   catalog-lint 0 无错 / 1 有错→阻断 / 3 降级→告警
-#   gate         0 PASS / **2 = 质量门 FAIL|BLOCKED→阻断** / 3 降级→告警
-#                注意 gate 的 2 和审计脚本的 2 不是一回事：那边 2 是「hook 参数写错了」，
-#                这边 2 是「门真没过」。混成一句话等于没说，所以两套契约分开判。
-#                （契约表见 .claude/rules/harness-large-repo.md）
-#   其余         工具自己崩了 → 打印 SKIPPED 并说明「未执行 != 通过」，不阻断
-#
-# --no-verify 绕过是 HIGH 档行为，要向人交代——见 .claude/githooks/README.md。
-#
-# 用 /bin/sh 而非 bash：git hook 在 Git for Windows 下由 git 自带的 sh 拉起，POSIX 子集最稳。
+# 纯文档推送（progress.md / docs/ / .claude/feedback/ / 任何 *.md）直接放行：那些路径改不坏代码，
+# 让它们也等一轮自测，人第一天就会 --no-verify，闸整个废掉。代码推送只跑 selftest（rc 非 0 阻断）
+# 与密钥扫描（rc 1 阻断 / rc 3 降级出声不阻断）；全量回归归 bash .claude/tests/cases/run-all.sh，
+# 人自己跑或 CI 跑，不挂在每次 push 上。--no-verify 绕过是 HIGH 档行为，要向人交代（见 README.md）。
+# 用 /bin/sh：git hook 在 Git for Windows 下由 git 自带的 sh 拉起，POSIX 子集最稳。
 set -eu
-
-# git 会往 hook 的 stdin 写待推送的 ref 列表。本 hook 不需要它，但读干净比留着好——
-# 不读会让 git 侧写入端拿到 SIGPIPE。stdin 是终端时不读（手工直接跑会挂住）。
-if [ ! -t 0 ]; then
-    cat >/dev/null 2>&1 || true
-fi
-
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$ROOT" || exit 0
-
-AUDIT=".claude/harness/audit"
-ENGINE=".claude/harness/harness.mjs"
-GOLDEN=".claude/tests/harness-golden.mjs"
-RUNALL=".claude/tests/cases/run-all.sh"
-CATALOG=".claude/harness/module-catalog.json"
-FULL=${CCBASE_PREPUSH_FULL:-1}
-
-BLOCKED=""
-DEGRADED=""
-SKIPPED=""
-
-TMPBASE="${TMPDIR:-/tmp}/cc-pre-push.$$"
-OUTF="$TMPBASE.out"
-ERRF="$TMPBASE.err"
-trap 'rm -f "$OUTF" "$ERRF"' EXIT INT TERM
-
 say() { printf '%s\n' "$*" >&2; }
 
-dump_output() {
-    if [ -s "$ERRF" ]; then
-        sed -n '1,40p' "$ERRF" >&2
-    elif [ -s "$OUTF" ]; then
-        sed -n '1,40p' "$OUTF" >&2
-    else
-        say "         （该命令无输出）"
-    fi
-}
-
-# classify <契约> <rc> —— 回填 VERDICT（ok|block|degrade|skip）与 WHY。
-classify() {
-    case "$1" in
-        audit)   # 三只审计脚本：0 干净 / 1 有命中 / 2 用法错 / 3 降级
-            case "$2" in
-                0) VERDICT=ok;      WHY="扫过且干净" ;;
-                1) VERDICT=block;   WHY="有命中（rc 1）" ;;
-                2) VERDICT=block;   WHY="用法错（rc 2）——是本 hook 把参数写错了，不是你的改动有问题" ;;
-                3) VERDICT=degrade; WHY="降级（rc 3）：该扫的没扫成，未执行 != 通过" ;;
-                *) VERDICT=skip;    WHY="契约外退出码 rc $2（契约只有 0/1/2/3）：工具自己崩了，未执行 != 通过" ;;
-            esac ;;
-        lint)    # selftest / catalog-lint / golden：0 干净 / 1 有失败 / 3 降级
-            case "$2" in
-                0) VERDICT=ok;      WHY="全过" ;;
-                1) VERDICT=block;   WHY="有失败（rc 1）" ;;
-                3) VERDICT=degrade; WHY="降级（rc 3）：没跑成，未执行 != 通过" ;;
-                *) VERDICT=skip;    WHY="契约外退出码 rc $2（契约只有 0/1/3）：工具自己崩了，未执行 != 通过" ;;
-            esac ;;
-        gate)    # 引擎 gate：0 PASS / 2 FAIL|BLOCKED / 3 无 catalog 或非 git；契约里没有 1
-            case "$2" in
-                0) VERDICT=ok;      WHY="质量门 PASS" ;;
-                2) VERDICT=block;   WHY="质量门未过（rc 2：受影响模块 FAIL/BLOCKED，或 critical/high 属性缺证据）" ;;
-                3) VERDICT=degrade; WHY="降级（rc 3）：无 catalog 或非 git，未执行 != 通过" ;;
-                *) VERDICT=skip;    WHY="契约外退出码 rc $2（契约只有 0/2/3）：引擎自己崩了，未执行 != 通过" ;;
-            esac ;;
-        run)     # run-all：0 全过 / 3 保留给降级 / 其余一律不过
-            case "$2" in
-                0) VERDICT=ok;      WHY="全绿" ;;
-                3) VERDICT=degrade; WHY="降级（rc 3）：没跑成，未执行 != 通过" ;;
-                *) VERDICT=block;   WHY="有失败（rc $2）" ;;
-            esac ;;
-        *) VERDICT=skip; WHY="未知契约 $1（hook 写错了）" ;;
-    esac
-}
-
-# run_check <标签> <契约> <cmd...>
-run_check() {
-    LABEL=$1
-    CONTRACT=$2
-    shift 2
-    RC=0
-    "$@" >"$OUTF" 2>"$ERRF" || RC=$?
-    classify "$CONTRACT" "$RC"
-    case "$VERDICT" in
-        ok)      say "  [OK]      $LABEL —— $WHY" ;;
-        block)   BLOCKED="$BLOCKED $LABEL"
-                 say "  [BLOCK]   $LABEL —— $WHY"
-                 dump_output ;;
-        degrade) DEGRADED="$DEGRADED $LABEL"
-                 say "  [DEGRADE] $LABEL —— $WHY"
-                 dump_output ;;
-        skip)    SKIPPED="$SKIPPED $LABEL"
-                 say "  [SKIPPED] $LABEL —— $WHY"
-                 dump_output ;;
-    esac
-}
-
-note_skip() {
-    SKIPPED="$SKIPPED $1"
-    say "  [SKIPPED] $1 —— $2（未执行 != 通过）"
-}
-
-# run_live <标签> <契约> <cmd...> —— 输出直通终端（stdout 并进 stderr）。
-# 全量回归要跑几分钟，闷着攒完再打会让人以为卡死；判定与 run_check 同一套 classify。
-run_live() {
-    LABEL=$1
-    CONTRACT=$2
-    shift 2
-    RC=0
-    "$@" >&2 || RC=$?
-    classify "$CONTRACT" "$RC"
-    case "$VERDICT" in
-        ok)      say "  [OK]      $LABEL —— $WHY" ;;
-        block)   BLOCKED="$BLOCKED $LABEL"; say "  [BLOCK]   $LABEL —— $WHY（输出见上）" ;;
-        degrade) DEGRADED="$DEGRADED $LABEL"; say "  [DEGRADE] $LABEL —— $WHY（输出见上）" ;;
-        skip)    SKIPPED="$SKIPPED $LABEL"; say "  [SKIPPED] $LABEL —— $WHY（输出见上）" ;;
-    esac
-}
-
-say "cc-base pre-push：push 是 HIGH 档动作，先跑行为证明。"
-
-if ! command -v node >/dev/null 2>&1; then
-    note_skip "全部 pre-push 检查" "PATH 上没有 node"
-    say ""
-    say "cc-base pre-push：放行，但本次 push **没有任何检查跑成**。"
-    exit 0
-fi
-
-if [ "$FULL" = "0" ]; then
-    # ---------- 降档：只跑静态段 ----------
-    say "  CCBASE_PREPUSH_FULL=0 —— 降档闸：只跑静态段，全量回归没跑。"
-    if [ -f "$ENGINE" ]; then
-        run_check "selftest" lint node "$ENGINE" selftest
-    else
-        note_skip "selftest" "$ENGINE 不存在"
-    fi
-    if [ -f "$GOLDEN" ]; then
-        run_check "golden 基线" lint node "$GOLDEN" --check --strict
-    else
-        note_skip "golden 基线" "$GOLDEN 不存在"
-    fi
-    for pair in "secrets:scan-secrets.mjs" "instructions:scan-instructions.mjs" "syntax:check-syntax.mjs"; do
-        LBL=${pair%%:*}
-        SCRIPT=${pair#*:}
-        if [ -f "$AUDIT/$SCRIPT" ]; then
-            run_check "$LBL" audit node "$AUDIT/$SCRIPT"
-        else
-            note_skip "$LBL" "$AUDIT/$SCRIPT 不存在"
-        fi
+# git 把待推送的 ref 逐行写进 stdin：<local_ref> <local_sha> <remote_ref> <remote_sha>。
+# remote_sha 全 0 = 远端还没这条分支，拿 origin/main 当基线；取不到、或一条 ref 都没读到，
+# 一律按代码推送办（判不出改了什么就别放行，错也错在严那边）。
+FILES=""; CODE=0; REFS=0
+if [ ! -t 0 ]; then
+    while read -r _lref lsha _rref rsha; do
+        [ -n "${lsha:-}" ] || continue
+        REFS=$((REFS + 1))
+        case "$lsha" in *[!0]*) ;; *) continue ;; esac   # 本地全 0 = 删分支，没文件可算
+        case "${rsha:-}" in *[!0]*) BASE=$rsha ;; *) BASE=$(git rev-parse --verify -q origin/main 2>/dev/null) || BASE="" ;; esac
+        [ -n "$BASE" ] || { CODE=1; continue; }
+        F=$(git diff --name-only "$BASE".."$lsha" 2>/dev/null) || { CODE=1; continue; }
+        FILES="$FILES$F
+"
     done
-    if [ -f "$CATALOG" ] && [ -f "$ENGINE" ]; then
-        run_check "catalog-lint" lint node "$ENGINE" catalog-lint
-    fi
-    DEGRADED="$DEGRADED 全量回归(CCBASE_PREPUSH_FULL=0)"
-    say "  [DEGRADE] 全量回归 —— 被 CCBASE_PREPUSH_FULL=0 降档跳过，未执行 != 通过"
-else
-    # ---------- 默认：全量回归 ----------
-    if [ ! -f "$RUNALL" ]; then
-        note_skip "全量回归" "$RUNALL 不存在"
-    elif ! command -v bash >/dev/null 2>&1; then
-        note_skip "全量回归" "PATH 上没有 bash（run-all.sh 要 bash）"
-    else
-        say "  正在跑全量回归 bash $RUNALL ——"
-        if command -v claude >/dev/null 2>&1; then
-            say "    第三段有两个 claude -p 真触发 case（耗 token，通常几分钟）。没卡死，等着就好。"
-        else
-            say "    机器上没有 claude CLI，第三段真触发 case 会自己打 SKIPPED（不算通过）。"
-        fi
-        say "    嫌慢就 CCBASE_PREPUSH_FULL=0 git push 降到只跑静态段——那是降档闸，不是全量通过。"
-        run_live "全量回归" run bash "$RUNALL"
-    fi
 fi
-
-# ---------- 大仓质量门（catalog 存在才启用）----------
-if [ -f "$CATALOG" ]; then
-    if [ ! -f "$ENGINE" ]; then
-        note_skip "gate" "$ENGINE 不存在（有 catalog 却没引擎）"
-    else
-        run_check "gate" gate node "$ENGINE" gate
-    fi
+[ "$REFS" -gt 0 ] || CODE=1
+# 路径含空格会被词分割切碎——切碎后仍全落在白名单里才算文档，否则退回代码推送。
+if [ "$CODE" -eq 0 ]; then
+    for f in $FILES; do
+        case "$f" in progress.md|docs/*|.claude/feedback/*|*.md) ;; *) CODE=1; break ;; esac
+    done
 fi
+if [ "$CODE" -eq 0 ]; then say "cc-base pre-push：[OK] 纯文档推送，放行（progress.md / docs/ / feedback / *.md）。"; exit 0; fi
 
-# ---------- 汇总 ----------
+say "cc-base pre-push：代码推送，跑 selftest + 密钥扫描（全量回归归 run-all.sh）。"
+command -v node >/dev/null 2>&1 || { say "  [SKIPPED] 全部检查 —— PATH 上没有 node（未执行 != 通过）"; exit 0; }
+TMPF="${TMPDIR:-/tmp}/cc-pre-push.$$"; BLOCKED=""
+trap 'rm -f "$TMPF"' EXIT INT TERM
+# check <标签> <脚本> <cmd...>：0 过 / 3 降级出声不阻断 / 其余阻断并打前 30 行诊断。
+check() {
+    LBL=$1; SCRIPT=$2; shift 2
+    [ -f "$SCRIPT" ] || { say "  [SKIPPED] $LBL —— $SCRIPT 不存在（未执行 != 通过）"; return 0; }
+    RC=0; "$@" >"$TMPF" 2>&1 || RC=$?
+    case "$RC" in
+        0) say "  [OK]      $LBL —— 跑过且干净" ;;
+        3) say "  [SKIPPED] $LBL —— 降级（rc 3）：没跑成，未执行 != 通过" ;;
+        *) BLOCKED="$BLOCKED $LBL"; say "  [BLOCK]   $LBL —— rc $RC"; sed -n '1,30p' "$TMPF" >&2 ;;
+    esac
+}
+ENGINE=".claude/harness/harness.mjs"; SEC=".claude/harness/audit/scan-secrets.mjs"
+check selftest "$ENGINE" node "$ENGINE" selftest
+check secrets "$SEC" node "$SEC"
+[ -n "$BLOCKED" ] || exit 0
 say ""
-if [ -n "$DEGRADED" ]; then
-    say "cc-base pre-push：降级项（该跑没跑成，不阻断但也不算通过）:$DEGRADED"
-fi
-if [ -n "$SKIPPED" ]; then
-    say "cc-base pre-push：未执行项（未执行 != 通过）:$SKIPPED"
-fi
-if [ -n "$BLOCKED" ]; then
-    say ""
-    say "❌ cc-base pre-push：push 被阻断，未过项:$BLOCKED"
-    say "   自己跑一遍看原因："
-    say "     bash $RUNALL"
-    if [ -f "$CATALOG" ]; then
-        say "     node $ENGINE gate"
-    fi
-    say "   真要绕过就 git push --no-verify——那是 HIGH 档行为，得向人说清为什么"
-    say "   （.claude/githooks/README.md）。"
-    exit 1
-fi
-if [ -n "$DEGRADED" ] || [ -n "$SKIPPED" ]; then
-    # 有东西没跑成还说「通过」就是假绿。放行归放行，别把它说成全过。
-    say "cc-base pre-push：放行——但上面有没跑成的项，放行 != 全部通过。"
-else
-    say "cc-base pre-push：行为证明通过，放行。"
-fi
-exit 0
+say "❌ cc-base pre-push：push 被阻断，未过项:$BLOCKED"
+say "   自己跑一遍看原因：bash .claude/tests/cases/run-all.sh"
+say "   真要绕过就 git push --no-verify——那是 HIGH 档行为，得向人说清为什么（.claude/githooks/README.md）。"
+exit 1

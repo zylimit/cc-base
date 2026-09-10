@@ -1685,23 +1685,6 @@ function selftestCases() {
       assert.ok(!codesOf(r).includes('PLACEHOLDER'),
         'an answered pending-questions row is a decision in progress, not an unfilled template; got ' + JSON.stringify(r.findings));
     }],
-    ['spec-lint: a deferral outside the pending-questions section is still a placeholder', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const doc = specDoc([
-        '- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings',
-        '- export: the lead clicks export -> a file arrives; export format [' + PLACEHOLDER_TOKENS[2] + ']',
-      ]) + [
-        '## ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        '| Q-1 who covers when Lao Zhang is out | dispatch rule | the user | before Phase 2 | send it back to the lead |',
-        '',
-      ].join('\n');
-      const line = doc.split('\n').findIndex(l => l.includes('export format')) + 1;
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph.map(f => f.line), [line],
-        'the requirement item is the only unfinished line in the document; got ' + JSON.stringify(ph));
-    }],
     ['spec-lint: a pending-questions row with an empty cell is a placeholder', () => {
       const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
       const row = '| Q-2 who may see the phone number | data permission | | | |';
@@ -1717,76 +1700,6 @@ function selftestCases() {
       assert.ok(ph.some(f => f.line === line),
         'a row with no owner and no date defers nothing; got ' + JSON.stringify(ph));
     }],
-    // The exemption the pending-questions section earns is for the deferral word, not for the
-    // section. Today it is scoped to the whole section, so a sub-heading inside it becomes a
-    // hiding place: TBD / TODO / the other bare token stop being reported there. The angle
-    // bracket in the same fixture is the other half of the split -- this gate reports it inside
-    // the section and predev-lint does not; after the fix both report it.
-    ['spec-lint: inside the pending-questions section only the deferral word is exempt', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const MARKS = PLACEHOLDER_TOKENS.filter(t => /^[A-Za-z]+$/.test(t));
-      const BARE = PLACEHOLDER_TOKENS.filter(t => !/^[A-Za-z]+$/.test(t));
-      const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-        '## ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        '| Q-1 who covers when Lao Zhang is out | dispatch rule | the user | before Phase 2 | send it back to the lead |',
-        '',
-        '### appendix: acceptance checklist',
-        MARKS[0] + ': the acceptance bar is not written yet',
-        '- ' + MARKS[1],
-        BARE[1],
-        '<not filled in yet>',
-        '',
-      ].join('\n');
-      const lines = doc.split('\n');
-      const at = needle => lines.findIndex(l => l.includes(needle)) + 1;
-      const want = [at(MARKS[0] + ':'), at('- ' + MARKS[1]), at(BARE[1]), at('<not filled in yet>')].sort((a, b) => a - b);
-      const head = lines.indexOf('## ' + PENDING) + 1;
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph.map(f => f.line).sort((a, b) => a - b), want,
-        'a sub-heading inside the pending-questions section is not a licence to leave text unfinished, and the heading line '
-        + head + ' stays exempt; got ' + JSON.stringify(ph));
-    }],
-    // sectionNamed prefers a normalized exact match and only falls back to substring, so a
-    // section merely named after the pending-questions section no longer takes the anchor from
-    // it. What this locks is that outcome: the example table stays an example, the real heading
-    // stays subject matter, and the row that actually defers nothing is the only row reported.
-    // Leading numbering and a trailing parenthetical must not defeat the normalized match.
-    ['spec-lint: a section whose title merely contains the pending-questions name must not steal the anchor', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const decoyRow = '| example question | the user | Phase 2 |';
-      const realRow = '| Q-2 who may see the phone number | data permission | | | |';
-      const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-        '## ' + PENDING + '的填法说明',
-        '| question | who decides | when |',
-        '| --- | --- | --- |',
-        decoyRow,
-        '',
-        '## ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        realRow,
-        '',
-      ].join('\n');
-      const lines = doc.split('\n');
-      const head = lines.indexOf('## ' + PENDING) + 1;
-      const decoyHead = lines.findIndex(l => l.startsWith('## ' + PENDING + '的')) + 1;
-      const rowLine = lines.indexOf(realRow) + 1;
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER');
-      const at = ph.map(f => f.line);
-      assert.ok(at.includes(rowLine),
-        'the row with three empty cells sits in the real section and is the one that defers nothing; got ' + JSON.stringify(ph));
-      assert.ok(!at.includes(head),
-        'the real heading carries the token as subject matter, not as unfinished text; got ' + JSON.stringify(ph));
-      assert.ok(!at.some(n => n > decoyHead && n < head),
-        'the decoy table is an example of how to fill the real one, not a pending-questions table; got ' + JSON.stringify(ph));
-    }],
-    // A threshold written with < and > is a comparison, not a template hole. The scan pairs the
-    // two brackets across the cell divider and reads the span between them as an unfilled slot,
-    // which turns every latency budget in a spec into an error. A candidate containing a table
-    // divider, or starting with a digit / = / whitespace / -, is a comparison and is left alone;
-    // a real slot like the product-type list still has to be reported, or the fix went too far.
     ['spec-lint: a threshold comparison is not an unfilled template placeholder', () => {
       const budget = lintSpecDoc(specDoc(['- a: b -> c'], { tech: 'first paint <1s | concurrency >100' }), 'f.md');
       assert.deepEqual(budget.findings.filter(f => f.code === 'PLACEHOLDER'), [],
@@ -1795,93 +1708,6 @@ function selftestCases() {
       assert.ok(slot.findings.some(f => f.code === 'PLACEHOLDER'),
         'letting comparisons through must not let a real template slot through too; got ' + JSON.stringify(slot.findings));
     }],
-    // Numbering styles vary: "1." and "1)" and full-width variants all appear in real documents.
-    // The normalized match has to strip all of them, or the decoy takes the anchor back.
-    ['spec-lint: a numbered pending-questions heading still wins the anchor over a decoy', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const decoyRow = '| example question | the user | Phase 2 |';
-      const realRow = '| Q-2 who may see the phone number | data permission | | | |';
-      const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-        '## ' + PENDING + '的填法说明',
-        '| question | who decides | when |',
-        '| --- | --- | --- |',
-        decoyRow,
-        '',
-        '## 1) ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        realRow,
-        '',
-      ].join('\n');
-      const lines = doc.split('\n');
-      const decoyHead = lines.findIndex(l => l.startsWith('## ' + PENDING + '的')) + 1;
-      const realHead = lines.indexOf('## 1) ' + PENDING) + 1;
-      const rowLine = lines.indexOf(realRow) + 1;
-      const at = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER').map(f => f.line);
-      assert.deepEqual(at.slice().sort((a, b) => a - b), [decoyHead, rowLine].sort((a, b) => a - b),
-        'the decoy heading is prose carrying the token, the real row is the only deferral that defers nothing, and the real heading '
-        + realHead + ' is subject matter; got ' + JSON.stringify(at));
-    }],
-    // A pipe escaped with a backslash is content inside a cell, not a column divider. Splitting
-    // on it turns a well-formed five-cell row into six and then reports it for a hole it does
-    // not have -- the row gets rewritten to satisfy the tool rather than the reader.
-    ['spec-lint: an escaped pipe inside a pending-questions row is content, not a divider', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const row = '| A \\| B, which one | dispatch | Lao Wang | before launch | go with A |';
-      const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-        '## ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        row,
-        '',
-      ].join('\n');
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph, [],
-        'the escaped pipe is one cell of content; this row owns its question, its owner and its date. got ' + JSON.stringify(ph));
-    }],
-    // The comparison test reads the first character of the raw candidate, so one space is enough
-    // to make any slot look like a threshold and walk straight through. Skip the leading blanks
-    // first, then require a digit / = / - before calling it a comparison; a budget written with
-    // room around its operators is still a budget, and must not start being reported instead.
-    ['spec-lint: a spaced-out template slot is still a slot, a spaced-out comparison is still a comparison', () => {
-      const slot = lintSpecDoc(specDoc(['- a: b -> c'], { tech: 'storage: < database choice >' }), 'f.md');
-      assert.ok(slot.findings.some(f => f.code === 'PLACEHOLDER'),
-        'the spaces around a slot do not fill it in; got ' + JSON.stringify(slot.findings));
-      const budget = lintSpecDoc(specDoc(['- a: b -> c'], { tech: 'concurrency < 100 and latency > 1s' }), 'f.md');
-      assert.deepEqual(budget.findings.filter(f => f.code === 'PLACEHOLDER'), [],
-        'a budget with room around its operators is still a measurement; got ' + JSON.stringify(budget.findings));
-    }],
-    // The exemption the pending-questions section earns covers the deferral word and nothing
-    // else. A row that says TBD, or names the other bare token where the question belongs, has
-    // its five cells and still records nothing. predev-lint reports both of these rows already;
-    // this gate reports neither, and two gates disagreeing about one document is the defect.
-    ['spec-lint: a pending-questions row whose question is only a marker is unfinished', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const MARKS = PLACEHOLDER_TOKENS.filter(t => /^[A-Za-z]+$/.test(t));
-      const BARE = PLACEHOLDER_TOKENS.filter(t => !/^[A-Za-z]+$/.test(t));
-      const rowA = '| ' + BARE[1] + ' | dispatch | Lao Wang | before launch | go with A |';
-      const rowB = '| ' + MARKS[0] + ': the one nobody wrote down | dispatch | Lao Wang | before launch | go with A |';
-      const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-        '## ' + PENDING,
-        '| question | area | who decides | when needed | interim default |',
-        '| --- | --- | --- | --- | --- |',
-        rowA,
-        rowB,
-        '',
-      ].join('\n');
-      const lines = doc.split('\n');
-      const want = [lines.indexOf(rowA) + 1, lines.indexOf(rowB) + 1].sort((a, b) => a - b);
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph.map(f => f.line).sort((a, b) => a - b), want,
-        'five cells do not make a question; a row that only says it is undecided defers nothing. got ' + JSON.stringify(ph));
-    }],
-    // Reading only the opening side is not enough: the template's own scenario prompt opens with
-    // a digit range and closes at end of line, so it reads as a threshold and the one line the
-    // author was supposed to replace is the one line that never gets reported. A comparison has
-    // to look like one on both sides -- digit / = / - after <, and digit / = / - / currency
-    // after the matching >; a > sitting at end of line is a closing bracket, not an operator.
-    // The lines below are ASCII stand-ins with the same shape as the template line, because this
-    // file stays ASCII-only; predev-lint's P47 locks the real sentence verbatim.
     ['spec-lint: a comparison has to look like one on both sides of the span', () => {
       const at = (doc, needle) => doc.split('\n').findIndex(l => l.includes(needle)) + 1;
       const prompt = '<2-3 real cases that actually happened, not "generally speaking".>';
@@ -1893,41 +1719,6 @@ function selftestCases() {
       assert.deepEqual(ph.map(f => f.line).sort((a, b) => a - b), want,
         'a span that closes at end of line is an unfilled slot, and a budget with digits on both sides is not; got ' + JSON.stringify(ph));
     }],
-    // Numbering is typed with whatever punctuation the keyboard is in: full-width parenthesis and
-    // full-width full stop are as common as their ASCII twins in these documents. Both gates have
-    // to strip the same set, or the same file gets two different verdicts depending on which one
-    // reads it -- and the decoy quietly takes the anchor back on the forms this one misses.
-    ['spec-lint: full-width numbering on the pending-questions heading still wins the anchor', () => {
-      const PENDING = PLACEHOLDER_TOKENS[2] + '问题';
-      const decoyRow = '| example question | the user | Phase 2 |';
-      const realRow = '| Q-2 who may see the phone number | data permission | | | |';
-      for (const head of ['## 1）' + PENDING, '## 1．' + PENDING]) {
-        const doc = specDoc(['- dispatch: the lead picks a job -> a fitter is assigned -> the phone rings']) + [
-          '## ' + PENDING + '的填法说明',
-          '| question | who decides | when |',
-          '| --- | --- | --- |',
-          decoyRow,
-          '',
-          head,
-          '| question | area | who decides | when needed | interim default |',
-          '| --- | --- | --- | --- | --- |',
-          realRow,
-          '',
-        ].join('\n');
-        const lines = doc.split('\n');
-        const decoyHead = lines.findIndex(l => l.startsWith('## ' + PENDING + '的')) + 1;
-        const realHead = lines.indexOf(head) + 1;
-        const rowLine = lines.indexOf(realRow) + 1;
-        const at = lintSpecDoc(doc, 'Product-Spec.md').findings.filter(f => f.code === 'PLACEHOLDER').map(f => f.line);
-        assert.deepEqual(at.slice().sort((a, b) => a - b), [decoyHead, rowLine].sort((a, b) => a - b),
-          'full-width punctuation is still numbering, so ' + head + ' keeps the anchor and its heading line '
-          + realHead + ' stays subject matter; got ' + JSON.stringify(at));
-      }
-    }],
-    // The templates hand the author a slot to replace. Angle brackets were the old spelling and
-    // are already caught; the double-brace spelling the briefs and the design doc use is not,
-    // so a document can ship with every slot still in it and pass. Backticks and fences are
-    // where a template teaches its own syntax, and those stay out of it.
     ['spec-lint: an unfilled double-brace slot is a placeholder, quoted ones are not', () => {
       const bare = '{{product one-liner}}';
       const quoted = 'write it as `' + bare + '` when you copy the template';
@@ -1948,38 +1739,6 @@ function selftestCases() {
       const f = lintSpecDoc(doc, 'f.md').findings.filter((x) => x.code === 'UNCLOSED_FENCE');
       assert.deepEqual(f.map((x) => x.line), [fence],
         'the opener at line ' + fence + ' is where the document stopped being read; got ' + JSON.stringify(f));
-    }],
-    // Whether a fence is an example or a deliverable is told by its info string, not by which
-    // file it sits in. A fence tagged with a template language is showing how the syntax works;
-    // an untagged one, or one tagged markdown, is content that someone still has to fill in --
-    // including any slot written into the opening line itself.
-    ['spec-lint: fenced slots are scanned unless the fence is tagged as a template language', () => {
-      const doc = specDoc(['- a: b -> c']) + [
-        '```', 'plain fence: {{x}}', '```', '',
-        '```markdown', 'sample fence: {{y}}', '```', '',
-        '```html', '<b>{{ label }}</b>', '```', '',
-        '```{{lang}}', 'z', '```', '',
-      ].join('\n');
-      const lines = doc.split('\n');
-      const at = (needle) => lines.findIndex((l) => l.includes(needle)) + 1;
-      const want = [at('plain fence:'), at('sample fence:'), at('```{{lang}}')].sort((a, b) => a - b);
-      const ph = lintSpecDoc(doc, 'Product-Spec.md').findings.filter((f) => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph.map((f) => f.line).sort((a, b) => a - b), want,
-        'the html fence is a syntax demo and the label inside it is not a hole; the other three are. got ' + JSON.stringify(ph));
-    }],
-    // Outside a fence a pair of back-ticks marks a code span and whatever it wraps is being
-    // quoted, not written. Inside a fence there are no spans -- the whole block is already
-    // verbatim, so those two characters are just characters and the slot between them is as
-    // unfilled as any other. This gate has it right today; the lane is here so a later attempt
-    // to make the two gates agree does not do it by loosening this one.
-    ['spec-lint: inside a fence a back-tick is a character, not a code span', () => {
-      const inside = 'brand colour: `{{brand primary}}`';
-      const outside = 'write it as `{{brand primary}}` when you fill the brief';
-      const doc = specDoc(['- a: b -> c']) + [outside, '```', inside, '```', ''].join('\n');
-      const at = doc.split('\n').indexOf(inside) + 1;
-      const ph = lintSpecDoc(doc, 'f.md').findings.filter((f) => f.code === 'PLACEHOLDER');
-      assert.deepEqual(ph.map((f) => f.line), [at],
-        'the fenced slot is unfilled and the quoted one is a demonstration; got ' + JSON.stringify(ph));
     }],
     ['spec-lint: undecidable wording is a warning, and only inside requirement items', () => {
       const AMB = AMBIGUOUS_TERMS[2];

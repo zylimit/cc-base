@@ -7,7 +7,9 @@
 #   .claude/githooks/  挂在 git 自己身上，凡是走 git 的提交路径都跑得到（本文件这层）。
 #   .github/workflows/ CI，兜住所有人、所有分支、所有机器。
 #
-# 这一层只跑**快的**静态检查——行为证明（全量回归）归 pre-push，别让每次 commit 等几分钟。
+# 这一层只跑**快的**静态检查——密钥与语法两项，别让每次 commit 等几分钟。
+# 清单（FRAMEWORK-MANIFEST）不再逐次提交刷新，改由发版时 gen-manifest.sh 重生一次，
+# 所以这里不再比对它：每次 commit 都要重跑生成器，人只会 --no-verify。
 #
 # 退出码处理（本层的核心，逐类写死，不含糊）：
 #   0  干净          → 放行
@@ -21,7 +23,7 @@
 #                      「未执行 != 通过」，不阻断。这与仓里 harness_node_ok 的降级哲学一致，
 #                      区别是那边静默、这边出声
 #
-# 退出码语义**逐条检查各判各的**，不共用一张想当然的表：三只审计脚本是 0/1/2/3；
+# 退出码语义**逐条检查各判各的**，不共用一张想当然的表：审计脚本是 0/1/2/3；
 # 引擎的 catalog-lint / fitness 契约里没有 2（见 .claude/rules/harness-large-repo.md 退出码契约表）。
 # 混成一张表会把「引擎崩了」读成「用法错」，两者该采取的行动完全不同。
 #
@@ -49,7 +51,7 @@ trap 'rm -f "$OUTF" "$ERRF" "$TMPBASE.list"' EXIT INT TERM
 
 say() { printf '%s\n' "$*" >&2; }
 
-# 把检查的输出打出来：人读诊断在 stderr（三只脚本）或 stdout 单行 JSON（引擎），
+# 把检查的输出打出来：人读诊断在 stderr（审计脚本）或 stdout 单行 JSON（引擎），
 # 哪边有东西就打哪边，两边都空才说「无输出」。截前 25 行，别把 commit 淹了。
 dump_output() {
     if [ -s "$ERRF" ]; then
@@ -64,7 +66,7 @@ dump_output() {
 # classify <契约> <rc> —— 回填 VERDICT（ok|block|degrade|skip）与 WHY。
 classify() {
     case "$1" in
-        audit)   # 三只审计脚本：0 干净 / 1 有命中 / 2 用法错 / 3 降级
+        audit)   # 审计脚本：0 干净 / 1 有命中 / 2 用法错 / 3 降级
             case "$2" in
                 0) VERDICT=ok;      WHY="扫过且干净" ;;
                 1) VERDICT=block;   WHY="有命中（rc 1）" ;;
@@ -114,7 +116,7 @@ note_skip() {
 say "cc-base pre-commit：静态检查（行为证明归 pre-push）"
 
 # ---------- 前置：node ----------
-# 五条检查全靠 node。缺 node 一次性说清，不刷五遍同样的话。
+# 检查全靠 node。缺 node 一次性说清，不刷几遍同样的话。
 if ! command -v node >/dev/null 2>&1; then
     note_skip "全部静态检查" "PATH 上没有 node"
     say ""
@@ -122,9 +124,9 @@ if ! command -v node >/dev/null 2>&1; then
     exit 0
 fi
 
-# ---------- 三只审计脚本（catalog-free，引擎坏了也要能跑）----------
+# ---------- 密钥与语法两只审计脚本（catalog-free，引擎坏了也要能跑）----------
 # --staged：文件名和内容都取自索引，判的是「正在提交的东西」而不是工作树里顺手改的东西。
-for pair in "secrets:scan-secrets.mjs" "instructions:scan-instructions.mjs" "syntax:check-syntax.mjs"; do
+for pair in "secrets:scan-secrets.mjs" "syntax:check-syntax.mjs"; do
     LBL=${pair%%:*}
     SCRIPT=${pair#*:}
     if [ -f "$AUDIT/$SCRIPT" ]; then
@@ -133,21 +135,6 @@ for pair in "secrets:scan-secrets.mjs" "instructions:scan-instructions.mjs" "syn
         note_skip "$LBL" "$AUDIT/$SCRIPT 不存在"
     fi
 done
-
-# ---------- 排除表单一真相源（只在框架仓本体有意义：目标项目没有 setup.sh，跳过不算失败）----------
-# 三份生成区（gen-manifest.sh / setup.sh / setup.ps1 的 @exclusions 区）与 harness/exclusions.json 漂移 → 1 阻断
-GENX="$ROOT/.claude/scripts/gen-exclusions.mjs"
-if [ -f "$GENX" ] && [ -f "$ROOT/setup.sh" ] && [ -f "$ROOT/.claude/harness/exclusions.json" ]; then
-    run_check "exclusions" lint node "$GENX" --check
-fi
-
-# ---------- 清单与源码树一致（同上只在框架仓本体有意义）----------
-# 改了框架文件没重跑 gen-manifest.sh → 清单里是旧哈希：装到别人项目那份文件会被当「用户改过」永不覆盖，
-# release 装配 manifest 项 FAIL、test-setup ⑨ 红。一天里栽了两次（E 收口、-uall 补注释）才加的这一步。
-GENM="$ROOT/.claude/scripts/gen-manifest.sh"
-if [ -f "$GENM" ] && [ -f "$ROOT/setup.sh" ] && [ -f "$ROOT/.claude/FRAMEWORK-MANIFEST.txt" ]; then
-    run_check "manifest" lint bash "$GENM" --check
-fi
 
 # ---------- 大仓治理（catalog 存在才启用；默认关，小项目零负担）----------
 if [ -f "$CATALOG" ]; then

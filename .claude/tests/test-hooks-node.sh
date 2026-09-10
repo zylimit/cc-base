@@ -266,6 +266,14 @@ process.stdin.on("end", () => {
 });
 ' "$2"
 }
+# advise 档：Stop 类闸改出 systemMessage 提醒，不再出 decision:block（tdd-gate / three-file-sync-gate
+# 三档都是 advise，见 harness/profile.json）。判「有提醒且没拦」，别只判「不是 block」——
+# 什么都不输出也不是 block，那是闸没跑。
+advised() {
+    case "$1" in *'"systemMessage"'*) ;; *) return 1 ;; esac
+    case "$1" in *'"decision":"block"'*|*'"decision": "block"'*) return 1 ;; esac
+    return 0
+}
 
 # gate 账本里是否有某个 hook 的记录
 gatelogged() { grep -q "$2" "$1/.claude/evidence/gate-block.log" 2>/dev/null; }
@@ -1976,8 +1984,8 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
 
 SB=$(newsb td-fast); mkfast "$SB" active
 run_hook tdd-gate "$SB" '{"tool_input":{"command":"claude agent implementer write code"}}'
-chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
-    "TD-8 fast-mode 生效 → 静默放行（test-fast-mode.sh ⑥ 的同义移植）" "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
+    "TD-8 fast-mode 生效 → 照样只提醒不拦（tdd-gate 三档都是 advise）" "rc=0 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb td-fastexp); mkfast "$SB" expired
 run_hook tdd-gate "$SB" '{"tool_input":{"command":"claude agent implementer write code"}}'
@@ -2031,8 +2039,8 @@ chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
 SB=$(tf_repo tf-code); printf 'echo more\n' >> "$SB/src/app.sh"
 run_hook three-file-sync-gate "$SB" ''
 TF_C="$OUT"
-chk "$([ "$RC" -eq 0 ] && blocked "$TF_C" && echo 0 || echo 1)" \
-    "TF-4 C1 改了代码但 progress.md 未同步 → decision:block" 'rc=0 且含 "decision":"block"' "rc=$RC out=[$(show "$TF_C")]"
+chk "$([ "$RC" -eq 0 ] && advised "$TF_C" && echo 0 || echo 1)" \
+    "TF-4 C1 改了代码但 progress.md 未同步 → systemMessage 提醒" 'rc=0 且含 systemMessage' "rc=$RC out=[$(show "$TF_C")]"
 chk "$(hasq 'src/app.sh' "$TF_C" && echo 0 || echo 1)" \
     "TF-5 block 点名第一个代码改动（不点名就没法处理）" "reason 含 src/app.sh" "out=[$(show "$TF_C")]"
 chk "$(gatelogged "$SB" three-file-sync-gate && echo 0 || echo 1)" \
@@ -2041,8 +2049,8 @@ chk "$(gatelogged "$SB" three-file-sync-gate && echo 0 || echo 1)" \
 
 SB=$(tf_repo tf-family); printf 'more\n' >> "$SB/.claude/agents/impl.md"
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
-    "TF-7 家底 .claude/** 改动同样计入代码集（改了要记 progress）" 'stdout 含 "decision":"block"' "out=[$(show "$OUT")]"
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
+    "TF-7 家底 .claude/** 改动同样计入代码集（改了要记 progress）" 'stdout 含 systemMessage' "out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-evidence); printf 'more log\n' >> "$SB/.claude/evidence/gate-block.log"
 run_hook three-file-sync-gate "$SB" ''
@@ -2059,18 +2067,18 @@ printf '# spec\n' > "$SB/Product-Spec.md"; printf '# log\n' > "$SB/Product-Spec-
 ( cd "$SB" && git add -A && git commit -qm addspec ) >/dev/null 2>&1
 printf 'changed\n' >> "$SB/Product-Spec.md"; printf 'note\n' >> "$SB/progress.md"
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
-    "TF-10 C2 Product-Spec.md 改了但 CHANGELOG 未同步 → block（需求变更漏记）" \
-    'stdout 含 "decision":"block"' "out=[$(show "$OUT")]"
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
+    "TF-10 C2 Product-Spec.md 改了但 CHANGELOG 未同步 → systemMessage 提醒（需求变更漏记）" \
+    'stdout 含 systemMessage' "out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-changelog)
 printf '# spec\n' > "$SB/Product-Spec.md"; printf '# log\n' > "$SB/Product-Spec-CHANGELOG.md"
 ( cd "$SB" && git add -A && git commit -qm addspec ) >/dev/null 2>&1
 printf 'changed\n' >> "$SB/Product-Spec-CHANGELOG.md"; printf 'note\n' >> "$SB/progress.md"
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
     "TF-11 C2 反向：CHANGELOG 改了但 Spec 未同步 → 同样 block（成对更新）" \
-    'stdout 含 "decision":"block"' "out=[$(show "$OUT")]"
+    'stdout 含 systemMessage' "out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-speconly)
 printf '# spec\n' > "$SB/Product-Spec.md"
@@ -2084,15 +2092,15 @@ chk "$([ "$RC" -eq 0 ] && ! blocked "$OUT" && echo 0 || echo 1)" \
 SB=$(tf_repo tf-rename)
 ( cd "$SB" && git mv src/app.sh src/renamed.sh ) >/dev/null 2>&1
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
     "TF-13 rename 记录是 NUL 分隔的两段（新路径 + 旧路径）→ 必须按 NUL 切、两段都计入，不能按行读" \
-    'stdout 含 "decision":"block"' "out=[$(show "$OUT")]"
+    'stdout 含 systemMessage' "out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-junk); printf 'echo more\n' >> "$SB/src/app.sh"
 run_hook three-file-sync-gate "$SB" '{{{not json'
-chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && echo 0 || echo 1)" \
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && echo 0 || echo 1)" \
     "TF-14 损坏 stdin（契约卡：不读 stdin）→ 判定不受影响，仍 block" \
-    'rc=0 且含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+    'rc=0 且含 systemMessage' "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-badindex); printf 'echo more\n' >> "$SB/src/app.sh"
 printf 'GARBAGEGARBAGE' > "$SB/.git/index"
@@ -2120,18 +2128,18 @@ printf 'export const a = 1;\n' > "$SB/src/a.mjs"
 ( cd "$SB" && git add -A && git commit -qm addmjs ) >/dev/null 2>&1
 printf 'export const b = 2;\n' >> "$SB/src/a.mjs"
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
-    "TF-17 只改已跟踪的 src/a.mjs、progress.md 没动 → block（闸随框架分发到目标项目，那边的 server.mjs 没有 .claude/ 那一支兜底）" \
-    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
+    "TF-17 只改已跟踪的 src/a.mjs、progress.md 没动 → systemMessage 提醒（闸随框架分发到目标项目，那边的 server.mjs 没有 .claude/ 那一支兜底）" \
+    'stdout 含 systemMessage' "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(tf_repo tf-cjs)
 printf 'module.exports = 1;\n' > "$SB/src/a.cjs"
 ( cd "$SB" && git add -A && git commit -qm addcjs ) >/dev/null 2>&1
 printf 'module.exports = 2;\n' >> "$SB/src/a.cjs"
 run_hook three-file-sync-gate "$SB" ''
-chk "$(blocked "$OUT" && echo 0 || echo 1)" \
-    "TF-18 只改已跟踪的 src/a.cjs、progress.md 没动 → block（.cjs 单臂，与 TF-17 各自独立夹具，谁也顶不了谁）" \
-    'stdout 含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+chk "$(advised "$OUT" && echo 0 || echo 1)" \
+    "TF-18 只改已跟踪的 src/a.cjs、progress.md 没动 → systemMessage 提醒（.cjs 单臂，与 TF-17 各自独立夹具，谁也顶不了谁）" \
+    'stdout 含 systemMessage' "rc=$RC out=[$(show "$OUT")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -2172,8 +2180,8 @@ TDIN='{"tool_input":{"command":"claude agent implementer write code"}}'
 
 SB=$(newsb tr-td-fast); mktier "$SB" fast
 run_hook tdd-gate "$SB" "$TDIN"
-chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
-    "TR-6 tdd-gate + fast(off)：无输出 exit 0" "rc=0 无输出" "rc=$RC err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
+    "TR-6 tdd-gate + fast(advise)：stderr 提醒但 exit 0" "rc=0 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb tr-td-std); mktier "$SB" standard
 run_hook tdd-gate "$SB" "$TDIN"
@@ -2183,9 +2191,9 @@ chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" 
 
 SB=$(newsb tr-td-strict); mktier "$SB" strict
 run_hook tdd-gate "$SB" "$TDIN"
-chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
-    "TR-8 tdd-gate + strict(block)：exit 2 真拦（strict 档人是审批者，没验红不许派编码）" \
-    "rc=2 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
+    "TR-8 tdd-gate + strict(advise)：strict 也只提醒（没验红不许派编码是人的判断，不由闸拦）" \
+    "rc=0 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb tr-mr-fast); mktier "$SB" fast
 run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
@@ -2258,9 +2266,9 @@ SB=$(newsb tr-raise git)
 mkdir -p "$SB/.claude/hooks"
 printf '// touched\n' >> "$SB/.claude/hooks/x.mjs"
 run_hook tdd-gate "$SB" "$TDIN"
-chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
-    "TR-20 工作树改了 .claude/hooks/** → 自动抬 strict，tdd-gate 变硬拦（治理面升档不需要人点头）" \
-    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && echo 0 || echo 1)" \
+    "TR-20 工作树改了 .claude/hooks/** → 自动抬 strict，tdd-gate 仍只提醒（三档都是 advise；升档本身由 test-tier.sh 判）" \
+    "rc=0 且 stderr 非空" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb tr-legacyflag); mklegacyflag "$SB" active
 printf 'src/app.ts\n' > "$SB/.claude/.needs-review"

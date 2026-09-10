@@ -58,7 +58,6 @@ switch ($Action) {
         Write-Output '  Off:   pwsh .claude/scripts/install-githooks.ps1 off'
         Write-Output '         or just git config --unset core.hooksPath'
         Write-Output '  One-off bypass: git commit --no-verify / git push --no-verify -- HIGH tier, owe a human an explanation'
-        Write-Output '  pre-push too slow: $env:CCBASE_PREPUSH_FULL=0 before git push runs the static segment only'
         Write-Output '         (that is a reduced gate, not a full pass)'
     }
     'off' {

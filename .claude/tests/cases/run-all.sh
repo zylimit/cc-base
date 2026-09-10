@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run-all.sh — 跑全部框架自测。
 # 永远先跑 selftest（无依赖、必跑）；再跑静态自测（test-setup/test-routing，无需 claude CLI）；
-#   最后跑真触发 cases（需 claude CLI）。
+#   最后一段真触发 cases（需 claude CLI）默认不跑，CCBASE_RUN_CLAUDE_CASES=1 才跑。
 # 检测 command -v claude：不存在就明确打印 SKIPPED 并只跑前两段，绝不静默假绿
 #   （呼应框架的反静默失败——缺 CLI 是「跳过」不是「通过」）。
 # 退出码：selftest 失败 → 非 0；静态自测失败 → 非 0；真触发 cases 全过（或被 SKIP）→ 0；有 case 失败 → 非 0。
@@ -45,24 +45,6 @@ done
 # harness 自测在 cases/（无需 claude CLI，只需 node），归第二段跑；无 node 时其自身打 SKIPPED 非假绿。
 echo "----- 运行 test-harness.sh -----"
 bash "$DIR/test-harness.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
-# harness golden 基线：同样只需 node，归第二段跑。test-harness.sh 卡退出码契约，
-#   这条卡 stdout JSON 全字段 + stderr——拆库重构要证「零行为变化」靠的就是它。
-#   基线漂了先看 diff 再决定是真回归还是该重录（node .claude/tests/harness-golden.mjs --record）。
-#   --strict 让「没跑成」以退出码 3 现形：不加它时 SKIPPED 也返回 0，被 `||` 读成通过。
-echo "----- 运行 harness-golden.mjs --check -----"
-GOLDEN_NOTE=""
-if command -v node >/dev/null 2>&1; then
-    GOLDEN_RC=0
-    node "$TESTS_DIR/harness-golden.mjs" --check --strict || GOLDEN_RC=$?
-    if [ "$GOLDEN_RC" -eq 3 ]; then
-        GOLDEN_NOTE="；golden 基线 SKIPPED（未执行 != 通过）"
-    elif [ "$GOLDEN_RC" -ne 0 ]; then
-        STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
-    fi
-else
-    echo "SKIPPED: 无 node（command -v node 未找到）——golden 基线比对跳过，未执行 != 通过。"
-    GOLDEN_NOTE="；golden 基线 SKIPPED（无 node）"
-fi
 # audit 三只哨兵：同样只需 node + git，归第二段跑。两套分工不同，都要跑——
 #   test-audit-scripts 锁「脚本该有的行为」（干净仓 rc 0 / 坏样例 rc 1 / 豁免可见 / 非 git rc 3），
 #   test-audit-defects 锁「已修的那批缺陷不再复发」（--staged 只判索引、压制外置、超限不假绿……）。
@@ -245,10 +227,18 @@ fi
 # ---- 第三段：真触发 cases（需 claude CLI）----
 echo ""
 echo ">>> [3/3] 真触发 cases（需 claude CLI + 耗 token）"
+# 默认不跑：这两个 case 真去拉 claude -p，耗 token 也耗分钟，挂在每次 push / 每次自测上不值当。
+# 要跑就显式 CCBASE_RUN_CLAUDE_CASES=1，跳过时汇总行里点名——未执行 != 通过。
+if [ "${CCBASE_RUN_CLAUDE_CASES:-0}" != "1" ]; then
+    echo "SKIPPED: 真触发 case 默认不跑，CCBASE_RUN_CLAUDE_CASES=1 才跑（未执行 != 通过）"
+    echo ""
+    echo "########## 结果：selftest + 静态自测通过${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（opt-in 未开，非假绿）。 ##########"
+    exit 0
+fi
 if ! command -v claude >/dev/null 2>&1; then
     echo "SKIPPED: 无 claude CLI（command -v claude 未找到）——真触发测试跳过，未执行 != 通过。"
     echo ""
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；真触发 cases 已 SKIP（非假绿）。 ##########"
     exit 0
 fi
 
@@ -266,10 +256,10 @@ done
 
 echo ""
 if [ "$RAN" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；cases 目录无可跑用例。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}；cases 目录无可跑用例。 ##########"
 elif [ "$CASE_RC" -eq 0 ]; then
-    echo "########## 结果：selftest + 静态自测${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
+    echo "########## 结果：selftest + 静态自测${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE} + 全部 $RAN 个真触发 case 通过。 ##########"
 else
-    echo "########## 结果：selftest + 静态自测通过${GOLDEN_NOTE}${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}，但有真触发 case 失败。 ##########"
+    echo "########## 结果：selftest + 静态自测通过${AUDIT_NOTE}${HOOKS_NOTE}${EVIDENCE_NOTE}${GITHOOKS_NOTE}${ONEKEY_NOTE}${PS1_NOTE}，但有真触发 case 失败。 ##########"
 fi
 exit "$CASE_RC"

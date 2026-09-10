@@ -34,11 +34,10 @@ case "${1:-status}" in
     chmod 0755 "$HOOKS_DIR"/pre-commit "$HOOKS_DIR"/commit-msg "$HOOKS_DIR"/pre-push 2>/dev/null || true
     git config core.hooksPath "$REL" || { echo "install-githooks: git config 写入失败" >&2; exit 2; }
     echo "install-githooks: on（core.hooksPath = $REL，仅本仓库）"
-    echo "  已挂上：pre-commit（静态检查）/ commit-msg（subject 门槛）/ pre-push（全量回归）"
+    echo "  已挂上：pre-commit（密钥+语法）/ commit-msg（subject 门槛）/ pre-push（文档放行，代码跑 selftest+密钥）"
     echo "  关掉：  bash .claude/scripts/install-githooks.sh off"
     echo "          或直接 git config --unset core.hooksPath"
     echo "  单次绕过：git commit --no-verify / git push --no-verify —— HIGH 档行为，得向人交代"
-    echo "  pre-push 嫌慢：CCBASE_PREPUSH_FULL=0 git push 降到只跑静态段（是降档闸，不是全量通过）"
     ;;
   off)
     PREV="$(current)"

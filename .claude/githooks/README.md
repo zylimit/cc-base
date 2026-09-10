@@ -77,33 +77,28 @@ Windows 侧不需要 `.ps1` 版本的 hook：git 按**文件名**挑 hook，不�
 
 ### pre-push —— 最后一道自动闸
 
-push 把东西交出去，别人会在上面接着建，所以这里跑行为证明。
+先按这次推的是什么分两条路：读 git 喂进 stdin 的 ref 列表算出改了哪些文件，全落在 `progress.md` /
+`docs/` / `.claude/feedback/` / 任何 `*.md` 里就是纯文档推送，打一行放行；判不出改了什么（算不出
+diff、一条 ref 都没读到）一律按代码推送办。
 
-- 默认：`bash .claude/tests/cases/run-all.sh`（全量回归）
-- catalog 存在时额外：`node .claude/harness/harness.mjs gate`
+代码推送只跑两项：
 
-**耗时**：run-all 第三段有两个 `claude -p` 真触发 case，耗 token，通常几分钟。开跑前 hook 会打印一行说明，别让人对着没输出的终端以为卡死。机器上没有 claude CLI 时 run-all 自己会打 SKIPPED（不算通过）。输出直通终端，不闷着攒。
+- `node .claude/harness/harness.mjs selftest`（rc 非 0 → 阻断）
+- `node .claude/harness/audit/scan-secrets.mjs`（rc 1 → 阻断；rc 3 降级出声，不阻断）
 
-嫌慢可以降档：
-
-```bash
-CCBASE_PREPUSH_FULL=0 git push
-```
-
-降档后只跑静态段——引擎 `selftest` + golden 基线 + 三只审计脚本 + `catalog-lint`，**不跑** run-all 的安装器/路由/闸回归，也不跑真触发 case。汇总里会把「全量回归」明确记成降级项。**这是降档闸，不是全量通过。**
+**全量回归不在这一层**：`bash .claude/tests/cases/run-all.sh` 人自己跑或 CI 跑。挂在每次 push 上要等
+几分钟，人第一天就会 `--no-verify`，闸整个废掉。阻断时会把这条自查命令打出来。
 
 ## 退出码怎么读
 
-**逐条检查各判各的，不共用一张想当然的表。** 三只审计脚本与引擎的契约不一样，混成一张表会把「引擎崩了」读成「用法错」，两者该采取的行动完全不同。
+**逐条检查各判各的，不共用一张想当然的表。** 审计脚本与引擎的契约不一样，混成一张表会把「引擎崩了」读成「用法错」，两者该采取的行动完全不同。
 
 | 契约 | 用在 | 0 | 1 | 2 | 3 | 其余 |
 |---|---|---|---|---|---|---|
-| audit | 三只审计脚本 | 干净 → 放行 | 有命中 → **阻断** | 用法错 → **阻断** | 降级 → 告警 | SKIPPED |
-| lint | `catalog-lint` / `fitness` / `selftest` / golden | 干净 → 放行 | 有错 → **阻断** | （不在契约内） | 降级 → 告警 | SKIPPED |
-| gate | 引擎 `gate` | PASS → 放行 | （不在契约内） | 门未过 → **阻断** | 降级 → 告警 | SKIPPED |
-| run | `run-all.sh` | 全绿 → 放行 | 有失败 → **阻断** | 有失败 → **阻断** | 降级 → 告警 | **阻断** |
+| audit | 审计脚本（`scan-secrets` / `check-syntax`） | 干净 → 放行 | 有命中 → **阻断** | 用法错 → **阻断** | 降级 → 告警 | SKIPPED |
+| lint | `catalog-lint` / `fitness` / `selftest` | 干净 → 放行 | 有错 → **阻断** | （不在契约内） | 降级 → 告警 | SKIPPED |
 
-引擎完整的退出码契约表见 `.claude/rules/harness-large-repo.md`。注意 `gate` 的 `2` 和审计脚本的 `2` 不是一回事：那边 2 是「hook 把参数写错了」，这边 2 是「质量门真没过」。
+引擎完整的退出码契约表见 `.claude/rules/harness-large-repo.md`。
 
 ### 为什么 `2`（用法错）要阻断
 
@@ -133,4 +128,4 @@ CI 那层绕不过去：`--no-verify` 只影响本机 git，`.github/workflows/g
 
 ## 回归测试
 
-`.claude/tests/test-githooks.sh` 覆盖这三个 hook：干净树放行 / 注入密钥被拦 / 无信息 commit message 被拒 / 中文标题不被误拒 / rc 3 降级不阻断 / 命令缺失打 SKIPPED 不阻断。全部在 `mktemp -d` 出来的临时仓里跑，对 cc-base 只读。已挂进 `.claude/tests/cases/run-all.sh` 第二段（带 node 守卫）。
+`.claude/tests/test-githooks.sh` 覆盖这三个 hook：干净树放行 / 注入密钥被拦 / 无信息 commit message 被拒 / 中文标题不被误拒 / rc 3 降级不阻断 / 命令缺失打 SKIPPED 不阻断 / pre-push 纯文档放行与代码推送两项。全部在 `mktemp -d` 出来的临时仓里跑，对 cc-base 只读。已挂进 `.claude/tests/cases/run-all.sh` 第二段（带 node 守卫）。

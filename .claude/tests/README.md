@@ -27,7 +27,7 @@ bash .claude/tests/selftest.sh
 bash .claude/tests/cases/run-all.sh
 ```
 
-`run-all.sh` 三段：先 selftest（断言库本身可信），再静态自测（安装器/路由/闸回归，无需 CLI），最后真触发 cases（`command -v claude` 探测，无 CLI 则明示 SKIP 不假绿）。harness 自测（`cases/test-harness.sh`）只需 node、归第二段。
+`run-all.sh` 三段：先 selftest（断言库本身可信），再静态自测（安装器/路由/闸回归，无需 CLI），最后真触发 cases——**默认不跑**，`CCBASE_RUN_CLAUDE_CASES=1` 才跑（跳过时汇总行点名，未执行 != 通过）。harness 自测（`cases/test-harness.sh`）只需 node、归第二段。
 
 第二段末尾另跑 `dod` 和 `release` 两个一键闸——最外层的闸自己不在回归网里，是最容易烂掉的那种。
 `dod` 断 rc 0；`release` **不断 rc 0**：工作树脏 / Fast Mode 开着 / CI 红都会让它正确地判「未就绪」，
@@ -94,7 +94,7 @@ bash .claude/tests/cases/run-all.sh
 │   ├── cross-line-decoupled.jsonl       # 跨行解耦 fixture（锁 selftest 假绿 bug）
 │   └── harness/                         # catalog fixture（test-harness 用）
 └── cases/                                # harness 自测（仅需 node）+ 真触发测试（需 claude CLI）
-    ├── run-all.sh                        # 三段：selftest → 静态自测 7 个 → 真触发 cases
+    ├── run-all.sh                        # 三段：selftest → 静态自测 7 个 → 真触发 cases（opt-in）
     ├── test-harness.sh                   # harness.mjs 自测（doctor/selftest/context-pack/waiver，只需 node）
     ├── test-skill-behavior.sh            # opt-in 聚合路由对烟囱（RUN_LIVE_SKILL=1，默认 SKIP）
     ├── todo-app-triggers-product-spec.sh # naive prompt → product-spec-builder

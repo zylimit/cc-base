@@ -39,7 +39,7 @@
     - **改家底文件风格须无缝贴合（铁律）**：往 hook / skill / CLAUDE.md / agents / feedback 新增内容时，缩进 / 标记 / 语气 / 密度同原文，改完读不出哪句是后加的；禁英文缩写堆砌、元叙事、花哨标记、过度爱解释 why。细则见 feedback/edit-family-assets-style-must-match-handwritten-not-ai-generated.md。
     - **派静默 subagent / 长后台任务前先告知用户**：派 Sub-Agent 或长后台任务前必先一句话告知（静默运行 / 预计耗时 / 完成会通知），别让用户对着无输出干等误判卡死（预告这一下靠自觉，完成侧才有 `notify.mjs` 兜底）。工具调用被用户消息中断是 harness 机制信号、≠用户否决方案——有新指示就照办、只是提醒就解释并重发同一方案、不确定先问，不擅自切换；禁甩锅。细则见 feedback/subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md。
     - **接收审查意见/反馈不表演式认同**：收到 code-review 结论或用户反馈时，禁"你说得对/好建议/这就改"这类空话——要么复述对方的技术要求确认自己理解到位，要么不清楚就先问，要么有技术理由就顶回去；确认无误直接动手，行动优先于表态。反馈含糊先停下问清，不凭猜分批实现，以免漏掉关联项。细则见 feedback/receiving-review-no-performative-agreement.md。
-    - **三文件同步铁律**：决策 / 约束 / 完成一出现就**即时**写 progress.md；需求变更**成对**更新 Product-Spec.md + Product-Spec-CHANGELOG.md（只改一个不算）；三文件存在即维护、始终一致（项目可能只有 progress.md——如框架本体无 Spec/CHANGELOG，存在即维护、不存在的不强造）。不许只更一个、不许事后补、不许攒着批量记；每个工作单元（派单收尾 / 发版 / 做出取舍 / 需求变更）当下即同步对应文件——Stop 阶段 `three-file-sync-gate.mjs` 按工作树实际未提交改动兜底拦停，大仓启用后 `sync-check` 另判「记忆落后于代码」与「Spec 改了没配 CHANGELOG」。决策（选型 / 取舍 / 否决 / 撤回）进 progress.md 的 Decisions 段，不许埋进 Done 叙述充数；完成项进 Done，约束进 Pinned。收尾自检（回复 / 交付前过）：三文件都同步了吗？决策有没有混进 Done？——答不齐不算完成。细则见 feedback/three-file-sync-clearable-context-recap-recovery.md。
+    - **三文件同步铁律**：决策 / 约束 / 完成一出现就**即时**写 progress.md；需求变更**成对**更新 Product-Spec.md + Product-Spec-CHANGELOG.md（只改一个不算）；三文件存在即维护、始终一致（项目可能只有 progress.md——如框架本体无 Spec/CHANGELOG，存在即维护、不存在的不强造）。决策一出现就写进文件，但随下一个有代码的提交一起入库，不为记账单独提交、推送；Stop 阶段 `three-file-sync-gate.mjs` 只提醒不拦停，大仓启用后 `sync-check` 另判「记忆落后于代码」与「Spec 改了没配 CHANGELOG」。决策（选型 / 取舍 / 否决 / 撤回）进 progress.md 的 Decisions 段，不许埋进 Done 叙述充数；完成项进 Done，约束进 Pinned。收尾自检（回复 / 交付前过）：三文件都同步了吗？决策有没有混进 Done？——答不齐不算完成。细则见 feedback/three-file-sync-clearable-context-recap-recovery.md。
     - **纠正要当场落地、让用户看见改了什么（铁律）**：用户给出修正、反馈或改进意见时，按序做三件事——① 先把纠正应用到当前产物（Spec 条目 / 派单包 / 进行中的工作）和 progress.md（Decisions 三要素：依据 / 适用范围 / 取代哪条），② 派发 feedback-observer 记录（传入已落地的改变），③ 回用户一句「这次纠正改了：X 文件 Y 段 / Decisions 某条」。只记一条 feedback、只道歉不算落地；纠正针对工作方法且用户说「以后都」时，顺手在对应 skill / rule 做最小改动并在回显里点名。
     - 当收到 `detect-feedback-signal.mjs` 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ DESIGN.md（token 数值）→ Design-Brief.md（页面规格与状态）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
@@ -59,7 +59,7 @@
     - **地板**（任何档都改不了）：`secret-exfil-guard` / `dangerous-pkill-guard` / `release-gate` / `postcompact-reinject` / `notify`——危险命令、密钥隐私、发布卡点、压缩回注、通知永远照跑。
     - **自动升档**：工作树里改了 `.claude/hooks|harness|skills|agents/**`、`.claude/CLAUDE.md`、`.claude/rules/**`、`.claude/settings.json`、`.github/**` 任一路径，本轮自动进 `strict`（`tier status` 的 `source: raise` 点名文件），提交后自动回落；升档不需要人，降档必须带 reason 并记进 gate-block.log（`gate-audit` 能统计 fast 期跳过了哪些闸）。
     - **`fast`**：用户明示的临时放水。guard 类闸只出提醒（Stop 类 `systemMessage`、PreToolUse 类 stderr）并记债、不拦；recorder 类多数关，`record-authorship` 照记。流程侧同步放水：不自动派 tester / code-reviewer，不自动进 per-Task review → fix 闭环与 red-blue，不受 [开发测试规则] 四步走与 red-locks 约束，implementer 直接交付「变更清单 + 实际执行结果 + 已知顾虑」；用户显式要求测试 / 检视时照做；静态检查（`static-check.mjs` 之类廉价闸）不在跳过范围。
-    - **`strict`**：在 `standard` 之上 `tdd-gate` 由提醒改为拦（没验红标记不许派 implementer 写码）；家底改动自动进这一档。
+    - **`strict`**：与 `standard` 同一套闸，只是 session banner 点名家底改动；`tdd-gate` 与 `three-file-sync-gate` 在任何档都只提醒不拦。
     - 项目级微调写 `profile.json` 的 `overrides`（单闸覆盖，`tier explain` 会标 `override`）；改完 `tier validate` 校验三档单调（fast ≤ standard ≤ strict）、地板不在表内。
     - 不等于部署或 push 授权，发布仍走 [发布阶段] 的完整卡点；`release` 装配在 `fast` 生效时 `tier` 项直接 FAIL。
     细则见 feedback/scaffold-development-skip-quality-gates.md（fast 的由来）与 docs/v3-tiered-harness-proposal.md §三。
@@ -88,7 +88,7 @@
     - /code-review - 自动：每个功能开发完成后，自动进入 review → fix 闭环；用户要求代码审查、检查代码质量时。手动：/code-review。前置：Product-Spec.md 必须存在，项目代码已创建
     - /test-builder - 自动：dev-builder 四步走验证第2步「测试完整性」时，调用 test-builder 跑/补回归测试（真卡点）；per-Task review → fix 闭环中，Stage 1 规格通过后补关键逻辑测试（可选，按价值取舍）。手动：/test-builder。前置：项目代码已创建
     - /release-builder - 手动：/release-builder（skill 设 disable-model-invocation——发布是副作用工作流，主 Agent 不能代触发；用户口头说"发布/打包/上线"时，主 Agent 回指该命令请用户亲自敲，这是 HIGH 档显式人触发的机器化）。前置：项目代码已创建
-    - /red-blue-review - 自动：发版 / 合并分支前，对高风险或家底（hooks / skills / CLAUDE.md / agents）改动建议过一遍；用户说"红蓝审查"、"对抗审查"、"检视改动"时。手动：/red-blue-review。前置：有一批已成型的改动（已 commit 或工作树未提交）
+    - /red-blue-review - 手动：/red-blue-review（不自动建议，用户说"红蓝审查"、"对抗审查"时才调）。前置：有一批已成型的改动（已 commit 或工作树未提交）
     - /branch-finisher - 自动：Phase / 功能完成后，建议用户敲 /branch-finisher 收尾当前开发分支；用户说"收尾"、"合并分支"、"这个分支弄完了"时，回指 /branch-finisher 请用户确认触发。手动：/branch-finisher。前置：项目代码已创建
     - /skill-builder - 自动：EVOLUTION.md 第四层提议创建新 Skill，用户确认后。手动：/skill-builder。前置：无
     - /feedback-writer - 由 feedback-observer sub-agent 调用，不由用户直接触发
@@ -135,8 +135,10 @@
 
     四步走的具体操作和证据要求见 dev-builder SKILL.md [Phase 完成度判断]。
     其中第2步「测试完整性」由 test-builder skill 承担——务实回归：探测/搭建测试基建，为高价值逻辑（契约、解析器、去重、关键边界）写可重跑回归测试并执行，附运行器真实输出为证据。不再只是"功能清单打勾"。
-    - **red-locks-the-bug（铁律）**：review / 测试 / 验收发现的缺陷，修复前必须先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿 → code-reviewer 复审。目的：① 缺陷固化为永久回归测试防再犯 ② 修复有客观靶子（红转绿）③ 机制化不靠自觉——没有验红标记就派 implementer 写码时 `tdd-gate.mjs` 出提醒。
+    - **red-locks-the-bug**：线上行为的 bug 修复与核心解析器 / 契约的缺陷，修复前先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿。审查发现的边角输入、参数花样、文案类问题记进 progress.md 残留，不开红锁；没有验红标记派 implementer 时 `tdd-gate.mjs` 只提醒，任何档都不拦。
+    - **审查收敛**：每个 Task 一轮 code-reviewer 审查，只有 HIGH 阻断；修完由同一轮 reviewer 复核一次即收口，Medium / Low 记残留，不派 fresh reviewer 开新一轮。闸的规则以「模板原样必红、范例必绿」为准绳，超出这两者的花样不追。
     - **全量回归报「绿」须附运行清单**：报「全绿」不作数，要列跑了哪些文件、各自结果（绿/红/跳过原因）；主 Agent 验收抽查须含至少一次亲跑全量回归（非只跑改动相关测试），防未跟踪残留撑绿的假绿；抽不抽这一下靠自觉。
+    - **测试量区间与按风险分配（用户 2026-09-10）**：测试代码占有效代码的三分之一到二分之一之间（按行数；hooks / harness / scripts / githooks / 安装器算有效代码，tests/ 与 selftest lane 算测试），低了补、高了删。预算按风险给：坏了会泄密、毁数据、装坏别人项目的（密钥与危险命令闸、安装器与 manifest、发布装配）可到二分之一；引擎子命令只守退出码契约加一条真实场景；提醒类 hook、档位、工具脚本各留一两条；不做全量覆盖，防回归位、变异体、边角输入不进仓。用例分三级（文件头一行 `# risk: high|medium|low`）：日常只跑 high，`run-all --level medium|all` 才跑其余，CI 跑 all；用例有老化：每次运行把各用例结果记进 `.claude/evidence/test-ledger.jsonl`，`test-age` 列出跑过 20 次以上从未失败的用例作退休候选，发版前过一遍删掉（密钥 / 危险命令 / 安装器这三类地板用例除外）。
     - **闸靠数据留，不靠感觉留**：新增的审查/验收/测试闸（red-blue、五步闸、各 Stage、回归等）要定期核它到底挡没挡住问题——某闸长期全过/全绿、从没产出过 FIX_REQUIRED 或红，就简化或删掉，别为"感觉安全"养无效成本。加闸要能说出它挡住过什么——`gate-audit.sh` 就是报这个的：哪些闸从没拦下过、哪些被豁免压着。细则见 feedback/gates-need-empirical-validation.md。
     Git 工作流规则见 dev-builder SKILL.md [开发规则清单]。
 

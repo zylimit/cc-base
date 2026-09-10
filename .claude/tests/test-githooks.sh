@@ -8,13 +8,12 @@
 #   ① commit-msg  本仓全部历史 subject 必须全过（对 cc-base 只读）/ 无信息词被拒 /
 #                 中文标题不被误拒（按字符数会误拒、按显示宽度才对）/ 过短被拒 /
 #                 Merge|fixup! 放行 / 超长只告警 / 空消息交给 git
-#   ② pre-commit  干净树放行 / 注入假密钥被拦 / rc 3 降级不阻断但出声 /
+#   ② pre-commit  只剩 secrets + syntax 两项：干净树放行 / 注入假密钥被拦 / rc 3 降级不阻断但出声 /
 #                 rc 2 用法错阻断 / 契约外退出码打 SKIPPED 不阻断 / 脚本缺失打 SKIPPED /
 #                 node 不在 PATH 上打 SKIPPED 不阻断
-#   ③ pre-push    降档模式（CCBASE_PREPUSH_FULL=0）全绿放行 / 静态段有失败即阻断 /
-#                 gate rc 2 阻断且说的是「门未过」不是「用法错」/ node 缺失打 SKIPPED
-#                 ——**不跑** FULL 模式：那会拉起 run-all，run-all 又会拉起 claude -p，
-#                 一次自测烧几分钟 token，不是回归测试该干的事
+#   ③ pre-push    读 stdin 的 ref 列表判这次推的是文档还是代码：纯文档一行放行 /
+#                 代码推送只跑 selftest + secrets 两项 / 任一阻断即 rc 1 / secrets rc 3 降级放行 /
+#                 判不出改了什么（一条 ref 都没读到）按代码推送办 / node 缺失打 SKIPPED 放行
 #   ④ install-githooks.sh 的 on/off/status 往返
 #   ⑤ 三个 hook 的 sh -n / bash -n 语法
 #
@@ -92,12 +91,6 @@ try { fs.appendFileSync(new URL('./stub-argv.log', import.meta.url), process.arg
 process.stderr.write('stub harness ' + sub + '\n');
 process.exit(Object.prototype.hasOwnProperty.call(rc, sub) ? rc[sub] : 0);
 EOF
-}
-
-# stub_golden <dir> <rc>
-stub_golden() {
-    printf 'process.stderr.write("stub golden: forced rc %s\\n");\nprocess.exit(%s);\n' \
-        "$2" "$2" > "$1/.claude/tests/harness-golden.mjs"
 }
 
 # run_hook <dir> <hook 名> [参数...] —— 在临时仓里跑 hook，回填 RC / OUT。
@@ -276,7 +269,7 @@ fi
 
 # ②-5 契约外退出码（工具自己崩了）→ SKIPPED 出声，不阻断
 R4="$TMP/r4"; mkrepo "$R4"; use_real_audit "$R4"
-stub_audit "$R4" scan-instructions.mjs 42
+stub_audit "$R4" check-syntax.mjs 42
 (cd "$R4" && git add -A)
 run_hook "$R4" pre-commit
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'SKIPPED'; then
@@ -374,77 +367,119 @@ run_hook "$R7" pre-commit
 chk "$([ "$RC" -eq 1 ] && echo 0 || echo 1)" "catalog-lint rc 1 阻断 commit" "rc 1" "rc $RC；$(printf '%s' "$OUT" | tail -4)"
 
 # ---------------------------------------------------------------------------
-# ③ pre-push（只测降档模式：FULL 模式会拉起 run-all → claude -p，自测不该烧那个）
+# ③ pre-push：判文档/代码，代码推送只跑 selftest + secrets
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- ③ pre-push：降档模式 CCBASE_PREPUSH_FULL=0 ---"
+echo "--- ③ pre-push：纯文档放行 / 代码推送两项 ---"
 
+# push_line <dir> <这次要改的文件…> —— 在临时仓里造一次「已提交待推送」的改动，回填 PUSH_STDIN：
+# git 喂给 pre-push 的就是这一行 <local_ref> <local_sha> <remote_ref> <remote_sha>。
+PUSH_STDIN=""
+push_line() {
+    local dir="$1"; shift
+    (cd "$dir" && git add -A && git commit -q -m "chore(demo): 基线" >/dev/null 2>&1) || true
+    local base head f
+    base=$(cd "$dir" && git rev-parse HEAD)
+    for f in "$@"; do
+        mkdir -p "$dir/$(dirname "$f")"
+        printf 'x\n' >> "$dir/$f"
+    done
+    (cd "$dir" && git add -A && git commit -q -m "chore(demo): 待推送的改动")
+    head=$(cd "$dir" && git rev-parse HEAD)
+    PUSH_STDIN="refs/heads/main $head refs/heads/main $base"
+}
+
+# run_push <dir> [PATH 覆盖] —— 把 PUSH_STDIN 喂进 stdin 跑 pre-push，回填 RC / OUT。
+run_push() {
+    local dir="$1" pathenv="${2:-}"
+    RC=0
+    if [ -n "$pathenv" ]; then
+        OUT=$( (cd "$dir" && printf '%s\n' "$PUSH_STDIN" | PATH="$pathenv" "$SH" "$HOOKS/pre-push" 2>&1) ) || RC=$?
+    else
+        OUT=$( (cd "$dir" && printf '%s\n' "$PUSH_STDIN" | "$SH" "$HOOKS/pre-push" 2>&1) ) || RC=$?
+    fi
+}
+
+# ③-1 纯文档推送：一行放行，两项检查一项都不跑（跑了就是白等）
 P1="$TMP/p1"; mkrepo "$P1"; use_real_audit "$P1"
 stub_engine "$P1" 0 0 0 0
-stub_golden "$P1" 0
-(cd "$P1" && git add -A)
-run_hook_env "$P1" CCBASE_PREPUSH_FULL=0 pre-push
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '降档'; then
-    chk 0 "降档模式全绿放行" "rc 0 且输出说明这是降档闸" "rc $RC"
+push_line "$P1" progress.md docs/note.md .claude/feedback/lesson.md
+run_push "$P1"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '纯文档推送'; then
+    chk 0 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc $RC；$OUT"
 else
-    chk 1 "降档模式全绿放行" "rc 0 且输出说明这是降档闸" "rc $RC；$OUT"
+    chk 1 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc $RC；$OUT"
 fi
-if printf '%s' "$OUT" | grep -q '全量回归'; then
-    pass "降档时把「全量回归没跑」记成降级项（不冒充全量通过）"
+if printf '%s' "$OUT" | grep -q 'selftest'; then
+    fail "纯文档推送还是跑了 selftest（放行的意义就在于不跑）：$OUT"
 else
-    fail "降档时没说全量回归被跳过，读起来像跑全了：$OUT"
+    pass "纯文档推送没跑 selftest（省下的就是这一分钟）"
 fi
 
-# ③-2 静态段有失败 → 阻断
+# ③-2 代码推送：selftest + secrets 两项都跑，全绿放行
+push_line "$P1" src/app.js
+run_push "$P1"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'selftest' && printf '%s' "$OUT" | grep -q 'secrets'; then
+    chk 0 "代码推送跑 selftest + secrets 两项" "rc 0 且两项都出现在输出里" "rc $RC；$OUT"
+else
+    chk 1 "代码推送跑 selftest + secrets 两项" "rc 0 且两项都出现在输出里" "rc $RC；$OUT"
+fi
+# 只数带标记的检查行，别拿整段输出 grep——横幅里本来就要写「全量回归归 run-all.sh」。
+LBLS=$(printf '%s\n' "$OUT" | grep -oE '\[(OK|BLOCK|SKIPPED)\][[:space:]]+[a-z-]+' | awk '{print $2}' | tr '\n' ' ')
+if [ "$LBLS" = "selftest secrets " ]; then
+    pass "代码推送只有 selftest + secrets 两项（全量回归 / gate / golden 已归 run-all 与 CI）"
+else
+    fail "代码推送的检查项不是「selftest secrets」而是「$LBLS」：$OUT"
+fi
+
+# ③-3 selftest rc 1 → 阻断
 P2="$TMP/p2"; mkrepo "$P2"; use_real_audit "$P2"
-stub_engine "$P2" 0 0 0 1          # selftest rc 1
-stub_golden "$P2" 0
-(cd "$P2" && git add -A)
-run_hook_env "$P2" CCBASE_PREPUSH_FULL=0 pre-push
-chk "$([ "$RC" -eq 1 ] && echo 0 || echo 1)" "selftest rc 1 阻断 push" "rc 1" "rc $RC；$(printf '%s' "$OUT" | tail -4)"
+stub_engine "$P2" 0 0 0 1
+push_line "$P2" src/app.js
+run_push "$P2"
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'BLOCK'; then
+    chk 0 "selftest rc 1 阻断 push" "rc 1 且输出含 BLOCK" "rc $RC；$(printf '%s' "$OUT" | tail -4)"
+else
+    chk 1 "selftest rc 1 阻断 push" "rc 1 且输出含 BLOCK" "rc $RC；$OUT"
+fi
+if printf '%s' "$OUT" | grep -q 'run-all.sh'; then
+    pass "阻断时给了自查命令（拦住却不说怎么查等于让人去猜）"
+else
+    fail "阻断时没给自查命令：$OUT"
+fi
 
-# ③-3 gate rc 2 → 阻断，且说的是「质量门未过」不是「用法错」。
-#      引擎 gate 的 2 和审计脚本的 2 不是一回事，混成一句话等于没说。
+# ③-4 secrets rc 1 有命中 → 阻断
 P3="$TMP/p3"; mkrepo "$P3"; use_real_audit "$P3"
-stub_engine "$P3" 0 0 2 0          # gate rc 2
-stub_golden "$P3" 0
-printf '{}\n' > "$P3/.claude/harness/module-catalog.json"
-(cd "$P3" && git add -A)
-run_hook_env "$P3" CCBASE_PREPUSH_FULL=0 pre-push
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '质量门未过'; then
-    chk 0 "gate rc 2 阻断且说「质量门未过」" "rc 1 且输出含「质量门未过」" "rc $RC"
-else
-    chk 1 "gate rc 2 阻断且说「质量门未过」" "rc 1 且输出含「质量门未过」" "rc $RC；$OUT"
-fi
-if printf '%s' "$OUT" | grep -q '用法错'; then
-    fail "gate 的 rc 2 被读成了「用法错」（两套契约混了）：$OUT"
-else
-    pass "gate 的 rc 2 没被读成「用法错」（两套契约分开判）"
-fi
+stub_engine "$P3" 0 0 0 0
+stub_audit "$P3" scan-secrets.mjs 1
+push_line "$P3" src/app.js
+run_push "$P3"
+chk "$([ "$RC" -eq 1 ] && echo 0 || echo 1)" "secrets rc 1 阻断 push" "rc 1" "rc $RC；$(printf '%s' "$OUT" | tail -4)"
 
-# ③-4 gate rc 3 降级 → 不阻断
+# ③-5 secrets rc 3 降级 → 出声但不阻断（该扫的没扫成，拦住只会让人 --no-verify）
 P4="$TMP/p4"; mkrepo "$P4"; use_real_audit "$P4"
-stub_engine "$P4" 0 0 3 0
-stub_golden "$P4" 0
-printf '{}\n' > "$P4/.claude/harness/module-catalog.json"
-(cd "$P4" && git add -A)
-run_hook_env "$P4" CCBASE_PREPUSH_FULL=0 pre-push
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'DEGRADE'; then
-    chk 0 "gate rc 3 降级不阻断" "rc 0 且输出含 DEGRADE" "rc $RC"
+stub_engine "$P4" 0 0 0 0
+stub_audit "$P4" scan-secrets.mjs 3
+push_line "$P4" src/app.js
+run_push "$P4"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '未执行 != 通过'; then
+    chk 0 "secrets rc 3 降级不阻断但出声" "rc 0 且输出说「未执行 != 通过」" "rc $RC"
 else
-    chk 1 "gate rc 3 降级不阻断" "rc 0 且输出含 DEGRADE" "rc $RC；$OUT"
+    chk 1 "secrets rc 3 降级不阻断但出声" "rc 0 且输出说「未执行 != 通过」" "rc $RC；$OUT"
 fi
 
-# ③-5 无 catalog → 不跑 gate
-run_hook_env "$P1" CCBASE_PREPUSH_FULL=0 pre-push
-if printf '%s' "$OUT" | grep -qE '\[(OK|BLOCK|DEGRADE|SKIPPED)\][[:space:]]+gate'; then
-    fail "无 catalog 却跑了 gate（默认关被破坏）：$OUT"
+# ③-6 一条 ref 都没读到 → 判不出改了什么，按代码推送办（宁严勿松）
+PUSH_STDIN=""
+run_push "$P1"
+if printf '%s' "$OUT" | grep -q '代码推送'; then
+    chk 0 "读不到 ref 时按代码推送办" "输出说「代码推送」" "rc $RC；$OUT"
 else
-    pass "无 catalog 时不跑 gate（默认关不变）"
+    chk 1 "读不到 ref 时按代码推送办" "输出说「代码推送」" "rc $RC；$OUT"
 fi
 
-# ③-6 node 不在 PATH 上 → SKIPPED 不阻断
-run_hook_nonode "$P1" pre-push
+# ③-7 node 不在 PATH 上 → SKIPPED 不阻断
+push_line "$P1" src/app.js
+run_push "$P1" "$FAKEBIN"
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'SKIPPED'; then
     chk 0 "pre-push 缺 node 打 SKIPPED 不阻断" "rc 0 且输出含 SKIPPED" "rc $RC"
 else

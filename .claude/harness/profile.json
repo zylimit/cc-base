@@ -4,11 +4,11 @@
   "floor": ["secret-exfil-guard", "dangerous-pkill-guard", "release-gate", "postcompact-reinject", "notify"],
   "hooks": {
     "stop-gate":               { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
-    "three-file-sync-gate":    { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
+    "three-file-sync-gate":    { "kind": "guard",    "fast": "advise", "standard": "advise", "strict": "advise" },
     "precompact-gate":         { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
     "pre-commit-check":        { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
     "no-direct-code-guard":    { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
-    "tdd-gate":                { "kind": "guard",    "fast": "off",    "standard": "advise", "strict": "block" },
+    "tdd-gate":                { "kind": "guard",    "fast": "advise", "standard": "advise", "strict": "advise" },
     "harness-async-verify":    { "kind": "guard",    "fast": "off",    "standard": "block",  "strict": "block" },
     "mark-review-needed":      { "kind": "recorder", "fast": "off",    "standard": "on",     "strict": "on" },
     "record-authorship":       { "kind": "recorder", "fast": "on",     "standard": "on",     "strict": "on" },

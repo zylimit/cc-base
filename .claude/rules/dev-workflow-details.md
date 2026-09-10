@@ -134,22 +134,13 @@ paths:
 
             派发 implementer 编码（执行规则见 dev-builder SKILL.md）
                 ↓
-            派发 code-reviewer 三阶段审查
+            派发 code-reviewer 一轮审查（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量，一次跑完）
                 ↓
-            Stage 0 静态闸（static-check.mjs 识栈跑 linter）结果：
-                → 全绿 → 进入 Stage 1
-                → 有静态错 → 停在 Stage 0，派发 bug-fixer 修绿 → 从 Stage 0 重审
+            只有 HIGH 阻断：有 HIGH → 派发 implementer / bug-fixer 修复 → 同一 reviewer 复核一次 → 收口；Medium / Low 记进 progress.md 残留，随后续 Task 顺手修，不开新一轮
                 ↓
-            Stage 1 Spec Compliance 结果：
-                → 通过 → 进入 Stage 2
-                → 失败 → 派发 implementer 补实现 → 重新派发 code-reviewer
-                → 报告含「❓ 需求存疑」（或 implementer / tester 回执带反例）→ 主 Agent 调 product-spec-builder 迭代模式，反例作输入；Spec 改了则回流 dev-planner 更新受影响 Task 再重审，用户确认 Spec 没错则记进澄清记录关闭存疑——存疑不阻塞其余条目进 Stage 2
+            报告含「❓ 需求存疑」（或 implementer / tester 回执带反例）→ 主 Agent 调 product-spec-builder 迭代模式，反例作输入；Spec 改了则回流 dev-planner 更新受影响 Task；用户确认 Spec 没错则记进澄清记录关闭存疑——存疑不阻塞收口
                 ↓
-            Stage 2 Code Quality 结果：
-                → 通过 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task
-                → 失败 → 派发 bug-fixer（或 implementer）修复 → 重新派发 code-reviewer（从 Stage 0 开始）
-
-            循环直到三个 Stage 都通过。
+            收口 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task
 
             所有 Task 完成 → 进入第四步
 

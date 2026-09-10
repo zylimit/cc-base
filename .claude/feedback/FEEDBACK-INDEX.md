@@ -38,6 +38,7 @@
 - ✅[已毕业] [主 Agent 行为：静默 subagent 须预先告知；中断≠否决方案；禁止甩锅](subagent-silence-preannounce-interrupt-not-rejection-no-blameshift.md) — 派静默 subagent 前必先告知用户(预计耗时/会通知)；工具被用户消息中断(interrupted/rejected)≠用户否决方案，不得擅自切换；禁止甩锅"你打断了我"
 - ✅[已毕业] [TDD per-Task 循环：测试侧缺陷的归属分流——派回 tester，不让 coder 碰测试](tdd-per-task-test-side-defect-routing.md) — coder 被硬约束「禁改测试文件」，但 GREEN 后 lint:static 撞到的是 tester 写的测试文件自身的 typecheck/eslint 缺陷时，coder 合理停手非死锁；按「测试错→tester 修，代码错→coder 修」分流
 - ✅[已毕业] [测试方法论升级：从事后补回归测试转向 TDD（测试先行，学习 obra/superpowers）](tdd-test-first-over-after-the-fact-regression.md) — 事后补回归测试价值有限（为打勾、覆盖低），引入 TDD red-green-refactor：高价值逻辑测试先行、先写失败测试再写实现，UI 保持渲染/视觉对照
+- ✅[已毕业] [测试代码规模按风险分层，卡在有效代码三分之一到二分之一区间](test-code-capped-at-one-third-of-effective-code.md) — 测试量整体落在有效代码 1/3–1/2（按行数），低了补高了删；预算按风险分档：密钥/危险命令/安装器/发布类可到上限二分之一，引擎子命令守退出码契约+一条真实场景，提醒类 hook/工具脚本各留一两条；不做全量覆盖
 - ✅[已毕业] [测试卡点：测试通过是打包/交付前的强制前置闸门，部署 ≠ 可跳过测试](test-gate-before-packaging-delivery.md) — 测试通过必须是打包/交付前的强制前置卡点；"部署"指令不等于可跳过测试，带后端逻辑变更的版本打包前须有回归测试或手动功能验证证据
 - ✅[已毕业] [测试独立性：写测者 ≠ 被测代码作者（自码自测易作弊）](test-independence-author-not-tester.md) — 写测者不得是被测代码作者；自码自测会把作者的错误假设原样写进断言（confirmation bias），测试派独立方（tester Sub-Agent 或非作者的另一 implementer fresh 实例）
 - ✅[已毕业] [三文件同步：随时可 Clear 上下文，靠 recap 完整恢复](three-file-sync-clearable-context-recap-recovery.md) — Product-Spec.md / Product-Spec-CHANGELOG.md / progress.md 最大程度维护、即时同步，确保用户任何时候可 Clear 上下文、靠 recap 完整恢复；决策/约束/完成事项/新任务即时同步到对应文件，doc 类由主 Agent 直接维护
