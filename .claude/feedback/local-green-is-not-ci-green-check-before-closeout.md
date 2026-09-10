@@ -4,7 +4,7 @@ description: 本地 run-all 全绿不能当 CI 会绿的证据——两者跑的
 created: 2026-09-03
 updated: 2026-09-03
 occurrences: 2
-graduated: false
+graduated: true  # 2026-09-10 毕业→CLAUDE.md [开发测试规则]「本地绿只是必要条件」；当天原样复发一次（CI 连红四次）才落地
 source_skill: N/A（框架级规则，验收铁律的覆盖缺口）
 ---
 

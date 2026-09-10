@@ -133,10 +133,12 @@ jobs:
             echo "::error::run-all 失败 rc=$RC（详见上面的完整输出）"
             exit 1
           fi
-          if grep -q 'SKIPPED: 无 claude CLI' "$LOG"; then
-            echo "第三段真触发 case：显式 SKIPPED（无 claude CLI），符合 CI 预期。"
+          # 两种跳过理由都认：默认不跑（opt-in 未开，run-all 先判这条）与无 claude CLI。
+          # 认的是「有没有出声」，不是「为什么跳」——静默没跑照旧判红。
+          if grep -qE 'SKIPPED: (无 claude CLI|真触发 case 默认不跑)' "$LOG"; then
+            echo "第三段真触发 case：显式 SKIPPED，符合 CI 预期。"
           else
-            echo "::error::run-all 通过了，但没看到「第三段因无 claude CLI 显式 SKIPPED」那行。"
+            echo "::error::run-all 通过了，但没看到第三段显式 SKIPPED 那行。"
             echo "::error::要么 CI 上真跑了真触发 case（不该发生），要么那段被静默掉了——两种都得查。"
             exit 1
           fi

@@ -131,7 +131,7 @@
     - **red-locks-the-bug**：只给线上行为的 bug 与核心解析器 / 契约的缺陷——修复前先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿；审查发现的边角输入、参数花样、文案类记进 progress.md 残留，不开红锁，`tdd-gate.mjs` 只提醒、任何档都不拦。
     - **审查收敛**：每个 Task 一轮 code-reviewer 审查，只有 HIGH 阻断；修完由同一轮 reviewer 复核一次即收口，Medium / Low 记残留，不派 fresh reviewer 开新一轮。闸的规则以「模板原样必红、范例必绿」为准绳，超出这两者的花样不追。
     - **测试量区间与按风险分配（用户 2026-09-10）**：测试代码占有效代码的三分之一到二分之一（按行数；hooks / harness / scripts / githooks / 安装器算有效代码，tests/ 与 selftest lane 算测试），低了补、高了删。预算按风险给——坏了会泄密、毁数据、装坏别人项目的（密钥与危险命令闸、安装器与 manifest、发布装配）可到二分之一；引擎子命令只守退出码契约加一条真实场景；提醒类 hook、档位、工具脚本各留一两条；不做全量覆盖。
-    - **用例分级与老化**：用例头一行标 `# risk: high|medium|low`，日常只跑 high、`run-all --level medium|all` 才跑其余、CI 跑 all；每次运行把结果记进 `.claude/evidence/test-ledger.jsonl`，`test-age` 列出跑过 20 次以上从未失败的作退休候选，发版前过一遍删掉（密钥 / 危险命令 / 安装器三类地板用例除外）。报「绿」须附运行清单（跑了哪些文件、各自绿 / 红 / 跳过原因），主 Agent 验收抽查须含至少一次亲跑全量回归，防未跟踪残留撑绿的假绿。
+    - **用例分级与老化**：用例头一行标 `# risk: high|medium|low`，日常只跑 high、`run-all --level medium|all` 才跑其余、CI 跑 all；每次运行把结果记进 `.claude/evidence/test-ledger.jsonl`，`test-age` 列出跑过 20 次以上从未失败的作退休候选，发版前过一遍删掉（密钥 / 危险命令 / 安装器三类地板用例除外）。报「绿」须附运行清单（跑了哪些文件、各自绿 / 红 / 跳过原因），主 Agent 验收抽查须含至少一次亲跑全量回归，防未跟踪残留撑绿的假绿。**本地绿只是必要条件**：仓库有 CI 的，推送后另跑一次 `gh run list` 读 CI 自己的结论再报完成，读不到写「未知」不写「通过」——本地默认只跑 high 档、CI 跑 all，两边跑的根本不是同一套（2026-09-10 连红四次才被发现）。
     - **闸靠数据留，不靠感觉留**：某闸长期全过 / 全绿、从没产出过 FIX_REQUIRED 或红，就简化或删掉，别为"感觉安全"养无效成本；加闸要能说出它挡住过什么——`gate-audit.sh` 报的就是这个。细则见 feedback/gates-need-empirical-validation.md。
 
 
