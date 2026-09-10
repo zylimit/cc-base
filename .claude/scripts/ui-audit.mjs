@@ -43,20 +43,31 @@ function usageExit(message) {
 }
 
 async function resolveModule(pkg) {
+  let importError = null;
   try {
     return await import(pkg);
-  } catch {}
+  } catch (error) {
+    importError = error;   // 先记着：createRequire 那条路也不通时，两条原因得一起往上抛
+  }
   const require = createRequire(join(process.cwd(), 'noop.js'));
-  const entry = require.resolve(pkg);
+  let entry;
+  try {
+    entry = require.resolve(pkg);
+  } catch (error) {
+    throw new Error(`${pkg} 解析不到：import ${importError && importError.message ? importError.message : importError}；require.resolve ${error && error.message ? error.message : error}`);
+  }
   const mod = await import(pathToFileURL(entry).href);
   return mod.chromium ? mod : mod.default ?? mod;
 }
 
-// launch 抛的异常记在这儿：引擎装着却起不来时，「缺席」得说得出原因；包压根不在是另一回事，不算原因。
+// launch 抛的异常记在这儿：引擎装着却起不来时，「缺席」得说得出原因。包压根不在是另一回事，
+//   单独记进 resolveError——混着记会让「装着起不来」的真原因被一句「找不到模块」顶掉。
 let launchError = null;
+let resolveError = null;
 
 async function loadBrowser() {
   launchError = null;
+  resolveError = null;
   for (const pkg of ['playwright-core', 'playwright']) {
     try {
       const mod = await resolveModule(pkg);
@@ -70,7 +81,9 @@ async function loadBrowser() {
           launchError = second;
         }
       }
-    } catch {}
+    } catch (error) {
+      resolveError = error;   // 这个包解析不到，接着试下一个；一个都不通时它就是「缺席」的原因
+    }
   }
   return null;
 }
@@ -342,9 +355,10 @@ async function main() {
   const engine = await loadBrowser();
   if (!engine) {
     console.error('未找到可用浏览器引擎：装 playwright-core 并具备本机 Chrome，或一次性 npm i playwright；本次 UI 审计缺席，请在报告注明（未执行 != 通过）。');
-    if (launchError) console.error(`原因：${launchError.message || launchError}`);
+    const why = launchError || resolveError;   // 装着起不来的原因优先，包压根不在才退而说解析报的错
+    if (why) console.error(`原因：${why.message || why}`);
     if (staticServer) staticServer.server.close();
-    await markAbsent(outDir, target, launchError);
+    await markAbsent(outDir, target, why);
     process.exit(3);
   }
 

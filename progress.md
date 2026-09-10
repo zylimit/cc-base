@@ -357,6 +357,8 @@ P6 余项：无（`release` 落地即收官）。**`fleet` 已判明确不做**�
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
 
 ## Notes
+- 2026-09-10: 第十二批红锁主 Agent 亲验（09:00）：test-ui-audit 24/1+U5 跳过，U22 恰红 fitness 两条空 catch（第 48 / 73 行），指纹与提交 0d664dc 一致；tester 提醒修复时包解析原因用独立变量、不覆盖 U6 断言的 launchError；已派一单修绿。tester 另提两点记为议题：① fitness 只扫已跟踪文件，新脚本要到提交后才被 dod 抓到——是否让 run-all / pre-commit 层对新增未跟踪的 .mjs 也跑一次 fitness 归 v2.0.x；② 调外部检查器当判据必须同时断言「确实扫到了东西」（U22 首版 scannedFiles=0 假绿）
+- 2026-09-10: 收口时 pre-push 钩子阻断（07:20）：钩子内嵌的全量回归在 dod 装配的 `fitness --all` 报 rc 2——`no-silent-failure` 规则抓到 ui-audit.mjs 第 48 / 73 行两个空 `catch {}`；fitness 只扫已跟踪文件，所以提交前的 run-all 全绿、提交后才红。本地重跑 run-all 复现一致。处置：第十二批红锁（U22 fitness 零命中）→ 一单修绿 → 重新全量 run-all → 追加提交并推送；提交 0d664dc 保留，不 amend
 - 2026-09-10: 复审第十轮回执（fresh reviewer，只审 ui-audit，06:55）：**PASS**——Stage 1 / Stage 2 全过，20 组自造攻击输入无 Medium 以上；三条 Low 记为残留不改：末位 `--out` 缺值时预扫回退到前一个 `--out` 而解析通道回退默认目录、POSIX `--` 终止符不在预扫词汇表、`--json` 在非 0 出口 stdout 为空（机器消费须看 rc；`--json > file` 会截空）；一条测试存疑（U18b 只断言 rc、默认目录作废半边由 reviewer 沙箱补验正确）。review → fix 闭环到此收口：十一批红锁、十轮复审
 - 2026-09-10: 第十一批亲验绿（06:45）：ui-audit 24/0+U5 跳过，predev 66/66、selftest 308 不变，无诱饵目录泄漏；已派第十轮 fresh code-reviewer 只审 ui-audit
 - 2026-09-10: 第十一批红锁主 Agent 亲验（06:35）：test-ui-audit 22/2+U5 跳过（U20 单横线值、U21 等号写法两通道同判），predev 66/66 与 selftest 308 不受 iso_run 改 cwd 影响；tester 实测本机 node 24 parseArgs 对 `--out --strict` 抛歧义、`--out=--strict` 解析成功，写进 U19 注释；已派一单修绿

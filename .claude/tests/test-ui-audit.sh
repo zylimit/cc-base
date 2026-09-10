@@ -504,6 +504,41 @@ chk "$r" "U21 等号写法 --out=--strict 在解析失败与解析成功两条�
     "两次都 rc=2；两次都作废默认目录；两次都不动 ./--strict" \
     "失败通道 rc=$RCA 默认已作废=$(u_voided "$ADEF" && echo yes || echo no) 动了./--strict=$(u_voided "$ADEC" && echo yes || echo no)；成功通道 rc=$RCB 默认已作废=$(u_voided "$BDEF" && echo yes || echo no) 动了./--strict=$(u_voided "$BDEC" && echo yes || echo no)"
 
+# ---------------------------------------------------------------------------
+# U22 空的 catch 把失败换成了错误答案，而且没人知道。fitness 的 no-silent-failure 规则
+#   （harness/lib/scan.mjs）扫的是已跟踪文件，所以提交前一路绿、提交后才在 dod 装配里炸出来，
+#   pre-push 被挡住。这条把它提前到套件里：扫的是**被测那份**（$AUDIT），副本也能扫。
+# ---------------------------------------------------------------------------
+fitpaths() { # <json> → 「扫了几个文件 命中几条 规则@行」
+    printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{return console.log("- - PARSE_ERROR")}const f=(j.findings||[]).filter(x=>String(x.path||"").endsWith("ui-audit.mjs"));console.log((j.scannedFiles===undefined?"?":j.scannedFiles)+" "+f.length+" "+([...new Set(f.map(x=>x.rule+"@"+x.line))].join(",")||"-"))})'
+}
+# fitness 的 --paths 只认**相对仓根**的路径：喂绝对路径会得到 scannedFiles=0 / findings 空，
+#   那是「什么都没扫」而不是「扫干净了」。所以判据里 scannedFiles>=1 和「零命中」缺一不可，
+#   否则这条用例会在任何一次路径写错时安静地绿着。
+FITREL=""
+case "$AUDIT" in "$SRC"/*) FITREL=".claude/${AUDIT#"$SRC"/}" ;; esac
+if [ ! -f "$SRC/harness/harness.mjs" ]; then
+    echo "  [NOTE] U22 跳过：找不到 $SRC/harness/harness.mjs"
+elif [ -z "$FITREL" ]; then
+    skip "U22 被测脚本不在 $SRC 之下（$AUDIT），fitness --paths 表达不出相对仓根的路径，未执行 != 通过"
+else
+    FIT=$( cd "$SRC/.." && node .claude/harness/harness.mjs fitness --paths "$FITREL" 2>/dev/null )
+    FRC=$?
+    if [ "$FRC" -eq 3 ]; then
+        skip "U22 fitness 降级（rc 3），未执行 != 通过"
+    else
+        HIT=$(fitpaths "$FIT")
+        SCANNED=${HIT%% *}; REST=${HIT#* }; N=${REST%% *}
+        r=0
+        [ "$FRC" -eq 0 ] || r=1
+        [ "$SCANNED" -ge 1 ] 2>/dev/null || r=1
+        [ "$N" = 0 ] || r=1
+        chk "$r" "U22 ui-audit.mjs 里不许有空的 catch（fitness 的 no-silent-failure 零命中）" \
+            "rc=0 且 scannedFiles>=1（确实扫到了）且 ui-audit.mjs 上零条 finding" \
+            "rc=$FRC；扫到 $SCANNED 个文件；命中 $N 条：${REST#* }"
+    fi
+fi
+
 echo "  [NOTE] 未覆盖：URL 目标、多主题×多宽度组合矩阵、截图文件命名、--json 的 combos 结构细节。"
 echo "         这些要真引擎 + 稳定渲染环境，先只锁「缺席不冒充通过」和「溢出必须判红」两条命脉。"
 echo "  [NOTE] U0-U4 与 U6-U17 都已是绿的；唯一没执行的是 U5——真渲染要浏览器引擎，"
