@@ -39,7 +39,7 @@ paths:
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
         ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / statusline 状态行 / supervisor 进程守护）
-        ├── tests/                         # 框架自测（selftest / test-setup / test-routing / test-fast-mode / test-gate-audit / test-three-file-sync-gate / test-predev-lint / test-ui-audit，cases/run-all.sh 统一跑）
+        ├── tests/                         # 框架自测三十来套（selftest 引擎自测 / 安装器与跨平台 / hook 行为与注册面 / 档位 / 闸与证据层红锁 / 审计脚本 / 发布装配 / 前期文档闸与设计稿审计），每套头一行标 `# risk:`，cases/run-all.sh 统一跑（默认 high，`--level all` 跑全）——清单以目录实际内容为准，不在本文件逐个列
         └── skills/
             ├── product-spec-builder/      # 需求收集
             ├── arch-designer/             # 架构设计（不变量 + 模块划分 + C4 + ADR + 押后决定）

@@ -4,7 +4,7 @@ description: 脚手架应优先支持复制 .claude/ 与 CLAUDE.md 即用，并�
 created: 2026-07-19
 updated: 2026-07-19
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-10 逐条比对后判定：rules/file-structure.md 的目录树本身就是这条的落地（根目录只留 Spec / CHANGELOG / 可选设计文档 / DEV-PLAN / 代码目录 / .gitignore / .claude），且该文件被主控定为「核对项目结构前必须先读」
 source_skill: N/A
 ---
 

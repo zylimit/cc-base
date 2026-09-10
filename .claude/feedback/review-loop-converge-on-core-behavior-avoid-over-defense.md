@@ -4,12 +4,12 @@ description: review → fix 闭环需设收敛判据——核心行为缺陷清�
 created: 2026-09-10
 updated: 2026-09-10
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-10 逐条比对后判定：该条的进化信号已 100% 落地，共五处：CLAUDE.md [开发测试规则] red-locks 与审查收敛两条、code-review / test-builder / dev-builder 三个 SKILL.md、rules/dev-workflow-details.md 开发链；原 graduated: false 是陈旧标记
 source_skill: code-review
 scope: 本仓 review → fix 闭环（code-review 主导的 FIX_REQUIRED 循环 + red-locks-the-bug 红测循环）的收敛判据，以及新增脚本/新闸的防御代码写作边界
 exceptions: 安全类缺陷（路径穿越、密钥泄漏、不可逆操作）的防御不受此限，出现即修，不算过度防御；已识别的核心行为缺陷仍按 red-locks-the-bug 正常走红锁，不因本条而降低修复标准
 supersedes: 无
-applied_to: progress.md Decisions 新增「避免过度设计、过度防御（用户纠正）」一条（依据/适用范围/取代三要素齐全）；未改 skill/rule 本体（用户未说"以后都"）；未回退已合并的防御代码
+applied_to: .claude/CLAUDE.md [开发测试规则]；code-review / test-builder / dev-builder SKILL.md；rules/dev-workflow-details.md
 ---
 
 # review 循环收敛于核心行为，避免过度防御边角输入
