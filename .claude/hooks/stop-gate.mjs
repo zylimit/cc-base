@@ -123,5 +123,5 @@ runFailClosed(async () => {
     return;
   }
   if (!advise) writeStrikes(strikeFile, sig, strikes + 1);
-  decide(`代码已修改但未 code review（${count} 个待审文件：${inline}）。请派发 code-reviewer sub-agent 两阶段审查；通过后执行 echo clean > .claude/.needs-review 放行。`);
+  decide(`代码已修改但未 code review（${count} 个待审文件：${inline}）。请派发 code-reviewer sub-agent 审一轮（Stage 0 → 1 → 2）；通过后执行 echo clean > .claude/.needs-review 放行。`);
 }, 'stop-gate 自检失败，fail-closed 拦停——请修复闸/状态文件后重试停止。');

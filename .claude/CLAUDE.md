@@ -96,24 +96,20 @@
     - /progress-recorder - 手动：/record /archive /recap
 
 [Sub-Agent 调度规则]
-    **可派发的 Sub-Agent**（全部为 Claude Code 原生 Sub-Agent，用 Task/Agent 工具派发，每次 fresh 实例）：
+    **编码 / 审查 / 测试 / 部署——一律走 Sub-Agent，不存在"主 Agent 自己上"的分支**：四个环节都用 Task/Agent 工具派对应角色的 fresh 实例，主 Agent 只「写提示词 + 验收」。这是隔离保证，不是可选最佳实践。
 
-    | Agent | 文件 | 使用的 Skill | Allowed Skills | 职责 |
-    |-------|------|-------------|----------------|------|
-    | implementer | .claude/agents/implementer.md | dev-builder | dev-builder, bug-fixer | 编码实现 + 编译验证 + 自检 |
-    | code-reviewer | .claude/agents/code-reviewer.md | code-review | code-review | 审查代码 + 输出报告 |
-    | tester | .claude/agents/tester.md | test-builder | test-builder | 写/跑测试（独立于实现者）+ 输出运行证据 |
-    | deployer | .claude/agents/deployer.md | release-builder | release-builder | 打包/部署执行 + 输出结果 |
-    | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | feedback-writer | 记录用户反馈 |
-    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | evolution-engine | 扫描 feedback + 生成进化建议 |
-    | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | progress-recorder | 增量维护 progress.md 项目记忆 + 归档 progress.archive.md |
+    | Agent | 文件 | 使用的 Skill | 职责 |
+    |-------|------|-------------|------|
+    | implementer | .claude/agents/implementer.md | dev-builder | 编码实现 + 编译验证 + 自检 |
+    | code-reviewer | .claude/agents/code-reviewer.md | code-review | 审查代码 + 输出报告 |
+    | tester | .claude/agents/tester.md | test-builder | 写 / 跑测试（独立于实现者）+ 输出运行证据 |
+    | deployer | .claude/agents/deployer.md | release-builder | 打包 / 部署执行 + 输出结果 |
+    | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | 记录用户反馈 |
+    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | 扫描 feedback + 生成进化建议 |
+    | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | 增量维护 progress.md + 归档 progress.archive.md |
 
-    Allowed Skills 是各角色允许主动使用的 Skill 清单，用于约束行为与交接——不是安全边界，真实权限由工具授权决定。
     **三层不得混写**：agents / skills 保存稳定角色源码；Spec / DEV-PLAN / 当次派单保存项目绑定；档位会话记录（`.runtime/tier.json`）、review marker、evidence 日志等运行态只进 git 忽略的运行态文件。
-
-    各 Agent 的派发时机和流程见对应的工作流程章节和 Skill 调用规则。evolution-runner 返回的进化建议需展示给用户逐条确认/跳过后再执行。
-    **编码/审查/测试/部署——一律走 Sub-Agent，不存在"主 Agent 自己上"的分支**：四个环节都通过 Task/Agent 工具派发对应 Sub-Agent，主 Agent 只「写提示词 + 验收」。这是隔离保证，不是可选最佳实践。
-    隔离原则（fresh 实例 / 统一派单包六字段 / 写测独立 / 并行判据）、Workflow 编排模式、回传纪律（统一回执信封 / 四态自评 / 禁原样重试）、feedback 与 memory 两套系统的边界——全在 .claude/rules/subagent-dispatch.md 与 .claude/rules/memory-systems.md，**派发前必须先读**。每单 ≤ 6 次工具调用、只给「文件:行 + 改成什么 + 一条验证命令」（2026-09-06 用户纠正）。
+    隔离原则（fresh 实例 / 完整上下文显式给 / 写测 ≠ 被测作者 / 并行判据）、派单包七字段（Business Context 不许 N/A、每单 ≤ 6 次工具调用、只给「文件:行 + 改成什么 + 一条验证命令」）、回传纪律与统一回执信封、四态自评与禁原样重试的升级阶梯、Workflow 编排、feedback 与 memory 两套系统的边界——全在 .claude/rules/subagent-dispatch.md 与 .claude/rules/memory-systems.md，**派发前必须先读**。
 
 [项目状态检测与路由]
     初始化时自动检测项目进度，路由到对应阶段：
@@ -131,16 +127,12 @@
     **执行任何阶段之前必须先读 .claude/rules/dev-workflow-details.md**——各阶段的完整步骤、签字闸、输出话术全在该文件，主控不再复述索引。要点：需求收集 → 交付（**用户签字闸**）→ 架构 / DFX / 设计（可选）→ 开发计划（跑 plan-lint）→ 项目开发（Plan Mode 列 TaskList、编码一律委派 implementer、per-Task review→fix 闭环、Phase 四步走）→ 发布（release-gate 先查待审清单，部署派 deployer 主 Agent 独立验收）；内容修订走五步走（Spec+CHANGELOG 成对改 → **用户签字闸** → 更新计划 → 委派改码 → review→fix → 四步走验证）。
 
 [开发测试规则]
-    每完成一个 Phase 必须通过四步走验证（Code Review → 测试完整性 → 编译验证 → 功能测试），全部通过才能确认 Phase 完成。
-
-    四步走的具体操作和证据要求见 dev-builder SKILL.md [Phase 完成度判断]。
-    其中第2步「测试完整性」由 test-builder skill 承担——务实回归：探测/搭建测试基建，为高价值逻辑（契约、解析器、去重、关键边界）写可重跑回归测试并执行，附运行器真实输出为证据。不再只是"功能清单打勾"。
-    - **red-locks-the-bug**：线上行为的 bug 修复与核心解析器 / 契约的缺陷，修复前先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿。审查发现的边角输入、参数花样、文案类问题记进 progress.md 残留，不开红锁；没有验红标记派 implementer 时 `tdd-gate.mjs` 只提醒，任何档都不拦。
+    每完成一个 Phase 必须通过四步走验证（Code Review → 测试完整性 → 编译验证 → 功能测试），中间有任何改动四步重来；收尾四态门 PASS / CONCERNS / FAIL / WAIVED（WAIVED 必须写明理由与批准人，安全与数据丢失类缺口不许 WAIVED）。四步走的具体操作与证据要求见 dev-builder SKILL.md [Phase 完成度判断]，第 2 步「测试完整性」派 tester 走 test-builder skill 的务实回归；Git 工作流规则见 dev-builder SKILL.md [开发规则清单]。
+    - **red-locks-the-bug**：只给线上行为的 bug 与核心解析器 / 契约的缺陷——修复前先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ implementer 修绿；审查发现的边角输入、参数花样、文案类记进 progress.md 残留，不开红锁，`tdd-gate.mjs` 只提醒、任何档都不拦。
     - **审查收敛**：每个 Task 一轮 code-reviewer 审查，只有 HIGH 阻断；修完由同一轮 reviewer 复核一次即收口，Medium / Low 记残留，不派 fresh reviewer 开新一轮。闸的规则以「模板原样必红、范例必绿」为准绳，超出这两者的花样不追。
-    - **全量回归报「绿」须附运行清单**：报「全绿」不作数，要列跑了哪些文件、各自结果（绿/红/跳过原因）；主 Agent 验收抽查须含至少一次亲跑全量回归（非只跑改动相关测试），防未跟踪残留撑绿的假绿；抽不抽这一下靠自觉。
-    - **测试量区间与按风险分配（用户 2026-09-10）**：测试代码占有效代码的三分之一到二分之一之间（按行数；hooks / harness / scripts / githooks / 安装器算有效代码，tests/ 与 selftest lane 算测试），低了补、高了删。预算按风险给：坏了会泄密、毁数据、装坏别人项目的（密钥与危险命令闸、安装器与 manifest、发布装配）可到二分之一；引擎子命令只守退出码契约加一条真实场景；提醒类 hook、档位、工具脚本各留一两条；不做全量覆盖，防回归位、变异体、边角输入不进仓。用例分三级（文件头一行 `# risk: high|medium|low`）：日常只跑 high，`run-all --level medium|all` 才跑其余，CI 跑 all；用例有老化：每次运行把各用例结果记进 `.claude/evidence/test-ledger.jsonl`，`test-age` 列出跑过 20 次以上从未失败的用例作退休候选，发版前过一遍删掉（密钥 / 危险命令 / 安装器这三类地板用例除外）。
-    - **闸靠数据留，不靠感觉留**：新增的审查/验收/测试闸（red-blue、五步闸、各 Stage、回归等）要定期核它到底挡没挡住问题——某闸长期全过/全绿、从没产出过 FIX_REQUIRED 或红，就简化或删掉，别为"感觉安全"养无效成本。加闸要能说出它挡住过什么——`gate-audit.sh` 就是报这个的：哪些闸从没拦下过、哪些被豁免压着。细则见 feedback/gates-need-empirical-validation.md。
-    Git 工作流规则见 dev-builder SKILL.md [开发规则清单]。
+    - **测试量区间与按风险分配（用户 2026-09-10）**：测试代码占有效代码的三分之一到二分之一（按行数；hooks / harness / scripts / githooks / 安装器算有效代码，tests/ 与 selftest lane 算测试），低了补、高了删。预算按风险给——坏了会泄密、毁数据、装坏别人项目的（密钥与危险命令闸、安装器与 manifest、发布装配）可到二分之一；引擎子命令只守退出码契约加一条真实场景；提醒类 hook、档位、工具脚本各留一两条；不做全量覆盖。
+    - **用例分级与老化**：用例头一行标 `# risk: high|medium|low`，日常只跑 high、`run-all --level medium|all` 才跑其余、CI 跑 all；每次运行把结果记进 `.claude/evidence/test-ledger.jsonl`，`test-age` 列出跑过 20 次以上从未失败的作退休候选，发版前过一遍删掉（密钥 / 危险命令 / 安装器三类地板用例除外）。报「绿」须附运行清单（跑了哪些文件、各自绿 / 红 / 跳过原因），主 Agent 验收抽查须含至少一次亲跑全量回归，防未跟踪残留撑绿的假绿。
+    - **闸靠数据留，不靠感觉留**：某闸长期全过 / 全绿、从没产出过 FIX_REQUIRED 或红，就简化或删掉，别为"感觉安全"养无效成本；加闸要能说出它挡住过什么——`gate-audit.sh` 报的就是这个。细则见 feedback/gates-need-empirical-validation.md。
 
 
 [大仓能力（可选——按需开启）]

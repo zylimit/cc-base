@@ -116,56 +116,14 @@ paths:
 
     [项目开发阶段]
         触发：用户调用 /dev-builder
-    
-        第一步：询问设计稿
-            询问用户："有设计稿吗？有的话发给我参考。"
-            用户发送图片 → 记录，开发时参考
-            用户说没有 → 继续
-    
-        第二步：进入开发
-            调用 dev-builder skill，进入 Plan Mode，列出当前 Phase 的 TaskList
-            编码一律委派（[总体规则] 职责边界铁律，无"主 Agent 直接开发"分支）：
-                → 派发 implementer Sub-Agent：每个 Task 一个 fresh 实例，有依赖顺序执行，无依赖可并行，不并行修改同一文件，并行 Task 各自独立完成 review → fix 循环后再 commit，如有文件冲突由主 Agent 合并解决
-                → 主 Agent 只写提示词（任务上下文：Spec 条目、交付清单、涉及文件、项目结构）+ 验收，不亲手写代码
-    
-        第三步：per-Task 开发 → review → fix 循环
-
-            对 Phase 中的每个 Task，执行以下循环：
-
-            派发 implementer 编码（执行规则见 dev-builder SKILL.md）
-                ↓
-            派发 code-reviewer 一轮审查（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量，一次跑完）
-                ↓
-            只有 HIGH 阻断：有 HIGH → 派发 implementer / bug-fixer 修复 → 同一 reviewer 复核一次 → 收口；Medium / Low 记进 progress.md 残留，随后续 Task 顺手修，不开新一轮
-                ↓
-            报告含「❓ 需求存疑」（或 implementer / tester 回执带反例）→ 主 Agent 调 product-spec-builder 迭代模式，反例作输入；Spec 改了则回流 dev-planner 更新受影响 Task；用户确认 Spec 没错则记进澄清记录关闭存疑——存疑不阻塞收口
-                ↓
-            收口 → 执行 echo clean > .claude/.needs-review → commit → Task 完成 → 进入下一个 Task
-
-            所有 Task 完成 → 进入第四步
-
-            用户可随时介入切换为手动模式
-
-        第四步：Phase 级别最终验证
-            执行 dev-builder SKILL.md [Phase 完成度判断] 的四步走验证。
-            其中第2步「测试完整性」派 tester Sub-Agent 跑/补回归测试（写测≠被测作者）。
-            重点关注跨 Task 的集成问题——导入关系、文件依赖、命名一致性。
-            如发现问题 → 派发 bug-fixer 修复 → 用 fix: commit message 提交 → 重新验证
-
-        第五步：用户确认 Phase 完成
-
-        第六步：引导进入下一个 Phase，或提示可调用 /release-builder 发布
-
-        补充——手动触发入口：
-        - 用户调用 /code-review → 派发 code-reviewer 三阶段审查（Stage 0 静态闸 → Stage 1/2）→ 展示报告给用户 → 用户决定修复范围和下一步
-        - 用户调用 /bug-fixer 或报告 bug → 调用 bug-fixer skill 修复 → 修完后建议 /code-review 验证
+        一条链：dev-builder skill 进 Plan Mode 列出当前 Phase 的 TaskList → 每个 Task 派 implementer 编码（跨 Task 串行，派单包七字段，主 Agent 只写单不动手）→ 派 code-reviewer 一轮（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量，一次跑完）→ 只 HIGH 阻断：有 HIGH 派 implementer / bug-fixer 修、同一 reviewer 复核一次即收口，Medium / Low 记进 progress.md 残留随后续 Task 顺手修、不开新一轮 → 回执带反例或报告含「❓ 需求存疑」则调 product-spec-builder 迭代模式（反例作输入；Spec 改了回流 dev-planner 更新受影响 Task，用户确认 Spec 没错则记进澄清记录关闭——存疑不阻塞收口）→ `echo clean > .claude/.needs-review` → commit → 下一个 Task。
+        所有 Task 完成 → Phase 四步走验证（dev-builder SKILL.md [Phase 完成度判断]；第 2 步「测试完整性」派 tester，重点看跨 Task 的导入关系、文件依赖、命名一致性；发现问题派 bug-fixer 修、`fix:` 提交、四步重来）→ 四态门收尾（PASS / CONCERNS / FAIL / WAIVED）→ 用户确认 Phase 完成 → 进入下一个 Phase，或提示可调用 /release-builder。
+        手动入口：用户调 /code-review → 派 code-reviewer 审一轮 → 报告给用户，由用户定修复范围；用户调 /bug-fixer 或报 bug → bug-fixer skill 修复 → 修完建议 /code-review 验证。用户可随时介入切手动模式。
 
     [发布阶段]
-        触发：用户调用 /release-builder
-
-        执行：调用 release-builder skill（打包前先过测试卡点；部署派发 deployer Sub-Agent，主 Agent 独立验收）
-
-        完成后：展示发布结果
+        触发：用户调用 /release-builder（skill 设 disable-model-invocation，主 Agent 不代触发，回指该命令请用户亲自敲）
+        执行：release-gate 先查待审清单与测试卡点，未过不许打包；打包 / 构建 / 部署派 deployer Sub-Agent 执行。
+        验收：主 Agent 独立核查三件套（镜像 tag + 容器创建时间戳、健康检查端点响应、live 冒烟验证新功能产物），deployer 的自报状态不作判据；通过后展示发布结果。
 
     [本地运行阶段]
         触发：用户说"帮我跑起来"、"启动项目"、"运行一下"等
@@ -173,33 +131,8 @@ paths:
         输出："🚀 **项目已启动！** **访问地址**：http://localhost:[端口号] [根据 Product Spec 生成简要使用说明]"
 
     [内容修订]
-        当用户提出修改意见时：
-
-        第一步：明确变更内容
-            调用 product-spec-builder（迭代模式）
-                ↓
-            按其 [交互深度分档] 判档；确认档以上先问三件事：为什么改、原来哪条判断错了、影响哪些已确认条目 → 更新 Product-Spec.md（标记与来源、澄清记录）→ 更新 Product-Spec-CHANGELOG.md（写为什么改、原判断哪里错、影响）
-                ↓
-            用户签字闸：形式同 [交付阶段]——复述改后那次会怎么发生，用户挑不出错即批准；直推档改完复述一句即过。没过复述不更新开发计划。
-
-        第二步：更新开发计划
-            调用 dev-planner（迭代模式）
-                ↓
-            更新 DEV-PLAN.md（如不存在则创建）→ 明确变更影响哪些 Phase / Task
-
-        第三步：执行代码变更
-            编码一律委派（[总体规则] 职责边界铁律）：
-                → 派发 implementer Sub-Agent，主 Agent 写提示词 + 验收，不亲手写代码
-
-        第四步：review → fix 循环
-            执行 [项目开发阶段] 第三步同样的 review → fix 循环。
-
-        第五步：验证 → 用户确认
-            执行 dev-builder SKILL.md [Phase 完成度判断] 的四步走验证。
-            如验证中发现问题并修复，修复的 commit 已在修复时提交。
-            用户确认 → 完成
-
-        完成后引导：如有更多修改继续对话。如之前已打包发布过，提醒用户输入 /release-builder 重新打包。
+        当用户提出修改意见：调 product-spec-builder 迭代模式按其 [交互深度分档] 判档，确认档以上先问三件事（为什么改、原来哪条判断错了、影响哪些已确认条目）→ 成对更新 Product-Spec.md（标记与来源、澄清记录）与 Product-Spec-CHANGELOG.md（为什么改、原判断哪里错、影响）→ **用户签字闸**：复述改后那次会怎么发生，用户挑不出错即批准，直推档复述一句即过；没过复述不更新开发计划。
+        签字后：调 dev-planner 迭代模式更新 DEV-PLAN.md（不存在则创建）并点明影响哪些 Phase / Task → 派 implementer 改码 → 走 [项目开发阶段] 同一条 review → fix 链 → 四步走验证 → 用户确认完成；之前已打包发布过的，提醒重新 /release-builder。
 
 [各 Skill 执行方式]
     由 CLAUDE.md [Skill 调用规则] 下沉：触发条件在主控一行一个，这里是每个 Skill 的自动 / 手动入口、前置条件与执行方式原文。

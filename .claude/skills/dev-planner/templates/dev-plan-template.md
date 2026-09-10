@@ -1,65 +1,45 @@
 ---
 name: dev-plan-template
-description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板结构填充内容，输出为 DEV-PLAN.md，供 dev-builder 按 Phase 逐步开发。
+description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填充内容，输出为 DEV-PLAN.md，供 dev-builder 按 Phase 逐步开发。
 ---
 
 # DEV-PLAN 输出模板
 
-本模板用于生成分阶段开发计划。dev-builder 读取此文档按 Phase 逐步实现代码。
-
----
-
-## 模板结构
-
-**文件命名**：DEV-PLAN.md
-
----
+文件命名：DEV-PLAN.md，放项目根目录。段名（**交付内容** / **验证的假设** / **关键文件** / **Task 清单** / **验收标准**）与 Task 条目格式是 `plan-lint.sh` 检查的锚点，写法不能改。
 
 ```markdown
 # Development Plan — [项目名称]
 
-> 本文件记录项目的开发阶段划分、当前进度和剩余工作。
-> 新 session 启动时应首先阅读此文件，了解项目状态后再继续开发。
+> 记录项目的开发阶段划分、当前进度和剩余工作。新 session 启动先读本文件。
+
+## 开工前置
+
+- 待定 Q-N：押后到 Phase X 开工前，押后期间按 [默认怎么做]
+- [推断] / [默认] 条目：[一行一条，演示时让用户挑错]
+- Spec 缺口 / 矛盾：[条目] → 已报需求存疑，本计划按 [最简默认] 先做，待回签
 
 ---
 
 ## Phase 1: [功能名称]
 
 **交付内容**：
-- [用动词开头，描述交付物1——用户能做什么 / 系统做什么]
-- [交付物2]
-- [交付物3]
+- [动词开头，一条一个可感知交付物：用户能做什么 / 系统做什么]
 
 **验证的假设**：
-- [无 / Spec 哪条 [推断]或[待定]、哪项技术未知，本 Phase 用什么证明它成立]
+- [无；或一条假设一 bullet：来源（Spec 哪条 [推断] / [待定] / [默认]、哪项技术未知）→ 本 Phase 用什么证明它成立]
 
 **关键文件**：
-- `src/path/to/file1.tsx` — [用途说明]
-- `src/path/to/file2.ts` — [用途说明]
-- `src/path/to/file3.ts` — [用途说明]
+- `src/path/to/file.tsx` — [用途说明]
+
+**Task 清单**：
+- **Task 1.1：[具体改动]** — 文件路径 + 改哪个函数 / 加哪个字段 + 验证命令
 
 **验收标准**：
-- [能编译、能启动、能看到XX效果]
+- [能编译、能启动、能看到 XX 效果；假设成立的证据是什么]
 
 ---
 
-## Phase 2: [功能名称]
-
-**交付内容**：
-- [交付物列表]
-
-**验证的假设**：
-- [无 / Spec 哪条 [推断]或[待定]、哪项技术未知，本 Phase 用什么证明它成立]
-
-**关键文件**：
-- [文件路径 + 用途]
-
-**验收标准**：
-- [验证标准]
-
----
-
-<根据实际功能数量动态增减 Phase>
+<按实际功能数量增减 Phase，结构相同>
 
 ---
 
@@ -77,143 +57,28 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后，按此模板�
 
 ## 开发规则
 
-- 每完成一个 Phase 执行四步走：Code Review → 测试完整性 → 编译验证 → 功能测试
-- 四步走全部通过后才能 commit
+- 每完成一个 Phase 走四步走：Code Review → 测试完整性 → 编译验证 → 功能测试
+- 四步走全部通过才算 Phase 完成
 - Commit message 格式：`phase-N: 简要描述`
 - 包管理器：[pnpm/npm/yarn]
 ```
 
----
+## 片段示例（Forge 的 Phase 2 节选）
 
-## 完整示例
-
-以下是「Forge — 本地 AI 桌面代理」项目的 DEV-PLAN 片段，供参考：
-
-```markdown
-# Development Plan — Forge
-
-> 本文件记录 Forge 项目的开发阶段划分、当前进度和剩余工作。
-> 新 session 启动时应首先阅读此文件，了解项目状态后再继续开发。
-
----
-
-## Phase 1: Electron + Next.js 骨架
-
-**交付内容**：
-- Electron 主进程 + Next.js 渲染器基础框架
-- 三区布局：左侧栏（可折叠）+ 主内容区 + 右侧栏（可折叠）
-- 标题栏组件（窗口控制按钮）
-- 导航图标栏（聊天 / 管理 / IM / 定时 / 设置）
-- 深色/浅色/跟随系统主题切换（ThemeProvider）
-- Tailwind CSS 语义色彩系统
-
-**验证的假设**：
-- Electron 与 Next.js 组合在目标机器上能打包启动（技术未知）——`npm run build` 出包并能打开主窗口即成立
-
-**关键文件**：
-- `src/components/layout/app-layout.tsx` — 主布局
-- `src/components/layout/left-sidebar.tsx` — 左侧栏
-- `src/components/layout/right-sidebar.tsx` — 右侧栏
-- `src/components/layout/title-bar.tsx` — 标题栏
-- `src/components/providers/theme-provider.tsx` — 主题
-- `src/app/globals.css` — 色彩变量定义
-
-**验收标准**：
-- TypeScript 编译无错误
-- Electron 窗口可启动，显示三区布局
-- 主题切换正常工作
-
----
-
-## Phase 2: 聊天核心 + SQLite 持久化
-
-**交付内容**：
-- SQLite 数据库初始化（better-sqlite3，WAL 模式）
-- sessions 和 messages 表
-- settings 表（key-value 全局设置）
-- 会话 CRUD API（/api/sessions）
-- 聊天 API（/api/chat）— Claude API 流式调用 + SSE 输出
-- 前端聊天界面：用户消息 + Agent 消息 + 流式渲染
-- 会话列表 + 新建会话 + 切换会话
-
-**验证的假设**：
-- 无
-
-**关键文件**：
-- `src/lib/db.ts` — 数据库初始化 + 表创建
-- `src/app/api/chat/route.ts` — 聊天 API
-- `src/hooks/use-chat.ts` — 聊天状态管理
-- `src/hooks/use-sessions.ts` — 会话管理
-- `src/components/views/chat-view.tsx` — 聊天视图
-
-**验收标准**：
-- 能创建会话、发送消息、收到 Claude 流式回复
-- 刷新后会话和消息不丢失
-
----
-
-## 技术栈
-
-| 层级 | 技术 | 版本 | 说明 |
-|------|------|------|------|
-| 桌面框架 | Electron | 40.x | 跨平台桌面壳 |
-| 前端 | Next.js + React | 15.x | 全栈框架 |
-| UI | Tailwind CSS | 4.x | 工具类 CSS |
-| AI 引擎 | Claude API (@anthropic-ai/sdk) | latest | 核心 AI 能力 |
-| 数据库 | SQLite (better-sqlite3) | latest | 本地持久化，WAL 模式 |
-| 包管理 | pnpm | 10.x | 快速、磁盘高效 |
-
-## 数据库表
-
-| 表名 | 所属 Phase | 用途 |
-|------|-----------|------|
-| `sessions` | Phase 2 | 会话元数据 |
-| `messages` | Phase 2 | 消息内容（JSON content blocks） |
-| `settings` | Phase 2 | 全局 key-value 设置 |
-| `skills` | Phase 3 | Skill 定义 |
-| `agents` | Phase 3 | Agent 配置 |
-| `mcp_servers` | Phase 3 | MCP 服务器配置 |
-| `im_channels` | Phase 4 | IM 通道配置 |
-| `cron_tasks` | Phase 4 | 定时任务定义 |
-| `api_providers` | Phase 5 | 多模型 API 提供商 |
-| `workspaces` | Phase 6 | Workspace 定义 |
-
-## 开发规则
-
-- 每完成一个 Phase 执行四步走：Code Review → 测试完整性 → 编译验证 → 功能测试
-- 四步走全部通过后才能 commit
-- Commit message 格式：`phase-N: 简要描述`
-- 包管理器：pnpm
-```
-
----
+- **交付内容**：会话 CRUD 与聊天流式接口；前端消息列表 + 流式渲染 + 会话切换
+- **验证的假设**：Claude API 的 SSE 在 Electron 渲染进程能逐块到达（技术未知）——页面上看到逐字输出即成立
+- **关键文件**：`src/lib/db.ts` — 建表与 db 单例；`src/app/api/chat/route.ts` — 聊天 API
+- **Task 清单**：Task 2.1 新建 `src/lib/db.ts`，建 sessions / messages 表，验证 `pnpm tsc --noEmit`；Task 2.2 新建 `src/app/api/chat/route.ts` 返回 SSE，验证 `curl -N localhost:3000/api/chat`
+- **验收标准**：能建会话、发消息、收到流式回复；刷新后会话和消息不丢
 
 ## 写作要点
 
-1. **Phase 命名**：用功能名称命名，不用编号序列。"聊天核心 + SQLite 持久化"比"Phase 2"更容易理解
-2. **交付内容**：
-   - 用动词开头（搭建、实现、创建、配置）
-   - 每条描述一个可感知的交付物
-   - 基础设施 Phase 可以写"XX 表 + CRUD API"
-   - 业务功能 Phase 要写用户能做什么
-3. **验证的假设**：
-- 无
-
-**关键文件**：
-   - 使用完整的项目内相对路径
-   - 每个文件附用途说明
-   - 不列测试文件和配置文件（除非是 Phase 的核心交付物）
-4. **验收标准**：
-   - 最低要求：能编译 + 能启动 + 新功能可用
-   - 推荐加上：现有功能未破坏
-5. **技术栈表**：
-   - 标注版本号（经 WebSearch 验证的最新稳定版）
-   - 说明列写选择理由或用途
-6. **数据库表**：
-   - 标注在哪个 Phase 创建
-   - 后续 Phase 如果新增列（migration），在该 Phase 的交付内容中说明
-7. **Phase 顺序**：
-   - 核心价值流程（含它依赖的最小骨架）→ 验证核心假设的 Phase → 重要功能 → 辅助功能 → 收尾（i18n/打包/部署）
-   - 依赖关系只做校正，不做主轴
-8. **验证的假设**：
-   - 每个 Phase 必填，可为「无」；写清假设来源（Spec 的 [推断]/[待定] 条目或技术未知）和成立的证据
+1. Phase 用功能名命名，不用编号序列——"聊天核心 + SQLite 持久化"比"Phase 2"好认
+2. 交付内容动词开头，一条一个可感知交付物；基础设施 Phase 写"XX 表 + CRUD API"，业务 Phase 写用户能做什么
+3. 验证的假设每 Phase 必填、可为「无」；一条假设一 bullet，写清来源（Spec 的 [推断] / [待定] / [默认] 或技术未知）和成立的证据
+4. 关键文件用项目内相对路径 + 用途说明，不列测试和配置文件（除非它是本 Phase 的核心交付物）
+5. Task 清单每条给齐三样：文件路径 + 具体改动 + 验证命令；不写"类似 Task N"、"按需调整"
+6. 验收标准最低"能编译 + 能启动 + 新功能可用"，推荐加"现有功能未破坏"
+7. 技术栈表标经 WebSearch 验证的版本号；数据库表标在哪个 Phase 建，后续 migration 写进那个 Phase 的交付内容
+8. 开工前置段没有待定 / 推断 / 缺口时整段删掉，不留空壳
+9. Phase 顺序：核心价值流程（含它依赖的最小骨架）→ 验证核心假设 → 重要功能 → 辅助功能 → 收尾（i18n / 打包 / 部署）；依赖只做校正，不做主轴
