@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: low
 # todo-app-triggers-product-spec.sh — 真触发测试（需真 claude CLI）。
 # naive prompt「我想做个 todo 应用」应触发 product-spec-builder，且调 Skill 前不偷跑。
 # 跑法：在隔离的临时项目目录里 claude -p --output-format stream-json，拿事件日志后断言。

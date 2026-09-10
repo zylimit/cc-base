@@ -125,7 +125,7 @@ jobs:
           # GitHub 的 shell: bash 默认带 -eo pipefail，管道一失败整步就断在这里，
           # 拿不到 rc 也就没法区分「跑挂了」和「跑完但没跳过」。这里显式关掉再自己判。
           set +e
-          bash .claude/tests/cases/run-all.sh 2>&1 | tee "$LOG"
+          bash .claude/tests/cases/run-all.sh --level all 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
           set -e
           echo "run-all rc=$RC"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: high
 # test-fix-platform.sh — fix-platform 老安装归一回归测试（无依赖 claude CLI）。
 # 契约（docs/v3-work-packs.md D.1 / D.6）：单运行时之后 fix-platform 只干三件事——
 #   ① 删 hooks/ 下历史遗留的 *.sh / *.ps1（含 lib-*）② settings.json 里指向 .sh/.ps1 的 hook

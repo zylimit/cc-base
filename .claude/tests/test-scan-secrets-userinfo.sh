@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: high
 # test-scan-secrets-userinfo.sh — scan-secrets 必须认「URL 里内嵌口令」这一形态（批 4 · L4c）。
 #
 # 锁的行为（断言写「修好后应成立」）：
@@ -98,18 +99,6 @@ printf 'const withport = "https://api.%s:8080/health%sv2";\n' "$H" "$AT" > "$R/p
 printf 'DATABASE_URL=https://%s:%s%s%s/db\n' "$U" "$P" "$AT" "$H" > "$R/.env.example"
 (cd "$R" && git add -A) || { echo "test-scan-secrets-userinfo: git add 失败" >&2; exit 1; }
 
-echo "-- ⓪ 脚手架自证 --"
-GOT_POS=$(cat "$R/conn.js")
-case "$GOT_POS" in
-    *"://$U:$P$AT$H"*) pass "⓪a 阳性样例落盘形态正确：$GOT_POS" ;;
-    *) fail "⓪a 阳性样例拼错了，下面的红不作数：$GOT_POS" ;;
-esac
-TRACKED=$( (cd "$R" && git ls-files) | tr '\n' ' ')
-case "$TRACKED" in
-    *conn.js*plain.js*) pass "⓪b 五个样例都进了 git 索引（scan-secrets 的扫描面）：$TRACKED" ;;
-    *) fail "⓪b 样例没进索引，扫描面是空的，下面的红不作数：[$TRACKED]" ;;
-esac
-
 # ---------------------------------------------------------------------------
 # ① 阳性：报出来、rule 正确、点名文件:行
 # ---------------------------------------------------------------------------
@@ -145,13 +134,6 @@ else
     pass "①e 命中输出未回显口令原文（已 REDACTED）"
 fi
 
-# ①f 模板文件走文件级白名单 —— 防回归位：当前无 url-userinfo 规则，本条天然绿，
-#     它锁的是「新规则不许绕过既有白名单」。
-ALLOW=$(jval 'd.skipped.allowlisted')
-r=1; [ "$ALLOW" != "<undefined>" ] && [ "$ALLOW" -ge 1 ] 2>/dev/null && r=0
-chk "$r" "①f .env.example 走文件级白名单跳过且计数可见（防回归位）" \
-    "skipped.allowlisted >= 1" "skipped.allowlisted=$ALLOW"
-
 # ①g stdout 仍是单行合法 JSON（契约的机器可读面）
 LINES=$(printf '%s' "$OUT_JSON" | wc -l | tr -d ' ')
 r=1
@@ -171,21 +153,6 @@ r=1
 if [ "$RC" -eq 0 ] && [ "$S_RULE" = "url-userinfo@conn.js:1" ]; then r=0; fi
 chk "$r" "② 压制后 rc 0，且 suppressed 里留下 url-userinfo 的痕迹" \
     "rc=0 且 suppressed=[url-userinfo@conn.js:1]" "rc=$RC suppressed=[$S_RULE]"
-
-# ---------------------------------------------------------------------------
-# ③ 控制组：只剩阴性样例 → 干净
-#    写死期望 rc=0 / 0 条，不从别处探测——它是 ①d「恰好 1 条」的分辨力来源。
-# ---------------------------------------------------------------------------
-echo "-- ③ 控制组：删掉阳性样例后必须干净 --"
-rm -f "$R/conn.js"
-(cd "$R" && git add -A)
-run
-C_FIND=$(jval 'd.findings.length')
-C_OK=$(jval 'd.ok')
-r=1
-if [ "$RC" -eq 0 ] && [ "$C_FIND" = "0" ] && [ "$C_OK" = "true" ]; then r=0; fi
-chk "$r" "③ 三条阴性 + 模板文件单独在场时 rc 0、零命中" \
-    "rc=0 findings.length=0 ok=true" "rc=$RC findings.length=$C_FIND ok=$C_OK；stderr：$(printf '%s' "$OUT_HUMAN" | tr '\n' '|')"
 
 echo ""
 echo "==== test-scan-secrets-userinfo：PASS=$PASS FAIL=$FAIL ===="

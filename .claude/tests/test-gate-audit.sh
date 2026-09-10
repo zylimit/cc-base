@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
+# risk: low
 # test-gate-audit.sh — gate-audit 误报回归测试（无依赖 claude CLI）。
-# 契约：「(b) 零记录死闸」段只该列**真闸**（import 了 hooks/lib/gatelog.mjs、能经 gateLog 写账本的
-#   block 钩子）里从没拦过的那些；信息类 hook（不调 gateLog、永不拦截）不是闸，列进去
-#   就是误报死闸，把噪声当治理负债。
-# 真闸/信息类的判据 = 钩子源码里有没有 gatelog（独立于 gate-audit 自身实现，按 Spec 取真值）。
-# 红测试：现状把 auto-push / session-rules-banner 等信息类 hook 列进 (b) → 本测试 FAIL；
-#   修复（gate-audit 只把真闸纳入注册闸集合）后 → PASS。
-# 另带一条防空转：hook 全改 .mjs 后 gate-audit 若还在 grep hooks/*.sh，注册闸集合会变成空集，
-#   (b) 段恒空——「没有死闸」和「压根没算」在输出上一模一样，只有把 (c) 的注册数与本文件
-#   自己数出来的真闸数对拍才分得开（盘点「最容易漏的 10 处」第 2 条）。
-# 扫的是真实 cc-base .claude/，断言锁「(b) 段不含某名」与「注册数对得上」，不锁易变的拦截计数。
+# 契约：「(b) 零记录死闸」段只该列**真闸**（import gatelog.mjs、经 gateLog 写账本的 block 钩子）
+#   里从没拦过的那些；信息类 hook 不是闸，列进去就是误报死闸，把噪声当治理负债。真闸/信息类的
+#   判据 = 钩子源码里有没有 gatelog（独立于 gate-audit 自身实现，按 Spec 取真值）。
+# 另带一条防空转：注册闸集合若算成空集，(b) 段恒空——「没有死闸」与「压根没算」输出一模一样，
+#   只有把 (c) 的注册数与本文件自己数出的真闸数对拍才分得开。扫真实 cc-base .claude/，锁
+#   「(b) 段不含某名」与「注册数对得上」，不锁易变的拦截计数。
 set -eu
 
 CLAUDE_DIR=$(cd "$(dirname "$0")/.." && pwd)

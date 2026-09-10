@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: high
 # test-ui-audit.sh — UI 审计闸（scripts/ui-audit.mjs）的回归测试。
 #
 # 契约：node ui-audit.mjs <url|目录> [--themes a,b] [--widths 1280,900] [--out <dir>] [--strict] [--json]

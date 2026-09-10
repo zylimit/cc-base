@@ -123,6 +123,16 @@ bash .claude/tests/cases/run-all.sh
 5. 想顺手扩 selftest 的脱机覆盖，往 `fixtures/` 加一条 `.jsonl` 样例，
    再到 `selftest.sh` 里加对应的 `expect_pass`/`expect_fail` 行。
 
+## 用例分级与老化
+
+- 分级：测试脚本头部写一行 `# risk: high|medium|low`（紧跟 shebang 那几行内）；没打级的按 high 跑。
+- 选级：`run-all.sh` 默认只跑 high，`--level medium` 跑 high+medium，`--level all` 全跑（CI 走 all）；
+  被跳过的按级别计数打进汇总行——未执行 != 通过。
+- 账本：每次运行把各用例的 `[PASS]/[FAIL]/[SKIPPED]` 追加进 `.claude/evidence/test-ledger.jsonl`
+  （目录进 .gitignore，不入库）；没有逐条标记的套件按整套记一行。
+- 老化：`node .claude/scripts/test-age.mjs [--min-runs N]` 列「跑过 ≥20 次、一次没红过」的退休候选。
+  发版前过一遍删掉；密钥 / 危险命令 / 安装器那三份是地板，从不红也留着。
+
 ## 与框架铁律的关系
 
 - 反静默失败：缺 CLI → SKIP 并明示，不假绿。

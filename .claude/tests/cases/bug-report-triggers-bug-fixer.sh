@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: low
 # bug-report-triggers-bug-fixer.sh — 真触发测试（需真 claude CLI）。
 # naive prompt「这个功能坏了，跑起来报错」应触发 bug-fixer，且调 Skill 前不偷跑改文件。
 # 结构同 todo-app 用例；由 run-all.sh 在确认有 claude CLI 后单独执行。

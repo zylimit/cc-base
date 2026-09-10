@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: high
 # test-distribution.sh — 分发边界红锁：哪些东西该进安装产物 / 清单 / 发布包，哪些绝不该。
 # 契约：tests/ 默认不装（要装得显式 --with-tests）、research/ 与 agent-memory/ 是本机私产永不分发；
 # 清单侧同口径；release zip 里不含 progress*.md / docs/ / research/ / agent-memory/，但**含** tests/

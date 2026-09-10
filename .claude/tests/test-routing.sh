@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: low
 # test-routing.sh — 配置/跨文件一致性静态检查（无依赖 claude CLI）。
 # 验三件事：① agents/*.md 实际数量 == CLAUDE.md [Sub-Agent 调度规则] 表里声明的 agent；
 #   ② CLAUDE.md 登记的每个 skill 都有 skills/<name>/SKILL.md 实体；

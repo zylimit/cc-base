@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: low
 # test-skill-behavior.sh — headless 路由真触发烟囱测试（opt-in，耗 token）。
 # 默认 SKIP：未设 RUN_LIVE_SKILL=1 时直接 exit 0，不跑真 LLM、不污染 run-all 默认。
 # 跑法：RUN_LIVE_SKILL=1 bash .claude/tests/cases/test-skill-behavior.sh

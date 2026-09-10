@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# risk: high
 # test-predev-lint.sh — 前期文档机器闸（scripts/predev-lint.mjs）的回归测试。
 #
 # 断言按**契约**写：node predev-lint.mjs [--root <dir>] [--json]，五份文件按存在性检查，
