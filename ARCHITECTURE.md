@@ -167,7 +167,7 @@ settings.json 实际注册 21 个 hook（每个一份 `.mjs`，node 单运行时
 | `three-file-sync-gate.mjs` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
 | `record-authorship.mjs` | PostToolUse(Edit\|Write\|NotebookEdit) | 大仓启用时把「哪个 agent 写了哪个文件」喂给引擎作者台账，`review verdict` 据此拒自审（无 catalog 完全 no-op） |
 | `postcompact-reinject.mjs` | PostCompact | 压缩完成后跑 `invariants`，把铁律与活跃状态从文件重新派生注回（治 Governance Decay） |
-| `subagent-acceptance-reminder.mjs` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，注入提醒主 Agent 按客观证据验收、勿信自报（机制化「验收以客观证据为准」铁律） |
+| `subagent-acceptance-reminder.mjs` | SubagentStop(implementer\|code-reviewer\|tester\|deployer) | 执行类 Sub-Agent 返回时，把收工前的取证要求注回**子 Agent 自己**（实测：SubagentStop 的 additionalContext 落在刚停下的那个子 Agent 上下文，主 Agent 这侧收不到）；回执里真报了领域发现的，多一句「写清证据是哪一类、定论归主 Agent」 |
 
 > `hooks/static-check.mjs` **不是注册 hook**，是 code-review Stage 0 静态闸主动调用的工具（识栈跑 shellcheck / ruff / tsc / `node --check`），同放此目录仅为聚拢。
 

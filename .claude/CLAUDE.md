@@ -24,7 +24,7 @@
     本框架是**纯 Claude Code 方案**：所有委派一律走 Claude Code 原生的 **Sub-Agent（Task/Agent 工具）**，不依赖任何外部 Agent 编排进程（无 CCB / 无 codex/gemini 外部驱动 / 无 daemon / 无 tmux 编排）。
     - 主 Agent = 编排者：负责需求分析、任务拆分、排序、派发、验收。
     - 专职 Sub-Agent = 工人：implementer（编码）、code-reviewer（审查）、tester（测试）、deployer（部署）各司其职，每次派发都是 **fresh 实例**，互不继承上下文。
-    - 派发 = 用 Task/Agent 工具启动对应 Sub-Agent，传入完整任务上下文，等其返回结构化报告后由主 Agent 验收。Sub-Agent 默认后台运行，派发后可继续别的编排，但**验收必须等结果到手才做**，不许拿"已派发"当"已完成"（完成时 `notify.mjs` 出桌面通知、`subagent-acceptance-reminder.mjs` 注入验收提醒）。
+    - 派发 = 用 Task/Agent 工具启动对应 Sub-Agent，传入完整任务上下文，等其返回结构化报告后由主 Agent 验收。Sub-Agent 默认后台运行，派发后可继续别的编排，但**验收必须等结果到手才做**，不许拿"已派发"当"已完成"（完成时 `notify.mjs` 出桌面通知；`subagent-acceptance-reminder.mjs` 的提醒注给子 Agent 自己，不进主 Agent 上下文）。
     - **扁平编排（铁律）**：主 Agent 是**唯一编排者**。Sub-Agent 不再拉 Sub-Agent；Workflow 也由主 Agent 编写、其内 `workflow()` 嵌套仅允许一层。纯 CC 的 Sub-Agent 本就上下文隔离（只回传最终结论进主 Agent），不需要 ccb-base 那种「coordinator 协调员」中间层——那是 CCB 为驱动外部 codex worker 才有的，纯 CC 不照搬。
     两种派发形态（Task 直派 / Workflow 编排）的分工、异步 spawn 的完整语义见 .claude/rules/subagent-dispatch.md——派发 Sub-Agent 之前必须先读该文件。
 
@@ -44,7 +44,7 @@
     - 当收到 `detect-feedback-signal.mjs` 注入的 additionalContext 时，处理完用户请求后必须派发 feedback-observer，不可忽略。
     - **设计优先级**：如有设计稿时的视觉参照顺序，设计工具中的设计稿（最高）→ DESIGN.md（token 数值）→ Design-Brief.md（页面规格与状态）→ Product-Spec.md（功能逻辑）。有设计稿时一切 UI 以设计图为准，冲突时设计稿优先。具体参照步骤见各 Skill 的设计参照策略。
     - **主 Agent 职责边界（铁律）**：编码 / 审查 / 部署 / 测试四个环节，主 Agent 一律不亲自动手，只「写提示词 + 委派 + 验收」。派发目标（全部为 Claude Code Sub-Agent，用 Task/Agent 工具派发 fresh 实例）：编码=implementer；审查=code-reviewer；部署=deployer；测试=tester（写测≠被测作者，必须派与实现者不同的 fresh 实例）。仅文档类（Product-Spec / CHANGELOG / DEV-PLAN）不受此约束，主 Agent 可直接写；主 Agent 自己动 Edit/Write 写业务源码时 `no-direct-code-guard.mjs` 当场警告。细则见 feedback/main-agent-no-direct-coding.md。
-    - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。执行类 Sub-Agent 一返回，`subagent-acceptance-reminder.mjs` 就把这条铁律注回来。
+    - **验收以客观证据为准（铁律）**：子 Agent 的回复（自报"完成"/"通过"/空回复）只反映它跑完了，不等于任务结果正确。主 Agent 验收一律核查客观证据，不以子 Agent 自述为唯一判据。编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核**测试运行器的真实输出**（不是子 Agent 一句"测试通过"）；部署→独立核查三件套（容器创建时间戳+镜像 tag / 健康检查端点 / live 冒烟验证新功能产物，勿看 "Up 时长"）。执行类 Sub-Agent 一返回，`subagent-acceptance-reminder.mjs` 把收工前的取证要求注回**子 Agent 自己**（实测：SubagentStop 的 additionalContext 落在刚停下的那个子 Agent 上下文，主 Agent 这侧收不到）；主 Agent 这侧靠读回执正文验收，没有机器提醒兜底。
       不可跳步的五步闸——任何"完成/通过/修好"的结论出口前都要走完：① 先想清哪条命令能证明这个结论 ② 跑全量、全新的该命令，不复用上一条消息的旧输出 ③ 读完整输出、看 exit code、数失败数 ④ 确认输出确实支持结论（不是输出有了就算）⑤ 才许开口下结论。禁用"应该/大概/估计/看起来"这类没跑过就下的措辞；没有当场跑出的新鲜证据，不报完成。细则见 feedback/deploy-acceptance-independent-verification.md、feedback/completion-claims-need-fresh-verification-five-step-gate.md。
     - **Sub-Agent 派发前置自检**：派发前确认已备齐**完整任务上下文**（涉及的 Spec 条目、交付清单、涉及文件、项目结构、约束）——Sub-Agent 不继承 session 历史，缺上下文会让它瞎猜或漏做。派发前这一步靠自觉。派发时机/流程见 [Sub-Agent 调度规则] 与各工作流程章节。
     - **授权连续执行**：除非遇到真正需要人拍板的取舍（架构选型 / 不可逆操作 / 需求本身有歧义），否则按既定流程一路走到底，不中途问「要不要继续」；发现的 P2/P3 可选缺陷默认按 red-locks 流程顺手修掉，不预先征询。涉及需用户签字的闸（如 Spec 签字门、不可逆操作审批）按各自规则停等，不受本条「一路走到底」约束。

@@ -1,5 +1,5 @@
 // SubagentStop（matcher: implementer|code-reviewer|tester|deployer）
-// 执行类 Sub-Agent 返回时，注入提醒：按「验收以客观证据为准」铁律核验，勿信自报。
+// 执行类 Sub-Agent 停下时，注入它自己的收工前自检：结论锚到实际跑过的命令，证不出的写进 Not verified。
 import path from 'node:path';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -36,15 +36,20 @@ runFailOpen(async () => {
     }
   }
 
+  // 这句注入落在刚停下的那个子 Agent 自己的上下文，主 Agent 这侧收不到（实测两例；官方文档 Stop /
+  // SubagentStop 两处措辞相同、只写 "Added to Claude's conversation"，不判归属），所以按第二人称写给它。
   // 回执真报了领域发现才点一句：口径库是沟通 / 澄清过程的副产品，催不来——催出来的是凑数，凑的
   // 没有现场依据，进库即噪音，正是 domain-rulings 自己要防的东西。没这一栏、栏里写 None、回执
   // 压根读不到，一律静默：那是无从判断，不是漏填。栏名容忍加粗与列表符，正文算到下一个字段标签为止。
+  // 判据按开头词不按整串相等：`None（本轮纯只读）` 这种带括注的是子 Agent 的自然写法，整串相等会把它
+  // 判成「有发现」，正好催在刚反转掉的意图上。「无」那一支不能用 \b（JS 的 \b 是 ASCII 词边界、对汉字
+  // 不成立，裸「无」会退化），改判后面不许跟汉字，否则「无线接入侧 VLAN 按 OLT 槽位算」这类真发现会被吞掉。
   const receipt = ev && typeof ev.last_assistant_message === 'string' ? ev.last_assistant_message : '';
   const label = /(?:^|\n)[\s>*+-]*\**\s*domain findings\s*\**\s*[:：]?/i.exec(receipt);
   const tail = label ? receipt.slice(label.index + label[0].length) : '';
   const found = tail.split(/\n[\s>*+-]*\**\s*(?:needs review by|evidence)\b/i)[0].replace(/[\s*`_>-]/g, '');
-  const hasDomain = found !== '' && !/^(none|n\/a|无)[.。]?$/i.test(found);
+  const hasDomain = found !== '' && !/^(none|n\/a)\b|^无(?![一-鿿])/i.test(found);
 
-  const msg = `${agent} 已返回。按验收铁律：不以它的自报（完成/通过/空回复）为准，核客观证据——编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核测试运行器真实输出；部署→独立核查三件套。${hasDomain ? '另：它报了领域发现，按 .claude/rules/domain-rulings.md 判一句够不够格收（依据齐不齐、离开本项目还成不成立），够格就问用户一句要不要收、收则派 domain-recorder。' : ''}`;
+  const msg = `${agent}：你就要收工了——自报（完成/通过/空回复）不算客观证据，把每条结论锚到你实际跑过的命令与它的输出上；没跑过、证不出的写进 Not verified。${hasDomain ? '回执里报了领域发现的，写清你手上的证据是哪一类（实测 / 查外网 / 查内部）；定论归主 Agent，你只报不判。' : ''}`;
   emit({ hookSpecificOutput: { hookEventName: 'SubagentStop', additionalContext: msg } });
 });

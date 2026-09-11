@@ -287,46 +287,86 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hoo
     "SA implementer 返回 → hookSpecificOutput.hookEventName = SubagentStop 且提醒正文点名角色" \
     "hookEventName=SubagentStop 且 additionalContext 含 implementer" "rc=$RC out=[$(show "$OUT")]"
 
-# 下面三条按「即将反转」的新契约写，不按现有实现写：只在回执**真有** Domain findings 且正文
-#   非空（非 None/N/A/无）时，才在铁律正文末尾追加一句收录提示；没有这一栏时不得提它、不得
-#   催补报——口径库是沟通过程的副产品，催出来的是凑数，凑的没依据，进库即噪音。
-#   GOT 里的「追加段」只为看红因（铁律正文之后到底追加了什么），不参与判定。
-SB=$(newsb sa-domain)
-run_hook subagent-acceptance-reminder "$SB" \
-    '{"agent_type":"tester","agent_id":"a-2","last_assistant_message":"Status: PASS\nChanged: None\nDomain findings: pon_links.olt_ip 实测全表 0 条命中 OLT 名\nEvidence: runner 输出"}'
-SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
-SAREC=$({ hasq 'domain-recorder' "$SAAC" || hasq '收录' "$SAAC" || hasq '要不要收' "$SAAC"; } && echo 有 || echo 无)
-chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
-      && hasq tester "$SAAC" && hasq '客观证据' "$SAAC" && [ "$SAREC" = 有 ] && echo 0 || echo 1)" \
-    "SA 回执真有 Domain findings 且正文非空 → 铁律正文之后追加一句收录提示（点名 domain-recorder / 要不要收）" \
-    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，并出现 domain-recorder / 收录 / 要不要收 其一" \
-    "rc=$RC 收录语=$SAREC 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+# 下面几条按新契约写，不按现有实现写：SubagentStop 的 additionalContext 实测落在刚停下的那个
+#   子 Agent 自己身上，主 Agent 这侧收不到，所以这句提醒是第二人称写给它的收工取证要求，
+#   不是写给主 Agent 的验收指令。领域那一句只在回执**真有** Domain findings 且正文非空
+#   （不以 None / N/A / 无 起头）时才追加：口径库是沟通过程的副产品，没这一栏是无从判断、
+#   不是漏填，催出来的是凑数，凑的没依据，进库即噪音。
+#   三个标记**同时**判，不判其一：「领域发现」跨两版措辞都成立（换措辞那轮负向断言只盯新标记，
+#   旧措辞的追加句照样漏出来而新标记天生不命中，四条当场全假绿），「证据是哪一类」「只报不判」
+#   钉的是那句话带的两件事——只判一个的话，实现少写半句照样绿。
+#   ① 两臂：第二臂正文以「无」起头但是真发现，纯前缀判法会把它吞成「没有」，这条就是那道防线。
+DOMARM=0
+while IFS='|' read -r DVAL DDESC <&3; do
+    [ -n "${DVAL:-}" ] || continue
+    DOMARM=$((DOMARM + 1))
+    SB=$(newsb "sa-domain$DOMARM")
+    run_hook subagent-acceptance-reminder "$SB" \
+        "{\"agent_type\":\"tester\",\"agent_id\":\"a-2-$DOMARM\",\"last_assistant_message\":\"Status: PASS\\nChanged: None\\nDomain findings: $DVAL\\nEvidence: runner 输出\"}"
+    SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
+    SADOM=$(hasq '领域发现' "$SAAC" && echo 有 || echo 无)
+    SACLS=$(hasq '证据是哪一类' "$SAAC" && echo 有 || echo 无)
+    SANOJ=$(hasq '只报不判' "$SAAC" && echo 有 || echo 无)
+    chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
+          && hasq tester "$SAAC" && hasq '客观证据' "$SAAC" \
+          && [ "$SADOM" = 有 ] && [ "$SACLS" = 有 ] && [ "$SANOJ" = 有 ] && echo 0 || echo 1)" \
+        "SA 回执 $DDESC → 追加一句第二人称的取证要求（写清证据是哪一类 / 定论归主 Agent，两个标记都要出现）" \
+        "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含收工取证正文，并同时出现「领域发现」「证据是哪一类」「只报不判」" \
+        "rc=$RC 写法=[$DVAL] 追加领域句=$SADOM 证据分类=$SACLS 只报不判=$SANOJ 追加段=[$(show "${SAAC#*Not verified。}")]"
+done 3<<'ARMS'
+pon_links.olt_ip 实测全表 0 条命中 OLT 名|真有领域发现（普通写法）
+无线接入侧 VLAN 按 OLT 槽位算|真有领域发现、但正文以「无」起头（纯前缀判法会吞掉它，这条是那道防线）
+ARMS
 
-SB=$(newsb sa-domain-none)
-run_hook subagent-acceptance-reminder "$SB" \
-    '{"agent_type":"code-reviewer","agent_id":"a-3","last_assistant_message":"Status: DONE\nChanged: None\nDomain findings: None\nEvidence: 审查记录"}'
-SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
-SAREC=$({ hasq 'domain-recorder' "$SAAC" || hasq '收录' "$SAAC" || hasq '要不要收' "$SAAC"; } && echo 有 || echo 无)
-SANAG=$({ hasq '漏报' "$SAAC" || hasq '补问' "$SAAC"; } && echo 有 || echo 无)
-chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
-      && hasq code-reviewer "$SAAC" && hasq '客观证据' "$SAAC" \
-      && [ "$SAREC" = 无 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
-    "SA 回执写 Domain findings: None → 只有铁律正文，不追加收录提示也不催补报（守住不误报）" \
-    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，收录语与催补报的话都不出现" \
-    "rc=$RC 收录语=$SAREC 催补话=$SANAG 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+# ② 一族四个写法，一把尺子：判据是「正文以 None / N/A / 无 **起头**就算没有」，不是整串相等——
+#   子 Agent 写回执时自然会在 None 后面补一句为什么没有（上一轮实现者与我 2/2 都这么写），
+#   整串相等那种判法会把「明说没有还解释了」翻面判成真有发现，正好催出它要防的凑数口径。
+#   六臂都断言不追加、不催补报；表走 fd 3，免得循环体里读 stdin 的命令把它吃掉。
+#   各臂独立沙箱 + 各自 agent_id：hook 带去重表 .claude/.subagent-reminded，同 id 第二次直接静默。
+#   「追加领域句」这一项判的是**跨两版措辞都成立**的词「领域发现」：只判新标记会假绿——旧措辞
+#   的追加句照样漏出来，而新标记天生不命中，负向断言就看不见泄漏（实测吃过一次假绿）。
+NONEARM=0
+while IFS='|' read -r NLBL NVAL NDESC <&3; do
+    [ -n "${NLBL:-}" ] || continue
+    NONEARM=$((NONEARM + 1))
+    SB=$(newsb "sa-domain-none$NONEARM")
+    run_hook subagent-acceptance-reminder "$SB" \
+        "{\"agent_type\":\"code-reviewer\",\"agent_id\":\"a-3-$NONEARM\",\"last_assistant_message\":\"Status: DONE\\nChanged: None\\n$NLBL: $NVAL\\nEvidence: 审查记录\"}"
+    SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
+    SACLS=$(hasq '证据是哪一类' "$SAAC" && echo 有 || echo 无)
+    SANOJ=$(hasq '只报不判' "$SAAC" && echo 有 || echo 无)
+    SANAG=$({ hasq '漏报' "$SAAC" || hasq '补问' "$SAAC"; } && echo 有 || echo 无)
+    SADOM=$(hasq '领域发现' "$SAAC" && echo 有 || echo 无)
+    chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
+          && hasq code-reviewer "$SAAC" && hasq '客观证据' "$SAAC" \
+          && [ "$SADOM" = 无 ] && [ "$SACLS" = 无 ] && [ "$SANOJ" = 无 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
+        "SA 回执 $NDESC → 只有收工取证正文，不追加那句取证要求也不催补报（判据是以 None / N/A / 无 起头即算没有，后面的括注不翻面，不是整串相等）" \
+        "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含收工取证正文，不出现「领域发现」（跨两版措辞的追加句标记），「证据是哪一类」「只报不判」与催补报的话也都不出现" \
+        "rc=$RC 写法=[$NLBL: $NVAL] 追加领域句=$SADOM 证据分类=$SACLS 只报不判=$SANOJ 催补话=$SANAG 泄漏句=[$([ "$SADOM" = 有 ] && show "领域发现${SAAC##*领域发现}" || echo 空)]"
+done 3<<'ARMS'
+Domain findings|None|裸 None（最朴素的写法）
+**Domain findings**|None（本轮全是框架自身测试基建，无业务领域口径）|栏名加粗 + None 后跟中文括注（子 Agent 的自然写法）
+Domain findings|None (framework-internal only)|None 后跟英文括注
+Domain findings|无（本轮无领域口径）|中文「无」+ 中文括注
+Domain findings|无|裸「无」（现实现本来判对，\b 那种方案会让它退化，得有人守着）
+Domain findings|N/A（本轮不适用）|N/A + 中文括注
+ARMS
 
 SB=$(newsb sa-nodomain)
 run_hook subagent-acceptance-reminder "$SB" \
     '{"agent_type":"deployer","agent_id":"a-4","last_assistant_message":"Status: DONE\nChanged: src/a.ts"}'
 SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
 SADF=$(printf '%s' "$SAAC" | grep -qi 'domain findings' && echo 提了 || echo 没提)
+SACLS=$(hasq '证据是哪一类' "$SAAC" && echo 有 || echo 无)
+SANOJ=$(hasq '只报不判' "$SAAC" && echo 有 || echo 无)
 SANAG=$({ hasq '漏报' "$SAAC" || hasq '补问' "$SAAC"; } && echo 有 || echo 无)
+SADOM=$(hasq '领域发现' "$SAAC" && echo 有 || echo 无)
 chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
       && hasq deployer "$SAAC" && hasq '客观证据' "$SAAC" \
-      && [ "$SADF" = 没提 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
-    "SA 回执完全没有 Domain findings 栏 → 不提这一栏、不催补报（没有现场依据的口径进库即噪音）" \
-    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，不出现 Domain findings 与催补报的话" \
-    "rc=$RC 提Domain=$SADF 催补话=$SANAG 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+      && [ "$SADF" = 没提 ] && [ "$SADOM" = 无 ] && [ "$SACLS" = 无 ] && [ "$SANOJ" = 无 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
+    "SA 回执完全没有 Domain findings 栏 → 不提这一栏、不追加那句取证要求、不催补报（没有现场依据的口径进库即噪音）" \
+    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含收工取证正文，不出现 Domain findings、「领域发现」（跨两版措辞的追加句标记）、两个新标记与催补报的话" \
+    "rc=$RC 提Domain=$SADF 追加领域句=$SADOM 证据分类=$SACLS 只报不判=$SANOJ 催补话=$SANAG 泄漏句=[$([ "$SADOM" = 有 ] && show "领域发现${SAAC##*领域发现}" || echo 空)]"
 
 SB=$(newsb td-en)
 run_hook tdd-gate "$SB" '{"tool_input":{"command":"claude agent implementer write code"}}'
