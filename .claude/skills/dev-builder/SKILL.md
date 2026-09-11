@@ -71,6 +71,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     Plan（读 DEV-PLAN 该 Phase 与 Spec 相关章节的原文，探索现有代码，写出 Task 拆分，每个页面 / 组件 / 功能一个 Task）→ 每个 Task：读派单包 Business Context（为什么做、谁受益、相关规则与例外；Spec 没写的分支按规则与例外推，推不出来的记为「业务假设」进回执，不静默选一个）→ 读该 Task 的交付清单、Spec 功能描述、设计参照的原文 → 编码 → 自检（代码实际值对设计数值、行为对 Spec、业务含义对 Business Context）→ 派 code-reviewer 一轮 → 只 HIGH 阻断，修完由同一轮复核一次即收口，Medium / Low 记残留不追 → `echo clean > .claude/.needs-review` → commit → 下一个 Task。
     用户强调某个环节是追加要求，不替换基础流程，review 闭环照常走。
     反例回流：代码对得上 Spec、Spec 对不上业务规则或例外（那次例外会走错）→ 回执报「需求存疑」+ 反例，不自行改需求。
+    领域事实回流：编码中撞见的领域事实（字段的真实格式、真库的实际状态、外部系统的实际行为）带依据写进回执的 Domain findings 栏，没有现场依据的不写。
 
 [Phase 完成度判断]
     所有 Task 完成后过四步走，每步附当场跑出的证据：

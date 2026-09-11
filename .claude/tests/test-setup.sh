@@ -2,7 +2,7 @@
 # risk: high
 # test-setup.sh — 安装器回归测试：把 cc-base 用 setup.sh 装到临时目录，断言产物正确。
 # 装坏别人项目是高风险五种之一，所以这四条主路径一条不减：
-#   ① 全新安装装齐（CLAUDE.md / harness / 7 个 agents / 各 skill 的 SKILL.md / hooks / settings.json
+#   ① 全新安装装齐（CLAUDE.md / harness / agents 名单与源仓逐份对齐 / 各 skill 的 SKILL.md / hooks / settings.json
 #      合法 JSON）+ 私有 feedback 已排除（target 只剩 templates/ + 重置的 FEEDBACK-INDEX.md）
 #   ② 幂等重装（装两次产物 SHA256 一致；三条平台路径各自的合并语义）
 #   ③ manifest 分层：用户改过的框架文件不被覆盖、落 .framework-new，私有新增文件保留
@@ -40,12 +40,21 @@ for m in io gatelog tier harness; do
 done
 [ -f "$CL/rules/harness-large-repo.md" ] || fail "rules/harness-large-repo.md 未安装"
 
-# 7 个 agent 全装齐
+# agent 全装齐。七个核心角色写死字面量当地板——整批改名或装空时，两边同样错的
+# 动态比对会互相抵消判绿，写死的那份不会。份数与名单则与源仓逐份对齐：安装器的
+# 职责就是「源仓有几个就装出几个」，多一份（漏了排除表）少一份（新 agent 没进拷贝
+# 范围）都是它的错；写死 7 只能挡住那年的名单，新增一个合规 agent 就假红。
 for ag in implementer code-reviewer tester deployer feedback-observer evolution-runner progress-recorder; do
   [ -f "$CL/agents/$ag.md" ] || fail "agent 缺失：$ag.md"
 done
-agent_count=$(find "$CL/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')
-[ "$agent_count" = "7" ] || fail "agent 数量应为 7，实得 $agent_count"
+list_agents() { find "$1" -maxdepth 1 -type f -name '*.md' -exec basename {} \; | LC_ALL=C sort; }
+src_agents=$(list_agents "$ROOT/.claude/agents")
+got_agents=$(list_agents "$CL/agents")
+agent_count=$(printf '%s\n' "$got_agents" | grep -c '^.' || true)
+src_count=$(printf '%s\n' "$src_agents" | grep -c '^.' || true)
+# 源仓自己数不到七份 = 基线异常（find 挂了 / 路径推错），此时名单比对会双空判绿，先拦下
+[ "$src_count" -ge 7 ] || fail "源仓 agents/*.md 只数到 $src_count 份，不足七个核心角色——基线异常，非安装器之过"
+[ "$src_agents" = "$got_agents" ] || fail "agent 名单与源仓不一致：源仓 $src_count 份 [$(printf '%s' "$src_agents" | tr '\n' ' ')] vs 装出 $agent_count 份 [$(printf '%s' "$got_agents" | tr '\n' ' ')]"
 
 # 每个 skills/<name>/ 都有 SKILL.md 实体
 while IFS= read -r d; do

@@ -167,6 +167,7 @@ argument-hint: "[产品想法或需求变更]"
     - **给 design-brief-builder**：使用情境与首要动作、受益者画像、关键流程（命名主角）、失败路径——设计从这四样出发，不从颜色出发。
     - **给 arch-designer / dfx-designer**：数据归属与权限、故障后果（哪一步错了谁疼）、行业隐含合规、涉钱涉人身的条目——它们是模块边界与档位的直接输入。
     - **给主 Agent 派单**：每条功能的「为什么、谁受益、相关规则与例外」是派单包「业务上下文」字段的来源（见 .claude/rules/subagent-dispatch.md），主 Agent 从 Spec 抄，不让 fresh 实例猜。
+    - **给 domain/ 口径库**：「规则与例外」里答「这个域里某件事按什么算」、且有现场依据的条目是口径的上游（见 .claude/rules/domain-rulings.md）；功能需求说要做什么，口径说怎么算，两者分开写。
     - **给 progress.md**：决策依据里的取舍进 Decisions（规则 + 依据 + 适用范围）；「既定不可碰」的进 Pinned。
     - **下游回流**：code-review / tester / bug-fixer 报「需求存疑」时，本 skill 迭代模式接单，反例是输入。
 

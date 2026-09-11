@@ -18,3 +18,5 @@ metadata:
 - 相关：[[cc-base-testing-infra]]
 - **给 scan-secrets 加新规则的红锁，交付前一定要拿候选修复扫一遍全仓**：新规则会连带打红存量文件，而那正是「本仓自举」断言和 git hook 会拦的东西。实测加 `url-userinfo` 后除我自己的测试文件（头注释里写了字面量形态，已改）外，还打红两处存量：`.claude/harness/audit/scan-instructions.mjs:127` 的 `HTTPS_PROXY=` 注释样例、`docs/CROSS-POLLINATION.md:47` 那条描述这条规则本身的台账行。这两处得配 `scan-secrets:ignore`，否则规则一落地 implementer 自己都 commit 不进去——红锁回执里要把这份名单交出去。
 - **ADR `revisit-if` 的「日期式空话」判定有子串误伤（2026-09-10 实测）**：`scan.mjs` 的 `ADR_REVISIT_VAGUE_RE` 含 `年后|周后|个月后`，会跨词匹配「明**年后**端团队接手」「2026 **年后**端服务拆成多进程」这类正当条件（年 + 后端），CONDITION 白名单救不回来 → **假红**。反向的漏判反而无害：CONDITION 含 `当|若|需要` 这种高频字，「适**当**时候再评估」会被放过。本仓纪律是「判不准宁可放过」，所以假绿可接受、假红必须报给主 Agent，别自己去改实现，也别把当前行为写成断言固化下来。
+
+- **agent / hook 份数写死在实现脚本里，新增一个合规 agent 就整仓假红**：`scripts/doctor.sh:40` 至今是 `[ "$agent_count" = "7" ]`（2026-09-11 实测：加了第 8 个 agent 后 doctor rc=1，`test-doctor.sh` 的「控制组：未篡改时 rc=0」跟着红，而它验的是清单篡改检测、与份数无关）。`tests/test-setup.sh` 同款硬编码已在 2026-09-11 改成「与源仓 `agents/*.md` 名单逐份比对 + 七个核心角色写死字面量当地板」；`test-routing.sh` 本来就是动态比对所以绿。再遇整仓红先 grep 一遍还有没有第三处写死份数的。

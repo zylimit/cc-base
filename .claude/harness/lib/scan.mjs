@@ -62,14 +62,48 @@ const DEFAULT_FITNESS_RULES = [
   },
 ];
 
-/** Built-in rules, optionally extended/replaced by .claude/harness/fitness-rules.json. */
-function loadFitnessRules() {
-  const fp = path.join(projectRoot(), '.claude', 'harness', 'fitness-rules.json');
-  if (!fs.existsSync(fp)) return DEFAULT_FITNESS_RULES;
+/**
+ * Built-in rules, optionally extended/replaced by a rules file. With no path handed in the
+ * file is .claude/harness/fitness-rules.json, and its absence -- or a body that will not
+ * parse -- leaves the built-in set standing, because nobody asked for those rules. A path
+ * handed in is the opposite case: a gate was pointed at that rule set, so a file that is not
+ * there, does not parse, or yields no rule at all, is named and nothing is scanned. Swapping in the built-ins there
+ * would let a gate report green over rules it never read, which is the shape of failure this
+ * capability exists to catch.
+ * @param {string} [rulesFile] --rules-file value; a relative path resolves against the project root
+ * @throws {Error} carrying .fitnessRules {error,detail} when a named file is missing or unusable
+ */
+function loadFitnessRules(rulesFile) {
+  const given = rulesFile !== undefined && rulesFile !== null && rulesFile !== false;
+  const refuse = (code, detail, note) => {
+    const err = new Error(note);
+    err.fitnessRules = { error: code, detail };
+    return err;
+  };
+  if (given && (typeof rulesFile !== 'string' || rulesFile.trim() === '')) {
+    throw refuse('rules-file-empty', String(rulesFile),
+      '--rules-file was given without a path; nothing was scanned');
+  }
+  const fp = given
+    ? (path.isAbsolute(rulesFile) ? rulesFile : path.join(projectRoot(), rulesFile))
+    : path.join(projectRoot(), '.claude', 'harness', 'fitness-rules.json');
+  if (!fs.existsSync(fp)) {
+    if (given) throw refuse('rules-file-missing', fp, 'no fitness rules file at ' + fp + '; nothing was scanned');
+    return DEFAULT_FITNESS_RULES;
+  }
   let raw;
-  try { raw = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_e) { return DEFAULT_FITNESS_RULES; }
-  if (!raw || !Array.isArray(raw.rules)) return DEFAULT_FITNESS_RULES;
+  try { raw = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) {
+    if (given) throw refuse('rules-file-unreadable', fp, 'fitness rules file at ' + fp + ' does not parse (' + e.message + '); nothing was scanned');
+    return DEFAULT_FITNESS_RULES;
+  }
+  if (!raw || !Array.isArray(raw.rules)) {
+    if (given) throw refuse('rules-file-malformed', fp, 'fitness rules file at ' + fp + ' carries no rules array; nothing was scanned');
+    return DEFAULT_FITNESS_RULES;
+  }
   const extra = raw.rules.filter(r => r && typeof r.id === 'string' && typeof r.forbid === 'string');
+  if (given && extra.length === 0) {
+    throw refuse('rules-file-empty-rules', fp, 'fitness rules file at ' + fp + ' parses to 0 rules; nothing it names was scanned');
+  }
   return raw.replace === true ? extra : [...DEFAULT_FITNESS_RULES, ...extra];
 }
 
@@ -141,7 +175,11 @@ function scanFitness(files, catalog, rules) {
 function cmdFitness(flags) {
   const loaded = loadCatalogFlag(flags);
   const catalog = loaded.ok ? loaded.catalog : null;
-  const rules = loadFitnessRules();
+  let rules;
+  try { rules = loadFitnessRules(flags['rules-file']); } catch (e) {
+    if (!e || !e.fitnessRules) throw e;
+    return emit({ ok: false, degraded: true, error: e.fitnessRules.error, detail: e.fitnessRules.detail, note: e.message }, 3);
+  }
   const root = projectRoot();
   let subjects;
   if (typeof flags.paths === 'string') {

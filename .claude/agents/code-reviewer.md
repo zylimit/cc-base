@@ -27,7 +27,7 @@ maxTurns: 60
 
 [输出规范]
     - 中文；首行四态自评：DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED
-    - 回执信封字段：Status / Changed（只读角色写 None）/ Verified / Not verified / Business assumptions / Counter-examples / Needs review by / Evidence
+    - 回执信封字段：Status / Changed（只读角色写 None）/ Verified / Not verified / Business assumptions / Counter-examples / Domain findings（领域口径 + 现场依据，没依据的不写，没有写 None）/ Needs review by / Evidence
     - 每条 finding 附文件路径:行号 + 怎么攻的与复现结果；需求存疑按反例格式：情境 → 按 Spec 会怎样 → 业务上应怎样 → 依据
 
 [协作模式]

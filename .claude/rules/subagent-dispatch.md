@@ -18,12 +18,12 @@ paths:
     - **并行**：跨 Task 编码**默认串行**，同文件改动或有依赖一律串行；只读 / 可汇总的工作（审查、测试、探索）才是并行甜区。用户说"加速 / 快点"≠ 授权并行铺开——正解是砍范围、串行提效、减少返工。
 
 [派单包七字段]
-    **Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Business Context**（这个 Task 为什么做、谁受益、Spec「规则与例外」里相关的条目、progress.md Pinned / Decisions 里适用于本 Task 的规则（引日期）、用户教过的相关纠正（feedback 文件名）——从 Spec 与 progress.md 抄，不让 fresh 实例猜；编码 / 审查 / 测试类派单**不许写 N/A**）/ **Verification**（本任务允许且需要的最小客观核查，用户明确豁免时写明）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。其余不适用的字段写 N/A；大仓启用后由 `task` 子命令机器校验，缺哪个点哪个。
+    **Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Business Context**（这个 Task 为什么做、谁受益、Spec「规则与例外」里相关的条目、progress.md Pinned / Decisions 里适用于本 Task 的规则（引日期）、用户教过的相关纠正（feedback 文件名）、项目有 `domain/` 口径库时按域与本 Task 会碰的技术对象匹配出的相关口径条目（与 Spec 的规则例外并列，同样不许写 N/A）——从 Spec、progress.md 与 domain/ 抄，不让 fresh 实例猜；编码 / 审查 / 测试类派单**不许写 N/A**）/ **Verification**（本任务允许且需要的最小客观核查，用户明确豁免时写明）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。其余不适用的字段写 N/A；大仓启用后由 `task` 子命令机器校验，缺哪个点哪个。
     每单 ≤ 6 次工具调用，只给「文件:行 + 改成什么 + 一条验证命令」（2026-09-06 用户纠正）；单次派单预期 >60min 说明任务分解不合理，回任务分解重切，而不是让 Sub-Agent 长跑。
 
 [回传与验收]
     - Sub-Agent 的**最终回传消息**是唯一进主 Agent 上下文的东西：回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译与测试输出位置 / 时间戳）+ 关键提炼，不贴全文与原始长日志，长报告压成要点。
-    - **统一回执信封**，各 Sub-Agent 一律以四态自评开头：**Status**（DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED；tester 可用 PASS / FAIL 表示运行器结果）/ **Changed**（实际改动的文件或产物，只读角色写 None）/ **Verified**（实际跑过且拿到结果的核查）/ **Not verified**（没执行或无法证明的，必须列）/ **Business assumptions**（Spec 没写、自己补的判断，没有写 None）/ **Counter-examples**（代码对得上 Spec、Spec 对不上业务的反例，有就报「需求存疑」，主 Agent 回流 product-spec-builder 迭代模式，没有写 None）/ **Needs review by** / **Evidence**。
+    - **统一回执信封**，各 Sub-Agent 一律以四态自评开头：**Status**（DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED；tester 可用 PASS / FAIL 表示运行器结果）/ **Changed**（实际改动的文件或产物，只读角色写 None）/ **Verified**（实际跑过且拿到结果的核查）/ **Not verified**（没执行或无法证明的，必须列）/ **Business assumptions**（Spec 没写、自己补的判断，没有写 None）/ **Counter-examples**（代码对得上 Spec、Spec 对不上业务的反例，有就报「需求存疑」，主 Agent 回流 product-spec-builder 迭代模式，没有写 None）/ **Domain findings**（本次干活撞出的领域口径——这个领域「事情是怎么算的」的事实与判断，必须带现场依据：实测结果、字段的真实格式、真库的实际状态、外部系统的实际行为，没依据的不写，错的口径比没有更糟；本次的范围限制（做完就失效）不算，需求反例走 Counter-examples，对 AI 工作方法的意见走 feedback；主 Agent 验收时裁定收不收、收则派 domain-recorder 写入，子 Agent 只报不判，没有写 None）/ **Needs review by** / **Evidence**。
     - **对着 diff 与运行器输出判，不对着实现者的报告判**；翻证据（读 artifact 全文、跑核查三件套）这类体力活可外包，「通过 / 不通过」的判断权留主 Agent，需要时再派 fresh 实例回溯原文核实。
     - **BLOCKED / NEEDS_CONTEXT 升级阶梯（禁原样重试）**：① 缺什么补什么、带齐上下文重派 fresh；② 补不齐就砍范围重切任务；③ 属缺陷定位类换 bug-fixer 路线；④ 三步都不通升级用户拍板。重派必须至少变更一项（上下文 / 范围 / 角色 / 模型），同 prompt 同模型原样重发属于赌运气。
 

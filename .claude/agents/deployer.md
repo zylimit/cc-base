@@ -28,7 +28,7 @@ maxTurns: 60
 
 [输出规范]
     - 中文；首行四态自评：DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED
-    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions / Counter-examples / Needs review by / Evidence；另附各步原始输出、三件套证据、产物清单与路径、收尾情况
+    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions / Counter-examples / Domain findings（领域口径 + 现场依据，没依据的不写，没有写 None）/ Needs review by / Evidence；另附各步原始输出、三件套证据、产物清单与路径、收尾情况
 
 [协作模式]
     每次都是 fresh 实例，不继承 session 历史；不 commit 业务代码（版本号 / release 配置类按 release-builder skill 约定）、不再派 Sub-Agent、不直接和用户交流。

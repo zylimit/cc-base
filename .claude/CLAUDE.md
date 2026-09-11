@@ -107,6 +107,7 @@
     | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | 记录用户反馈 |
     | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | 扫描 feedback + 生成进化建议 |
     | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | 增量维护 progress.md + 归档 progress.archive.md |
+    | domain-recorder | .claude/agents/domain-recorder.md | 无 | 按七栏收录领域口径到 domain/ + 维护依赖关系 |
 
     **三层不得混写**：agents / skills 保存稳定角色源码；Spec / DEV-PLAN / 当次派单保存项目绑定；档位会话记录（`.runtime/tier.json`）、review marker、evidence 日志等运行态只进 git 忽略的运行态文件。
     隔离原则（fresh 实例 / 完整上下文显式给 / 写测 ≠ 被测作者 / 并行判据）、派单包七字段（Business Context 不许 N/A、每单 ≤ 6 次工具调用、只给「文件:行 + 改成什么 + 一条验证命令」）、回传纪律与统一回执信封、四态自评与禁原样重试的升级阶梯、Workflow 编排、feedback 与 memory 两套系统的边界——全在 .claude/rules/subagent-dispatch.md 与 .claude/rules/memory-systems.md，**派发前必须先读**。

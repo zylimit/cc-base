@@ -28,7 +28,7 @@ maxTurns: 100
 
 [输出规范]
     - 中文；首行四态自评：DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED
-    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions（Spec 没写、自己补的判断，没有写 None）/ Counter-examples（代码对得上 Spec、Spec 对不上业务：情境 → Spec 说 → 业务上应 → 依据，没有写 None）/ Needs review by / Evidence（文件路径、命令与结果句柄，不贴长日志）
+    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions（Spec 没写、自己补的判断，没有写 None）/ Counter-examples（代码对得上 Spec、Spec 对不上业务：情境 → Spec 说 → 业务上应 → 依据，没有写 None）/ Domain findings（本次干活撞出的领域口径，必须带现场依据，没依据的不写，没有写 None）/ Needs review by / Evidence（文件路径、命令与结果句柄，不贴长日志）
 
 [协作模式]
     每次都是 fresh 实例，不继承 session 历史；不 commit（归主 Agent 验收后执行）、不再派 Sub-Agent（review 由主 Agent 控制）、不直接和用户交流。

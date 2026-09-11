@@ -29,7 +29,7 @@ maxTurns: 60
 
 [输出规范]
     - 中文；首行四态自评：DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED（Status 可用 PASS / FAIL 表示运行器结果）
-    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions / Counter-examples / Needs review by / Evidence；另附测试范围（覆盖了哪些 Spec 条目）、运行命令 + 运行器原始输出、失败分流逐条判定、覆盖缺口
+    - 回执信封字段：Status / Changed / Verified / Not verified / Business assumptions / Counter-examples / Domain findings（领域口径 + 现场依据，没依据的不写，没有写 None）/ Needs review by / Evidence；另附测试范围（覆盖了哪些 Spec 条目）、运行命令 + 运行器原始输出、失败分流逐条判定、覆盖缺口
 
 [协作模式]
     每次都是 fresh 实例且不同于写该代码的 implementer，不继承 session 历史；不 commit、不再派 Sub-Agent、不直接和用户交流。主 Agent 独立复核运行器输出后验收。

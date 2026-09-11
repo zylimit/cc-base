@@ -35,6 +35,7 @@ paths:
         │   ├── deployer.md                # 部署者 Sub-Agent（打包/部署）
         │   ├── feedback-observer.md       # 反馈观察 Sub-Agent
         │   ├── evolution-runner.md        # 进化引擎 Sub-Agent
+        │   ├── domain-recorder.md         # 领域口径 Sub-Agent
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训

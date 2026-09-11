@@ -36,6 +36,13 @@ runFailOpen(async () => {
     }
   }
 
-  const msg = `${agent} 已返回。按验收铁律：不以它的自报（完成/通过/空回复）为准，核客观证据——编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核测试运行器真实输出；部署→独立核查三件套。`;
+  // 回执缺 Domain findings 栏就点一句：领域口径全靠子 Agent 主动填，没人问的栏位迟早烂尾
+  // （feedback 38 条里 20 条从没被任何地方引用过就是先例）。只在真读到回执正文时判——正文读
+  // 不到是无从判断、不是漏填。只提醒不拦停：漏一栏不值得挡下整条流水线，纯只读任务本就没有
+  // 领域发现，误判的代价比漏报大。
+  const receipt = ev && typeof ev.last_assistant_message === 'string' ? ev.last_assistant_message : '';
+  const noDomain = receipt !== '' && !/domain findings/i.test(receipt);
+
+  const msg = `${agent} 已返回。按验收铁律：不以它的自报（完成/通过/空回复）为准，核客观证据——编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核测试运行器真实输出；部署→独立核查三件套。${noDomain ? '另：它的回执没有 Domain findings 栏，可能漏报了本次撞见的领域事实（字段的真实格式 / 真库的实际状态 / 外部系统的实际行为），验收时补问一句。' : ''}`;
   emit({ hookSpecificOutput: { hookEventName: 'SubagentStop', additionalContext: msg } });
 });

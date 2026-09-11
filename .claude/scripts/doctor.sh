@@ -34,13 +34,39 @@ for r in file-structure workflow-orchestration dev-workflow-details harness-larg
   [ -f ".claude/rules/$r.md" ] && ok "rule $r" || bad "rule $r 缺失"
 done
 
-# 7 个 agent
+# agent 装齐
 [ -d .claude/agents ] && ok ".claude/agents 存在" || bad ".claude/agents 缺失"
-agent_count=$(find .claude/agents -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
-[ "$agent_count" = "7" ] && ok "agent 数量 = 7" || bad "agent 数量应为 7，实为 $agent_count"
+# 七个核心角色写死当地板：调度表和 agents/ 一起错（整批改名、两边同时空）时，
+# 两边同样错的动态比对会互相抵消判绿，写死的这份不会。
 for name in implementer code-reviewer tester deployer feedback-observer evolution-runner progress-recorder; do
   [ -f ".claude/agents/$name.md" ] && ok "agent $name" || bad "agent $name 缺失"
 done
+# 份数不写死。要查的是「该装的都装上了」，不是「恰好是某个数字」——写死 7 只挡得住那年的名单，
+# 新增一个合规注册的 agent 就当场假红。真实来源取 CLAUDE.md 的调度表：它点名 .claude/agents/X.md 的，
+# 本地就得有 X.md，少一份是漏装，正是这条要挡的。反过来多出来的不判 ✗——自建 agent 很正常，
+# 只提一句它没登记（没进调度表，主 Agent 不会派它）。
+if [ -f .claude/CLAUDE.md ]; then
+  registered=$(grep -oE '\.claude/agents/[A-Za-z0-9_.-]+\.md' .claude/CLAUDE.md | sed 's#.*/##; s#\.md$##' | LC_ALL=C sort -u)
+  reg_count=$(printf '%s\n' "$registered" | grep -c '^.' || true)
+  if [ "$reg_count" -lt 7 ]; then
+    bad "CLAUDE.md 调度表只解析到 $reg_count 个 agent 条目（至少该有七个核心角色）：表被改坏或没装全，名单比对失效"
+  else
+    reg_flat=" $(printf '%s ' $registered)"
+    miss=""
+    for name in $registered; do
+      [ -f ".claude/agents/$name.md" ] || miss="$miss $name"
+    done
+    [ -z "$miss" ] && ok "agent 名单与 CLAUDE.md 调度表一致（登记 $reg_count 份）" \
+      || bad "调度表登记了但本地没装：${miss# }（调度表共登记 $reg_count 份）"
+    for f in .claude/agents/*.md; do
+      [ -e "$f" ] || continue
+      n=$(basename "$f" .md)
+      case "$reg_flat" in *" $n "*) ;; *) note "agent $n 未登记进 CLAUDE.md 调度表（主 Agent 不会派它）" ;; esac
+    done
+  fi
+else
+  note "拿不到 .claude/CLAUDE.md，跳过 agent 名单与调度表的比对"
+fi
 
 # 每个 skill 都有 SKILL.md
 [ -d .claude/skills ] && ok ".claude/skills 存在" || bad ".claude/skills 缺失"

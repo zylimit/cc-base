@@ -104,7 +104,7 @@ const SUBCOMMAND_FLAGS = {
   'waiver': ['compensation', 'dry-run', 'dryRun', 'expiry', 'file', 'owner', 'reason', 'scope', 'sub'],
   'attributes': ['catalog', 'module'],
   'arch-check': ['catalog', 'max-files', 'record'],
-  'fitness': ['all', 'catalog', 'paths'],
+  'fitness': ['all', 'catalog', 'paths', 'rules-file'],
   'adapters': ['attribute', 'catalog', 'dry-run', 'dryRun', 'id'],
   'adr-check': ['catalog', 'dir', 'file'],
   'arch-trend': ['gate'],
@@ -258,7 +258,7 @@ function usage(cmd) {
     'implemented: ' + IMPLEMENTED_SUBCOMMANDS.join(', ') + '\n' +
     '  attributes  static wiring audit: declared quality attributes vs claiming checks\n' +
     '  arch-check  real import edges vs declared graph (forbidden deps / layers / cycles); --record snapshots drift\n' +
-    '  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral)\n' +
+    '  fitness     built-in day-one rules (secrets/pii/silent-failure/retry/deferral); --rules-file <path> scans by that file\'s rules only (subset gates)\n' +
     '  adapters    list external quality tools, or add one into catalog checks\n' +
     '  adr-check   every active ADR must name a real enforcement (check/rule/harness cap or explicit manual)\n' +
     '  arch-trend  drift ratchet over recorded snapshots; --gate fails on new debt beyond best state\n' +
