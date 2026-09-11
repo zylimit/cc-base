@@ -19,6 +19,9 @@ _Last updated: 2026-09-11_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-09-11: 采集闸两处修正入库 `17ce7f1` 并推上远端：文案改第二人称、判据改开头词判；CLAUDE.md 两处 + ARCHITECTURE.md 一处口径改准。验证：亲验红 `test-hooks-node PASS=25 FAIL=6`（六条红因：两条措辞 + 四条括注误判）→ 修绿 `PASS=31 FAIL=0`；`run-all --level all` rc=0（账本 30 个文件零非 PASS，真触发 case 按 opt-in 未跑）；doctor 143 条 SHA 全一致。
+- 2026-09-11: 该 hook 用例 25 → 31 条：None 六臂（裸 / 中文括注 / 英文括注 / 裸「无」/「无」括注 / N/A 括注）、真发现两臂（普通 / 以「无」起头）、无此栏一条。每条新增臂都被一个被否候选单独打死（`\b` 版被裸「无」与「无」括注打死，纯前缀版被「无线…」打死）——这是「闸靠数据留」的实证，不是凭感觉加。
+- 2026-09-11: progress.md 过 100 条阈值归档收口：搬 51 条进 progress.archive.md（Done 21 + Notes 30），正文两段各余 50 条，九个区块齐全。
 - 2026-09-11: 清账收尾——`gen-manifest` 重生成（142 文件）、`doctor.sh` rc=0、`run-all --level all` rc=0（账本 30 个测试文件 254 条断言零非 PASS，两个真触发 case 按 opt-in 未跑属预期）；提交 `a38f8e2` 推送 origin/main；CI 五格全绿（run 34551292426：ubuntu/windows × node 22/24 + windows ps1）
 - 2026-09-11: 「领域口径库」纠正批（见下方 Decisions 同日七条）落进四份家底文件：①③④⑤⑥ 落进 `.claude/rules/domain-rulings.md`（顺带把文中 feedback 计数 39 改正为 38，实测 `ls` 排除 INDEX 得 38）；⑥ 落进 `.claude/rules/subagent-dispatch.md` 回执信封 Domain findings 栏；⑤⑥ 落进 `.claude/agents/domain-recorder.md`；⑦ 落进 `.claude/skills/red-blue-review/SKILL.md` 的 Judge 裁定步
 - 2026-09-11: 新建 `/domain-rulings` skill（`.claude/skills/domain-rulings/SKILL.md`）：定位为沟通过程的沉淀工具，不进四步走、不设卡点、不在验收链路上；核心职责是四象限分诊（问「这条当初是谁知道的」：人知 AI 不知 → Spec 规则与例外；AI 知人不知 → 技术方向/决策依据；双方都知 → 功能需求；双方都不知、需共同查证才得出 → 口径库，唯一入口），外加查现行值/列待复核/看被谁依赖/手工收录四件；已注册进 CLAUDE.md（新增 [领域口径库] 指针段 + Skill 清单一行）、`rules/dev-workflow-details.md` 执行方式、`rules/file-structure.md` 两处树；skills-lint 18 个零 findings，description 69 字
@@ -74,6 +77,9 @@ _Last updated: 2026-09-11_
 （2026-08-16 及更早的 Done 条目（v1.0.x~v1.10.0），以及 2026-09-01～2026-09-03 期间的 21 条 Done 条目，已归档到 progress.archive.md；正文保留最近 50 条）
 
 ## Decisions
+- 2026-09-11: **采集闸提醒的读者改成子 Agent 自己**（用户 2026-09-11 在四象限选项里拍板「改措辞，按子 Agent 写」）——依据：实测两例——tester 与 implementer 都在回执里引用了该 hook 注入的原文，而主 Agent 这侧两次都没收到；官方文档（https://code.claude.com/docs/en/hooks）Stop 与 SubagentStop 两处措辞相同、只写"Added to Claude's conversation"，不判归属，所以以实测为准。适用范围：subagent-acceptance-reminder.mjs 的文案，以及 CLAUDE.md 两处 + ARCHITECTURE.md 一处原先写「注入提醒主 Agent 验收」的口径。取代：原「执行类 Sub-Agent 一返回就把验收铁律注回主 Agent」的表述（散见 CLAUDE.md 与 ARCHITECTURE.md 正文，未单独成文入库）。连带结论：主 Agent 侧的验收没有机器提醒兜底了，靠读回执正文 + 五步闸自觉。
+- 2026-09-11: **Domain findings 判据改按开头词判，不按整串相等；撤回「约束回执写裸 None」那个取舍**——依据：tester 在自己身上撞出 `**Domain findings**: None（本轮全是框架自身测试基建）` 被整串相等判法翻面判成「有发现」，两个不同子 Agent 的自然写法 2/2 命中，误报率高到抵消上一轮反转的意义；原先选「字面严判」的理由是「放宽会吞掉写在括注里的真发现」，在文案改成子 Agent 自检之后这条理由不成立——漏提一次几乎没代价，回执正文照样进主 Agent 上下文。适用范围：该 hook 的 hasDomain 判据与 subagent-dispatch.md 回执信封那句。取代：本日早先由主 Agent 自行拍定、未单独成文入库的「A 方案：维持字面严判 + 回执写裸 None」。
+- 2026-09-11: **中文判据不能用 JS 的 `\b`，定稿 `!/^(none|n\/a)\b|^无(?![一-鿿])/i`**——依据：主 Agent 第一版给的 `^(none|n\/a|无)\b` 经 tester 实测 + 主 Agent 用 node 独立复跑八种写法证伪——`\b` 是 ASCII 词边界、对汉字不成立，「无（括注）」判不中，且会让现在判对的裸「无」退化；同时纯前缀判法 `^(none|n\/a|无)` 会把「无线接入侧 VLAN 按 OLT 槽位算」这类以「无」起头的真发现吞掉。适用范围：本 hook；凡在中文文本上做词边界判断的闸同理。取代：主 Agent 第一版的 `\b` 方案（从未入库）。
 - 2026-09-11: **口径库改定位为「需求分析/澄清/方案设计的副产品」，不是开发流程的一环**（用户 2026-09-11 原话纠正）——依据：口径库目标是辅助 AI 理解、换来更准的需求规格、更稳的架构、更好用的前端设计；有最好、没有也不强制报错；条目可以跟项目有关，也可能扯很远，会持续增加。适用范围：整个 domain rulings 机制与其全部接线点（domain-rulings.md、domain-recorder.md、domain-rulings skill、subagent-dispatch.md 回执栏等）。取代：09-11「立领域口径库机制」条里把它当流程组成部分的隐含前提（机制本身七栏/四类/三变更/四老化/三触发源不变，见下方该条）。
 - 2026-09-11: **采集闸方向反转：回执里确实有领域发现时才提醒主 Agent 判一句要不要收，不是缺栏就点名**（用户 2026-09-11 纠正）——依据：副产品不该催，催出来的是凑数，凑的没有依据，进库即噪音——这正是规则本身要防的东西。适用范围：`subagent-acceptance-reminder.mjs` 的提醒文案与判定条件。取代：09-11「采集闸现在就上」条中「回执缺 Domain findings 就点名」的设计（「检索校验闸仍押后」的判断不受影响，见下方该条）。
 - 2026-09-11: **口径库放开域归属：域取自领域本身，不取自本项目模块划分**（用户 2026-09-11）——依据：行业规范、组织怎么办事、外部系统的脾气都可自立一域；一时归不到域的先进 `domain/_未归域.md`。适用范围：domain/ 目录的组织方式。取代：原「按域分文件」隐含假设——假设条目都跟本项目的域有关，会把「扯很远但值得留」的条目挡在外面。
@@ -387,6 +393,8 @@ P6 余项：无（`release` 落地即收官）。**`fleet` 已判明确不做**�
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
 
 ## Notes
+- 2026-09-11: **归档丢过东西，靠逐行对拍捞回来**：第一轮归档（撞 25 轮上限中断）丢了 3 条 Done 条目——从 progress.md 删了却没写进 archive（`v2 P0.1 收口并入库` / `v2 P0.1 golden 基线锁建成并证会响` / `审计脚本层建成 + 10 条缺陷红锁到位`），另把 `codewhale-base 已勘察` 那条的日期戳从 2026-09-01 擅自改成 2026-08-20。两者都是用 `git show a38f8e2:progress.md` 与当前两份文件做**全行级对拍**查出来的，已原文补回、日期改回；现在对拍只剩时间戳与被替换的指针两行差异。教训：归档这类「删一处写一处」的搬迁必须先写目标再删源，且完事要做一次全行对拍，不能只看回执自述的条数；主 Agent 当时凭文件 mtime 判「两个文件都还没被写」也是错的——那份快照已过期，mtime 不能替代 git 对拍。
+- 2026-09-11: **负向断言只盯新措辞会造假绿**：tester 第一版四条 None 断言全 PASS，实则现实现漏出来的是**旧**措辞的追加句，而断言只检查新措辞的标记，天生不命中 → 三条假绿，唯一线索是 GOT 里孤零零一个「另」字。修法是加一个跨两版措辞都成立的泄漏探针（`领域发现`）与新标记合取。凡改文案类契约，断言要同时钉「新的必须出现」和「旧的不许出现」。
 - 2026-09-11: **新通道的第一条发现,以及它暴露的路由空缺**。domain-recorder 实现者通过新增的 Domain findings 栏报回一条,我已独立复现:对本 session 新建、尚未入库的文件跑 `git diff`,得到空输出 + rc 0,与「文件没被改」完全无法区分。我今天多个派单里写过「贴 diff 证明只动了这几个文件」,对新建文件那是个看起来像通过的空结果。**裁定不进 domain/**——它是框架验证手段的缺陷,不是某个业务领域里事情怎么算,按定位该走 feedback 或直接改派单实践。派单实践即刻改:新建文件的改动证明用 `wc -l` + 内容锚点 + `git status` 确认 `??`,不用 `git diff`。同时暴露 rules/domain-rulings.md 的一个空缺——该通道会收到三类东西(领域口径 / 框架实践问题 / 需求存疑),规则只写了第一类怎么办,路由规则待补
 - 2026-09-11: 口径库派单里我引的 feedback 数字有误，实现者当场实测纠正：不是「38 条里 13 条没被引用」，而是 **38 条里 20 条**没被 CLAUDE.md / rules / skills / agents 按文件名引用过（其中 graduated:false 的 7 条、graduated:true 但也没被引用的 13 条）。我把两个不同的量混成了一个。规则文件里已按实测值写并注明了计法与日期
 - 2026-09-10: **地板闸 dangerous-pkill-guard 有四种绕过形态**（升级冒烟时顺带发现，cc-base 与下游同一份 md5，是上游本来就漏、不是升级弄坏）：正则只认 `-f` 紧跟命令名的写法。实测 `pkill -f node` rc 2 拦住；`pkill -9 -f node`、`pkill --signal 9 -f node`、`pkill -if node`、`killall -9 node` 四种全 rc 0 放行。这个闸是任何档位都关不掉的地板、由真事故（误杀主 Agent 自身进程）换来，待修。附带发现：该闸对命令文本做匹配，分不清代码与叙述——我写这条记录时被自己拦了一次
