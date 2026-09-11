@@ -42,3 +42,8 @@
 - ✅[已毕业] [测试卡点：测试通过是打包/交付前的强制前置闸门，部署 ≠ 可跳过测试](test-gate-before-packaging-delivery.md) — 测试通过必须是打包/交付前的强制前置卡点；"部署"指令不等于可跳过测试，带后端逻辑变更的版本打包前须有回归测试或手动功能验证证据
 - ✅[已毕业] [测试独立性：写测者 ≠ 被测代码作者（自码自测易作弊）](test-independence-author-not-tester.md) — 写测者不得是被测代码作者；自码自测会把作者的错误假设原样写进断言（confirmation bias），测试派独立方（tester Sub-Agent 或非作者的另一 implementer fresh 实例）
 - ✅[已毕业] [三文件同步：随时可 Clear 上下文，靠 recap 完整恢复](three-file-sync-clearable-context-recap-recovery.md) — Product-Spec.md / Product-Spec-CHANGELOG.md / progress.md 最大程度维护、即时同步，确保用户任何时候可 Clear 上下文、靠 recap 完整恢复；决策/约束/完成事项/新任务即时同步到对应文件，doc 类由主 Agent 直接维护
+- [副产品机制配闸：只在有发现时提醒，不因缺栏目催报](byproduct-mechanism-gates-remind-dont-chase.md) — 给副产品性质的新机制配验收闸前先判它是流程必经还是副产品；副产品闸只在回执确有发现时提醒一句，不催缺，催出来的是凑数，进库即噪音
+- [证据门槛设计要囊括人查内部这类 AI 拿不到的来源](evidence-sourcing-must-include-human-only-channels.md) — 设证据准入门槛前先盘清证据有几类来源渠道——实测撞出来的、AI 查外网的、人查公司内部的，三类分工不重叠，别把「AI 能核实的」当成「全部允许的」
+- [采集口与入库口门槛不同——线索报证据，定论报结论](collection-point-bar-differs-from-storage-point-bar.md) — 多阶段信息管道里，采集口只该要求报手上的证据，入库口才要求报已验证的结论，不能用最后一道关的门槛卡第一道关
+- [分类体系跟着领域本身走，不套用当前项目结构](knowledge-base-taxonomy-follows-domain-not-project.md) — 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构，会把跟项目关系很远但值得留的条目误判出库
+- [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验

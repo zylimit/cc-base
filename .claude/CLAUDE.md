@@ -17,7 +17,7 @@
     11. **构建发布** → 调用 release-builder，打包或部署上线（按需）
 
 [文件结构]
-    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md（可选）/ DESIGN.md（可选，与 Design-Brief 配套）/ DEV-PLAN.md / <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
+    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md（可选）/ DESIGN.md（可选，与 Design-Brief 配套）/ DEV-PLAN.md / domain/（可选，领域口径库）/ <project-name>/（项目代码）/ .gitignore / .claude/（主控 + rules + agents + skills + hooks + scripts + tests + workflows + feedback + EVOLUTION.md）。
     完整目录树见 .claude/rules/file-structure.md——生成/核对项目结构之前必须先读该文件。
 
 [运行模型——纯 Claude Code + Sub-Agent]
@@ -90,6 +90,7 @@
     - /release-builder - 手动：/release-builder（skill 设 disable-model-invocation——发布是副作用工作流，主 Agent 不能代触发；用户口头说"发布/打包/上线"时，主 Agent 回指该命令请用户亲自敲，这是 HIGH 档显式人触发的机器化）。前置：项目代码已创建
     - /red-blue-review - 手动：/red-blue-review（不自动建议，用户说"红蓝审查"、"对抗审查"时才调）。前置：有一批已成型的改动（已 commit 或工作树未提交）
     - /branch-finisher - 自动：Phase / 功能完成后，建议用户敲 /branch-finisher 收尾当前开发分支；用户说"收尾"、"合并分支"、"这个分支弄完了"时，回指 /branch-finisher 请用户确认触发。手动：/branch-finisher。前置：项目代码已创建
+    - /domain-rulings - 自动：用户说"记一条"、问某个字段或规则"现在按什么算"、要列待复核或看某条被谁依赖时；沟通里冒出一段说不清该归哪儿的领域知识时。手动：/domain-rulings。前置：无（domain/ 不存在就是库还没开张）
     - /skill-builder - 自动：EVOLUTION.md 第四层提议创建新 Skill，用户确认后。手动：/skill-builder。前置：无
     - /feedback-writer - 由 feedback-observer sub-agent 调用，不由用户直接触发
     - /evolution-engine - 手动：/evolution-engine
@@ -141,6 +142,11 @@
 
 [五性治理（韧性 / Security / Safety / 隐私 / 可靠性）]
     模块按 ISO 25010 声明属性与档位（critical/high 阻断、medium 告警、low/minimal 记录），check 声明它是哪些属性的证据，覆盖与否机器判定；critical 与 security/safety 永无豁免；fitness 五条零依赖规则随变更可扫；adapters 把外部扫描器按属性接进质量门；开发态韧性由 supervisor 守护（`node .claude/scripts/supervisor.mjs`）。声明档位、解读 attributeGaps、接扫描器、上守护之前必须先读 `.claude/rules/quality-attributes.md`。
+
+[领域口径库（可选——副产品，不是流程环节）]
+    口径 = 这个领域里「事情是怎么算的」，跟领域走不跟仓库走，是 progress.md 的项目决策、feedback 的 AI 工作方法、Spec 的功能需求之外的第四种。载体是项目根 `domain/`，存在即维护、不存在的不强造——框架本体没有领域，没有 domain/ 是正常的，不报错、不催补。
+    它长在需求分析、澄清、方案设计的对话里，目的只有一个：让 AI 下一次输出更准的需求规格、更稳的架构、更好用的前端设计。采集寄生在 Sub-Agent 回执的 **Domain findings** 栏（回执真有领域发现时 `subagent-acceptance-reminder.mjs` 才提一句，缺这栏不催）；收录派 domain-recorder；人机入口是 `/domain-rulings`（四象限分诊 / 查现行值 / 列待复核 / 看被谁依赖 / 手工收录）；派单时按本 Task 匹配出的口径进 Business Context。
+    七栏、四类分拣、三种变更、四种老化、三类依据、四个读取时机全在 .claude/rules/domain-rulings.md——收录、复核、判一条该不该进库之前必须先读该文件。
 
 [项目记忆规则]
     - 执行方式：progress-recorder agent（使用 progress-recorder skill）维护 progress.md；文件在**项目根目录**（不在 .claude/，避免混入独立配置库）。record/archive 派 agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）；大仓启用后 `recap` 子命令按预算从同样三份派生处境，不从摘要来

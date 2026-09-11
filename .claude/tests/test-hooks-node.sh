@@ -287,6 +287,47 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hoo
     "SA implementer 返回 → hookSpecificOutput.hookEventName = SubagentStop 且提醒正文点名角色" \
     "hookEventName=SubagentStop 且 additionalContext 含 implementer" "rc=$RC out=[$(show "$OUT")]"
 
+# 下面三条按「即将反转」的新契约写，不按现有实现写：只在回执**真有** Domain findings 且正文
+#   非空（非 None/N/A/无）时，才在铁律正文末尾追加一句收录提示；没有这一栏时不得提它、不得
+#   催补报——口径库是沟通过程的副产品，催出来的是凑数，凑的没依据，进库即噪音。
+#   GOT 里的「追加段」只为看红因（铁律正文之后到底追加了什么），不参与判定。
+SB=$(newsb sa-domain)
+run_hook subagent-acceptance-reminder "$SB" \
+    '{"agent_type":"tester","agent_id":"a-2","last_assistant_message":"Status: PASS\nChanged: None\nDomain findings: pon_links.olt_ip 实测全表 0 条命中 OLT 名\nEvidence: runner 输出"}'
+SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
+SAREC=$({ hasq 'domain-recorder' "$SAAC" || hasq '收录' "$SAAC" || hasq '要不要收' "$SAAC"; } && echo 有 || echo 无)
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
+      && hasq tester "$SAAC" && hasq '客观证据' "$SAAC" && [ "$SAREC" = 有 ] && echo 0 || echo 1)" \
+    "SA 回执真有 Domain findings 且正文非空 → 铁律正文之后追加一句收录提示（点名 domain-recorder / 要不要收）" \
+    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，并出现 domain-recorder / 收录 / 要不要收 其一" \
+    "rc=$RC 收录语=$SAREC 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+
+SB=$(newsb sa-domain-none)
+run_hook subagent-acceptance-reminder "$SB" \
+    '{"agent_type":"code-reviewer","agent_id":"a-3","last_assistant_message":"Status: DONE\nChanged: None\nDomain findings: None\nEvidence: 审查记录"}'
+SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
+SAREC=$({ hasq 'domain-recorder' "$SAAC" || hasq '收录' "$SAAC" || hasq '要不要收' "$SAAC"; } && echo 有 || echo 无)
+SANAG=$({ hasq '漏报' "$SAAC" || hasq '补问' "$SAAC"; } && echo 有 || echo 无)
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
+      && hasq code-reviewer "$SAAC" && hasq '客观证据' "$SAAC" \
+      && [ "$SAREC" = 无 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
+    "SA 回执写 Domain findings: None → 只有铁律正文，不追加收录提示也不催补报（守住不误报）" \
+    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，收录语与催补报的话都不出现" \
+    "rc=$RC 收录语=$SAREC 催补话=$SANAG 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+
+SB=$(newsb sa-nodomain)
+run_hook subagent-acceptance-reminder "$SB" \
+    '{"agent_type":"deployer","agent_id":"a-4","last_assistant_message":"Status: DONE\nChanged: src/a.ts"}'
+SAAC=$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).additionalContext)')
+SADF=$(printf '%s' "$SAAC" | grep -qi 'domain findings' && echo 提了 || echo 没提)
+SANAG=$({ hasq '漏报' "$SAAC" || hasq '补问' "$SAAC"; } && echo 有 || echo 无)
+chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hookEventName)')" = "SubagentStop" ] \
+      && hasq deployer "$SAAC" && hasq '客观证据' "$SAAC" \
+      && [ "$SADF" = 没提 ] && [ "$SANAG" = 无 ] && echo 0 || echo 1)" \
+    "SA 回执完全没有 Domain findings 栏 → 不提这一栏、不催补报（没有现场依据的口径进库即噪音）" \
+    "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含铁律正文，不出现 Domain findings 与催补报的话" \
+    "rc=$RC 提Domain=$SADF 催补话=$SANAG 追加段=[$(show "${SAAC#*三件套。}")] ac=[$(show "$SAAC")]"
+
 SB=$(newsb td-en)
 run_hook tdd-gate "$SB" '{"tool_input":{"command":"claude agent implementer write code"}}'
 chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" \

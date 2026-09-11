@@ -232,6 +232,12 @@ paths:
         前置条件：无
         新建或改 skill 后跑 `node .claude/harness/harness.mjs skills-lint` 校验 description（CSO，触发式开头、≤180 字），不过先修
 
+    [domain-rulings]
+        **自动调用**：用户说"记一条"、问"现在按什么算"、要列待复核或看某条被谁依赖时
+        **手动调用**：/domain-rulings
+        前置条件：无（domain/ 不存在就是库还没开张，查询回一句「还没有条目」，不报错）
+        执行方式：主 Agent 自己走这个 skill——四象限分诊要对着人一问一答，派 sub-agent 就问不成了；要写库一律派 domain-recorder，本 skill 不碰 domain/ 里的文件。不进四步走、不在任何验收链路上
+
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发
         执行方式：永远通过 feedback-observer sub-agent 执行

@@ -98,6 +98,7 @@ argument-hint: "[改动范围（可选，默认工作树/最近提交）]"
         - ACCEPT → 放行，可继续 commit / 合并 / 发版
         - FIX_REQUIRED → 主 Agent 按清单派 bug-fixer / implementer 修 → 修完重跑本流程
         - NEEDS_MORE_EVIDENCE → 补齐缺的证据（补测试 / 补复现）→ 回到对应遍重判
+        驳回不等于扔掉：Red 攻死角攻出来的东西，一部分是缺陷，另一部分是「原来这个域是这样的」——后者按缺陷判必被驳回，却恰是该留的。裁定时把这类单独挑出来当领域线索，依据齐了按 .claude/rules/domain-rulings.md 派 domain-recorder 收录，没齐的记进 progress.md 残留。
 
 [初始化]
     执行 [工作流程]

@@ -13,3 +13,4 @@ paths:
     - 一条 feedback 的 scope / exceptions / supersedes 是它能不能被正确使用的前提：没有范围的规则会被用到不该用的地方，没有取代关系的新规则会和旧规则并存打架
     - **agent memory（第三类，别和前两者混）**：code-reviewer / tester 挂了 `memory: project` 持久记忆，存的是角色自己的战术笔记（本项目高发缺陷模式 / flaky 区），由角色自维护、无人工审核——它不承载框架规则（那是 feedback 的事），也不承载项目事实。
     - **Claude Code 原生 auto memory 的边界**：原生 auto memory（~/.claude/projects/<repo>/memory/）默认开启，只许存机器本地琐碎（构建命令、调试线索）；**决策 / 约束 / 完成事项只认 progress.md**——三文件同步铁律不因 auto memory 存了什么而豁免，恢复上下文以 /recap 三份文件为准、不以 auto memory 为准。
+    - **领域口径（跟领域走，不跟项目走也不跟 AI 走）**：「这个域里事情怎么算」进项目根 domain/——不进 feedback（那是 AI 工作方法）、不进 progress.md（那是项目决策）、不进 agent memory（那是角色战术笔记）。判法是问「这条当初是谁知道的」：双方都不知、要共同查证才得出的才是口径，细则见 .claude/rules/domain-rulings.md。

@@ -30,7 +30,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 - `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / **大仓能力 harness-large-repo**），主控留指针按需读取；harness/workflow 相关细则带 `paths:` frontmatter，Claude Code 原生按需加载（碰到匹配文件才进上下文）
 - `hooks/` —— 闸门钩子（stop-gate 待审拦截 + diff-bound 回执网关、no-direct-code-guard、tdd-gate、pre-commit-check + 四态质量门、dangerous-pkill-guard、**secret-exfil-guard 密钥读/拷/外传闸**、three-file-sync-gate、**precompact-gate 压缩前守门**、**release-gate 发布前置闸**、**harness-async-verify 编辑期后台早警**、**notify 桌面通知**等；harness 接线经 `lib-harness`，有 catalog 才启用）
 - `harness/` —— 大仓治理 harness（`harness.mjs`，**默认关闭**，放 `module-catalog.json` 才启用——见下方「大仓能力」）
-- `skills/` —— 17 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
+- `skills/` —— 18 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
 - `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / statusline 状态行）
 - `tests/` —— 框架自测（selftest / test-setup / test-routing / 闸回归 / cases，`run-all.sh` 统一跑）

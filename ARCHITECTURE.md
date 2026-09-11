@@ -41,6 +41,7 @@
 | `feedback-observer` | feedback-writer | 记录用户反馈到 `.claude/feedback/` |
 | `evolution-runner` | evolution-engine | 扫描 feedback + 生成进化建议 |
 | `progress-recorder` | progress-recorder | 增量维护 `progress.md` 项目记忆 + 归档 |
+| `domain-recorder` | 无 | 按七栏收录领域口径到项目根 `domain/` + 维护依赖关系 |
 
 ### 2.3 扁平编排（铁律）
 
@@ -136,7 +137,7 @@ ccb-base 实证：codex reviewer 照出过会话内 claude reviewer 漏判的真
 
 **Phase 完成四步走验证**：Code Review → 测试完整性（test-builder 真卡点）→ 编译验证 → 功能测试。全过才算 Phase 完成。
 
-17 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
+18 个 Skill 全清单见 README / CLAUDE.md [可用技能]。
 
 ---
 
@@ -180,6 +181,7 @@ settings.json 同时带三层原生配置（hook 之外的机器执法）：**pe
 
 - **项目记忆**：`progress-recorder` agent 维护项目根目录的 `progress.md`（决策/约束/完成/待办/风险），>100 条自动归档到 `progress.archive.md`。指令 `/record` `/archive` `/recap`。记录类角色（progress-recorder / feedback-observer）可用 fork 形态派发（`subagent_type:"fork"` 继承主对话全文），免主 Agent 转述失真。
 - **反馈进化**：用户修正 AI 行为 → `feedback-observer` 写 `.claude/feedback/` → `evolution-runner`（session 初始化自动派发；skill 已声明 `context: fork` 后台运行不阻塞开场）扫描并生成进化建议 → 用户逐条确认后改进 Skill/规则。
+- **领域口径**：项目根 `domain/`（可选，副产品）记「这个域里事情怎么算」，跟领域走不跟仓库走——采集寄生在 Sub-Agent 回执的 Domain findings 栏（真有发现才提醒），收录派 `domain-recorder`，人机入口 `/domain-rulings`（四象限分诊 / 查现行值 / 待复核 / 看依赖 / 手工收录）。框架本体没有领域，没有 `domain/` 是正常的。细则 `.claude/rules/domain-rulings.md`。
 - **角色记忆**：code-reviewer / tester 挂 `memory: project`（Claude Code 原生 agent memory）——跨会话积累本项目高发缺陷模式 / flaky 区，审查测试越用越准；角色自维护，不承载框架规则与项目事实。
 
 > ⚠️ feedback（改进框架）、memory（跨 session 用户偏好）、agent memory（角色战术笔记）、原生 auto memory（机器本地琐碎）是四套系统：用户修正行为必须走 feedback；决策/约束/完成只认 progress.md（auto memory 不豁免三文件同步铁律）。
@@ -198,8 +200,8 @@ project/
 └── .claude/
     ├── CLAUDE.md                         # 主控
     ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
-    ├── agents/                           # 7 个专职 Sub-Agent
-    ├── skills/                           # 17 个 Skill
+    ├── agents/                           # 8 个专职 Sub-Agent
+    ├── skills/                           # 18 个 Skill
     ├── hooks/                            # 21 个注册闸门（.mjs）+ static-check 工具 + lib/
     ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）

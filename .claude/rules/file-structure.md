@@ -16,6 +16,7 @@ paths:
     ├── Design-Brief.md                    # 设计规范文档（可选，体验脊柱：信息架构 / 页面规格 / 八态 / 文案 / 可访问性）
     ├── DESIGN.md                          # 视觉 token 与规则（可选，与 Design-Brief 配套，Google design.md 规范，代码直接读 token）
     ├── DEV-PLAN.md                        # 分阶段开发计划
+    ├── domain/                            # 领域口径库（可选，副产品；一域一文件，见 .claude/rules/domain-rulings.md）
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
     │   ├── src/
     │   ├── package.json
@@ -24,7 +25,7 @@ paths:
     └── .claude/
         ├── CLAUDE.md                      # 主控
         ├── settings.json                  # hooks 等 Claude Code 配置
-        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / harness-large-repo / quality-attributes）
+        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings / harness-large-repo / quality-attributes）
         ├── hooks/                         # 闸门钩子（stop-gate / no-direct-code-guard / tdd-gate / pre-commit-check / three-file-sync-gate / dangerous-pkill-guard / secret-exfil-guard / precompact-gate / release-gate / harness-async-verify / notify / session-rules-banner 等，全部 .mjs，node 单运行时，共用逻辑在 hooks/lib/）
         ├── harness/                       # 大仓治理（harness.mjs + adapters.json；module-catalog.json 放置即启用）
         ├── workflows/                     # Workflow 编排脚本（code-review-fanout.js）
@@ -58,4 +59,5 @@ paths:
             ├── skill-builder/             # 创建新 Skill
             ├── feedback-writer/           # 记录用户反馈
             ├── evolution-engine/          # 进化引擎扫描
+            ├── domain-rulings/            # 领域口径库入口（四象限分诊 / 查 / 待复核 / 手工收录）
             └── progress-recorder/         # 项目记忆维护

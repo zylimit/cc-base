@@ -36,13 +36,15 @@ runFailOpen(async () => {
     }
   }
 
-  // 回执缺 Domain findings 栏就点一句：领域口径全靠子 Agent 主动填，没人问的栏位迟早烂尾
-  // （feedback 38 条里 20 条从没被任何地方引用过就是先例）。只在真读到回执正文时判——正文读
-  // 不到是无从判断、不是漏填。只提醒不拦停：漏一栏不值得挡下整条流水线，纯只读任务本就没有
-  // 领域发现，误判的代价比漏报大。
+  // 回执真报了领域发现才点一句：口径库是沟通 / 澄清过程的副产品，催不来——催出来的是凑数，凑的
+  // 没有现场依据，进库即噪音，正是 domain-rulings 自己要防的东西。没这一栏、栏里写 None、回执
+  // 压根读不到，一律静默：那是无从判断，不是漏填。栏名容忍加粗与列表符，正文算到下一个字段标签为止。
   const receipt = ev && typeof ev.last_assistant_message === 'string' ? ev.last_assistant_message : '';
-  const noDomain = receipt !== '' && !/domain findings/i.test(receipt);
+  const label = /(?:^|\n)[\s>*+-]*\**\s*domain findings\s*\**\s*[:：]?/i.exec(receipt);
+  const tail = label ? receipt.slice(label.index + label[0].length) : '';
+  const found = tail.split(/\n[\s>*+-]*\**\s*(?:needs review by|evidence)\b/i)[0].replace(/[\s*`_>-]/g, '');
+  const hasDomain = found !== '' && !/^(none|n\/a|无)[.。]?$/i.test(found);
 
-  const msg = `${agent} 已返回。按验收铁律：不以它的自报（完成/通过/空回复）为准，核客观证据——编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核测试运行器真实输出；部署→独立核查三件套。${noDomain ? '另：它的回执没有 Domain findings 栏，可能漏报了本次撞见的领域事实（字段的真实格式 / 真库的实际状态 / 外部系统的实际行为），验收时补问一句。' : ''}`;
+  const msg = `${agent} 已返回。按验收铁律：不以它的自报（完成/通过/空回复）为准，核客观证据——编码/修复→复核编译输出 + 对照 Spec 逐条；测试→复核测试运行器真实输出；部署→独立核查三件套。${hasDomain ? '另：它报了领域发现，按 .claude/rules/domain-rulings.md 判一句够不够格收（依据齐不齐、离开本项目还成不成立），够格就问用户一句要不要收、收则派 domain-recorder。' : ''}`;
   emit({ hookSpecificOutput: { hookEventName: 'SubagentStop', additionalContext: msg } });
 });
