@@ -3,7 +3,6 @@ type: feedback
 description: 三文件（Product-Spec.md / Product-Spec-CHANGELOG.md / progress.md）最大程度维护、即时同步，确保用户任何时候可 Clear 上下文、靠 recap 完整恢复项目状态；每次出现决策/约束/完成事项/新任务即时同步到对应文件，doc 类由主 Agent 直接维护（符合去中转精神）
 created: 2026-06-10
 updated: 2026-06-15
-occurrences: 2
 graduated: true  # 2026-06-10 毕业→CLAUDE.md [项目记忆规则] 三文件同步铁律（并调和 record 一律派 progress-recorder 的旧表述）；本文件留作细则参照
 source_skill: N/A  # 项目记忆维护机制，跨 Skill 通用约束
 priority: 铁律（用户连说三遍 + 强制进化，最高置信）

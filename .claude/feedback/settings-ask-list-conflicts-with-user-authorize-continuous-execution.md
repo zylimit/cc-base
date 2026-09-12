@@ -3,7 +3,6 @@ type: feedback
 description: 用户已「全部放行」后，permissions.ask 列表仍逐次弹确认，主 Agent 该先查 settings 再解释而非只说"我没问"
 created: 2026-09-06
 updated: 2026-09-06
-occurrences: 1
 graduated: true  # 2026-09-10 逐条比对后判定：冲突源已清除——settings.json 的 permissions.ask 只剩 gh release / npm publish / docker push 三条不该豁免的安全底线，git push 已删且 CLAUDE.md 审批三档明写「git push 不在此列」；通用规律被 [纠正当场落地] 与 [查证后再结论] 两条铁律覆盖
 source_skill: dev-builder
 ---

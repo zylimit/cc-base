@@ -3,7 +3,6 @@ type: feedback
 description: 主 Agent 只写提示词 + 委派 + 验收，不亲自写代码/审查/测试/部署；编码=implementer、审查=code-reviewer、测试=tester、部署=deployer（全部 Claude Code Sub-Agent）
 created: 2026-06-03
 updated: 2026-06-03
-occurrences: 3
 graduated: true  # 毕业→CLAUDE.md [总体规则] 职责边界铁律 + 收口开发/修订两节；本文件留作细则参照
 source_skill: product-spec-builder
 ---

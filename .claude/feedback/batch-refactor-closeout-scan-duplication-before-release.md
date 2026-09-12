@@ -3,7 +3,6 @@ type: feedback
 description: 大批量改造（多 Phase / 跨目录的重构或新增）收口、发版前，主 Agent 必须主动做一次重复代码/可提炼逻辑扫描并给出「做/不做+理由」裁定，不等用户提醒；扫描要量化（工具/窗口/克隆数），裁定要把"不值得提炼"的也写明理由，防止为了抽象而抽象
 created: 2026-09-06
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 毕业→dev-builder [Phase 完成度判断] 四步走后「大批量改造收口另扫一次重复代码与可提炼逻辑」+ release-builder [发布检查清单] 的确认项
 source_skill: dev-builder（Phase 收口）/ release-builder（发布前）
 ---

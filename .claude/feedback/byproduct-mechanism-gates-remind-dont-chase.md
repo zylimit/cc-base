@@ -3,7 +3,6 @@ type: feedback
 description: 给副产品性质的新机制配验收闸时，先判它是流程必经还是副产品——副产品闸只在回执确有发现时提醒一句，不因缺栏目催报；催出来的是凑数，进库即噪音
 created: 2026-09-11
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 毕业→CLAUDE.md [领域口径库] + rules/domain-rulings.md [定位与边界]「它是副产品，不是流程环节」；hook 方向已反转并红锁；本文件留作细则参照
 source_skill: N/A（领域口径库机制设计阶段）
 scope: 给任何"有最好、没有也不算数"的副产品性质机制设计验收闸/提醒规则时

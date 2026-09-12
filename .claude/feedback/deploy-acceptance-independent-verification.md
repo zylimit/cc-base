@@ -3,7 +3,6 @@ type: feedback
 description: 部署验收以宿主真实状态为准，独立核查三件套（容器时间戳+镜像tag / 健康检查 / live冒烟），不以子 Agent 回复状态为唯一依据
 created: 2026-06-03
 updated: 2026-06-03
-occurrences: 1
 graduated: true  # 2026-06-04 毕业→CLAUDE.md [总体规则] 验收铁律 + release-builder [部署验收]；本文件留作细则参照
 source_skill: release-builder
 scores:

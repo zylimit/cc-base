@@ -3,7 +3,6 @@ type: feedback
 description: 性能类根因判断必须先 EXPLAIN ANALYZE / 采样实测再给方案选项；"从代码结构读出来的合理推测"不配当推荐依据——被用户质疑后才补证据 = 流程倒置，且实测直接推翻了原猜测
 created: 2026-07-13
 updated: 2026-07-13
-occurrences: 1
 graduated: true
 source_skill: N/A（主 Agent 生产库性能诊断环节）
 ---

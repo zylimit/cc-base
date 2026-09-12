@@ -3,7 +3,6 @@ type: feedback
 description: 改/加家底（skill、规则文档、CLAUDE.md/AGENTS.md、feedback）时新增内容必须无缝贴合原有家底风格——看上去像用户手搓的、不是 AI 生成的；禁 AI 味（英文缩写堆砌 SMART/BDD/Non-Goals、元叙事罗列下游机制、⭐/←/「链路源头」花哨标记、过度工整爱解释 why）；改前先 grep 核查家底是否本来就用某词（锚定/契约/驱动/闭环家底原文大量在用，别凭空当 AI 味矫枉过正）；保留有机制意义的功能性标识（AC 编号 / Given-When-Then / 工具名）
 created: 2026-06-12
 updated: 2026-06-12
-occurrences: 1
 graduated: true
 source_skill: N/A
 priority: 铁律（用户连说两遍、第二遍更强烈："看上去像我手搓出来的，不是你生成的""你都去扫一遍，改一改说法"）

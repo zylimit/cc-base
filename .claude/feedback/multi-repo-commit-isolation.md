@@ -3,7 +3,6 @@ type: feedback
 description: 多个独立 git repo 的提交必须分开、各自独立处理，不能为图省事耦合进同一个脚本——尤其当它们归属不同、远程协议/认证方式不同（ssh vs https）时，耦合会掩盖单点失败，造成"半成功"烂局
 created: 2026-06-04
 updated: 2026-06-04
-occurrences: 1
 graduated: true
 source_skill: N/A  # 框架维护/提交流程，非某产品 Skill 执行中
 scores:

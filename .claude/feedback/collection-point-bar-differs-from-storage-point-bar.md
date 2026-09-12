@@ -3,7 +3,6 @@ type: feedback
 description: 多阶段信息管道（采集→核实→入库）里，采集口只该要求报手上的证据，入库口才要求报已验证的结论，不能用最后一道关的门槛卡第一道关
 created: 2026-09-11
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 毕业→rules/subagent-dispatch.md 回执信封 Domain findings 栏「报线索不报结论」+ agents/domain-recorder.md 拒收线索；本文件留作细则参照
 source_skill: N/A（领域口径库机制设计阶段）
 scope: 任何"采集→核实→定论/入库"式多阶段信息管道的验收标准设计（本例：Sub-Agent 回执栏→domain-recorder 收录）

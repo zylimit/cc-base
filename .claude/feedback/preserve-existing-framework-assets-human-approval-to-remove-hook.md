@@ -3,7 +3,6 @@ type: feedback
 description: 自举/重构现有框架时，存量资产（.claude/hooks 下 17 个 hooks、skills、CLAUDE.md/AGENTS.md、tools）一律「保留复用 + 增量补缺」，绝不一股脑删/推倒重写；任何删除/停用/重写现有 hook 必须先和用户商量给理由、由用户拍板（人工审批闸）；自举 DEV-PLAN P0 必须把存量 hooks/skills/tools 纳入受保护基线 inventory
 created: 2026-06-11
 updated: 2026-06-11
-occurrences: 1
 graduated: true
 source_skill: dev-planner
 priority: 铁律（用户连说六遍、情绪强烈："每个钩子都是血泪加上的"、"这套算我的家底"）

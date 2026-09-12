@@ -3,7 +3,6 @@ type: feedback
 description: sub-agent 派单包过重(读几百行底本自推导+自做突变/对拍/指纹复核+写长回执)导致 4 行夹具修正滚到 60 轮；派单须给"文件:行+改成什么+一条验证命令"且≤6次工具调用，复核收拢主 Agent 一次做，≤5行机械改动主 Agent 直接改不起实例，reviewer 一次一个问题
 created: 2026-09-06
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 毕业→CLAUDE.md [Sub-Agent 调度规则] 与 rules/subagent-dispatch.md 派单包「每单 ≤ 6 次工具调用」；本文原写 ≤8 与用户原话「6轮我都嫌多」及落地规则都不符，同日改正为 ≤6
 source_skill: dev-builder
 ---

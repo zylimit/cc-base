@@ -3,7 +3,6 @@ type: feedback
 description: 生产/共享环境的删除・停用・覆盖类写操作，执行前必须当场重查目标最新状态 + 归因须有直接证据；旧快照 + "时间对得上"的推断不作数，误删了用户正在跑的真实数据
 created: 2026-07-07
 updated: 2026-07-07
-occurrences: 1
 graduated: true
 source_skill: release-builder（部署验收环节，主 Agent 操作事故）
 ---

@@ -3,7 +3,6 @@ type: feedback
 description: 清理、精简或迁移脚手架时，应先盘点并默认保留 Logo、Banner、初始化话术和项目名视觉等品牌识别资产
 created: 2026-07-19
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 以既成事实毕业：CLAUDE.md [初始化] 的 ASCII Logo（7 行）与「我是SiteMaster」开场话术原样在位，一般性原则已被 [总体规则]「存量框架资产保留复用（铁律）」覆盖（该条点名 CLAUDE.md 为家底，删改须用户拍板）；本条的独有价值是点名 Logo / Banner / 项目名视觉这类比 hook / skill 更易被当噪音删的子类，留作细则参照
 source_skill: N/A
 ---

@@ -3,7 +3,6 @@ type: feedback
 description: 测试代码规模按风险分层控制在有效代码的三分之一到二分之一之间（按行数），低了补、高了删，不做全量覆盖；高风险模块（密钥/危险命令闸、安装器与 manifest、发布装配）预算可到上限二分之一，引擎子命令只守退出码契约加一条真实场景，提醒类 hook/工具脚本各留一两条
 created: 2026-09-10
 updated: 2026-09-10
-occurrences: 1
 graduated: true  # 2026-09-10 毕业→CLAUDE.md [开发测试规则]「测试量区间与按风险分配」一条；本文件留作细则参照
 source_skill: 无（框架级规则）
 scope: 本仓所有测试与自测的规模（按行数；hooks / harness / scripts / githooks / 安装器算有效代码，tests/ 与 selftest lane 算测试），整体落在有效代码 1/3–1/2 区间，低了补、高了删，不做全量覆盖

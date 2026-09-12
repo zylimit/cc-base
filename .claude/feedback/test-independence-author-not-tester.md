@@ -3,7 +3,6 @@ type: feedback
 description: 测试独立性——写测者不得是被测代码作者；自码自测会把作者的错误假设原样写进断言（confirmation bias），测试派独立方（tester Sub-Agent 或非作者的另一 implementer fresh 实例）
 created: 2026-06-03
 updated: 2026-06-03
-occurrences: 1
 graduated: true  # 毕业→已落地 test-builder SKILL + tester Sub-Agent + CLAUDE.md [Sub-Agent 调度规则] 写测独立性；本文件留作细则参照
 source_skill: test-builder
 scores:

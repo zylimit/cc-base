@@ -3,7 +3,6 @@ type: feedback
 description: recap / Clear 之后的上下文恢复必须读齐 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md 三份——只读 progress.md 漏掉需求基线与需求变更，不算恢复完成
 created: 2026-06-15
 updated: 2026-06-15
-occurrences: 1
 graduated: true  # 毕业→CLAUDE.md [指令集] recap；本文件留作细则参照
 source_skill: N/A  # recap 指令 / Clear 后首次恢复，跨 Skill 通用约束
 priority: 用户明确修正

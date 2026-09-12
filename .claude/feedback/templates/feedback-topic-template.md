@@ -3,7 +3,6 @@ type: feedback
 description: [一句话摘要——用于索引快速扫描]
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-occurrences: 1
 graduated: false
 source_skill: [skill-name 或 N/A]
 scope: [适用范围——哪些阶段 / 角色 / 项目类型适用]

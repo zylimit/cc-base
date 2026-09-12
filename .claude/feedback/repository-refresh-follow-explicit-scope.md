@@ -3,7 +3,6 @@ type: feedback
 description: 用户已明确允许清理本地并要求直接获取最新仓库时，应按授权范围执行最短安全路径，不擅自增加临时克隆、比对、备份交换或保留已明确不要的旧资产
 created: 2026-07-19
 updated: 2026-07-19
-occurrences: 1
 graduated: true  # 毕业→CLAUDE.md [总体规则] 用户当前指令优先；本文件留作细则参照
 source_skill: N/A
 ---

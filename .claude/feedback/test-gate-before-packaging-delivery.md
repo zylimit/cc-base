@@ -3,7 +3,6 @@ type: feedback
 description: 测试通过必须是打包/交付前的强制前置卡点；"部署"指令不等于可跳过测试，带后端逻辑变更的版本打包前须有回归测试或手动功能验证证据
 created: 2026-06-04
 updated: 2026-06-04
-occurrences: 1
 graduated: true  # 2026-06-04 毕业→release-builder [第一性原则] 测试闸门 + CLAUDE.md [release-builder] 执行方式；本文件留作细则参照
 source_skill: release-builder
 scores:

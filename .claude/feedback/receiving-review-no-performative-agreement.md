@@ -3,7 +3,6 @@ type: feedback
 description: 接收 code-review 结论或用户反馈时不表演式认同——禁"你说得对/好建议/这就改"空话，改为复述确认/先问清/有理由顶回去/直接动手；反馈含糊先停下问清不凭猜分批
 created: 2026-06-15
 updated: 2026-06-15
-occurrences: 1
 graduated: true  # 毕业→CLAUDE.md [总体规则]；本文件留作细则参照
 source_skill: code-review
 ---

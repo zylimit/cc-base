@@ -3,7 +3,6 @@ type: feedback
 description: 当前测试价值有限（事后补回归测试=为打勾、覆盖低、价值有限），用户希望引入 TDD（学习 obra/superpowers 的 test-driven-development 方法论：强制 red-green-refactor、先写失败测试再写实现）；务实落地——高价值逻辑测试先行，UI 保持渲染/视觉对照
 created: 2026-06-10
 updated: 2026-06-10
-occurrences: 1
 graduated: true
 source_skill: test-builder
 ---

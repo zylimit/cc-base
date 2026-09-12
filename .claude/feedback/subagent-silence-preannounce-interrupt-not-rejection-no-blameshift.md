@@ -3,7 +3,6 @@ type: feedback
 description: 派静默 subagent 前必先告知用户(预计耗时/会通知)；工具被用户消息中断(interrupted/rejected)≠用户否决方案，不得擅自切换；禁止甩锅"你打断了我"
 created: 2026-06-09
 updated: 2026-06-09
-occurrences: 1
 graduated: true
 source_skill: N/A
 ---

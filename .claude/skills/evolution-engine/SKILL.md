@@ -19,7 +19,9 @@ agent: evolution-runner
     第一步：扫描毕业候选
         读取 .claude/feedback/FEEDBACK-INDEX.md 定位所有 feedback 文件
         读取每个文件的 frontmatter
-        筛选：occurrences >= 3 且 graduated == false 且 skipped != true
+        筛选：graduated == false 且 skipped != true（不按出现次数——计数这条路试过，43 条里 39 条恒为 1，从没有人去加，2026-09-12 删掉了该字段）
+        每条先做**现状核查**再谈裁定：去 CLAUDE.md / rules/*.md / 相关 SKILL.md / agents 实际 grep 关键词，判三种结果——已逐字成文（哪怕措辞不同）→ 以既成事实毕业，点名落在哪个文件哪一段并给行号，不新增任何东西；部分成文 → 点名已成文的那半与缺的那半；压根没有 → 才进落地提案。
+        **实证门槛**：提落地之前问一句「这条实际造成过什么代价」——feedback 正文里有真事故（返工、空转、被冻结的功能、重复争议）才提；只有「用户当场纠正」而没有代价记录的，判「暂不成文」并把理由写进该条 frontmatter 与索引，下次扫描不重新裁定。依据是 CLAUDE.md [开发测试规则]「闸靠数据留，不靠感觉留」——规则和闸同理，没有实证的规则只是又一条没人遵守的自觉条款。
         确定毕业目标：
         - source_skill 明确 → 毕业到对应 SKILL.md
         - 涉及多个 Skill 或全局性 → 毕业到 CLAUDE.md [总体规则]
@@ -29,10 +31,10 @@ agent: evolution-runner
         触发条件（满足任一）：
         - 某 Skill 连续 3 次同一维度 <= 2 分
         - 某 Skill 某维度最近 5 次平均 <= 3 分
-        - 某 Skill 来源的未毕业 feedback occurrences 合计 >= 5（已毕业条目不计，那些教训已落进规则，再算进来只会重复提议）
+        - 某 Skill 来源的未毕业 feedback 有 3 条以上指向同一个环节（按主题聚类判，不按条数堆——已毕业条目不计，那些教训已落进规则，再算进来只会重复提议）
 
     第三步：检查新 Skill 信号
-        筛选：occurrences >= 5 且不属于任何已有 Skill 的覆盖范围
+        筛选：同族主题跨 3 条以上 feedback 反复出现，且不属于任何已有 Skill 的覆盖范围
         → 标记为"新 Skill 候选"
 
     第四步：生成提议

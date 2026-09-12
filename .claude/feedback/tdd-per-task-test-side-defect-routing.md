@@ -3,7 +3,6 @@ type: feedback
 description: TDD per-Task 循环里 coder 被硬约束「禁改测试文件」（保 TDD 纯度），但 GREEN 后 lint:static 撞到的是 tester 写的测试文件自身的 typecheck/eslint 缺陷——非实现问题，coder 合理停手（非死锁）；正确处置=按「测试错→测试作者(tester)修，代码错→bug-fixer/coder 修」分流，纯类型/lint 缺陷保持断言不变派回 tester
 created: 2026-06-10
 updated: 2026-06-10
-occurrences: 1
 graduated: true
 source_skill: test-builder
 ---

@@ -3,7 +3,6 @@ type: feedback
 description: 审查/验收/测试闸要靠数据验证有效性——记录它判过几次 FIX_REQUIRED/红，长期全过/全绿就是纯成本，简化或删掉；加新闸先想清怎么知道它有用
 created: 2026-06-15
 updated: 2026-06-15
-occurrences: 1
 graduated: true  # 毕业→CLAUDE.md [开发测试规则]；本文件留作细则参照
 source_skill: 无（框架级规则）
 ---

@@ -3,7 +3,6 @@ type: feedback
 description: 客户端拒绝/中断工具调用 ≠ 远端命令未执行；对 SSH/docker exec/数据库写入等远端副作用操作，恢复工作第一步必须实查远端状态（进程列表 / pg_stat_activity）确认上次调用到底执行没执行，不能假设"被拒=没发生"——本例假设错了，重复启动出双进程+孤儿查询
 created: 2026-07-13
 updated: 2026-07-13
-occurrences: 1
 graduated: true
 source_skill: N/A（主 Agent 远端操作环节）
 ---

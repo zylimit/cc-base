@@ -3,7 +3,6 @@ type: feedback
 description: review → fix 闭环需设收敛判据——核心行为缺陷清零即收口，非真实调用路径的边角输入参数花样记残留、不再开新一轮红锁；防御代码只为真实调用路径写，不为假想输入摆设
 created: 2026-09-10
 updated: 2026-09-10
-occurrences: 1
 graduated: true  # 2026-09-10 逐条比对后判定：该条的进化信号已 100% 落地，共五处：CLAUDE.md [开发测试规则] red-locks 与审查收敛两条、code-review / test-builder / dev-builder 三个 SKILL.md、rules/dev-workflow-details.md 开发链；原 graduated: false 是陈旧标记
 source_skill: code-review
 scope: 本仓 review → fix 闭环（code-review 主导的 FIX_REQUIRED 循环 + red-locks-the-bug 红测循环）的收敛判据，以及新增脚本/新闸的防御代码写作边界

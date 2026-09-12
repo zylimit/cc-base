@@ -3,7 +3,6 @@ type: feedback
 description: 长目录或复杂材料学习应使用 Claude Code 原生 fresh Sub-Agent（Task/Agent 工具），不调用本地 ask gemini 桥；Sub-Agent 负责辅助翻材料，主 Agent 仍须亲自阅读关键材料并独立判断改进点
 created: 2026-07-19
 updated: 2026-07-19
-occurrences: 1
 graduated: true  # 2026-09-10 逐条比对后判定：两半都已逐字成文且重复三处：CLAUDE.md [运行模型]「纯 Claude Code 方案，无外部驱动」、rules/subagent-dispatch.md [回传与验收]「翻证据可外包，判断权留主 Agent」、rules/workflow-orchestration.md 三铁律②
 source_skill: N/A
 ---

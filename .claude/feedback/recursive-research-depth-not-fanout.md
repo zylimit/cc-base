@@ -3,7 +3,6 @@ type: feedback
 description: 用户明确要求加强吸收或向下多打若干层时，研究型委派必须按指定递归深度逐层下钻，不能用增加平级 Sub-Agent 数量冒充深度
 created: 2026-07-19
 updated: 2026-09-12
-occurrences: 1
 graduated: false  # 2026-09-12 裁定暂不成文（非未处理）：本条是六条积压里唯一无实证的——正文只记了用户当场纠正，没有由此产生的返工或耗时代价，按 [开发测试规则]「闸靠数据留，不靠感觉留」不够资格进规则；且机器判不了（误报率高）。再撞一次、有了实际代价再落进 rules/subagent-dispatch.md 的派单纪律段
 source_skill: N/A
 ---

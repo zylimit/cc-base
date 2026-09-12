@@ -3,7 +3,6 @@ type: feedback
 description: 本机配置 hook / 脚本解释器时 PowerShell 一律用 pwsh 7 绝对路径（C:/Program Files/PowerShell/7/pwsh.exe），不用 Windows PowerShell 5.1
 created: 2026-07-06
 updated: 2026-07-06
-occurrences: 1
 graduated: true  # 2026-09-10 逐条比对后判定：以退休形式毕业——hook 单运行时改造后触发场景消失：settings.json 的 21 个 hook 全部是 node，零 PowerShell，剩余 5 个 .ps1 都在 scripts / tests 不在 hook 链上；「本机只装 pwsh7」是用户环境事实，归全局 CLAUDE.md / memory，不进项目规则
 source_skill: N/A
 ---

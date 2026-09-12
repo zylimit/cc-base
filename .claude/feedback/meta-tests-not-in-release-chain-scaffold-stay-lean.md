@@ -3,7 +3,6 @@ type: feedback
 description: 元测试（测尺子的尺子）不进发版链，脚手架机制按「与代码是否直接相关」定期清理，长耗时步骤先报预计时长和证明什么
 created: 2026-09-06
 updated: 2026-09-12
-occurrences: 1
 graduated: true  # 2026-09-12 毕业→CLAUDE.md [开发测试规则]「闸靠数据留」条扩出的「验证验证者那类机制默认不进发版链与高频路径」；具体触发实例（golden 突变矩阵）已于 346b354 / f6f51f2 整套删除，无需再动
 source_skill: 无（框架级规则）
 ---

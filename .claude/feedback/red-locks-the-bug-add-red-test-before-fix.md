@@ -3,7 +3,6 @@ type: feedback
 description: red-locks-the-bug 铁律——review 交叉审 / 系统测试 / commander 抽查发现的缺陷（bug/漏洞），修复前必须先由 tester 补一条锁定该缺陷的失败测试（红）→ commander 验红（亲见 fail）→ coder 修到绿（禁碰测试断言）→ 异模型 reviewer 复审。把发现的缺陷固化为永久回归测试（防再犯）+ 修复有客观靶子（红转绿、杜绝口头说修了实际没修）+ 机制化不靠自觉。是 TDD「先红后绿」从新功能向缺陷修复的自然延伸
 created: 2026-06-11
 updated: 2026-06-11
-occurrences: 1
 graduated: true  # 2026-06-11 用户认可固化 → Product-Spec §5.4 + CLAUDE.md per-Task 循环 + dev-builder SKILL.md + ARCHITECTURE §5 + CHANGELOG v1.2，本文件留作细则参照
 source_skill: dev-builder
 priority: 铁律（用户明确"必须写入规格里面""我认可了，加"）

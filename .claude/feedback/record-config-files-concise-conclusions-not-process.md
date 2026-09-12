@@ -3,7 +3,6 @@ type: feedback
 description: 记录/配置类文件（progress.md / ccb.config 注释 / 各类记录文件）要简洁、结论导向——只记决策结论/约束/可 recap 恢复状态的精炼信息/最终方案（含一句话关键原因），不写调试来龙去脉/多次失败试错过程/源码追踪逐步细节/长篇推导；过程是噪音，拖慢 recap、占 context
 created: 2026-06-10
 updated: 2026-06-10
-occurrences: 1
 graduated: true
 source_skill: N/A  # 项目记忆/配置文件维护机制，跨 Skill 通用约束（主要落点 progress-recorder skill + 三文件同步规则）
 ---
