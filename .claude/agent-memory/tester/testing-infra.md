@@ -105,3 +105,4 @@ cc-base 没有 pytest/vitest；测试全是 `.claude/tests/*.sh` 的 bash 脚本
 - **否定式断言（「不许提某句」）必须配三个正向合取**：rc=0 + hookEventName + 正文里点名角色与铁律词。实测把 hook 的 `emit` 前插 `return`（静默变异），四条 SA 断言全红才证明否定那两条不是被空输出顶绿的。
 - **手搓 stdin 探 hook 一律 `printf '%s' '<json>'`，别 `printf '<json>'`**：后者把回执夹具里的 `\n` 当转义展开成真换行，JSON 字符串内含裸换行即非法，`readStdinJson()` 返回 null → 角色退化成「子 Agent」、`last_assistant_message` 读成空、领域追加段整段不出现——长得跟「功能还没实现」一模一样，白诊断一轮。`run_script` 用的就是 `printf '%s'`，手工复现时照抄它。
 - **JS 的 `\b` 在中文哨兵后面不成立，「以 X 起头」类判据别用它**：`/^(none|n\/a|无)\b/i` 对 `None（括注）` 成立、对 `无（括注）` 和裸 `无` 一律**不**匹配——`\b` 是 ASCII 词边界，`无` 不是词字符，后面跟 `（` 或行尾时两侧都非词字符、边界不存在。写中文回执夹具的判据要么按语种分臂（`^无(?![一-鿿])`），要么纯前缀（但纯前缀会把 `无线接入…` 这种真发现吞成「没有」）。拿 node 一行把候选正则对七种写法摆成表，比读实现靠谱。
+- **`test-gate-audit.sh` 头是 `# risk: low`**：拿 run-all 自己的 `risk_of` / `level_covers` 实测过，`--level high` **和 `--level medium` 都跳过**，只有 `--level all`（CI）才跑。往它加红锁必须在回执里点明「默认档和 medium 档都不执行」，否则主 Agent 抽查整仓回归时看不见那几条红。

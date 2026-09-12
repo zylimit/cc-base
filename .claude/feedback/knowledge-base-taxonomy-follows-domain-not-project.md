@@ -2,9 +2,9 @@
 type: feedback
 description: 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构——会把"跟项目关系很远但值得留"的条目误判出库
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→rules/domain-rulings.md [定位与边界]「域取自领域本身，不取自本项目的模块划分」；本文件留作细则参照
 source_skill: N/A（领域口径库机制设计阶段）
 scope: 设计任何跨越单一项目生命周期、要长期沉淀的知识库的组织/分类维度时（本例：领域口径库按域分文件）
 exceptions: 知识本就与项目强绑定（如项目专属的模块清单、架构目录本身）时，按项目结构分类没问题——本条只管"该跟着领域走"的那类知识

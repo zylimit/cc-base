@@ -2,14 +2,14 @@
 type: feedback
 description: 给副产品性质的新机制配验收闸时，先判它是流程必经还是副产品——副产品闸只在回执确有发现时提醒一句，不因缺栏目催报；催出来的是凑数，进库即噪音
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→CLAUDE.md [领域口径库] + rules/domain-rulings.md [定位与边界]「它是副产品，不是流程环节」；hook 方向已反转并红锁；本文件留作细则参照
 source_skill: N/A（领域口径库机制设计阶段）
 scope: 给任何"有最好、没有也不算数"的副产品性质机制设计验收闸/提醒规则时
 exceptions: 流程必经的硬性节点（四步走、发布卡点、Spec 签字门等）不适用——这类该催缺、该拦停，机制目的就是不允许缺
 supersedes: 未说明（本条是对本 session 内刚起草、尚未单独成文的旧设计的当场纠正，没有旧 feedback 文件可取代）
-applied_to: .claude/hooks/subagent-acceptance-reminder.mjs（方向已反转：缺栏目不点名，有发现才提醒；tester 补三条红锁验证、主 Agent 验红、implementer 修绿，test-hooks-node 跑出 PASS=25 FAIL=0）；.claude/rules/domain-rulings.md [定位与边界]"它是副产品，不是流程环节"一条与 [两条硬约束与回流去向]"该栏填不出就写 None，不逼着凑"一条；.claude/CLAUDE.md 新增 [领域口径库] 段；.claude/rules/subagent-dispatch.md 回执信封 Domain findings 栏的 None 解析边界说明
+applied_to: .claude/hooks/subagent-acceptance-reminder.mjs（方向已反转：缺栏目不点名，有发现才提醒；tester 补三条红锁验证、主 Agent 验红、implementer 修绿，test-hooks-node 跑出 PASS=25 FAIL=0，后续补齐 None 六臂与真发现两臂后为 31/0）；.claude/rules/domain-rulings.md [定位与边界]"它是副产品，不是流程环节"一条与 [两条硬约束与回流去向]"该栏填不出就写 None，不逼着凑"一条；.claude/CLAUDE.md 新增 [领域口径库] 段；.claude/rules/subagent-dispatch.md 回执信封 Domain findings 栏的 None 解析边界说明
 ---
 
 # 副产品机制配闸：只在有发现时提醒，不因缺栏目催报

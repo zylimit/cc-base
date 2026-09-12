@@ -2,9 +2,9 @@
 type: feedback
 description: 设证据准入门槛前先盘清证据有几类来源渠道——实测撞出来的、AI 查外网的、人查公司内部的，三类分工不重叠，别把"AI 能核实的"当成"全部允许的"
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→rules/domain-rulings.md [七栏]「依据」三类来源与分工 + agents/domain-recorder.md Non-goals；本文件留作细则参照
 source_skill: N/A（领域口径库机制设计阶段）
 scope: 设计任何需要"依据/证据"支撑的准入门槛时，尤其协作场景里部分证据只有人能拿到
 exceptions: 纯客观、机器可判的验收标准（编译通过/测试通过/命令退出码）不适用——那类证据本来就该 AI 独立可查，不存在"人才能拿到"的问题

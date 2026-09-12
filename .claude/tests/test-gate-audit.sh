@@ -63,6 +63,74 @@ for h in "${info_only[@]}"; do
   fi
 done
 
+# ── 以下三条锁 gate-audit.sh:68 的判据错：零拦停被当成「疑似死闸/黑箱」。
+# 账本只在**拦停时**写（pre-commit-check.mjs:169/172、no-direct-code-guard.mjs:29、
+# harness-async-verify.mjs:76/85），脚本没有「跑过 N 次」这个分母，所以「零记录」只等于
+# 从没拦过，推不出死闸。本仓这三个零记录闸的前置条件压根不在：tsconfig.json 0 个、.py 0 个、
+# module-catalog.json 不存在；同样这三个在下游 digifiber-conflation-claude 的账本里拦了 33 次
+# （no-direct-code-guard 28 / harness-async-verify 5）——框架仓审自己的闸会系统性低估
+# 「为下游消费者而存在」的那批。判词照旧就会把它们砍掉，所以按目标行为锁，不按现实现锁。
+# 结构锚点只认 (a)(b)(c)：上面的 SECTION_B 锚的是「(b) 零记录」，那几个字一改它就空、
+# 上面 11 条信息类断言会跟着空转成假绿，所以下面这三条自己另抽一份。
+B_TITLE=$(printf '%s\n' "$OUT" | grep -F '(b)' | head -1)
+SEC_B=$(printf '%s\n' "$OUT" | awk '/\(b\)/{f=1;next} /\(c\)/{f=0} f')
+
+# chk <判定 0=过/1=不过> <标题> <EXPECT> <GOT>——计数复用上面的 pass/fail。
+chk() {
+  if [ "$1" -eq 0 ]; then pass "$2"; else fail "$2"; fi
+  echo "         EXPECT $3"
+  echo "         GOT    $4"
+}
+inb() { printf '%s\n' "$SEC_B" | grep -qF -- "$1"; }   # 只在 (b) 段内找
+inh() { printf '%s\n' "$B_TITLE" | grep -qE -- "$1"; } # 只在 (b) 标题行里找
+
+# 零拦停 ≠ 死闸：旧判词不许再出现在任何一行输出里。
+# 正向合取防空转：输出整份为空时「不含某词」恒成立，所以 (b) 标题行必须真的在场。
+DEAD_WORDS=$(printf '%s\n' "$OUT" | grep -nF -e 疑似死闸 -e 黑箱 | tr '\n' ' ')
+C=0
+[ -n "$B_TITLE" ] || C=1
+[ -z "$DEAD_WORDS" ] || C=1
+chk "$C" "(b) 零拦停闸不再被下死闸判词" \
+  "(b) 标题行在场，且整份输出不含「疑似死闸」「黑箱」——没有「跑过 N 次」这个分母，零拦停推不出死闸" \
+  "(b)标题=[${B_TITLE:-缺}] 判词命中=[${DEAD_WORDS:-无}]"
+
+# 标题要点明零拦停的两种无害解释：前置条件不在本仓 / 威慑生效。
+# 「威慑」收同义的「震慑」，免得换一个字被判假红；两个锚点缺任一即红。
+T_PRE=无; T_DET=无
+if inh 前置条件;    then T_PRE=有; fi
+if inh '威慑|震慑'; then T_DET=有; fi
+C=0
+[ "$T_PRE" = 有 ] || C=1
+[ "$T_DET" = 有 ] || C=1
+chk "$C" "(b) 标题点明零拦停的两种无害解释" \
+  "(b) 标题行里同时出现「前置条件」与「威慑」（收同义「震慑」）" \
+  "前置条件=$T_PRE 威慑=$T_DET 标题=[${B_TITLE:-缺}]"
+
+# 列出零拦停闸之后要打本仓能力上下文三项事实 + 退役前查下游账本的提示。
+# 这几条一律只在 (b) 段内比：gate-block.log 在 (c) 的账本清单里本来就有一处，
+# 拿整份输出比它恒真，等于免检。
+A_CAT=无; A_TS=无; A_PY=无; A_DOWN=无; A_LOG=无
+if inb catalog;             then A_CAT=有;  fi
+if inb tsconfig;            then A_TS=有;   fi
+if inb '.py' || inb Python; then A_PY=有;   fi
+if inb 下游;                then A_DOWN=有; fi
+if inb gate-block.log;      then A_LOG=有;  fi
+LAST_BULLET=$(printf '%s\n' "$SEC_B" | grep -nF '•' | tail -1 | cut -d: -f1)
+FIRST_CTX=$(printf '%s\n' "$SEC_B" | grep -nF 'catalog' | head -1 | cut -d: -f1)
+C=0
+for v in "$A_CAT" "$A_TS" "$A_PY" "$A_DOWN" "$A_LOG"; do [ "$v" = 有 ] || C=1; done
+if [ -n "$LAST_BULLET" ] && [ -n "$FIRST_CTX" ]; then
+  ORD="列表末行=$LAST_BULLET 上下文首行=$FIRST_CTX"
+  [ "$FIRST_CTX" -gt "$LAST_BULLET" ] || C=1
+elif [ -z "$LAST_BULLET" ]; then
+  ORD="不判（(b) 段当下没有零拦停闸可列）"
+else
+  ORD="不判（上下文没打出来，左边几列已报红）"
+fi
+chk "$C" "(b) 零拦停名单之后打出本仓能力上下文 + 下游账本提示" \
+  "(b) 段内有 catalog / tsconfig / .py（或 Python）三项事实，加「下游」与「gate-block.log」，且排在零拦停名单之后" \
+  "catalog=$A_CAT tsconfig=$A_TS py=$A_PY 下游=$A_DOWN 账本=$A_LOG 顺序：$ORD"
+
 echo ""
 echo "==== test-gate-audit：PASS=$PASS FAIL=$FAIL ===="
 if [ "$FAIL" -gt 0 ]; then

@@ -2,9 +2,9 @@
 type: feedback
 description: 数据未准、基本功能未稳阶段，主 Agent 不得主动设计/助推看盘报表类锦上添花需求——需求拷问先问"这是地基还是锦上添花"，锦上添花默认泼冷水降级挂账；含重计算的规格签字前必须附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口。实战中已定稿开发完的四个看盘功能被整体冻结/撤销的实害教训
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→product-spec-builder [四条底线]「先问是地基还是锦上添花」（含重计算签字前成本预估）+ dev-planner [第一性原则]「排期默认一次一个功能串行收口」
 source_skill: product-spec-builder / dev-planner（需求拷问、规格定稿与排期环节）
 ---
 

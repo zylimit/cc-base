@@ -20,3 +20,7 @@ metadata:
 - **ADR `revisit-if` 的「日期式空话」判定有子串误伤（2026-09-10 实测）**：`scan.mjs` 的 `ADR_REVISIT_VAGUE_RE` 含 `年后|周后|个月后`，会跨词匹配「明**年后**端团队接手」「2026 **年后**端服务拆成多进程」这类正当条件（年 + 后端），CONDITION 白名单救不回来 → **假红**。反向的漏判反而无害：CONDITION 含 `当|若|需要` 这种高频字，「适**当**时候再评估」会被放过。本仓纪律是「判不准宁可放过」，所以假绿可接受、假红必须报给主 Agent，别自己去改实现，也别把当前行为写成断言固化下来。
 
 - **agent / hook 份数写死在实现脚本里，新增一个合规 agent 就整仓假红**：`scripts/doctor.sh:40` 至今是 `[ "$agent_count" = "7" ]`（2026-09-11 实测：加了第 8 个 agent 后 doctor rc=1，`test-doctor.sh` 的「控制组：未篡改时 rc=0」跟着红，而它验的是清单篡改检测、与份数无关）。`tests/test-setup.sh` 同款硬编码已在 2026-09-11 改成「与源仓 `agents/*.md` 名单逐份比对 + 七个核心角色写死字面量当地板」；`test-routing.sh` 本来就是动态比对所以绿。再遇整仓红先 grep 一遍还有没有第三处写死份数的。
+
+- **`test-gate-audit.sh` 的 `SECTION_B` 锚在「(b) 零记录」这五个字上，标题一改整段变空、11 条信息类断言静默空转**（2026-09-12 实测）：把 (b) 标题改成「零拦停钩子」并**故意把 `notify` 注进 (b) 名单**，整套仍 `PASS=15 FAIL=0`；同一注入但标题保留「零记录」的控制组当场红。给这份文件加断言一律自己另抽一份段落、结构锚点只认 `(b)` / `(c)`（派单钉死的不变量），别复用那个带文案的锚。
+- **`gate-audit` 的「(b) 段里要提某词」类断言必须限定在 (b) 段内比**：`gate-block.log` 在 (c) 的账本文件清单里本来就有一处，拿整份输出当锚点恒真 = 免检。同理 `catalog` / `tsconfig` / `下游` 在 (b) 段内当下都是 0 命中，段内比才有判别力。
+- **本仓「能力上下文」的实数（判零拦停闸是不是死闸的分母）**：`tsconfig.json` **0** 个（`git ls-files | grep tsconfig` 唯一命中是 golden 夹具 `tests/fixtures/golden/tree/tsconfig.base.json.txt`，而 `pre-commit-check.mjs` 的 `findTsconfig` 只认字面 `tsconfig.json`，所以别把那次命中当成 1）、`.py` **0** 个、`module-catalog.json` 不存在——`pre-commit-check` / `no-direct-code-guard` / `harness-async-verify` 三个零拦停闸的前置条件全不在本仓，而同一批在下游 digifiber 仓拦了 33 次。框架仓审自己的闸会系统性低估「为下游消费者而存在」的那批。

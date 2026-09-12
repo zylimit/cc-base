@@ -2,9 +2,9 @@
 type: feedback
 description: 长跑批处理必须设计期就带看门狗超时 + 输入侧廉价预检（病态输入直接跳过隔离）；主 Agent 监控后台任务确认挂死迹象后立即报告并止损，不许"进程还活着"式观望——71 分钟已知根因观望到 4 小时是纯损失
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→dev-builder [质量门槛]「长跑批处理带单任务超时兜底 + 输入侧廉价预检」+ CLAUDE.md [总体规则] 派静默 subagent 那条扩出的「确认挂死立即止损、禁观望」
 source_skill: dev-builder（批处理流水设计）+ 主 Agent 后台任务监控
 ---
 

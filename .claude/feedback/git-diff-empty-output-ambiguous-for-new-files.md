@@ -2,9 +2,9 @@
 type: feedback
 description: 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与"文件没被改"完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 occurrences: 1
-graduated: false
+graduated: true  # 2026-09-12 毕业→rules/subagent-dispatch.md [回传与验收]「新建文件的改动证明不许用 git diff」；本文件留作细则参照
 source_skill: N/A（Sub-Agent 派单验收环节，非特定 Skill 运行中）
 scope: 派单要求 Sub-Agent（或主 Agent 自己）用 git 命令证明"只改了这几个文件"、且改动可能包含新建文件时
 exceptions: 已入库（此前已有提交历史）的文件用 git diff 完全适用，不受本条影响——本条只管新建、未 git add 的文件

@@ -4,7 +4,8 @@
 # cc-base 注册了一批 block 闸（.claude/settings.json），拦截账本 gate-block.log
 # 由 hooks/lib/gatelog.mjs 写在 .claude/evidence/（主仓 + 各 worktree 各一份）。本脚本把
 # 它们全找出来，对照注册清单算出：哪些钩子真拦过（有战绩）、哪些注册了却从没出现
-# （疑似死闸/黑箱）——对齐「闸靠数据留，不靠感觉留」。
+# （零拦停——账本只在拦停时写，没有「跑过 N 次」这个分母，零拦停推不出死闸）——
+# 对齐「闸靠数据留，不靠感觉留」。
 # 纯只读——除 stdout 外不写/改/删任何文件（尤其不碰任何 .log）。
 set -euo pipefail
 
@@ -65,7 +66,7 @@ fi
 echo ""
 
 # (b) 零记录钩子：注册了但账本里从没出现的
-echo "── (b) 零记录钩子（注册了但从没拦过，疑似死闸/黑箱）──"
+echo "── (b) 零记录钩子（注册了但从没拦过：前置条件不在本仓，或威慑生效）──"
 zero_count=0
 for h in "${registered[@]}"; do
   if ! printf '%s\n' "$seen_names" | grep -qxF -- "$h"; then
@@ -74,6 +75,24 @@ for h in "${registered[@]}"; do
   fi
 done
 [ "$zero_count" -eq 0 ] && echo "（无——所有注册钩子都至少拦过一次）"
+
+# 零拦停先看前置条件在不在本仓：catalog / tsconfig / .py 这三项不在，对应的闸在这压根没有
+# 可拦的东西，账本零记录说不明死活。框架仓审自己的闸，会系统性低估「为下游消费者而存在」的那批。
+cat_state=无
+[ -f "$scan_root/.claude/harness/module-catalog.json" ] && cat_state=有
+ts_count=$(find "$scan_root" -maxdepth 3 -name tsconfig.json -not -path '*/node_modules/*' 2>/dev/null | wc -l | tr -d ' ')
+if git -C "$scan_root" rev-parse --git-dir >/dev/null 2>&1; then
+  py_count="$(git -C "$scan_root" ls-files '*.py' | wc -l | tr -d ' ') 个"
+else
+  py_count="未知（非 git 目录）"
+fi
+echo ""
+echo "  本仓能力上下文："
+echo "  module-catalog.json：$cat_state"
+echo "  tsconfig.json：$ts_count 个"
+echo "  .py 文件：$py_count"
+echo "  以上某项不在本仓，对应的闸在这就没有可拦的场景，零拦停无从评价——"
+echo "  退役任何一个闸之前，先查下游项目的 .claude/evidence/gate-block.log。"
 echo ""
 
 # (c) 汇总

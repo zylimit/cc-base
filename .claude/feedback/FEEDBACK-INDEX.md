@@ -4,18 +4,18 @@
 > 格式：每条一行，`- [标题](文件名.md) — 一句话描述`
 > 模板：templates/feedback-topic-template.md
 
-- [大批量重构收口、发版前须主动扫重复代码并给出裁定](batch-refactor-closeout-scan-duplication-before-release.md) — 多 Phase/跨目录重构或新增改造收口、发版前，主 Agent 主动做一次重复代码/可提炼逻辑扫描，不等用户提醒；扫描量化留痕（工具/窗口/克隆数），裁定「做/不做」都写理由，防止为了抽象而抽象
+- ✅[已毕业] [大批量重构收口、发版前须主动扫重复代码并给出裁定](batch-refactor-closeout-scan-duplication-before-release.md) — 多 Phase/跨目录重构或新增改造收口、发版前，主 Agent 主动做一次重复代码/可提炼逻辑扫描，不等用户提醒；扫描量化留痕（工具/窗口/克隆数），裁定「做/不做」都写理由，防止为了抽象而抽象
 - ✅[已毕业] [脚手架交付应复制即用且保持项目根目录清爽](copy-ready-clean-scaffold-layout.md) — 「复制即用」为默认交付契约（`.claude/` 复制过去即工作），安装器只是可选便利；目标项目根目录暴露文件压到最少，维护资产收进隐藏配置目录
-- [地基未稳不助推看盘类锦上添花，重计算签字前须成本预估](foundation-first-no-premature-dashboards-cost-preflight-serial-dev.md) — 数据未准、基本功能未稳时看盘/报表/指标卡类需求默认泼冷水降级挂账；含重计算的规格签字前附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口
+- ✅[已毕业] [地基未稳不助推看盘类锦上添花，重计算签字前须成本预估](foundation-first-no-premature-dashboards-cost-preflight-serial-dev.md) — 数据未准、基本功能未稳时看盘/报表/指标卡类需求默认泼冷水降级挂账；含重计算的规格签字前附真库量级成本预估或抽样实测；DEV-PLAN 排期默认一次一个功能串行收口
 - ✅[已毕业] [hook 解释器选 pwsh 7，不用 Windows PowerShell 5.1](hook-interpreter-use-pwsh7-not-powershell51.md) — 本机配置 hook / 脚本解释器时 PowerShell 一律用 pwsh 7 绝对路径（含空格加引号、bash 命令串用正斜杠），其余裸 powershell.exe hook 超时时按同法逐个替换
 - ✅[已毕业] [本地全量回归绿不等于 CI 绿，收官前须独读 CI 真实输出](local-green-is-not-ci-green-check-before-closeout.md) — 本地 run-all 与 CI 跑的集合不同，前者绿不能反推后者绿；收官/发版前 `gh run list` 是独立核查步骤；CI 失败邮件早已送达用户，缺的不是通知是验收方（主 Agent）从不核对——通知到人≠验收到位；跨环境修复未经真实环境判决前只记「已修未验」；行号绑定的豁免机制每批改动宿主文件都要重查
-- [长跑批处理必须有看门狗与输入预检，挂死立即止损不观望](long-batch-needs-watchdog-input-precheck-and-prompt-stop-loss.md) — 批处理流水设计期就带看门狗超时 + 病态输入廉价预检直接跳过隔离；确认挂死迹象立即报告止损，不许"进程还活着"式观望，观望是最贵的选项
-- [元测试不进发版链，脚手架保持轻量](meta-tests-not-in-release-chain-scaffold-stay-lean.md) — 加"验证验证者"的机制前先问省了谁的什么时间；发版链只放直接证明代码正确的检查，元测试（测尺子的尺子）挪出高频路径；现有机制按「与代码直接相关」+「拦过什么」定期清理；长耗时步骤开跑前先报预计时长和证明什么
+- ✅[已毕业] [长跑批处理必须有看门狗与输入预检，挂死立即止损不观望](long-batch-needs-watchdog-input-precheck-and-prompt-stop-loss.md) — 批处理流水设计期就带看门狗超时 + 病态输入廉价预检直接跳过隔离；确认挂死迹象立即报告止损，不许"进程还活着"式观望，观望是最贵的选项
+- ✅[已毕业] [元测试不进发版链，脚手架保持轻量](meta-tests-not-in-release-chain-scaffold-stay-lean.md) — 加"验证验证者"的机制前先问省了谁的什么时间；发版链只放直接证明代码正确的检查，元测试（测尺子的尺子）挪出高频路径；现有机制按「与代码直接相关」+「拦过什么」定期清理；长耗时步骤开跑前先报预计时长和证明什么
 - ✅[已毕业] [调研使用 Claude Code 原生 Sub-Agent，主 Agent 保留独立判断](native-subagent-research-main-agent-judgment.md) — 长目录/复杂材料学习派原生 Task/Agent fresh Sub-Agent，不擅自调本地 ask gemini 桥；主 Agent 亲读关键材料独立判断，翻证据可委派、下判断不外包
 - ✅[已毕业] [permissions.ask 列表与用户「全部放行」指令冲突](settings-ask-list-conflicts-with-user-authorize-continuous-execution.md) — 用户抱怨反复被要求确认时先查 `.claude/settings.json` 的 `permissions.ask` 列表和 hook 的 `permissionDecision`，别只辩解"我没问"；用户明确全部放行后记进 progress.md 决策并清理冲突的 ask 规则，安全护栏条目不在放行范围
-- [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意
-- [研究下钻按指定递归深度执行，不能用平级数量冒充深度](recursive-research-depth-not-fanout.md) — 用户要求「向下多打 N 层/加强吸收」= 委派树递归下钻（主 Agent 分轮驱动、逐层收窄边界），不是同层加并行研究者；验收核实际层数与每层新增分析价值
-- [Sub-Agent 派单要给最小上下文，不让它自己推导/复核/写长回执](subagent-dispatch-minimal-context-not-self-derivation.md) — 派单只给「文件:行+改成什么+一条验证命令」且 ≤8 次工具调用；复核收拢主 Agent 一次做；≤5 行机械改动主 Agent 直接改不起实例；reviewer 一次一个问题——4 行夹具修正滚到 60 轮的教训
+- ✅[已毕业] [仓库清爽不等于去品牌化，清理时默认保留品牌识别资产](preserve-brand-assets-during-cleanup.md) — 清理/精简/重写入口文档前先盘点 Logo、ASCII Banner、初始化话术、项目名视觉，默认保留；删除替换须用户明确同意
+- [研究下钻按指定递归深度执行，不能用平级数量冒充深度](recursive-research-depth-not-fanout.md) — 用户要求「向下多打 N 层/加强吸收」= 委派树递归下钻（主 Agent 分轮驱动、逐层收窄边界），不是同层加并行研究者；验收核实际层数与每层新增分析价值（2026-09-12 裁定暂不成文：六条积压里唯一无实证，再撞一次有了实际代价再落）
+- ✅[已毕业] [Sub-Agent 派单要给最小上下文，不让它自己推导/复核/写长回执](subagent-dispatch-minimal-context-not-self-derivation.md) — 派单只给「文件:行+改成什么+一条验证命令」且 ≤6 次工具调用；复核收拢主 Agent 一次做；≤5 行机械改动主 Agent 直接改不起实例；reviewer 一次一个问题——4 行夹具修正滚到 60 轮的教训
 - ✅[已毕业] [review 循环收敛于核心行为，避免过度防御边角输入](review-loop-converge-on-core-behavior-avoid-over-defense.md) — review → fix 闭环收敛判据是核心行为无 HIGH/Medium，非真实调用路径的边角输入参数花样记残留、不再开新一轮红锁；防御代码只为真实调用路径写，安全类缺陷不受此限
 - ✅[已毕业] [完成声明需当场新鲜证据：不可跳步五步闸](completion-claims-need-fresh-verification-five-step-gate.md) — 任何"完成/通过/修好"结论前必须有当场跑出的新鲜证据，走不可跳步五步闸；子 Agent 自述/空回复≠结果正确，禁凭表层信息断言再事后追认
 - ✅[已毕业] [押后事项非点名批准不得重启；长耗时计算先报耗时拿批准；数据呈现≠数据重算](deferred-work-restart-needs-explicit-approval-long-db-compute-is-red-zone.md) — 用户押后/否决过的事项只有点名批准才能重启，含糊指令先复述问清；超过几分钟的长耗时计算启动前报预计耗时拿批准；用户要"看数"用现成数据答，数据呈现≠数据重算
@@ -42,8 +42,8 @@
 - ✅[已毕业] [测试卡点：测试通过是打包/交付前的强制前置闸门，部署 ≠ 可跳过测试](test-gate-before-packaging-delivery.md) — 测试通过必须是打包/交付前的强制前置卡点；"部署"指令不等于可跳过测试，带后端逻辑变更的版本打包前须有回归测试或手动功能验证证据
 - ✅[已毕业] [测试独立性：写测者 ≠ 被测代码作者（自码自测易作弊）](test-independence-author-not-tester.md) — 写测者不得是被测代码作者；自码自测会把作者的错误假设原样写进断言（confirmation bias），测试派独立方（tester Sub-Agent 或非作者的另一 implementer fresh 实例）
 - ✅[已毕业] [三文件同步：随时可 Clear 上下文，靠 recap 完整恢复](three-file-sync-clearable-context-recap-recovery.md) — Product-Spec.md / Product-Spec-CHANGELOG.md / progress.md 最大程度维护、即时同步，确保用户任何时候可 Clear 上下文、靠 recap 完整恢复；决策/约束/完成事项/新任务即时同步到对应文件，doc 类由主 Agent 直接维护
-- [副产品机制配闸：只在有发现时提醒，不因缺栏目催报](byproduct-mechanism-gates-remind-dont-chase.md) — 给副产品性质的新机制配验收闸前先判它是流程必经还是副产品；副产品闸只在回执确有发现时提醒一句，不催缺，催出来的是凑数，进库即噪音
-- [证据门槛设计要囊括人查内部这类 AI 拿不到的来源](evidence-sourcing-must-include-human-only-channels.md) — 设证据准入门槛前先盘清证据有几类来源渠道——实测撞出来的、AI 查外网的、人查公司内部的，三类分工不重叠，别把「AI 能核实的」当成「全部允许的」
-- [采集口与入库口门槛不同——线索报证据，定论报结论](collection-point-bar-differs-from-storage-point-bar.md) — 多阶段信息管道里，采集口只该要求报手上的证据，入库口才要求报已验证的结论，不能用最后一道关的门槛卡第一道关
-- [分类体系跟着领域本身走，不套用当前项目结构](knowledge-base-taxonomy-follows-domain-not-project.md) — 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构，会把跟项目关系很远但值得留的条目误判出库
-- [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
+- ✅[已毕业] [副产品机制配闸：只在有发现时提醒，不因缺栏目催报](byproduct-mechanism-gates-remind-dont-chase.md) — 给副产品性质的新机制配验收闸前先判它是流程必经还是副产品；副产品闸只在回执确有发现时提醒一句，不催缺，催出来的是凑数，进库即噪音
+- ✅[已毕业] [证据门槛设计要囊括人查内部这类 AI 拿不到的来源](evidence-sourcing-must-include-human-only-channels.md) — 设证据准入门槛前先盘清证据有几类来源渠道——实测撞出来的、AI 查外网的、人查公司内部的，三类分工不重叠，别把「AI 能核实的」当成「全部允许的」
+- ✅[已毕业] [采集口与入库口门槛不同——线索报证据，定论报结论](collection-point-bar-differs-from-storage-point-bar.md) — 多阶段信息管道里，采集口只该要求报手上的证据，入库口才要求报已验证的结论，不能用最后一道关的门槛卡第一道关
+- ✅[已毕业] [分类体系跟着领域本身走，不套用当前项目结构](knowledge-base-taxonomy-follows-domain-not-project.md) — 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构，会把跟项目关系很远但值得留的条目误判出库
+- ✅[已毕业] [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
