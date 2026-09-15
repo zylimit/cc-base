@@ -7,7 +7,8 @@
 #   .claude/githooks/  挂在 git 自己身上，凡是走 git 的提交路径都跑得到（本文件这层）。
 #   .github/workflows/ CI，兜住所有人、所有分支、所有机器。
 #
-# 这一层只跑**快的**静态检查——密钥与语法两项，别让每次 commit 等几分钟。
+# 这一层只跑**快的**静态检查——密钥、指令注入、语法三项，别让每次 commit 等几分钟。
+#（指令注入那项 2026-09-15 补进来：白名单条目随行号漂移失效，本地没人跑它，红在 CI 四格上才发现。）
 # 清单（FRAMEWORK-MANIFEST）不再逐次提交刷新，改由发版时 gen-manifest.sh 重生一次，
 # 所以这里不再比对它：每次 commit 都要重跑生成器，人只会 --no-verify。
 #
@@ -124,9 +125,9 @@ if ! command -v node >/dev/null 2>&1; then
     exit 0
 fi
 
-# ---------- 密钥与语法两只审计脚本（catalog-free，引擎坏了也要能跑）----------
+# ---------- 密钥、指令注入、语法三只审计脚本（catalog-free，引擎坏了也要能跑）----------
 # --staged：文件名和内容都取自索引，判的是「正在提交的东西」而不是工作树里顺手改的东西。
-for pair in "secrets:scan-secrets.mjs" "syntax:check-syntax.mjs"; do
+for pair in "secrets:scan-secrets.mjs" "instructions:scan-instructions.mjs" "syntax:check-syntax.mjs"; do
     LBL=${pair%%:*}
     SCRIPT=${pair#*:}
     if [ -f "$AUDIT/$SCRIPT" ]; then

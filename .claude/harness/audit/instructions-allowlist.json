@@ -12,7 +12,7 @@
     },
     {
       "file": ".claude/harness/ext/rules/harness-large-repo.md",
-      "line": 62,
+      "line": 63,
       "rule": "gate-disable-instruction",
       "sha256": "0b6184ed756c4424acbeb46a95c530c8dab47217b61246cbc3e4db23420610c6",
       "context": "fa2fb3cea77c8868590654743ec8a614af06a8b6642921f39c2bb37b5ab2a86c",
