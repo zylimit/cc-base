@@ -1,4 +1,4 @@
-// lib/evidence.mjs -- S17 the evidence layer: a gate that records what it actually ran, a
+// ext/evidence.mjs -- S17 the evidence layer: a gate that records what it actually ran, a
 // hash-chained ledger that makes those records tamper-evident, and three readers that keep
 // the pile honest as it ages (gate-audit / retention / risk).
 //
@@ -37,14 +37,14 @@ import {
   normalizeTier,
   parseCsv, projectRoot, quarantineFilePath, readTextFile, recordCorruptState, repoRelative,
   sha256, toPosixPath, withDirLock,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import {
   claimingChecks, fastModeActive, loadWaivers, requiredChecks, resolveCheck, runCheck,
   verifyPlan, waiversDir,
 } from './quality.mjs';
-import { governancePaths } from './tier.mjs';
+import { governancePaths } from '../lib/tier.mjs';
 
 // ---------------------------------------------------------------------------
 // S17.1 runtime state locations + atomic write

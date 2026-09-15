@@ -1,4 +1,4 @@
-// lib/catalog.mjs -- S4: reading, validating and classifying against module-catalog.json.
+// ext/catalog.mjs -- S4: reading, validating and classifying against module-catalog.json.
 // Depends on core.mjs only. moduleForPath() is filed here rather than in S12 arch-check
 // where it was written: it is a one-line reading of classifyPath, and both arch-check and
 // fitness need it, so the catalog layer is the only home that keeps the graph acyclic.
@@ -8,7 +8,7 @@ import {
   ATTRIBUTES, DEFAULTS, TIERS,
   catalogFilePath, emit, git, globToRegExp, isGitRepo, matchAny, normalizeTier, parseCsv,
   repoRelative, specificity, splitNul,
-} from './core.mjs';
+} from '../lib/core.mjs';
 
 // ===========================================================================
 // S4 catalog

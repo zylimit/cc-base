@@ -1,4 +1,4 @@
-// lib/rules.mjs -- S22 the constitution audit: which rules point at something that runs,
+// ext/rules.mjs -- S22 the constitution audit: which rules point at something that runs,
 // and which ones are only being asked nicely.
 //
 // Two 2026 results make this measurable rather than aesthetic. The first is that a rule set
@@ -43,7 +43,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emit, isGitRepo, projectRoot, toPosixPath } from './core.mjs';
+import { emit, isGitRepo, projectRoot, toPosixPath } from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 
 // ===========================================================================

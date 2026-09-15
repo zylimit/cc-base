@@ -1,4 +1,4 @@
-// lib/selftest.mjs -- the inline regression assertions and their fixture. Kept apart from
+// ext/selftest.mjs -- the inline regression assertions and their fixture. Kept apart from
 // the CLI so the case list can grow without pushing the dispatch surface around; cmdSelftest
 // in harness.mjs runs them. Imports from the modules it still asserts on, and nothing imports this one.
 
@@ -12,7 +12,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   HARNESS_DIR, isDenied, matchAny, normalizeTier, specificity, toPosixPath, withDirLock,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { classifyPath, lintCatalog, loadCatalog } from './catalog.mjs';
 import {
   analyzeImpact, compareRatchet, extractImports, findCycles, layerViolation, moduleForSpecifier,
@@ -44,7 +44,7 @@ import {
 } from './memory.mjs';
 import { documentSections, lintModuleDoc, parseFrontmatter } from './rules.mjs';
 import { manifestFindings, normalizedSha, parseManifest, releaseVerdict, result } from './release.mjs';
-import { validateProfile } from './tier.mjs';
+import { validateProfile } from '../lib/tier.mjs';
 
 /**
  * Inline regression assertions (node:assert, zero npm). Extensible: later Tasks append

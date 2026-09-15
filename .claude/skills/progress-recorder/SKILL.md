@@ -7,7 +7,7 @@ user-invocable: false
 [任务]
     接收主 Agent 传入的「对话增量（delta）+ mode」，对项目记忆文件执行原子操作：
     1. **增量合并（record）**：语义抽取 delta，将新增/变更信息按区块合并进 progress.md
-    2. **快照归档（archive）**：progress.md 条目过多或显式触发时，把历史 Notes/Done 原文搬迁至 progress.archive.md，保持主文件精简
+    2. **快照归档（archive）**：progress.md 条目过多或显式触发时，把历史 Notes/Done/Decisions 原文搬迁至 progress.archive.md，保持主文件精简
 
     不进行用户交互，专注完成单一明确的原子任务。语言：中文。
 
@@ -32,10 +32,12 @@ user-invocable: false
 [总体规则]
     - 高置信判定：仅当含确定性语言时才写 Pinned/Decisions；否则降级 Notes 并标 "Needs-Confirmation"
     - 受保护区块（Pinned/Decisions）不可自动修订或删除；检测到潜在冲突 → 记录于 Notes（含建议与理由）
+    - Pinned 封顶 15 条：满了要加新条，先把最弱的一条降级成 Decision 或与同类合并，不是继续追加——Pinned 是每次 recap 必读的那一小段，长了就没人真读
+    - Decisions 追加前先做取代检查：新条与现存哪条冲突、推翻或收窄了它，旧条末尾标「→ 被 <日期> 取代」；149 条里只有 3 条标过取代（2026-09-15 实数）就是没做这一步的样子，没做取代检查的追加不算完成
     - 合并 TODO 执行去重：语义相似则更新原条目；无匹配则新增并分配新 ID（= max(existing_ID)+1，未指定优先级默认 P1）
     - 自动识别 Done（"完成了/实现了/修复了/上线了/已部署/已发布"等完成语义）并尽量附证据指针
     - 所有新增条目追加日期戳（YYYY-MM-DD）
-    - 历史保护：仅在归档任务中对 Notes/Done 执行原文搬迁；Pinned/Decisions/TODO 永不丢失；**progress.archive.md 只增不删，保持完整历史**
+    - 历史保护：仅在归档任务中对 Notes/Done/Decisions 执行原文搬迁；Pinned/TODO 永不搬、Decisions 搬走的原文一字不改；**progress.archive.md 只增不删，保持完整历史**
     - 输出完整 Markdown，可直接覆盖写入目标文件
 
 [模板]
@@ -80,6 +82,9 @@ user-invocable: false
         ## Archived Done（最近完成的放前面）
             - <YYYY-MM-DD>: [#<id>] <任务>（evidence：<...>）
 
+        ## Archived Decisions（倒序，原文搬迁）
+            - <YYYY-MM-DD>: <决定或规则>（依据 / 适用范围 / 取代）
+
 [增量合并]
     第一步：文件检查与初始化
         - 检查 progress.md 是否存在且含全部区块（Pinned/Decisions/TODO/In Progress/Done/Risks & Assumptions/Notes/Context Index）
@@ -114,10 +119,11 @@ user-invocable: false
         - 返回完整 progress.md 内容
 
 [快照归档]
-    第一步：阈值检查 —— Notes 与 Done 合计 > 100 条，或显式 /archive 时执行
+    第一步：阈值检查 —— Notes 与 Done 合计 > 100 条，或 Decisions > 30 条，或显式 /archive 时执行
     第二步：归档执行
-        - Notes / Done 各保留最近 50 条，其余原文搬迁至 progress.archive.md
-        - 受保护区块（Pinned/Decisions/TODO）不参与归档
+        - Notes / Done 各保留最近 50 条，Decisions 保留最近 30 条，其余原文搬迁至 progress.archive.md 对应段
+        - Decisions 段末尾留一行指针（搬走的条数、日期区间、「仍在生效的硬约束已在 Pinned」）；主 Agent recap 默认不读归档
+        - 受保护区块（Pinned/TODO）不参与归档
         - progress.archive.md 只增不删，新归档追加到现有内容之后
     第三步：文件管理
         - archive 不存在则创建；已存在则读取后在末尾追加

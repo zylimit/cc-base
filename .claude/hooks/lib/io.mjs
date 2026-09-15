@@ -209,12 +209,12 @@ export function runFailOpen(main) {
   }
 }
 
-/** 判定库整个加载不了时的兜底口径 = standard 列。只列与「按种类取最严」不同的那一条，别在这里养第二张表。 */
+/** 判定库整个加载不了时的兜底口径 = standard 列。只列与「按种类取最严」不同的那几条，别在这里养第二张表。 */
 const FALLBACK_GUARDS = new Set([
   'dangerous-pkill-guard', 'harness-async-verify', 'no-direct-code-guard', 'pre-commit-check',
   'precompact-gate', 'release-gate', 'secret-exfil-guard', 'stop-gate', 'tdd-gate', 'three-file-sync-gate',
 ]);
-const FALLBACK_ADVISE = new Set(['tdd-gate']);
+const FALLBACK_ADVISE = new Set(['stop-gate', 'tdd-gate', 'three-file-sync-gate']);
 
 /**
  * 档位总闸：这个闸此刻该怎么跑（'off' 静默 / 'advise' 只提醒 / 'block' 拦停 / 'on' 记账）。

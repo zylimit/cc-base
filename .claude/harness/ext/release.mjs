@@ -1,4 +1,4 @@
-// lib/release.mjs -- S27 release readiness: assemble the evidence for "can this commit
+// ext/release.mjs -- S27 release readiness: assemble the evidence for "can this commit
 // ship", and never ship it.
 //
 // THIS COMMAND NEVER PUBLISHES AND NEVER WRITES. It does not tag, does not push, does not
@@ -67,7 +67,7 @@ import { spawnSync } from 'node:child_process';
 import {
   HARNESS_DIR, changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   projectRoot, sha256, toPosixPath, whichCmd,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { readLedgerState } from './evidence.mjs';
 import { dodStatus } from './spec.mjs';
@@ -316,6 +316,7 @@ const MANIFEST_RULES = [
   { pattern: 'harness/waivers/*', keep: false },
   { pattern: 'harness/trend/*', keep: false },
   { pattern: 'harness/evidence/*', keep: false },
+  { pattern: 'harness/ext/*', keep: false },
   { pattern: '.runtime/*', keep: false },
   { pattern: 'worktrees/*', keep: false },
   { pattern: 'tests/*', keep: false },

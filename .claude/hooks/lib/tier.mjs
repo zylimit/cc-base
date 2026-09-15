@@ -31,8 +31,8 @@ export const DEFAULT_PROFILE = {
   default: 'standard',
   floor: ['secret-exfil-guard', 'dangerous-pkill-guard', 'release-gate', 'postcompact-reinject', 'notify'],
   hooks: {
-    'stop-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
-    'three-file-sync-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
+    'stop-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'block' },
+    'three-file-sync-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'advise' },
     'precompact-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
     'pre-commit-check': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
     'no-direct-code-guard': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },

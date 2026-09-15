@@ -9,7 +9,7 @@ paths:
     - **Task 直派（默认）**：用 Task/Agent 工具启动一个 Sub-Agent，传完整任务上下文，等结构化报告回来由主 Agent 验收。Sub-Agent 默认后台跑（spawn 即返回，完成时结果自动回传进主 Agent 上下文并通知），派发后可继续别的编排，但**验收必须等结果到手才做**，不许拿"已派发"当"已完成"。
     - **Workflow 编排**：多个无依赖单位（一个 Phase 多 Task、多审查维度、多文件批处理）的 fan-out 上层，须用户显式 opt-in（多 Agent 耗 token ~15x）。写或提议任何 workflow 之前必须先读 .claude/rules/workflow-orchestration.md。
     - **记录类角色走 fork**：progress-recorder / feedback-observer 这类必须看见对话原文的角色，用 Task 工具 `subagent_type: "fork"` 继承主对话全文，省掉主 Agent 手工转述这层失真；执行类四角色 fork 是污染不是红利，一律 fresh。
-    - **模型分档**：默认模型写在各 agent frontmatter（执行类 opus 承重，提炼类 sonnet 够用）；纯机械任务（改文案 / 样式微调 / 搬运）派发时可传 sonnet 降本，有疑虑就保持默认，宁贵不糊。
+    - **模型分档**：默认模型写在各 agent frontmatter——implementer / tester 是 sonnet，code-reviewer / deployer 是 opus，记录类全 sonnet；Task 定为 HIGH 档（见 rules/dev-workflow-details.md [项目开发阶段] 的三档表）时派单显式传 `model: opus` 升级，纯机械任务（改文案 / 样式微调 / 搬运）可传 haiku。四个执行角色一律 opus 是 2026-09-15 前的默认，按档升级取代它。
 
 [隔离原则]
     - 每个 Task 用 **fresh 实例**，不复用之前的 Sub-Agent——防 Task A 的错误假设污染 Task B。这不是可选最佳实践，是隔离保证。
@@ -19,7 +19,7 @@ paths:
 
 [派单包七字段]
     **Goal**（完成后必须成立的具体结果）/ **Scope**（允许读改的文件、模块、行为）/ **Out of Scope**（明确不得顺手处理的内容）/ **Existing Pattern**（应遵循的现有实现、类型、命名、文档）/ **Business Context**（这个 Task 为什么做、谁受益、Spec「规则与例外」里相关的条目、progress.md Pinned / Decisions 里适用于本 Task 的规则（引日期）、用户教过的相关纠正（feedback 文件名）、项目有 `domain/` 口径库时按域与本 Task 会碰的技术对象匹配出的相关口径条目（与 Spec 的规则例外并列，同样不许写 N/A）——从 Spec、progress.md 与 domain/ 抄，不让 fresh 实例猜；编码 / 审查 / 测试类派单**不许写 N/A**）/ **Verification**（本任务允许且需要的最小客观核查，用户明确豁免时写明）/ **Escalation**（哪些情况必须返回主 Agent，不得自行扩大范围或权限）。其余不适用的字段写 N/A；大仓启用后由 `task` 子命令机器校验，缺哪个点哪个。
-    每单 ≤ 6 次工具调用，只给「文件:行 + 改成什么 + 一条验证命令」（2026-09-06 用户纠正）；单次派单预期 >60min 说明任务分解不合理，回任务分解重切，而不是让 Sub-Agent 长跑。
+    LOW / MEDIUM 档的单子只给「文件:行 + 改成什么 + 一条验证命令」，预期 ≤ 6 次工具调用（2026-09-06 用户纠正：「6 轮我都嫌多」）；HIGH 档在 Verification 里写明预算（工具调用次数或分钟），agent frontmatter 的 maxTurns 是熔断线不是目标。单次派单预期 >60min 说明任务分解不合理，回任务分解重切，而不是让 Sub-Agent 长跑。
 
 [回传与验收]
     - Sub-Agent 的**最终回传消息**是唯一进主 Agent 上下文的东西：回传 = **结论 + 证据句柄**（文件路径 / commit hash / 编译与测试输出位置 / 时间戳）+ 关键提炼，不贴全文与原始长日志，长报告压成要点。

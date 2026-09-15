@@ -6,7 +6,8 @@
 # 分级取舍（2026-09-10 测试预算表）：注册面判错的代价是「每次事件报一次 hook error」，
 #   吵但不致命，所以只留两条主判据——形态（exec form）与落地（文件在）。
 #   timeout/matcher 逐条对拍、statusLine、零 .sh/.ps1 残留、node --check 那批穷举不再养；
-#   两侧集合对拍归 test-hook-parity.sh。
+#   两侧集合对拍归 test-hook-parity.sh。唯一留下的 matcher 断言是 tdd-gate 挂在哪个事件组：
+#   它挂错组不是吵一声，是闸整条失效——挂 Bash 那版只能靠猜命令文本，猜不到派 Sub-Agent 这件事。
 #
 # 依赖：node（解析 JSON，故意不用 jq——目标机器只保证 node + git + coreutils）。
 # 纪律：对本仓只读；每条断言打印 EXPECT / GOT，判定不依赖措辞。
@@ -77,6 +78,11 @@ BAD_ARG=$(sq 'entries.filter(e => Array.isArray(e.h.args) && e.h.args.length && 
 chk "$([ "$BAD_ARG" = "无" ] && echo 0 || echo 1)" \
     "HS-3 每条 args[0] 指向的文件真实存在（注册了但没装 = 每次事件都报 hook error）" \
     "零个指空的 args[0]" "指空：$BAD_ARG"
+
+TD_WIRE=$(sq 'entries.filter(e => nameOf(e.h) === "tdd-gate").map(e => e.ev + "/" + (e.matcher || "<空>")).sort().join(" ") || "没注册"')
+chk "$([ "$TD_WIRE" = "PreToolUse/Agent" ] && echo 0 || echo 1)" \
+    "HS-4 tdd-gate 恰好挂在 PreToolUse 的 Agent 组、不在 Bash 组（派 implementer 走 Agent 工具，永远不经过命令行）" \
+    "恰好一条 PreToolUse/Agent" "实际：$TD_WIRE"
 
 # ---------------------------------------------------------------------------
 echo ""

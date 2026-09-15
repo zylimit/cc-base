@@ -1,17 +1,17 @@
 - [cc-base 是框架仓，审的是 .claude/ 配置本身](project_cc-base-is-a-framework-repo.md) — 交付物是 hooks/skills/agents/引擎，不是业务代码；仓里自带可跑的闸
-- [高发缺陷：闸脚本"覆盖缺口不进机器判据"](pattern_gate-scripts-false-green-in-machine-channel.md) — findings 里记了，rc 和 ok 字段仍报绿，CI 消费即假绿
+- [高发缺陷：闸脚本"覆盖缺口不进机器判据"](pattern_gate-scripts-false-green-in-machine-channel.md) — findings 里记了，rc 和 ok 字段仍报绿；⑩ 拆可选包后旧开关变假绿开关
 - [高发缺陷：压制标记 / 自指悖论的处置](pattern_suppression-markers-need-honesty-audit.md) — 每次新增标记都要逐条验"没标记会不会真的响"
 - [审查本仓的踩坑：secret-exfil-guard 会拦住造 .env 样例](gotcha_secret-exfil-guard-blocks-env-fixtures.md) — 临时仓造密钥样例别用 .env 文件名
 - [审 golden/基线尺子的四条固定攻法](pattern_golden-baseline-rulers.md) — 矩阵不进判据 / selftest 撑绿 / 环境字段入库 / 正则只测一支；playground 突变法
 - [审正则扫描器要出两个数字](pattern_regex-scanner-fp-fn-budget.md) — 真语料量误报 + 真凭据格式表量漏报，只给正向样例等于只测一半
 - [手搓 YAML/语法子集校验器必须对拍](pattern_handrolled-parser-needs-differential.md) — 4 条 fixture 不算对齐；30 条新样例才照出 5 条假阴
 - [审哈希链账本/证据落盘/硬闸的七条攻法](pattern_evidence-ledger-attacks.md) — 读不出=报绿 / 并发写死链 / 写而不读的 sha / 闸范围可伪造
-- [「同一张表抄成 N 份」的审法](pattern_duplicated-rule-tables.md) — 注释写几份不算数，逐份删除突变；字面 grep 对照会给部分臂发免检
+- [「同一张表抄成 N 份」的审法](../../../docs/agent-notes/code-reviewer/pattern_duplicated-rule-tables.md) — 注释写几份不算数，逐份删除突变；字面 grep 对照会给部分臂发免检
 - [审「stdout 路径一律仓库相对」契约的五条攻法](pattern_path-naming-contract.md) — 软链降级 / 相对入参方向搞反 / 断言同义反复 / 命名修了读取没修
-- [审「按段落划免检区」的文档闸](pattern_exempt-zone-and-section-scoping.md) — includes 诱饵 / 末段吞尾 / 两份实现宽窄不一 / 段名对着夹具取；先拿 templates+examples dogfood
+- [审「按段落划免检区」的文档闸](../../../docs/agent-notes/code-reviewer/pattern_exempt-zone-and-section-scoping.md) — includes 诱饵 / 末段吞尾 / 两份实现宽窄不一 / 段名对着夹具取；先拿 templates+examples dogfood
 - [判跨平台覆盖看 CI step 的 if:，不看测试放哪](pattern_cross-platform-coverage-claims.md) — selftest 无 if 双 OS 跑 / run-all Windows 不跑 / golden POSIX-only；win32 语义在 Linux 上可直接实跑
 - [审安装器 / 自检工具的六条攻法](pattern_installer-and-selfcheck-attacks.md) — 分母缩水报绿 / 装完自检恒红 / 锁 test-then-write 并发实测 / trap 标记扛不住 SIGKILL
 - [审 .sh/.ps1 → .mjs 单运行时移植的六条攻法](pattern_shell-to-node-hook-port.md) — 红锁钉得住退出码，漏的在并发锁 / 降级量级 / 夹具真杀宿主进程
-- [占位闸先对表模板槽语法，再数退出路径](pattern_gate-vocabulary-vs-artifact-templates.md) — 闸只认 `<>`、三份模板用 `{{}}`/`[x]` → 原封不动的模板 ok=true；口径要逐个 exit 点问
+- [占位闸先对表模板槽语法，再数退出路径](../../../docs/agent-notes/code-reviewer/pattern_gate-vocabulary-vs-artifact-templates.md) — 闸只认 `<>`、三份模板用 `{{}}`/`[x]` → 原封不动的模板 ok=true；口径要逐个 exit 点问
 - [审优先级链判定 + 用户可改配置的四条攻法](pattern_priority-chain-and-config-single-point.md) — 突变全绿常因兜底答案与被删分支撞车；顶层 JSON.parse 是整台引擎的单点故障
 - [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的六条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 两个解析器一警一哑 / 退休词撞模板括注 / 覆盖判据宽于失败消息

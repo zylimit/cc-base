@@ -210,6 +210,15 @@
       }
     },
     {
+      "pattern": "harness/ext/*",
+      "keep": false,
+      "note": "大仓治理引擎：目标项目默认不装，setup --with-harness 才整目录拷，不入清单",
+      "ps1": {
+        "kind": "regex",
+        "token": "^harness/ext/"
+      }
+    },
+    {
       "pattern": ".runtime/*",
       "keep": false,
       "note": "supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）",

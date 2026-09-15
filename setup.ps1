@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 # setup.ps1 - install the cc-base framework assets into a target project (Windows / pure PowerShell).
-# Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force] [-DryRun]    without -Target, defaults to the current directory ".".
+# Usage: pwsh -File setup.ps1 [-Target <dir>] [-Force] [-DryRun] [-WithTests] [-WithHarness]
+#      without -Target, defaults to the current directory ".".
 #      -DryRun writes nothing and prints the plan (create / update / conflict / skip) instead.
 # Key: write target/.claude/settings.json directly (Claude Code only reads that fixed name, not settings-windows.json).
 #      Hook commands are no longer rewritten: settings.json ships the exec form ("command":"node" plus
@@ -15,7 +16,8 @@ param(
   [string]$Target = '.',
   [switch]$Force,
   [switch]$DryRun,
-  [switch]$WithTests
+  [switch]$WithTests,
+  [switch]$WithHarness
 )
 $ErrorActionPreference = 'Stop'
 
@@ -221,7 +223,7 @@ function Copy-WithBackup($src, $dest) {
 
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
 # Same exclusion set as setup.sh copy_claude_tree, .claude/scripts/gen-manifest.sh and
-# .claude/harness/lib/release.mjs MANIFEST_RULES -- change one, change all four. The four are kept
+# .claude/harness/ext/release.mjs MANIFEST_RULES -- change one, change all four. The four are kept
 # as hand-synced copies on purpose (installers must run standalone; the release one is the auditor
 # and would stop auditing if it shared a source), so the shared wording is verified by tests instead:
 # .claude/tests/test-setup.sh section (6) compares the arms of all four literally, and
@@ -255,6 +257,7 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   # runtime state / non-distributed dirs / installer leftovers; notes live in harness/exclusions.json
   if ($relSlash -match '^evidence/') { return }
   if ($relSlash -match '^harness/(receipts|state|waivers|trend|evidence)/') { return }
+  if ($relSlash -match '^harness/ext/') { return }
   if ($relSlash -match '^\.runtime/') { return }
   if ($relSlash -match '^worktrees/') { return }
   if ($relSlash -match '^(tests|research|agent-memory)/') { return }
@@ -300,6 +303,31 @@ if ($WithTests -and (Test-Path (Join-Path $srcClaude 'tests'))) {
     New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
     Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
     Register-Write $relSlash
+  }
+}
+
+# -WithHarness: copy the large-repo governance engine wholesale (same arm as setup.sh --with-harness;
+# no manifest layering - the engine is part of the framework, not a user file). The two documents under
+# harness/ext/rules/ get a second copy into .claude/rules/, because the path scope in their frontmatter
+# is only honoured where Claude Code looks for rules - left in ext/ they would load nowhere.
+if ($WithHarness -and (Test-Path (Join-Path $srcClaude 'harness/ext'))) {
+  Get-ChildItem -Path (Join-Path $srcClaude 'harness/ext') -Recurse -File -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
+    $relSlash = $rel -replace '\\', '/'
+    Add-Plan 'create' $relSlash
+    $ruleRel = if ($relSlash -match '^harness/ext/rules/[^/]+\.md$') { 'rules/' + (Split-Path $rel -Leaf) } else { '' }
+    if ($ruleRel) { Add-Plan 'create' $ruleRel }
+    if ($DryRun) { return }
+    $dest = Join-Path $targetClaude $rel
+    New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
+    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+    Register-Write $relSlash
+    if ($ruleRel) {
+      $ruleDest = Join-Path $targetClaude $ruleRel
+      New-Item -ItemType Directory -Force -Path (Split-Path $ruleDest -Parent) | Out-Null
+      Copy-Item -LiteralPath $_.FullName -Destination $ruleDest -Force
+      Register-Write $ruleRel
+    }
   }
 }
 

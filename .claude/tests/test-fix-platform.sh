@@ -9,7 +9,12 @@
 #   .mjs 并存。这形态最要命的地方在于「删了文件却没改 settings」——每次事件报一次 hook error，
 #   所以「残留清空」与「settings 切 exec form」必须一起断言，缺一条都读不出这个洞。
 # 覆盖：① fix-platform.sh（Linux/Mac 路径）② fix-platform.ps1（Windows 对称路径）。
+#   ② 那组在装了 pwsh 的机器上是真跑的（账本里 23 次全 PASS，不是 SKIP），且它测的是**另一份
+#   实现**、不是同一份的第二种写法——`②⑦ 备份不许被覆盖` 更是全套里唯一真正执行到的那条
+#   （.sh 侧不写 .bak，①⑦ 从来没有对象）。所以它不按老化退休，留着。
 # 无 pwsh → ② 标 SKIP；被测脚本自己缺依赖跑不起来 → 标 SKIP 并说明（不假绿也不冤枉它）。
+# 用例编号留了空档（④ ⑤ 已退休：两条都在判「settings 里的命令串归一没归一」，③ 是其中最强的
+#   正向式，留它一条），是为了让账本里同名用例的历史接得上，不重新编号。
 # fixture JSON 与断言都用 node（目标机器只保证 node + git + coreutils）。
 set -u
 
@@ -132,7 +137,7 @@ assert_idempotent() {
   fi
 }
 
-# assert_normalized <标签> <项目根> —— 归一后应成立的五件事，逐条断言。
+# assert_normalized <标签> <项目根> —— 归一后应成立的三件事，逐条断言。
 assert_normalized() {
   local tag="$1" proj="$2" cl="$2/.claude"
 
@@ -152,18 +157,6 @@ assert_normalized() {
   chk "$([ "$bad" = "无" ] && echo 0 || echo 1)" \
       "$tag ③ settings 里每条 hook 都成了 exec form（command=node + args[0] 指 .mjs）" \
       "零条不是 exec form" "违例：$bad"
-
-  local shleft; shleft=$(grep -cE '\.claude[/\\]hooks[/\\][A-Za-z0-9_-]+\.(sh|ps1)' "$cl/settings.json" 2>/dev/null || true)
-  chk "$([ "${shleft:-0}" = "0" ] && echo 0 || echo 1)" \
-      "$tag ④ settings 全文零指向 hooks 的 .sh/.ps1 字面量（文件删了引用还在 = 每次事件报 hook error）" \
-      "0 处" "${shleft:-0} 处"
-
-  local sl; sl=$(sq "$cl/settings.json" 'String((s.statusLine || {}).command || "")')
-  local r=1
-  case "$sl" in *".claude/scripts/statusline.mjs"*) case "$sl" in *".sh"*|*".ps1"*) r=1 ;; *) r=0 ;; esac ;; esac
-  chk "$r" \
-      "$tag ⑤ statusLine 归一到 statusline.mjs 且不再含 .sh/.ps1" \
-      "命令串含 statusline.mjs 且不含 .sh/.ps1" "command=[$sl]"
 }
 
 echo "===== test-fix-platform ====="

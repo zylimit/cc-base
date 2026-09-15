@@ -6,15 +6,22 @@
 #   无参 → stderr 用法 rc 2；--help → stdout 用法 rc 0；目标既非 URL 也非目录 → rc 2；
 #   找不到浏览器引擎 → stderr 一行「UI 审计缺席」rc 3；有引擎 → 逐主题×宽度审计 + 截图，
 #   写 <out>/ui-audit.json（含 pass 与 combos），--strict 且不 pass → rc 1。缺引擎那条单列：一个把「没装 playwright」吞成 rc 0 的审计闸，会在 CI 上永远绿着。
-# 只留高风险几条：缺席不冒充通过（U4/U9）、目录与软链穿越（U8/U10）、对比度判红（U7）、
-#   空 catch（U22）。参数解析的花样组合与要真引擎的渲染用例已删。跑不成的路径走 SKIPPED
-#   并计数，不算 PASS 也不算 FAIL：「未执行 != 通过」。
+# 只留高风险几条：缺席不冒充通过（U4/U9）、目录与软链穿越（U8/U10）、对比度判红（U7）。
+#   参数解析的花样组合与要真引擎的渲染用例早已删。跑不成的路径走 SKIPPED 并计数，不算 PASS
+#   也不算 FAIL：「未执行 != 通过」。
+# 老化退休（2026-09-15）：U0（被测脚本存在，自证）、U1 / U2 / U3（同一条用法 + 退出码契约的
+#   三个入口，退出码由 U4 的 rc 3 守着）、U22（空 catch，那条规则由 dod 的 fitness 扫全仓，
+#   本套件里是第二把同样的尺子）删了。
+#   U7 一度也在退休名单里，主 Agent 判回：它不在「泄密 / 毁数据 / 装坏别人项目 / 发错版 /
+#   签字闸误放行」五类里，但删了就没人守 ui-audit 的核心判定——脚本核心行为的唯一回归不退。
+#   编号不重排，账本里同名用例的历史才接得上。
+# 站点夹具只剩一页：U7 走的是桩返回的 canned 审计结果，判定与页面内容无关；真渲染那条早已删。
 # 用法：bash test-ui-audit.sh [ui-audit.mjs 路径]
 set -u
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 AUDIT=${1:-"$SRC/scripts/ui-audit.mjs"}
-case "$AUDIT" in /*) ;; *) AUDIT="$PWD/$AUDIT" ;; esac   # U7 要切 cwd，先钉成绝对路径
+case "$AUDIT" in /*) ;; *) AUDIT="$PWD/$AUDIT" ;; esac   # 桩用例要切 cwd，先钉成绝对路径
 
 echo "===== test-ui-audit ====="
 command -v node >/dev/null 2>&1 || {
@@ -36,15 +43,10 @@ chk() {
 }
 contains() { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
 brief() { printf '%s' "$1" | tr '\n' ' ' | cut -c1-200 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null; }
-usage_like() { contains '用法' "$1" || contains 'usage' "$1" || contains 'Usage' "$1"; }
 
 RC=0; STDOUT=""; STDERR=""
-run() { # [args...]
-    node "$AUDIT" ${@+"$@"} > "$TMP/o" 2> "$TMP/e"
-    RC=$?; STDOUT=$(cat "$TMP/o"); STDERR=$(cat "$TMP/e")
-}
 
-# 引擎在不在，决定 U4 与 U7 怎么隔离
+# 引擎在不在，决定 U4 与桩用例怎么隔离
 if node -e "require.resolve('playwright-core')" >/dev/null 2>&1 || node -e "require.resolve('playwright')" >/dev/null 2>&1; then
     HAS_ENGINE=1
 else
@@ -52,33 +54,9 @@ else
 fi
 echo "  [ENV] 浏览器引擎可用=$HAS_ENGINE"
 
-if [ -f "$AUDIT" ]; then
-    chk 0 "U0 被测脚本存在：$AUDIT" "ui-audit.mjs 存在" "存在"
-else
-    chk 1 "U0 被测脚本存在：$AUDIT" "ui-audit.mjs 存在" "不存在——下面每条都会红，红因是功能缺失"
-fi
-
-run
-if [ "$RC" -eq 2 ] && usage_like "$STDERR"; then r=0; else r=1; fi
-chk "$r" "U1 无参数 → stderr 出用法，rc 2" "rc=2 且 stderr 含用法/usage" "rc=$RC；stderr：$(brief "$STDERR")"
-
-run --help
-if [ "$RC" -eq 0 ] && usage_like "$STDOUT"; then r=0; else r=1; fi
-chk "$r" "U2 --help → stdout 出用法，rc 0" "rc=0 且 stdout 含用法/usage" "rc=$RC；stdout：$(brief "$STDOUT")"
-
-run "$TMP/nope"
-if [ "$RC" -eq 2 ]; then r=0; else r=1; fi
-chk "$r" "U3 目标既不是 URL 也不是目录 → rc 2" "rc=2" "rc=$RC；stderr：$(brief "$STDERR")"
-
+# 站点夹具：剩下的用例只把它当「一个存在的目录」用（审计判定那条已退休），一页就够。
 mkdir -p "$TMP/site"
-{
-    printf '%s\n' '<!doctype html>'
-    printf '%s\n' '<html lang="zh"><head><meta charset="utf-8"><title>派单</title></head>'
-    printf '%s\n' '<body style="margin:0">'
-    printf '%s\n' '<div style="width:3000px;height:40px;background:#eeeeee">这一行故意 3000px 宽，必须被判横向溢出</div>'
-    printf '%s\n' '<p style="color:#cfcfcf;background:#ffffff">这行对比度不足</p>'
-    printf '%s\n' '</body></html>'
-} > "$TMP/site/index.html"
+printf '%s\n' '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>派单</title></head><body>一页</body></html>' > "$TMP/site/index.html"
 
 # U4 缺引擎必须是 rc 3。引擎在场时把脚本复制到仓外目录跑，让 require 沿 /tmp 往上找不到包——
 #   ui-audit.mjs 哪天 import 了 harness/lib 里的东西，这条会因找不到相对模块而红，
@@ -218,41 +196,9 @@ chk "$r" "U9 缺席时旧 ui-audit.json 必须被覆写成「没跑」，且不�
     "rc=3；报告里 pass 不为 true 且含 absent:true；$TMP/u9never 不许被建出来" \
     "rc=$RC；报告=$(brief "$(cat "$TMP/u9out/ui-audit.json" 2>/dev/null)")；never 目录存在=$([ -d "$TMP/u9never" ] && echo yes || echo no)"
 
-# ---------------------------------------------------------------------------
-# U22 空的 catch 把失败换成了错误答案，而且没人知道。fitness 的 no-silent-failure 规则扫的是
-#   已跟踪文件，提交前一路绿、提交后才在 dod 里炸出来；这条把它提前到套件里。
-#   --paths 只认**相对仓根**的路径：喂绝对路径会得到 scannedFiles=0 / findings 空，那是
-#   「什么都没扫」而不是「扫干净了」——所以 scannedFiles>=1 与「零命中」缺一不可。
-# ---------------------------------------------------------------------------
-fitpaths() { # <json> → 「扫了几个文件 命中几条 规则@行」
-    printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{return console.log("- - PARSE_ERROR")}const f=(j.findings||[]).filter(x=>String(x.path||"").endsWith("ui-audit.mjs"));console.log((j.scannedFiles===undefined?"?":j.scannedFiles)+" "+f.length+" "+([...new Set(f.map(x=>x.rule+"@"+x.line))].join(",")||"-"))})'
-}
-FITREL=""
-case "$AUDIT" in "$SRC"/*) FITREL=".claude/${AUDIT#"$SRC"/}" ;; esac
-if [ ! -f "$SRC/harness/harness.mjs" ]; then
-    echo "  [NOTE] U22 跳过：找不到 $SRC/harness/harness.mjs"
-elif [ -z "$FITREL" ]; then
-    skip "U22 被测脚本不在 $SRC 之下（$AUDIT），fitness --paths 表达不出相对仓根的路径，未执行 != 通过"
-else
-    FIT=$( cd "$SRC/.." && node .claude/harness/harness.mjs fitness --paths "$FITREL" 2>/dev/null )
-    FRC=$?
-    if [ "$FRC" -eq 3 ]; then
-        skip "U22 fitness 降级（rc 3），未执行 != 通过"
-    else
-        HIT=$(fitpaths "$FIT")
-        SCANNED=${HIT%% *}; REST=${HIT#* }; N=${REST%% *}
-        r=0
-        [ "$FRC" -eq 0 ] || r=1
-        [ "$SCANNED" -ge 1 ] 2>/dev/null || r=1
-        [ "$N" = 0 ] || r=1
-        chk "$r" "U22 ui-audit.mjs 里不许有空的 catch（fitness 的 no-silent-failure 零命中）" \
-            "rc=0 且 scannedFiles>=1（确实扫到了）且 ui-audit.mjs 上零条 finding" \
-            "rc=$FRC；扫到 $SCANNED 个文件；命中 $N 条：${REST#* }"
-    fi
-fi
-
-echo "  [NOTE] 未覆盖：URL 目标、多主题×多宽度组合矩阵、截图文件命名、--json 的 combos 结构细节，"
-echo "         以及参数解析的花样组合——那些要真引擎或从没挡下过缺陷，删了不补。"
+echo "  [NOTE] 未覆盖：URL 目标、多主题×多宽度组合矩阵、截图文件命名、--json 的 combos 结构细节、"
+echo "         参数解析的花样组合，以及退休掉的对比度判红与空 catch 两条——前者靠 design-maker"
+echo "         的人工验收，后者靠 dod 的 fitness 全仓扫。"
 
 echo ""
 echo "==== test-ui-audit：PASS=$PASS FAIL=$FAIL SKIPPED=$SKIP ===="

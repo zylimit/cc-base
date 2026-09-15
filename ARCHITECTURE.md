@@ -155,15 +155,15 @@ settings.json 实际注册 21 个 hook（每个一份 `.mjs`，node 单运行时
 | `kill-dev-ports.mjs` | PreToolUse(Bash) | 启动开发服务器前清理占用端口 |
 | `dangerous-pkill-guard.mjs` | PreToolUse(Bash) | 拦截 `pkill -f` 等粗暴杀进程命令 |
 | `secret-exfil-guard.mjs` | PreToolUse(Bash) | 拦截密钥文件读/拷/网络外传（.env/id_rsa/*.pem/credentials），带 sudo/timeout/bash -c 套壳剥离再判；Fast Mode 不豁免 |
-| `tdd-gate.mjs` | PreToolUse(Bash) | 测试相关命令前提示 TDD 工作流（red-locks-the-bug） |
-| `no-direct-code-guard.mjs` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer |
+| `tdd-gate.mjs` | PreToolUse(Agent) | 派 implementer 前查两小时内的 `.red-verified` / `.tdd-exempt`，没有则 standard 提醒、strict 拦（挂 Agent 工具不挂 Bash：派单从不经过命令行） |
+| `no-direct-code-guard.mjs` | PreToolUse(Edit\|Write) | 拦主 Agent 直接改业务代码，强制委派 implementer；事件带 `agent_id`（子 Agent 内触发）一律放行 |
 | `mark-review-needed.mjs` | PostToolUse(Edit/Write) | 业务代码改动登记进待审清单（豁免 .claude/ 框架自身、文档类） |
 | `auto-push.mjs` | PostToolUse(Bash) | git commit 后本地领先上游则自动 push |
 | `harness-async-verify.mjs` | PostToolUse(Edit/Write，asyncRewake 后台) | 大仓启用时编辑期后台跑 verify，FAIL/BLOCKED 唤醒主 Agent 早警（不硬拦，commit 硬门仍是 pre-commit-check；180s 防抖） |
 | `release-gate.mjs` | UserPromptExpansion(release-builder) | /release-builder 展开前查待审清单——未清则拦，干净则注入发布卡点提醒（测试卡点/三件套验收） |
 | `precompact-gate.mjs` | PreCompact | 压缩前守门：待审未清或 progress.md 未同步则拦一次压缩，提示先 /record 固化（10 分钟冷却窗防砖，出错 fail-open） |
 | `notify.mjs` | Notification(agent_needs_input/agent_completed/permission_prompt) | 后台 subagent 完成/需输入/待审批时发终端桌面通知（OSC 777+BEL，经 terminalSequence 官方通道） |
-| `stop-gate.mjs` | Stop | 有未审业务代码则阻止停止，列出待审文件 |
+| `stop-gate.mjs` | Stop | 有未审业务代码则列出待审文件：standard 只提醒（放行契约是 `echo clean`，本质是提醒），strict 阻止停止 |
 | `three-file-sync-gate.mjs` | Stop | 家底/代码改动但 progress.md 未同步、或 Spec 与 CHANGELOG 未成对更新则阻止停止（三文件同步铁律） |
 | `record-authorship.mjs` | PostToolUse(Edit\|Write\|NotebookEdit) | 大仓启用时把「哪个 agent 写了哪个文件」喂给引擎作者台账，`review verdict` 据此拒自审（无 catalog 完全 no-op） |
 | `postcompact-reinject.mjs` | PostCompact | 压缩完成后跑 `invariants`，把铁律与活跃状态从文件重新派生注回（治 Governance Decay） |
@@ -179,7 +179,7 @@ settings.json 同时带三层原生配置（hook 之外的机器执法）：**pe
 
 ## 8. 项目记忆 + 反馈进化（多套记忆系统各司其职）
 
-- **项目记忆**：`progress-recorder` agent 维护项目根目录的 `progress.md`（决策/约束/完成/待办/风险），>100 条自动归档到 `progress.archive.md`。指令 `/record` `/archive` `/recap`。记录类角色（progress-recorder / feedback-observer）可用 fork 形态派发（`subagent_type:"fork"` 继承主对话全文），免主 Agent 转述失真。
+- **项目记忆**：`progress-recorder` agent 维护项目根目录的 `progress.md`（决策/约束/完成/待办/风险），Notes 与 Done 合计 >100 或 Decisions >30 即归档到 `progress.archive.md`，Pinned 封顶 15 条。指令 `/record` `/archive` `/recap`。记录类角色（progress-recorder / feedback-observer）可用 fork 形态派发（`subagent_type:"fork"` 继承主对话全文），免主 Agent 转述失真。
 - **反馈进化**：用户修正 AI 行为 → `feedback-observer` 写 `.claude/feedback/` → `evolution-runner`（session 初始化自动派发；skill 已声明 `context: fork` 后台运行不阻塞开场）扫描并生成进化建议 → 用户逐条确认后改进 Skill/规则。
 - **领域口径**：项目根 `domain/`（可选，副产品）记「这个域里事情怎么算」，跟领域走不跟仓库走——采集寄生在 Sub-Agent 回执的 Domain findings 栏（真有发现才提醒），收录派 `domain-recorder`，人机入口 `/domain-rulings`（四象限分诊 / 查现行值 / 待复核 / 看依赖 / 手工收录）。框架本体没有领域，没有 `domain/` 是正常的。细则 `.claude/rules/domain-rulings.md`。
 - **角色记忆**：code-reviewer / tester 挂 `memory: project`（Claude Code 原生 agent memory）——跨会话积累本项目高发缺陷模式 / flaky 区，审查测试越用越准；角色自维护，不承载框架规则与项目事实。
@@ -199,11 +199,11 @@ project/
 ├── <project-name>/                       # 项目代码子文件夹
 └── .claude/
     ├── CLAUDE.md                         # 主控
-    ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / harness-large-repo / quality-attributes）
+    ├── rules/                            # 主控下沉细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings；harness 两份随 --with-harness 装入）
     ├── agents/                           # 8 个专职 Sub-Agent
     ├── skills/                           # 18 个 Skill
     ├── hooks/                            # 21 个注册闸门（.mjs）+ static-check 工具 + lib/
-    ├── harness/                          # 大仓治理 harness（harness.mjs + adapters.json，默认关闭，放 module-catalog.json 才启用）
+    ├── harness/                          # 核心 harness.mjs + lib/{core,tier}.mjs + profile.json + audit/；引擎在 harness/ext/（可选包，--with-harness 才装，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
     ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode（tier set 薄壳）/ fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）
     ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / test-supervisor / cases）
@@ -217,7 +217,7 @@ project/
 
 ## 9.5 大仓治理 harness（60 万行级 + 五性证据化）
 
-`harness.mjs` 单文件零依赖，catalog 存在才启用（唯一开关），十三个子命令三层展开：
+引擎是可选包（`.claude/harness/ext/`，`setup.sh --with-harness` 才装；核心 `harness.mjs` 只静态加载 tier / doctor，其余子命令按需 import，没装以 rc 3 报 not installed），装后 catalog 存在才启用（唯一开关），十三个子命令三层展开：
 
 - **定向层**（花小钱看清爆炸半径）：`impact` 反向依赖闭包 / `context-pack` 预算化上下文（DENY 密钥路径永不入包）/ `catalog-lint` 全量归类（UNMAPPED/OVERLAP/CATCH_ALL 全拦）。unmapped / global / 非 git / truncated 一律保守全 fanout——宁可全跑，不可漏测。
 - **证据层**（口头承诺升级为机器可验证）：`receipt` diff-bound 审查回执（diff 变一字节即 stale，stop-gate 拦停）/ `verify` 四态质量门（缺命令 BLOCKED 不假绿）+ **五性覆盖门**（受影响模块声明的 critical/high 属性必须有 PASS 的认领 check，反证压过佐证）/ `waiver` 结构化豁免（security/safety 永不可豁免）。

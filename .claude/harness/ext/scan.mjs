@@ -1,4 +1,4 @@
-// lib/scan.mjs -- the three capabilities that read source and documents rather than the
+// ext/scan.mjs -- the three capabilities that read source and documents rather than the
 // module graph: S13 fitness (built-in pattern rules), S14 adapters (the external tool
 // table) and S15 adr-check (every active decision must name a real enforcement).
 // adr-check sits here because it resolves enforcement references against fitness rule ids.
@@ -10,7 +10,7 @@ import {
   HARNESS_DIR, SOURCE_EXTS, TIER_RANK,
   catalogFilePath, changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny,
   normalizeTier, parseCsv, projectRoot, repoRelative, toPosixPath, whichCmd,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalog, loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 
 // ===========================================================================

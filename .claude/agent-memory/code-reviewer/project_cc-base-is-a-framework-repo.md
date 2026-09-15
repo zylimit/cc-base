@@ -13,7 +13,7 @@ cc-base 的被审对象是 `.claude/` 这套配置：hooks（.sh/.ps1 成对）�
 不是对照功能清单。
 
 **How to apply:** 开审先跑仓里自带的闸当 Stage 0，全是零依赖、秒级：
-- `bash .claude/hooks/static-check.sh .`（识栈跑 shellcheck）
+- `node .claude/hooks/static-check.mjs .`（识栈跑 shellcheck + node --check）
 - `node .claude/harness/audit/check-syntax.mjs`（js/json/sh/ps1/frontmatter）
 - `bash .claude/tests/cases/run-all.sh`、`bash .claude/tests/test-audit-scripts.sh`
 退出码契约表在 `.claude/rules/harness-large-repo.md`，判"契约有没有被破坏"以它为准。

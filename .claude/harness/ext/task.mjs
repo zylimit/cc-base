@@ -1,4 +1,4 @@
-// lib/task.mjs -- S18 the task envelope and the blast-radius budget: the two places where
+// ext/task.mjs -- S18 the task envelope and the blast-radius budget: the two places where
 // "what am I allowed to do here" stops being a paragraph in a prompt and becomes something
 // a command can answer.
 //
@@ -29,7 +29,7 @@ import process from 'node:process';
 import {
   changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   readStdin, splitNul,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { loadReceipts, receiptIntact, safeTaskId } from './quality.mjs';

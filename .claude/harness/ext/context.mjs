@@ -1,4 +1,4 @@
-// lib/context.mjs -- S6 context-pack: the budgeted packing of a task envelope, the
+// ext/context.mjs -- S6 context-pack: the budgeted packing of a task envelope, the
 // canonical diff and the changed files. The DENY list and isDenied() that guard it live in
 // core.mjs, because S13 fitness applies the same exclusion to the files it reads.
 
@@ -8,7 +8,7 @@ import {
   DEFAULTS,
   canonicalDiff, changedPaths, emit, isDenied, isStateExcluded, loadHarnessConfig, parseCsv,
   projectRoot, sha256, stableJson, toPosixPath,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 

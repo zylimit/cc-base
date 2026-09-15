@@ -1,4 +1,4 @@
-// lib/quality.mjs -- the verification half of the runtime: S7 diff-bound review receipts,
+// ext/quality.mjs -- the verification half of the runtime: S7 diff-bound review receipts,
 // S8 the four-state quality gate, S10 structured waivers and S11 quality-attribute
 // coverage. They ship together because verifyPlan() runs checks, applies waivers and
 // assesses attributes in one pass. Depends on core.mjs + catalog.mjs + graph.mjs.
@@ -12,10 +12,10 @@ import {
   errDetail, parseCsv, projectRoot, readDirNames, readStdin, readTextFile, recordCorruptState,
   repoRelative,
   sha256, stableJson, whichCmd,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
-import { tierState } from './tier.mjs';
+import { tierState } from '../lib/tier.mjs';
 
 // ===========================================================================
 // S7 receipt  (diff-bound review receipts; stale/tamper -> exit 4)
@@ -46,13 +46,22 @@ function contentHash(r) {
   return sha256(stableJson({ ...r, contentHash: undefined }));
 }
 
-/** harness.mjs plus every lib/*.mjs beside it, named relative to HARNESS_DIR, sorted. */
+/**
+ * harness.mjs plus every *.mjs under lib/ and ext/, named relative to HARNESS_DIR, sorted.
+ * Both directories, because both are the engine: the split into core (lib/) and the optional
+ * large-repo package (ext/) is a packaging decision, and hashing only lib/ would leave a
+ * receipt valid across a rewrite of the very section that produced its verdict.
+ */
 function engineFiles() {
-  let names = [];
-  try {
-    names = fs.readdirSync(path.join(HARNESS_DIR, 'lib')).filter(f => f.endsWith('.mjs'));
-  } catch (_e) { names = []; }
-  return ['harness.mjs'].concat(names.map(f => 'lib/' + f)).sort();
+  const names = [];
+  for (const dir of ['lib', 'ext']) {
+    try {
+      for (const f of fs.readdirSync(path.join(HARNESS_DIR, dir))) {
+        if (f.endsWith('.mjs')) names.push(dir + '/' + f);
+      }
+    } catch (_e) { /* a missing half is not an engine that cannot name itself */ }
+  }
+  return ['harness.mjs'].concat(names).sort();
 }
 
 /**

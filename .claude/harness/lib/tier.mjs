@@ -13,7 +13,7 @@
 // what keeps the file's shape a contract rather than a convention: a second one drifts on the
 // day somebody adds a field.
 //
-// Exit codes (see .claude/rules/harness-large-repo.md):
+// Exit codes (see harness-large-repo.md (source .claude/harness/ext/rules/, installed into .claude/rules/ by --with-harness)):
 //   status / explain    0
 //   explain <unknown>   2   the id is not a hook this repository registers
 //   set                 0, or 2 for a usage error (unknown tier, fast without a reason,

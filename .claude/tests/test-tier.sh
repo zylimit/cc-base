@@ -3,8 +3,9 @@
 # test-tier.sh — 档位规格回归：`node harness.mjs tier` 的两条要害语义。
 #
 # 分级取舍（2026-09-10 测试预算表）：档位判错的代价是「闸松了一档」，不在高风险五种之列，
-#   四个子命令的正反穷举（TV/TS/TT/TE/TP/TC/TL/TG 五十余条）不再养，只留两条——
-#   三档单调性校验、fast 会话覆盖过期后回默认档；「地板不可 override」归 test-tier-hardening.sh。
+#   四个子命令的正反穷举（TV/TS/TT/TE/TP/TC/TL/TG 五十余条）不再养，只留三条——
+#   三档单调性校验、fast 会话覆盖过期后回默认档、两张档位表逐字相等；
+#   「地板不可 override」归 test-tier-hardening.sh。
 #
 # 契约来源：docs/v3-work-packs.md A.1 数据模型 / A.2 判定函数 / A.3 tier 子命令退出码。
 # 纪律：一切写操作只落 mktemp 沙箱（真仓根写 tier.json 会当场影响本 session 在跑的 hook），
@@ -152,6 +153,36 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$TT_E" 'String(d.tier)')" = "standard" ] && 
 chk "$([ "$(jq_ "$TT_E" 'String(d.source)')" = "default" ] && echo 0 || echo 1)" \
     "TT-2 过期时 source 报 default 而不是 session（来源报错会让人以为覆盖还在生效）" \
     "source=default" "out=[$(show "$TT_E")]"
+
+echo ""
+echo "--- TD 两张档位表逐字相等（profile.json ↔ tier.mjs 的 DEFAULT_PROFILE）---"
+# profile.json 缺席时 hook 按 tier.mjs 里那份内置表跑。两张表分叉 = 装了 profile 的项目和没装的
+# 项目对同一个闸说两套话，而这种分叉谁也看不出来——上一回是靠人眼发现的（2026-09-15）。
+
+RC=0
+OUT=$(node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+const url = require("node:url");
+const root = process.argv[1];
+// 键序归一后再比：两份表的书写顺序不同不算分叉，取值不同才算。
+const sortDeep = (v) => (v && typeof v === "object" && !Array.isArray(v)
+  ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep(v[k])]))
+  : v);
+const norm = (v) => JSON.stringify(sortDeep(v));
+import(url.pathToFileURL(path.join(root, ".claude/hooks/lib/tier.mjs")).href).then((m) => {
+  const file = JSON.parse(fs.readFileSync(path.join(root, ".claude/harness/profile.json"), "utf8")).hooks || {};
+  const builtin = (m.DEFAULT_PROFILE || {}).hooks || {};
+  const ids = [...new Set([...Object.keys(file), ...Object.keys(builtin)])].sort();
+  const diff = ids.filter((id) => norm(file[id]) !== norm(builtin[id]))
+    .map((id) => id + ": profile=" + JSON.stringify(file[id]) + " tier.mjs=" + JSON.stringify(builtin[id]));
+  process.stdout.write(diff.join(" | "));
+  process.exitCode = diff.length ? 1 : 0;
+});
+' "$ROOT" 2>&1) || RC=$?
+chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
+    "TD-1 profile.json 的 hooks 表与 tier.mjs 的 DEFAULT_PROFILE.hooks 逐项相等" \
+    "0 项不一致" "不一致项：${OUT:-无}"
 
 echo ""
 echo "==== test-tier：PASS=$PASS FAIL=$FAIL ===="

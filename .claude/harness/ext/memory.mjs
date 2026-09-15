@@ -1,4 +1,4 @@
-// lib/memory.mjs -- S21 the memory layer: what survives a context boundary, and what it
+// ext/memory.mjs -- S21 the memory layer: what survives a context boundary, and what it
 // costs to come back.
 //
 // The problem this layer answers is measured rather than assumed. Compaction does not
@@ -39,9 +39,9 @@ import {
   SOURCE_EXTS,
   changedPaths, emit, git, gitFingerprint, isDenied, isGitRepo, isStateExcluded, projectRoot,
   splitNul, toPosixPath,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { readLedgerState, readTaskRecord, verifyLedgerChain, writeAtomic } from './evidence.mjs';
-import { tierState } from './tier.mjs';
+import { tierState } from '../lib/tier.mjs';
 import { latestGateRecord } from './task.mjs';
 import { REQUIREMENT_SECTION, parseRequirements, sectionNamed, splitSections } from './spec.mjs';
 

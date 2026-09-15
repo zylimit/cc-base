@@ -4,7 +4,7 @@
 # Why this file exists
 #   "Which files are framework files" lives in four hand-synced tables: .claude/scripts/gen-manifest.sh
 #   (the generator), setup.sh copy_claude_tree and setup.ps1 $skip + regexes (the two installers), and
-#   .claude/harness/lib/release.mjs MANIFEST_RULES (the auditor). tests/test-setup.sh section (6)
+#   .claude/harness/ext/release.mjs MANIFEST_RULES (the auditor). tests/test-setup.sh section (6)
 #   compares their arms as text, which catches a missing arm but not an arm that reads differently:
 #   setup.ps1 matched $skip by leaf name while the other three anchor those arms at the top of .claude/.
 #   A nested skills/foo/settings.json was therefore copied by setup.sh and recorded by gen-manifest.sh,
@@ -253,6 +253,46 @@ try {
             'any-depth junk and root-anchored runtime markers are installed by neither' `
             ('neither side carries ' + ($mustSkip -join ', ')) `
             ("setup.sh kept=[" + ($shKeptJunk -join ', ') + "] setup.ps1 kept=[" + ($psKeptJunk -join ', ') + "]")
+
+        # --- the optional large-repo package: off by default, and the same set when asked for.
+        # An opt-in switch is where the two installers diverge most quietly: one grows the arm, the
+        # other keeps shipping without it, and every Windows install of that project is missing the
+        # engine with nothing to say so. The rules/ copy is part of the set on purpose - the package
+        # ships its two documents under harness/ext/rules/, but a path-scoped rule only loads from
+        # .claude/rules/, so an installer that copies one without the other installs a dead file.
+        $extInDefault = @($shList | Where-Object { $_ -like 'harness/ext/*' }) +
+                        @($psList | Where-Object { $_ -like 'harness/ext/*' })
+        Chk ($extInDefault.Count -eq 0) `
+            'neither installer ships harness/ext/ without the switch' `
+            'no harness/ext/* anywhere in the two default installs above' `
+            ("default installs carried=[" + ($extInDefault -join ', ') + "]")
+
+        $targetShH = Join-Path $TmpRoot 'target-sh-harness'
+        $targetPsH = Join-Path $TmpRoot 'target-ps-harness'
+        New-Item -ItemType Directory -Path $targetShH -Force | Out-Null
+        New-Item -ItemType Directory -Path $targetPsH -Force | Out-Null
+        $shOutH = (& $BashExe (ToPosix (Join-Path $stage 'setup.sh')) '-ubt' '--with-harness' (ToPosix $targetShH) 2>&1 | Out-String)
+        $shRcH = $LASTEXITCODE
+        $psOutH = (& $HostExe -NoProfile -File (Join-Path $stage 'setup.ps1') -Target $targetPsH -WithHarness 2>&1 | Out-String)
+        $psRcH = $LASTEXITCODE
+        $shListH = Get-InstalledList (Join-Path $targetShH '.claude')
+        $psListH = Get-InstalledList (Join-Path $targetPsH '.claude')
+        $onlyShH = @($shListH | Where-Object { $psListH -notcontains $_ })
+        $onlyPsH = @($psListH | Where-Object { $shListH -notcontains $_ })
+        Chk (($shRcH -eq 0) -and ($psRcH -eq 0) -and ($onlyShH.Count -eq 0) -and ($onlyPsH.Count -eq 0)) `
+            '--with-harness and -WithHarness install the identical set' `
+            'both rc 0 and no file on one side that is absent on the other' `
+            ("sh rc=$shRcH ps rc=$psRcH onlySh=[" + ($onlyShH -join ', ') + "] onlyPs=[" + ($onlyPsH -join ', ') +
+             "] sh out=[" + (($shOutH -split "`n" | Where-Object { $_ -match 'installed: ' }) -join ' ') + "]")
+
+        $extWanted = @('harness/ext/graph.mjs', 'harness/ext/rules/harness-large-repo.md',
+            'rules/harness-large-repo.md', 'rules/quality-attributes.md')
+        $shMissExt = @($extWanted | Where-Object { $shListH -notcontains $_ })
+        $psMissExt = @($extWanted | Where-Object { $psListH -notcontains $_ })
+        Chk (($shMissExt.Count -eq 0) -and ($psMissExt.Count -eq 0)) `
+            'both sides land the package and put its rules where rules are loaded from' `
+            ('both carry ' + ($extWanted -join ', ')) `
+            ("setup.sh missing=[" + ($shMissExt -join ', ') + "] setup.ps1 missing=[" + ($psMissExt -join ', ') + "]")
 
         # --- batch 5: the installer as a transaction, setup.ps1 half ---------------------
         # setup.sh is growing -dry-run, an install lock, an interrupted-install marker and

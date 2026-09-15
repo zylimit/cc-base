@@ -71,6 +71,10 @@ const INSTRUCTION_PATTERNS = [
   /(^|\/)AGENTS\.md$/i,
   /(^|\/)GEMINI\.md$/i,
   /(^|\/)\.claude\/rules\/.+\.md$/i,
+  // Same documents, at their pre-install home: the large-repo package ships them under
+  // harness/ext/rules/ and setup lands them in .claude/rules/. Scanning only the installed
+  // path would leave the source of a loaded instruction file unscanned in this repo.
+  /(^|\/)\.claude\/harness\/ext\/rules\/.+\.md$/i,
   /(^|\/)skills?\/[^/]+\/SKILL\.md$/i,
   /(^|\/)\.claude\/agents\/[^/]+\.md$/i,
   // settings.json is not prose, but its env block is exactly where a rewritten

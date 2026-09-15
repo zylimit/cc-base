@@ -84,9 +84,10 @@ runFailClosed(async () => {
   if (reasons.length === 0) return;
 
   const reason = reasons.join(' ');
-  // advise 档（fast）：同一段话照说、照记账，只是不拦——欠账得看得见
+  // advise 档（本闸三档都是它）：同一段话照说、照记账，只是不拦——欠账得看得见。
+  // 前缀写 [advise] 不写 [fast]：这条闸任何档都只提醒，写死 fast 就是在报一个没人开过的档
   if (mode === 'advise') {
-    const msg = `[fast] ${reason}`;
+    const msg = `[advise] ${reason}`;
     gateLog('three-file-sync-gate', msg);
     emit({ systemMessage: msg });
     return;

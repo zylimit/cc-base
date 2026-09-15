@@ -47,3 +47,4 @@
 - ✅[已毕业] [采集口与入库口门槛不同——线索报证据，定论报结论](collection-point-bar-differs-from-storage-point-bar.md) — 多阶段信息管道里，采集口只该要求报手上的证据，入库口才要求报已验证的结论，不能用最后一道关的门槛卡第一道关
 - ✅[已毕业] [分类体系跟着领域本身走，不套用当前项目结构](knowledge-base-taxonomy-follows-domain-not-project.md) — 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构，会把跟项目关系很远但值得留的条目误判出库
 - ✅[已毕业] [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
+- [避免过度设计、过度测试、过度检视——根源是过度可信](avoid-over-design-testing-review-trust-charter.md) — 新增闸/测试/审查层/记忆层/规则前先问是否踩了四个"过度"（信提示词自律/信闸能守/信同模型复审/信决策都被正确加权，同根过度可信）；落地判据：规则点名机器闸或明标靠自觉，闸说得出挡过什么，测试说得出防的回归，记忆说得出谁会读它

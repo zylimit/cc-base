@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir, readStdinJson, git, run, say, errText, gateModeOf } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
-import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
+import { harnessEnabled, harnessExtInstalled, harnessExtMissingNotice, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 const TSCONFIG_MAX_DEPTH = 3;
 
@@ -140,7 +140,13 @@ async function main() {
   }
 
   // ---------- 大仓四态门（catalog 存在才启用，零行为变化）----------
-  if (harnessEnabled()) {
+  if (harnessEnabled() && !harnessExtInstalled()) {
+    // catalog 在、引擎包（harness/ext）不在：verify 只会 rc 3 降级，定向门一条都没跑过。
+    // 不拦 commit（装不装包是人的决定，不拿它卡住提交），但绝不零输出——那格静默正是假绿。
+    const notice = harnessExtMissingNotice('大仓四态质量门（harness verify）');
+    say(notice);
+    gateLog('pre-commit-check', notice);
+  } else if (harnessEnabled()) {
     const r = harnessRun(['verify'], { cwd: root });
     // rc=2 → 受影响模块的定向门未过（FAIL/BLOCKED），阻断 commit；rc=3 降级（无 catalog/非 git）静默跳过；rc=0 放行
     if (r.status === 2) {
@@ -152,7 +158,7 @@ async function main() {
       // 契约外退出码（verify 契约只有 0/2/3）= 引擎自己崩了、门压根没跑成，放行就是假绿
       say(`❌ 大仓四态质量门跑不起来（harness verify 以契约外退出码 ${r.status} 退出，契约只有 0/2/3），commit 被阻止：`);
       say(errHead(r.stderr) || '（引擎无 stderr 输出）');
-      say('这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是门未过——跑 node .claude/harness/harness.mjs verify 看真实报错。');
+      say('这是引擎异常（如 .claude/harness/ext/ 半装或损坏、node 出岔），不是门未过——跑 node .claude/harness/harness.mjs verify 看真实报错。');
       fail = true;
     }
   }

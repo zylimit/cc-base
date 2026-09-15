@@ -112,7 +112,7 @@ for index, match in enumerate(phase_matches):
     if task_count == 0:
         fail(f"L{ln} {title} 没有可执行的 Task 条目（需 - **Task N.M：...**）")
 
-# 4) 需求 ↔ 计划双向覆盖：id 口径同 harness/lib/spec.mjs（声明在行首方括号，引用是裸 token）
+# 4) 需求 ↔ 计划双向覆盖：id 口径同 harness/ext/spec.mjs（声明在行首方括号，引用是裸 token）
 REQ_DECL = re.compile(r"^\s{0,1}(?:[-*+]|\d+[.)])\s*\[(REQ-[A-Za-z0-9]{1,16}-\d{2,4})\]\s*")
 REQ_REF = re.compile(r"\bREQ-[A-Za-z0-9]{1,16}-\d{2,4}\b")
 

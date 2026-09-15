@@ -20,6 +20,7 @@ argument-hint: "[审查范围（可选，默认本轮改动）]"
     **对抗立场**：默认它有罪——构造能让它出错的输入并真的复现，不是读一遍觉得没问题；报告写清攻了哪些点、哪些攻不动。攻的对象包括 Spec 本身，Spec 写得对不对也在审查范围内。
 
 [审查维度清单]
+    范围按派单包 Goal 首行的 Task 档位来：MEDIUM 只跑 Stage 0 + Stage 1，HIGH 跑全三 Stage，没写档位按 HIGH；LOW 档不派本 skill（主 Agent 对着 diff 与运行器输出直接验收）。
     Stage 0 红则停在 Stage 0；Stage 1 有 HIGH 就停在 Stage 1，报告标注"Stage 2 未执行"。
 
     Stage 0（机器先说话）：跑 `node .claude/hooks/static-check.mjs .`——linter 能抓的别让人和模型去挑。零错进 Stage 1；有错停下列出静态错误，修绿后从 Stage 0 重审；无对应栈或工具未装则跳过该栈，不因缺工具卡死，项目自带静态命令优先用项目的。

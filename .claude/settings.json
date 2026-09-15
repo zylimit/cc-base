@@ -123,14 +123,6 @@
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/secret-exfil-guard.mjs"
             ],
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node",
-            "args": [
-              "${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-gate.mjs"
-            ],
-            "timeout": 5
           }
         ]
       },
@@ -142,6 +134,19 @@
             "command": "node",
             "args": [
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/no-direct-code-guard.mjs"
+            ],
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-gate.mjs"
             ],
             "timeout": 5
           }

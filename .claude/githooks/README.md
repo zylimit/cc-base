@@ -98,7 +98,7 @@ diff、一条 ref 都没读到）一律按代码推送办。
 | audit | 审计脚本（`scan-secrets` / `check-syntax`） | 干净 → 放行 | 有命中 → **阻断** | 用法错 → **阻断** | 降级 → 告警 | SKIPPED |
 | lint | `catalog-lint` / `fitness` / `selftest` | 干净 → 放行 | 有错 → **阻断** | （不在契约内） | 降级 → 告警 | SKIPPED |
 
-引擎完整的退出码契约表见 `.claude/rules/harness-large-repo.md`。
+引擎完整的退出码契约表见 `.claude/harness/ext/rules/harness-large-repo.md`（装了 `--with-harness` 的项目在 `.claude/rules/` 下另有一份）。
 
 ### 为什么 `2`（用法错）要阻断
 
@@ -114,7 +114,7 @@ diff、一条 ref 都没读到）一律按代码推送办。
 
 node 缺失、脚本不在、引擎异常退出——这类是「工具跑不起来」，不是「你的改动有问题」。打印 SKIPPED + 「未执行 != 通过」并放行，与仓里 `harness_node_ok` 的降级哲学一致，区别是那边静默、这边出声。
 
-**这一条与 Claude Code hook 层的立场是不同的**：那层对契约外退出码是 fail-closed（`stop-gate` 出 block、`pre-commit-check` exit 2，见 `.claude/rules/harness-large-repo.md`）。区别在于会话内的拦停可以当场解释、当场重试，而一个会因为环境缺工具就拦住每次提交的 git hook，结局只有被卸掉。这一层放行，CI 那层对所有人 fail-closed。
+**这一条与 Claude Code hook 层的立场是不同的**：那层对契约外退出码是 fail-closed（`stop-gate` 出 block、`pre-commit-check` exit 2，见 `.claude/harness/ext/rules/harness-large-repo.md`）。区别在于会话内的拦停可以当场解释、当场重试，而一个会因为环境缺工具就拦住每次提交的 git hook，结局只有被卸掉。这一层放行，CI 那层对所有人 fail-closed。
 
 **绝不会出现「跑失败了却当通过」**：上面每一类都在 stderr 留一行，末尾还有汇总。放行时如果一条都没跑成，汇总会明说「本次提交没有任何检查跑成」。
 

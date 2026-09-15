@@ -15,6 +15,7 @@ REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 HARNESS="$REPO/.claude/harness/harness.mjs"
 LIBDIR="$(dirname "$HARNESS")/lib"
+EXTDIR="$(dirname "$HARNESS")/ext"
 HOOKSLIB="$REPO/.claude/hooks/lib"
 PROFILE="$REPO/.claude/harness/profile.json"
 
@@ -65,6 +66,8 @@ skip() { echo "  [SKIP] $1"; }
 # newsandbox <名> <check命令> [check类] [--nogit]
 #   造一个启用了 harness 的临时项目：一个 core 模块、一条 medium 档 check。
 #   引擎按目录整拷（harness.mjs import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND）。
+#   ext/ 一起搬：gate / ledger / task 这几节都住在那个可选包里，缺它一律 rc 3 报「未安装」，
+#   而本文件每条断言读的都是退出码，rc 3 会把整份文件变成在测一条空路径。
 #   hooks/lib/ 与 profile.json 一起进来：档位只有一个解析器且在 hook 侧，引擎 lib/tier.mjs
 #   import 的是 ../../hooks/lib/tier.mjs——缺它引擎以契约外的 rc 1 退出，下面每条「期望非零」
 #   的断言都会因为同一个起不来而变绿，整份文件读起来全过、其实一条都没跑。
@@ -74,6 +77,7 @@ newsandbox() {
     mkdir -p "$d/.claude/harness" "$d/.claude/hooks" "$d/core" "$d/docs"
     cp "$HARNESS" "$d/.claude/harness/harness.mjs"
     cp -R "$LIBDIR" "$d/.claude/harness/lib"
+    [ -d "$EXTDIR" ] && cp -R "$EXTDIR" "$d/.claude/harness/ext"
     cp -R "$HOOKSLIB" "$d/.claude/hooks/lib"
     cp "$PROFILE" "$d/.claude/harness/profile.json"
     cat > "$d/.claude/harness/module-catalog.json" <<EOF

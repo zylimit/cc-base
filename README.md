@@ -27,9 +27,9 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 注入式安装把以下框架资产复制进 target 项目的 `.claude/`，并把 hooks 合并进 `target/.claude/settings.json`（不覆盖你已有的其他配置）：
 
 - `CLAUDE.md` —— 主控规则（职责边界、Skill 调用、四步走验证、记忆规则）
-- `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / **大仓能力 harness-large-repo**），主控留指针按需读取；harness/workflow 相关细则带 `paths:` frontmatter，Claude Code 原生按需加载（碰到匹配文件才进上下文）
+- `rules/` —— 主控下沉的细则（文件结构树 / Workflow 编排 / 工作流程各阶段 / Sub-Agent 派发 / 记忆边界 / 领域口径），主控留指针按需读取；带 `paths:` frontmatter 的细则由 Claude Code 原生按需加载。大仓两份细则（harness-large-repo / quality-attributes）随 `--with-harness` 一起装
 - `hooks/` —— 闸门钩子（stop-gate 待审拦截 + diff-bound 回执网关、no-direct-code-guard、tdd-gate、pre-commit-check + 四态质量门、dangerous-pkill-guard、**secret-exfil-guard 密钥读/拷/外传闸**、three-file-sync-gate、**precompact-gate 压缩前守门**、**release-gate 发布前置闸**、**harness-async-verify 编辑期后台早警**、**notify 桌面通知**等；harness 接线经 `lib-harness`，有 catalog 才启用）
-- `harness/` —— 大仓治理 harness（`harness.mjs`，**默认关闭**，放 `module-catalog.json` 才启用——见下方「大仓能力」）
+- `harness/` —— 核心只剩 `harness.mjs` + `lib/{core,tier}.mjs` + `profile.json`（档位表）+ `exclusions.json` + `audit/`。大仓治理引擎在 `harness/ext/`，**默认不装**：`setup.sh --with-harness` / `setup.ps1 -WithHarness` 才装，装后放 `module-catalog.json` 才启用——见下方「大仓能力」
 - `skills/` —— 18 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
 - `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / statusline 状态行）
@@ -88,7 +88,7 @@ target/
 - **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.mjs` 显示 `[模型] | ctx N% | $成本 | tier: 档位（fast 剩余h） | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
 - **env**：`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`——Claude Code 对 Stop 闸有「连拦 8 次强制放行」的原生上限，提额到 25 作兜底（stop-gate 自身三振熔断先触发）。
 
-可选进阶（默认不开，按需自取）：`/sandbox` 开原生 OS 级沙箱（文件系统/网络域名白名单/凭据 mask；Linux/WSL2 需 `apt install bubblewrap socat`，原生 Windows 不支持）；`CLAUDE_CODE_TOOL_MEMORY_LIMIT` 给 Bash 命令加 cgroup 内存上限防跑飞 build 拖死会话（Linux，取值格式见官方 env 文档）；权限模式想要「不打扰 + 分类器兜底」可把 `defaultMode` 改 `"auto"`。五性视角的定位见 `.claude/rules/quality-attributes.md`「Claude Code 原生安全层」节。
+可选进阶（默认不开，按需自取）：`/sandbox` 开原生 OS 级沙箱（文件系统/网络域名白名单/凭据 mask；Linux/WSL2 需 `apt install bubblewrap socat`，原生 Windows 不支持）；`CLAUDE_CODE_TOOL_MEMORY_LIMIT` 给 Bash 命令加 cgroup 内存上限防跑飞 build 拖死会话（Linux，取值格式见官方 env 文档）；权限模式想要「不打扰 + 分类器兜底」可把 `defaultMode` 改 `"auto"`。五性视角的定位见 `.claude/harness/ext/rules/quality-attributes.md`「Claude Code 原生安全层」节。
 
 ## 档位：fast / standard / strict
 
@@ -102,7 +102,7 @@ node .claude/harness/harness.mjs tier validate            # 改过 profile.json 
 bash .claude/scripts/fast-mode.sh on 4                    # 老入口还在，只是 tier set fast 的薄壳
 ```
 
-改了 `.claude/hooks|harness|skills|agents/**`、`CLAUDE.md`、`rules/**`、`settings.json`、`.github/**` 任一路径，本轮自动升到 `strict`（`tdd-gate` 从提醒变拦），提交后回落——升档不用人批，降档要带 reason 并进 `gate-block.log`。`fast` 下闸只提醒不拦，跳过的每一次都记账，`gate-audit` 能算出 fast 期欠了什么。项目级微调写 `profile.json` 的 `overrides`。
+改了 `.claude/hooks|harness|skills|agents/**`、`CLAUDE.md`、`rules/**`、`settings.json`、`.github/**` 任一路径，本轮自动升到 `strict`（`stop-gate` 与 `tdd-gate` 从提醒变拦；standard 下这两个闸只提醒，因为 stop-gate 的放行契约本就是被约束方自己 `echo clean`），提交后回落——升档不用人批，降档要带 reason 并进 `gate-block.log`。`fast` 下闸只提醒不拦，跳过的每一次都记账，`gate-audit` 能算出 fast 期欠了什么。项目级微调写 `profile.json` 的 `overrides`。
 
 ## hook 单运行时（node）
 
@@ -150,7 +150,7 @@ CI 的 windows 格在真机跑 22 个 node hook 的行为测试，并解析剩�
 
 ## 大仓能力（可选——按需开启）
 
-面向 **60 万行级**代码规模项目的影响面分析、diff-bound 审查回执、四态质量门、架构防腐、五性证据门。**默认关闭**——小项目零负担，所有 hook 走原逻辑。
+面向 **60 万行级**代码规模项目的影响面分析、diff-bound 审查回执、四态质量门、架构防腐、五性证据门。**可选包**：引擎在 `.claude/harness/ext/`，目标项目默认不装（`setup.sh --with-harness` / `setup.ps1 -WithHarness` 才整目录拷入，连同两份细则进 `.claude/rules/`）；装了也**默认关闭**——小项目零负担，所有 hook 走原逻辑。没装时引擎子命令以 rc 3 报 `not installed`，`tier` / `doctor` / `audit` 不受影响。
 
 **启用 = 在 `.claude/harness/` 放一份合规 `module-catalog.json`**（模块 id / paths globs / dependsOn / verification / owners / riskTier / attributes 五性档位 / forbiddenDependencies / layer）。文件存在即启用全部大仓能力；删掉即关闭。不动 settings.json、不动任何 hook。
 
@@ -173,7 +173,7 @@ CI 的 windows 格在真机跑 22 个 node hook 的行为测试，并解析剩�
 - **作者 ≠ 评审（机器强制）**：姊妹仓把这条明确标为 prompt-only，自陈「引擎只会数 lens，看不出谁写的代码」。cc-base 有它没有的东西——Claude Code 的 hook 事件带 `agent_id` / `agent_type`。`authorship record` 记谁改了哪些文件，`review verdict` 校验 lens 的 agentId ∈ 当前 diff 的作者集就**拒绝出 ACCEPT** 并点名。没有账本时不阻断，但输出 `authorshipEnforced:false` 并说明缺的是哪一半——没数据时假装验过了比散文规则更糟。
 - **评审证据包**：`review-pack` 把 commits / diffstat / untracked / diff（超阈值溢出到 `.patch`）凑齐，**删除与重命名单独成节**——评审者系统性地漏看「删掉了什么」，让它成为必须走过的一小节。
 
-完整启用条件、catalog schema、三十九能力清单、退出码契约、接线点见 `.claude/rules/harness-large-repo.md`；五性声明与判定细则见 `.claude/rules/quality-attributes.md`（CLAUDE.md「大仓能力」「五性治理」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
+完整启用条件、catalog schema、三十九能力清单、退出码契约、接线点见 `harness-large-repo.md`，五性声明与判定细则见 `quality-attributes.md`——两份源在 `.claude/harness/ext/rules/`，`--with-harness` 装进目标项目的 `.claude/rules/`（CLAUDE.md「大仓治理与五性」小节指针指向它们）。`node .claude/harness/harness.mjs doctor` 看启用态。
 
 ## 进程守护（开发态韧性）
 

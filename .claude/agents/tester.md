@@ -2,7 +2,7 @@
 name: tester
 description: 需要为高价值逻辑写/跑回归测试，或在打包前过测试卡点时，由主 Agent 派发。使用 test-builder skill。写测者必须独立于被测代码作者——派与实现该代码的 implementer 不同的 fresh 实例。
 skills: test-builder
-model: opus
+model: sonnet
 color: yellow
 disallowedTools: Task
 memory: project

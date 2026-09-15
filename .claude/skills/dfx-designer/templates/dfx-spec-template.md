@@ -1,7 +1,7 @@
 # DFX Spec — {{项目名}}
 
 > 生成：{{日期}} · 模式：{{设计 Design-in / 评审 Review}} · 档位：{{S/M/L}} · 状态：待批准
-> 档位定义与判定规则见 `.claude/rules/quality-attributes.md`；机器执行版为 `.claude/harness/module-catalog.json` 的 modules[].attributes（如有）。
+> 档位定义与判定规则见 `quality-attributes.md`（随 setup --with-harness 装进 .claude/rules/，源在 .claude/harness/ext/rules/）；机器执行版为 `.claude/harness/module-catalog.json` 的 modules[].attributes（如有）。
 > 段名保持不变（predev-lint 机器检查）：优先级栈一项一行且至少两项；维度总表的「度量」列每行含数字或 N/A；§3 各层预算之和 ≤ 端到端预算、重试次数非 0 的最多一行。S 档只填 §1、§2、§3、§9，其余段没内容就删。
 
 ## 1. 优先级栈（冲突时前压后）

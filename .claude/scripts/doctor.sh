@@ -30,7 +30,9 @@ fi
 
 # 主控下沉细则（rules/）
 [ -d .claude/rules ] && ok ".claude/rules 存在" || bad ".claude/rules 缺失"
-for r in file-structure workflow-orchestration dev-workflow-details harness-large-repo; do
+# harness-large-repo / quality-attributes 不在这张地板名单里：它们随 setup --with-harness 才落进
+# rules/，默认不装的项目缺它们是正常状态，当缺陷报会让每个小项目的自检天天红一条。
+for r in file-structure workflow-orchestration dev-workflow-details; do
   [ -f ".claude/rules/$r.md" ] && ok "rule $r" || bad "rule $r 缺失"
 done
 
@@ -178,8 +180,14 @@ fi
   || note "harness.mjs 缺失（大仓治理运行时；若不用大仓治理可忽略）"
 [ -f .claude/harness/lib/core.mjs ] && ok "harness lib/ 存在（引擎拆库后 harness.mjs 单文件跑不起来）" \
   || note "harness lib/ 缺失（只拷 harness.mjs 不够，须连 .claude/harness/lib/ 一起装）"
+[ -d .claude/harness/ext ] && ok "harness ext/ 存在（大仓治理引擎已装）" \
+  || note "harness ext/ 未装（默认如此；要 impact/verify/gate 那套跑 setup.sh --with-harness）"
 if [ -f .claude/harness/module-catalog.json ]; then
   ok "module-catalog.json 存在（大仓治理已启用）"
+  # 开关开了、引擎没装 = stop-gate / pre-commit-check / harness-async-verify 三道闸一次也验不成。
+  # 判 ✗ 不判 !：单看上面那行「ext 未装（默认如此）」是常态，配上 catalog 就是配置自相矛盾。
+  [ -d .claude/harness/ext ] && ok "harness ext/ 与 catalog 配套（三道大仓闸能真跑）" \
+    || bad "module-catalog.json 在但 harness ext/ 未装：stop-gate / pre-commit-check / harness-async-verify 三道闸只会当场提示未验、验不成——跑 setup.sh --with-harness 装包，或删掉 catalog 关闭大仓治理"
   command -v node >/dev/null 2>&1 && ok "node 可用（harness 可跑）" \
     || note "未找到 node；大仓治理 harness 判定将降级跳过（非假绿）"
 else

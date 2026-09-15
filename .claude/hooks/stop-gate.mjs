@@ -9,15 +9,17 @@
 // 放行契约（向后兼容）：审查通过后 `echo clean > .claude/.needs-review` 即可。
 // 删状态文件一律 rmSync(..., {force:true})：删不掉又被静默吞掉时 .stop-gate-strikes 会残留，
 //   下一轮同一清单立刻撞上限提前放行——闸把自己关了（历史缺陷 81c63c9）。
-// 档位（profile.json）：off 静默放行；advise（fast 档）照判照记账，但出 systemMessage 而不是
-//   decision:block，也不动 .needs-review 与连拦计数；block（standard/strict）走上面全部逻辑。
+// 档位（profile.json）：off 静默放行；advise（fast / standard 档）照判照记账，但出 systemMessage
+//   而不是 decision:block，也不动 .needs-review 与连拦计数；block（strict 档，人当审批者时）
+//   走上面全部逻辑。默认档只提醒是因为放行契约本就是被约束方自己 `echo clean`、外加三振自动
+//   放行，本质是提醒；2026-09-03 一天拦 38 次、单小时 12 次，纯空转。
 // fail-closed：闸自身出错（含状态文件清理失败）绝不静默放行，一律拦停。不读 stdin。
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { projectDir, readTextFile, pendingReviewLines, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
-import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
+import { harnessEnabled, harnessExtInstalled, harnessExtMissingNotice, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 /** 读连拦计数：只认与本次 sig 相同的记录，sig 一变即从 0 重计；文件损坏当无状态。 */
 function readStrikes(file, sig) {
@@ -42,11 +44,12 @@ function blockWith(reason) {
 }
 
 /**
- * advise 档（fast）：同一段话照说、照记账，只是不拦。
- * 不 block ≠ 不吭声——欠账得看得见，gate-audit 也要统计得出「fast 开着跳过了什么」。
+ * advise 档（默认档就是它）：同一段话照说、照记账，只是不拦。
+ * 不 block ≠ 不吭声——欠账得看得见，gate-audit 也要统计得出「advise 档跳过了什么」。
+ * 前缀写 [advise] 不写 [fast]：standard 档也走这条路，写死 fast 会让默认档的人以为有人开了放水。
  */
 function adviseWith(reason) {
-  const msg = `[fast] ${reason}`;
+  const msg = `[advise] ${reason}`;
   gateLog('stop-gate', msg);
   emit({ systemMessage: msg });
 }
@@ -82,6 +85,15 @@ runFailClosed(async () => {
     // 契约外退出码（receipt verify 契约只有 0/3/4）= 引擎自己崩了、闸压根没跑成，放行就是假绿：同样拦停、
     // 点名实际退出码、保留 .needs-review，并走同一套 .stop-gate-strikes 三振熔断（引擎长期崩不至于拦死人）。
     if (harnessEnabled()) {
+      // catalog 在、引擎包（harness/ext）不在：receipt verify 只会 rc 3 降级，回执绑定压根没被验过。
+      // 不拦（装不装包是人的决定，不该拿它卡住停止），也不动 .needs-review 与连拦计数，但必须出声——
+      // 静默放行与「验过了没问题」在这里长得一模一样，正是拆包新开的那格假绿。
+      if (!harnessExtInstalled()) {
+        const notice = harnessExtMissingNotice('回执绑定校验（harness receipt verify）');
+        gateLog('stop-gate', notice);
+        emit({ systemMessage: notice });
+        return;
+      }
       // stderr 收进变量、stdout 丢弃：引擎崩掉时那几行是唯一有用的线索，要带进诊断
       const rv = harnessRun(['receipt', 'verify'], { cwd: root });
       const rc = rv.status;
@@ -100,7 +112,7 @@ runFailClosed(async () => {
           return;
         }
         if (!advise) writeStrikes(strikeFile, hsig, strikes + 1);
-        decide(`stop-gate：harness receipt verify 以契约外退出码 ${rc} 退出（契约只有 0/3/4），回执闸没跑成——这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是回执过期。跑 node .claude/harness/harness.mjs receipt verify 看真实报错，修好引擎再停止。引擎报错：${head}`);
+        decide(`stop-gate：harness receipt verify 以契约外退出码 ${rc} 退出（契约只有 0/3/4），回执闸没跑成——这是引擎异常（如 .claude/harness/ext/ 半装或损坏、node 出岔），不是回执过期。跑 node .claude/harness/harness.mjs receipt verify 看真实报错，修好引擎再停止。引擎报错：${head}`);
         return;
       }
     }

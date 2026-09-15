@@ -11,7 +11,7 @@
 #   settings.json 走 merge 不套 manifest；FEEDBACK-INDEX.md 装后重置为模板也不入清单。
 # 同一张排除表另有三份，改这里必须同改：setup.sh copy_claude_tree 的 case（安装侧同一套口径）、
 #   setup.ps1 的 $skip + 目录正则（Windows 安装侧，按 leaf 名匹配，语义等价）、
-#   harness/lib/release.mjs MANIFEST_RULES（release 的 manifest 检查据此判「本表该不该收这个文件」，
+#   harness/ext/release.mjs MANIFEST_RULES（release 的 manifest 检查据此判「本表该不该收这个文件」，
 #   它是审计者故意另抄一份、不共用来源，否则审不出本脚本的漂移）。四处口径分叉比缺一条更糟。
 # 不抽单一来源是权衡后的结论，不是没想过：两个安装器要能被单独取走对着源码树跑（setup.sh 连
 #   jq 都不敢依赖，还有整条无 jq 降级路径），多一个 source/parse 依赖就多一条装不上的路；
@@ -68,6 +68,7 @@ while IFS= read -r -d '' src; do
     harness/waivers/*) continue ;;  # 结构化 per-check 豁免
     harness/trend/*) continue ;;  # 架构漂移趋势台账（arch-check --record 快照）
     harness/evidence/*) continue ;;  # 每条 check 的原始 stdout/stderr
+    harness/ext/*) continue ;;  # 大仓治理引擎：目标项目默认不装，setup --with-harness 才整目录拷，不入清单
     .runtime/*) continue ;;  # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
     worktrees/*) continue ;;  # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
     tests/*) continue ;;  # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单

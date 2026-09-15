@@ -31,14 +31,18 @@ CL="$TARGET/.claude"
 [ -f "$CL/settings.json" ] || fail "settings.json 未安装"
 [ -f "$CL/EVOLUTION.md" ] || fail "EVOLUTION.md 未安装"
 
-# harness 安装产物（大仓治理运行时 + 接线依赖库 + 大仓 rules）
+# harness 安装产物（引擎核心 + 接线依赖库）
 # hook 的依赖库是 hooks/lib/ 四件 .mjs——只点 harness.mjs 一件的话，另外三件漏装照样静默：
 # 缺哪一件都是「注册了但每次事件报 hook error」，装齐要逐件判。
+# lib/ 两件是核心，默认装；ext/ 与它那两份 rules 归 --with-harness，默认不装的边界在
+# test-distribution.sh 的 D-7 段判，这里不重复。
 [ -f "$CL/harness/harness.mjs" ]         || fail "harness/harness.mjs 未安装"
+for m in core tier; do
+  [ -f "$CL/harness/lib/$m.mjs" ]        || fail "harness/lib/$m.mjs 未安装"
+done
 for m in io gatelog tier harness; do
   [ -f "$CL/hooks/lib/$m.mjs" ]          || fail "hooks/lib/$m.mjs 未安装"
 done
-[ -f "$CL/rules/harness-large-repo.md" ] || fail "rules/harness-large-repo.md 未安装"
 
 # agent 全装齐。七个核心角色写死字面量当地板——整批改名或装空时，两边同样错的
 # 动态比对会互相抵消判绿，写死的那份不会。份数与名单则与源仓逐份对齐：安装器的

@@ -1,4 +1,4 @@
-// lib/init.mjs -- S25: infer a module-catalog draft from what the repository already looks like.
+// ext/init.mjs -- S25: infer a module-catalog draft from what the repository already looks like.
 // Depends on core, catalog and graph (graph imports catalog, so this cannot live in catalog.mjs
 // without making that edge a cycle). Nothing imports this one.
 //
@@ -37,7 +37,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   SOURCE_EXTS, catalogFilePath, emit, isGitRepo, projectRoot, repoRelative,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { classifyPath, lintCatalog, moduleForPath, trackedFiles } from './catalog.mjs';
 import { extractImports, resolveRelativeImport } from './graph.mjs';
 import { writeAtomic } from './evidence.mjs';

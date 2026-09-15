@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # risk: high
 # test-distribution.sh — 分发边界红锁：哪些东西该进安装产物 / 清单 / 发布包，哪些绝不该。
-# 契约：tests/ 默认不装（要装得显式 --with-tests）、research/ 与 agent-memory/ 是本机私产永不分发；
+# 契约：tests/ 与 harness/ext/ 默认不装（要装得显式 --with-tests / --with-harness）、
+# research/ 与 agent-memory/ 是本机私产永不分发；
 # 清单侧同口径；release zip 里不含 progress*.md / docs/ / research/ / agent-memory/，但**含** tests/
 # （zip 是 --with-tests 的料源，抽掉了 --with-tests 就成了空承诺）。
+# 老化退休（2026-09-15）：D-1a、D-2a、D-2b、D-3a、D-4a、D-4c 六条删了——「默认安装 rc=0」紧跟着
+#   就是一条硬中止（红因一样打印 stderr），「hooks 装齐 22 个」那种写死计数改一次 hook 就要改一次、
+#   反向对照由同一沙箱上的 D-7b（默认安装仍有引擎核心）承担，其余三条是「开关退 0」「生成器跑通」
+#   「测完还原」这类自证，判别力都已并进它们各自那条实效断言。
 # 沙箱造法照抄 test-setup.sh：mktemp -d + git init + bash setup.sh <tmp>；
 # 断言用 chk 逐条计数、不撞见第一条就 exit——六段互相独立，一次要看全各红在哪。
 # 功能未实现期间整份为红，红因是「setup.sh 没有 --with-tests / 排除表没有这三项」，不是夹具坏。
@@ -46,12 +51,7 @@ RC1=0
 bash "$ROOT/setup.sh" "$T1" >"$TMP/d1.out" 2>"$TMP/d1.err" || RC1=$?
 CL1="$T1/.claude"
 
-ok=0; [ "$RC1" = "0" ] || ok=1
-chk "$ok" "D-1a 默认安装（无 --with-tests）rc=0" \
-  "rc=0" \
-  "rc=$RC1 stderr=[$(d_head "$TMP/d1.err")] stdout=[$(d_head "$TMP/d1.out")]"
-
-[ "$RC1" = "0" ] || fail "D-1 脚手架：默认安装就失败，后面五段的判别力全没了（见 $TMP/d1.err）"
+[ "$RC1" = "0" ] || fail "D-1 脚手架：默认安装就失败（rc=$RC1，stderr：$(d_head "$TMP/d1.err")），后面五段的判别力全没了"
 
 for d in tests research agent-memory; do
   ok=0; [ ! -e "$CL1/$d" ] || ok=1
@@ -60,19 +60,6 @@ for d in tests research agent-memory; do
     "存在=$([ -e "$CL1/$d" ] && echo yes || echo no) 文件数=$(find "$CL1/$d" -type f 2>/dev/null | wc -l | tr -d ' ')"
 done
 
-# ---- D-2 反向：排除表不许过宽（证明上面三条不是「整个装失败」蒙来的绿）----
-hook_count=$(find "$CL1/hooks" -maxdepth 1 -type f -name '*.mjs' 2>/dev/null | wc -l | tr -d ' ')
-ok=0; [ "$hook_count" = "22" ] || ok=1
-chk "$ok" "D-2a hooks/*.mjs 装齐 22 个" \
-  "22（21 个注册 hook + 未注册的 static-check；数量写死，多一个少一个都要人看一眼）" \
-  "实得 $hook_count 个"
-
-skill_count=$(find "$CL1/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-ok=0; [ "$skill_count" -gt 0 ] 2>/dev/null || ok=1
-chk "$ok" "D-2b skills/ 非空" \
-  ">0 个 skill 目录" \
-  "实得 $skill_count 个"
-
 # ---- D-3 --with-tests：tests/ 装进来，另两个仍不许出现 ----
 T2="$TMP/d2"
 mk_sandbox "$T2"
@@ -80,16 +67,10 @@ RC2=0
 bash "$ROOT/setup.sh" --with-tests "$T2" >"$TMP/d2.out" 2>"$TMP/d2.err" || RC2=$?
 CL2="$T2/.claude"
 
-ok=0; [ "$RC2" = "0" ] || ok=1
-chk "$ok" "D-3a --with-tests 是被识别的开关、正常退出" \
-  "rc=0（现在必红：setup.sh 的参数循环里 -* 一律 usage_die，--with-tests 会被当未知选项）" \
-  "rc=$RC2 stderr=[$(d_head "$TMP/d2.err")]"
-
-ok=0; [ -f "$CL2/tests/cases/run-all.sh" ] || ok=1
+ok=0; [ "$RC2" = "0" ] || ok=1; [ -f "$CL2/tests/cases/run-all.sh" ] || ok=1
 chk "$ok" "D-3b --with-tests 装出 tests/cases/run-all.sh" \
-  "目标里存在 .claude/tests/cases/run-all.sh（装了测试就要能一把跑）" \
-  "存在=$([ -f "$CL2/tests/cases/run-all.sh" ] && echo yes || echo no) tests 下文件数=$(find "$CL2/tests" -type f 2>/dev/null | wc -l | tr -d ' ')"
-
+  "rc=0 且目标里存在 .claude/tests/cases/run-all.sh（开关认得出来，装了测试就要能一把跑）" \
+  "rc=$RC2 存在=$([ -f "$CL2/tests/cases/run-all.sh" ] && echo yes || echo no) tests 下文件数=$(find "$CL2/tests" -type f 2>/dev/null | wc -l | tr -d ' ') stderr=[$(d_head "$TMP/d2.err")]"
 for d in research agent-memory; do
   ok=0; [ ! -e "$CL2/$d" ] || ok=1
   chk "$ok" "D-3c --with-tests 仍不含 .claude/$d/" \
@@ -103,28 +84,17 @@ done
 MANIFEST="$ROOT/.claude/FRAMEWORK-MANIFEST.txt"
 [ -f "$MANIFEST" ] || fail "D-4 脚手架：本仓缺 $MANIFEST"
 cp -p "$MANIFEST" "$TMP/manifest.backup"
-MAN_SHA_BEFORE=$(sha256sum "$MANIFEST" | awk '{print $1}')
 GRC=0
 bash "$GEN_SH" >"$TMP/d4.out" 2>"$TMP/d4.err" || GRC=$?
 listed=$(grep -cE '^(tests|research|agent-memory)/' "$MANIFEST" || true)
 listed_names=$(grep -E '^(tests|research|agent-memory)/' "$MANIFEST" | cut -f1 | head -5 | tr '\n' ' ' || true)
 cp -p "$TMP/manifest.backup" "$MANIFEST"
-MAN_SHA_AFTER=$(sha256sum "$MANIFEST" | awk '{print $1}')
 
-ok=0; [ "$GRC" = "0" ] || ok=1
-chk "$ok" "D-4a gen-manifest.sh 跑通" \
-  "rc=0" \
-  "rc=$GRC stderr=[$(d_head "$TMP/d4.err")]"
-
-ok=0; [ "$listed" = "0" ] || ok=1
+# 生成器的 rc 并进这一条：gen-manifest 没跑成时 listed 读的是旧清单，只判条数会恒绿。
+ok=0; [ "$GRC" = "0" ] || ok=1; [ "$listed" = "0" ] || ok=1
 chk "$ok" "D-4b MANIFEST 里 tests/ research/ agent-memory/ 条目数为 0" \
-  "0 条（登记成框架文件的话，release 的 manifest 检查随手一跑就转 FAIL）" \
-  "实得 $listed 条，头几条=[${listed_names}]"
-
-ok=0; [ "$MAN_SHA_BEFORE" = "$MAN_SHA_AFTER" ] || ok=1
-chk "$ok" "D-4c 跑完把 MANIFEST 还原（本测试不留痕）" \
-  "还原后 sha256 与跑前一致 $MAN_SHA_BEFORE" \
-  "跑后 $MAN_SHA_AFTER"
+  "gen-manifest rc=0 且 0 条（登记成框架文件的话，release 的 manifest 检查随手一跑就转 FAIL）" \
+  "rc=$GRC 实得 $listed 条，头几条=[${listed_names}] stderr=[$(d_head "$TMP/d4.err")]"
 
 # ---- D-5 发布包边界：私产不进 zip，tests/ 必须在 zip 里 ----
 ZRC=0
@@ -185,6 +155,56 @@ ok=0; [ "$RC3" = "2" ] || ok=1
 chk "$ok" "D-6 未知选项 --bogus 仍以 rc=2 拒绝" \
   "rc=2（usage_die 的既有口径；加 --with-tests 时若把 -* 分支改成放行，这里当场红）" \
   "rc=$RC3 stderr=[$(d_head "$TMP/d6.err")] 目标被写=$([ -e "$T3/.claude" ] && echo yes || echo no)"
+
+# ---- D-7 harness/ext：默认不装，--with-harness 才装（两份细则同时落进 rules/）----
+# 这一段守的是拆包的全部意义：默认装出来的脚手架里不该有那一万五千行引擎，也不该有它那两份
+# 必读细则；而开关一开，细则必须同时出现在 .claude/rules/ 下——frontmatter 的 path 作用域只在
+# 那个目录被 Claude Code 认，只拷进 ext/ 等于装了一份谁也加载不到的文档。
+ok=0; [ ! -e "$CL1/harness/ext" ] || ok=1
+chk "$ok" "D-7a 默认安装不含 .claude/harness/ext/" \
+  "目标里不存在 .claude/harness/ext（大仓治理引擎默认不装）" \
+  "存在=$([ -e "$CL1/harness/ext" ] && echo yes || echo no) 文件数=$(find "$CL1/harness/ext" -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+ok=0; [ -f "$CL1/harness/harness.mjs" ] && [ -f "$CL1/harness/lib/core.mjs" ] || ok=1
+chk "$ok" "D-7b 默认安装仍有引擎核心（证明上一条不是整个 harness/ 没装蒙来的绿）" \
+  "harness.mjs 与 lib/core.mjs 都在（tier / doctor / diff-hash 不依赖可选包）" \
+  "harness.mjs=$([ -f "$CL1/harness/harness.mjs" ] && echo yes || echo no) lib/core.mjs=$([ -f "$CL1/harness/lib/core.mjs" ] && echo yes || echo no)"
+
+for r in harness-large-repo quality-attributes; do
+  ok=0; [ ! -e "$CL1/rules/$r.md" ] || ok=1
+  chk "$ok" "D-7c 默认安装不含 rules/$r.md" \
+    "不存在（引擎不装，它的必读细则也不该占目标项目的阅读量）" \
+    "存在=$([ -e "$CL1/rules/$r.md" ] && echo yes || echo no)"
+done
+
+T4="$TMP/d7"
+mk_sandbox "$T4"
+RC4=0
+bash "$ROOT/setup.sh" --with-harness "$T4" >"$TMP/d7.out" 2>"$TMP/d7.err" || RC4=$?
+CL4="$T4/.claude"
+
+ok=0; [ "$RC4" = "0" ] || ok=1
+chk "$ok" "D-7d --with-harness 是被识别的开关、正常退出" \
+  "rc=0" \
+  "rc=$RC4 stderr=[$(d_head "$TMP/d7.err")]"
+
+ext_count=$(find "$CL4/harness/ext" -name '*.mjs' -type f 2>/dev/null | wc -l | tr -d ' ')
+ok=0; [ "$ext_count" = "14" ] || ok=1
+chk "$ok" "D-7e --with-harness 装出 harness/ext/ 全部 14 个模块" \
+  "14 个 .mjs（少一个引擎就在某条子命令上 ERR_MODULE_NOT_FOUND，数量写死好让人看一眼）" \
+  "实得 $ext_count 个"
+
+for r in harness-large-repo quality-attributes; do
+  ok=0; [ -f "$CL4/rules/$r.md" ] && [ -f "$CL4/harness/ext/rules/$r.md" ] || ok=1
+  chk "$ok" "D-7f --with-harness 把 $r.md 同时落到 rules/ 与 ext/rules/" \
+    "两处都在（rules/ 那份是 Claude Code 真会加载的，ext/rules/ 那份是随包走的源）" \
+    "rules/=$([ -f "$CL4/rules/$r.md" ] && echo yes || echo no) ext/rules/=$([ -f "$CL4/harness/ext/rules/$r.md" ] && echo yes || echo no)"
+done
+
+ok=0; [ ! -e "$CL4/tests" ] || ok=1
+chk "$ok" "D-7g --with-harness 不顺带把 tests/ 带出去" \
+  "不存在（两个开关各管各的，一个开了另一个不跟着开）" \
+  "存在=$([ -e "$CL4/tests" ] && echo yes || echo no)"
 
 printf '==== test-distribution：PASS=%s FAIL=%s ====\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ] || exit 1

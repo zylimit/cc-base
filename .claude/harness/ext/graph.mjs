@@ -1,4 +1,4 @@
-// lib/graph.mjs -- everything that reasons over the module graph: S5 impact (reverse
+// ext/graph.mjs -- everything that reasons over the module graph: S5 impact (reverse
 // dependency closure), S12 arch-check (real import edges vs the declared graph),
 // S16 arch-trend (the drift ratchet those edges feed) and S26 cochange (the coupling that
 // leaves no import edge at all). Depends on core.mjs + catalog.mjs.
@@ -9,7 +9,7 @@ import {
   SOURCE_EXTS,
   changedPaths, emit, git, headCommit, isGitRepo, isStateExcluded, parseCsv, projectRoot,
   errDetail, readTextFile, recordCorruptState, repoRelative, toPosixPath,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { classifyPath, loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 
 // ===========================================================================

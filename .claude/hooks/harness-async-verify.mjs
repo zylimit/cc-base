@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir, readStdinRaw, readTextFile, say, errText, fastOff } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
-import { harnessEnabled, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
+import { harnessEnabled, harnessExtInstalled, harnessExtMissingNotice, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 const DEBOUNCE_SEC = 180;
 
@@ -64,6 +64,16 @@ async function main() {
     say(`[harness-async-verify] 防抖标记写不下（${errText(e)}），本轮防抖失效`);
   }
 
+  // catalog 在、引擎包（harness/ext）不在：verify 只会 rc 3 降级，早警一次也没跑成。不唤醒
+  // （早警本就不硬拦），但这一句必须出——否则编辑期看着像「后台一直在验、都没问题」。
+  // 放在防抖之后：这是每次 Edit|Write 都会走的路，摆在防抖前就是每敲一下刷一句。
+  if (!harnessExtInstalled()) {
+    const notice = harnessExtMissingNotice('编辑期后台质量门（harness verify）');
+    say(`[harness-async-verify] ${notice}`);
+    gateLog('harness-async-verify', notice);
+    return;
+  }
+
   const r = harnessRun(['verify'], { cwd: root });
 
   // 契约外退出码（verify 契约只有 0/2/3）= 引擎自己崩了、门没跑成。早警不硬拦（commit 硬门仍是
@@ -72,7 +82,7 @@ async function main() {
     process.exitCode = 2;
     say(`[harness-async-verify] 编辑期后台质量门跑不起来：harness verify 以契约外退出码 ${r.status} 退出（契约只有 0/2/3）。`);
     say(errHead(r.stderr) || '（引擎无 stderr 输出）');
-    say('这是引擎异常（如 .claude/harness/lib/ 缺失、node 出岔），不是门未过；commit 时 pre-commit-check 会硬拦，建议现在就修引擎。');
+    say('这是引擎异常（如 .claude/harness/ext/ 半装或损坏、node 出岔），不是门未过；commit 时 pre-commit-check 会硬拦，建议现在就修引擎。');
     gateLog('harness-async-verify', `后台 verify 以契约外退出码 ${r.status} 退出（引擎异常，早警）`);
     return;
   }

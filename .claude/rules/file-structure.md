@@ -25,9 +25,9 @@ paths:
     └── .claude/
         ├── CLAUDE.md                      # 主控
         ├── settings.json                  # hooks 等 Claude Code 配置
-        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings / harness-large-repo / quality-attributes）
+        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings；harness-large-repo / quality-attributes 随 --with-harness 装进来）
         ├── hooks/                         # 闸门钩子（stop-gate / no-direct-code-guard / tdd-gate / pre-commit-check / three-file-sync-gate / dangerous-pkill-guard / secret-exfil-guard / precompact-gate / release-gate / harness-async-verify / notify / session-rules-banner 等，全部 .mjs，node 单运行时，共用逻辑在 hooks/lib/）
-        ├── harness/                       # 大仓治理（harness.mjs + adapters.json；module-catalog.json 放置即启用）
+        ├── harness/                       # 核心只剩 harness.mjs + lib/{core,tier}.mjs + profile.json（档位表）+ exclusions.json + audit/；大仓治理引擎在 harness/ext/（含 ext/rules/ 两份细则），目标项目默认不装、setup --with-harness 才装，module-catalog.json 放置即启用
         ├── workflows/                     # Workflow 编排脚本（code-review-fanout.js）
         ├── agents/
         │   ├── implementer.md             # 实现者 Sub-Agent（编码）

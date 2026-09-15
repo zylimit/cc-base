@@ -1,4 +1,4 @@
-// lib/spec.mjs -- S19 the specification layer: spec-lint (is the requirement document
+// ext/spec.mjs -- S19 the specification layer: spec-lint (is the requirement document
 // decidable), trace (does anything verify each requirement), spec (a budgeted view of the
 // requirements a change actually touches) and dod (run every static governance check once).
 //
@@ -39,7 +39,7 @@ import {
   HARNESS_DIR,
   changedPaths, emit, isDenied, isGitRepo, isStateExcluded, matchAny, parseCsv, projectRoot,
   toPosixPath,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag, moduleForPath, trackedFiles } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 

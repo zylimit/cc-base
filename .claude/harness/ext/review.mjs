@@ -1,4 +1,4 @@
-// lib/review.mjs -- S20 the review layer: structured disagreement as a gate, plus the one
+// ext/review.mjs -- S20 the review layer: structured disagreement as a gate, plus the one
 // rule the sibling engine had to leave as prose.
 //
 // Why review is a gate here and not a habit: it is the only lever in this field with a
@@ -35,7 +35,7 @@ import {
   changedPaths, emit, git, gitFingerprint, headCommit, isGitRepo, isStateExcluded,
   errDetail, normalizeTier, readStdin, readTextFile, recordCorruptState, splitNul, toPosixPath,
   withDirLock,
-} from './core.mjs';
+} from '../lib/core.mjs';
 import { loadCatalogFlag } from './catalog.mjs';
 import { analyzeImpact } from './graph.mjs';
 import { hasCodeChange, writeReceipt } from './quality.mjs';

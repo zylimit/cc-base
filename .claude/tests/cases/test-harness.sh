@@ -23,19 +23,22 @@ HOOKS_LIB="$ROOT/.claude/hooks/lib"
 PROFILE="$ROOT/.claude/harness/profile.json"
 
 # 把整台引擎搬进沙箱：harness.mjs 拆库后 import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND 起不来。
-# lib/ 路径由 $HARNESS 推导、按目录整拷，后续新增模块自动跟着走，不写死文件名。
+# ext/ 一起搬：下面测的绝大多数子命令都住在那个可选包里，少了它们一律 rc 3 报「未安装」，
+# 而 rc 3 在契约里是降级、hook 照原逻辑放行——⑰⑱ 那两条会绿在一条根本没跑过判定的路径上。
+# 两个目录都由 $HARNESS 推导、按目录整拷，后续新增模块自动跟着走，不写死文件名。
 # hooks/lib/ 一并搬：档位只有一个解析器且放在 hook 侧，引擎 lib/tier.mjs import 的是
 # ../../hooks/lib/tier.mjs——沙箱里少这一份，引擎起不来、以契约外的 rc 1 退出，
 # ⑰⑱ 那几条端到端断言测到的就不再是 hook 的判定链。
 # profile.json 同装：档位表在不在 = 档位启不启用，不装是在测一条不存在的兼容路径。
 install_harness() {
-  local dest="$1/.claude/harness"
+  local dest="$1/.claude/harness" d
   mkdir -p "$dest"
   cp "$HARNESS" "$dest/harness.mjs"
-  if [ -d "$HARNESS_DIR/lib" ]; then
-    mkdir -p "$dest/lib"
-    cp -R "$HARNESS_DIR/lib/." "$dest/lib/"
-  fi
+  for d in lib ext; do
+    [ -d "$HARNESS_DIR/$d" ] || continue
+    mkdir -p "$dest/$d"
+    cp -R "$HARNESS_DIR/$d/." "$dest/$d/"
+  done
   if [ -f "$PROFILE" ]; then
     cp "$PROFILE" "$dest/profile.json"
   fi
@@ -327,12 +330,55 @@ else
   fail "unknown 命令应 rc 3 + usage（exit $RC，stderr：$ERR）"
 fi
 
+# ⑭b 可选包没装：ext/ 的子命令降级到 rc 3 并说清怎么装，lib/ 那四个照常跑。
+#   拆包后这是绝大多数目标项目的日常状态，所以它得是一条被测过的路径而不是一条推测。
+#   在沙箱里做，不动本仓的 ext/：中途被打断的话，改名版会把这个仓的引擎留在半残状态。
+TMPX="$(mktemp -d)"
+install_harness "$TMPX"
+rm -rf "$TMPX/.claude/harness/ext"
+XH="$TMPX/.claude/harness/harness.mjs"
+RC=0
+ERR=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" impact 2>&1 1>/dev/null) || RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$ERR" | grep -q 'not installed' \
+   && printf '%s' "$ERR" | grep -q -- '--with-harness'; then
+  pass "ext 未装 -> impact rc 3 + stderr 说清怎么装"
+else
+  fail "ext 未装时 impact 应 rc 3 + not installed（exit $RC，stderr：$ERR）"
+fi
+
+RC=0
+OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" tier status 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"tier"'; then
+  pass "ext 未装 -> tier status 仍 rc 0（档位盘不依赖可选包）"
+else
+  fail "ext 未装时 tier status 应 rc 0（exit $RC，输出：$OUT）"
+fi
+
+RC=0
+OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" doctor 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"extInstalled":false'; then
+  pass "ext 未装 -> doctor 仍 rc 0 且 extInstalled:false（不把「没装」报成「装了但是空的」）"
+else
+  fail "ext 未装时 doctor 应 rc 0 + extInstalled:false（exit $RC，输出：$OUT）"
+fi
+
+RC=0
+OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" selftest 2>/dev/null) || RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ext":"not installed"'; then
+  pass "ext 未装 -> selftest rc 0 但自报只跑了核心那条（一条绿不冒充整套绿）"
+else
+  fail "ext 未装时 selftest 应 rc 0 + ext:\"not installed\"（exit $RC，输出：$OUT）"
+fi
+rm -rf "$TMPX"
+
 # ⑰ stop-gate 端到端（hook→lib-harness→harness.mjs receipt verify 链）
 #   验重点：stop-gate.mjs 真调了 harness receipt verify 并据 rc=4 拦停、rc=0 放行（不只 CLI 单测）。
 #   关键：临时仓必须自带 harness.mjs（hook 经 $CLAUDE_PROJECT_DIR/.claude/harness/harness.mjs 找它）。
 STOP_GATE="$ROOT/.claude/hooks/stop-gate.mjs"
 
-# ⑰a 有 stale receipt + diff 变动 + .needs-review=clean -> stop-gate decision:block（rc=4 路径）
+# ⑰a 有 stale receipt + diff 变动 + .needs-review=clean -> stop-gate 点名 STALE（rc=4 路径）
+#   判据是「回执过期必须点名到人」，不是某个出口形态：standard 档 stop-gate 是 advise（systemMessage），
+#   strict 档是 decision:block，两边的正文是同一段话，所以断言认那段话、不认出口形态。
 TMPS="$(mktemp -d)"
 install_harness "$TMPS"
 node -e 'const fs=require("fs"); fs.writeFileSync(process.argv[1], JSON.stringify({version:1, modules:[{id:"core",paths:["core/**"],riskTier:"medium"}]}));' "$TMPS/.claude/harness/module-catalog.json"
@@ -347,10 +393,11 @@ echo "more-change-after-receipt" >> "$TMPS/core/a.ts"
 echo "clean" > "$TMPS/.claude/.needs-review"
 RC=0
 OUT=$(cd "$TMPS" && CLAUDE_PROJECT_DIR="$TMPS" node "$STOP_GATE" 2>&1) || RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"decision":"block"'; then
-  pass "stop-gate 端到端 rc=4 拦停链（stale receipt -> decision:block）"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '无匹配的已通过回执' \
+   && printf '%s' "$OUT" | grep -qE '"(systemMessage|decision)"'; then
+  pass "stop-gate 端到端 rc=4 告警链（stale receipt -> 点名「无匹配的已通过回执」）"
 else
-  fail "stop-gate 未按 rc=4 拦停（rc=$RC，输出：$OUT）"
+  fail "stop-gate 未按 rc=4 点名 STALE 回执（rc=$RC，输出：$OUT）"
 fi
 
 # ⑰b 写匹配 receipt -> stop-gate 放行 + 清理 .needs-review

@@ -6,8 +6,8 @@
 # 分级取舍（2026-09-10 测试预算表）：地板闸（secret-exfil-guard / dangerous-pkill-guard）
 #   的用例全份搬去 test-hooks-floor.sh，一条不减；留在这里的都是提醒类——判错的代价是
 #   少一句提醒，不是密钥外传，所以每个 hook 只保一条主路径，损坏输入 / 三档矩阵 /
-#   lib 契约那些穷举不再养。tdd-gate 与 three-file-sync-gate 三档都是 advise，
-#   围绕「拦停」写的那批断言随之作废，改判「出提醒且没拦」。
+#   lib 契约那些穷举不再养。three-file-sync-gate 三档都是 advise，围绕「拦停」写的那批断言
+#   随之作废，改判「出提醒且没拦」；tdd-gate 只有 strict 才 block，那一档单留一条。
 #
 # 契约来源：docs/v3-phase-d-inventory.md A 段契约卡（stdin 字段 / 状态文件 / 输出形态 / 退出码）。
 #
@@ -136,6 +136,28 @@ process.stdin.on("end", () => {
 ' "$2"
 }
 
+# age_file <文件> <秒> —— 把 mtime 往前拨，造「过期标记」。用 node 而不是 touch -d '3 hours ago'：
+# 相对时间那种写法是 GNU touch 专有的，BSD（macOS）的 -d 只认 ISO8601，在那边会静默拨不动 →
+# 用例变成假绿（跑的是「新鲜标记」那条路径，却挂着「过期」的标题）。
+age_file() {
+    node -e '
+const fs = require("node:fs");
+const t = (Date.now() - Number(process.argv[2]) * 1000) / 1000;
+fs.utimesSync(process.argv[1], t, t);
+' "$1" "$2"
+}
+
+# set_tier <沙箱> <fast|standard|strict> —— 改沙箱 profile 的默认档（真仓根的档位一概不碰）。
+set_tier() {
+    node -e '
+const fs = require("node:fs");
+const f = process.argv[1];
+const p = JSON.parse(fs.readFileSync(f, "utf8"));
+p.default = process.argv[2];
+fs.writeFileSync(f, JSON.stringify(p, null, 2) + "\n");
+' "$1/.claude/harness/profile.json" "$2"
+}
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- EX / LB 存在性（这两条红 = 装漏了；下面所有红的根因都是它）---"
@@ -213,6 +235,13 @@ chk "$([ "$RC" -eq 2 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" 
     "ND 主 Agent 直接写 src/ 业务源码 → exit 2 拦截，警告走 stderr" \
     "rc=2 且 stderr 非空、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
+SB=$(newsb nd-sub)
+run_hook no-direct-code-guard "$SB" \
+    '{"agent_id":"a1","agent_type":"implementer","tool_name":"Write","tool_input":{"file_path":"src/app.ts"}}'
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "ND 同一份写入带 agent_id（事件来自子 Agent 内）→ rc 0 零输出（闸守的是主 Agent 不亲自编码，写 src/ 正是 implementer 的活）" \
+    "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
 SB=$(newsb nt-basic)
 run_hook notify "$SB" '{"message":"NOTIFY-PROBE done"}'
 chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'typeof d.terminalSequence')" = "string" ] \
@@ -221,11 +250,29 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'typeof d.terminalSequence')" = "strin
     "terminalSequence 是字符串且含 NOTIFY-PROBE" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb pr-noharness)
+# 大仓包在、入口没了：这才是 no-harness 那条降级。ext 目录不拷进来的话走的是下面那条自派生路径。
+cp -R "$ROOT/.claude/harness/ext" "$SB/.claude/harness/ext" 2>/dev/null || mkdir -p "$SB/.claude/harness/ext"
 run_hook postcompact-reinject "$SB" '{"compact_trigger":"auto"}'
 chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'typeof d.systemMessage')" = "string" ] \
       && [ "$(jq_ "$OUT" 'd.additionalContext === undefined')" = "true" ] && echo 0 || echo 1)" \
     "PR 引擎文件缺失 → 只给 systemMessage 降级说明、不给 additionalContext（别让人以为不变量已回来）" \
     "systemMessage 是字符串且无 additionalContext" "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(newsb pr-noext)
+printf '# progress\n\n## Pinned（必守）\n- PIN-PROBE 这条压缩后必须还看得见\n\n## Done\n- 别的段不该被读进来\n' > "$SB/progress.md"
+run_hook postcompact-reinject "$SB" '{"compact_trigger":"auto"}'
+chk "$([ "$RC" -eq 0 ] && hasq 'PIN-PROBE 这条压缩后必须还看得见' "$(jq_ "$OUT" 'String(d.additionalContext)')" \
+      && hasq 'without the engine' "$(jq_ "$OUT" 'String(d.systemMessage)')" && echo 0 || echo 1)" \
+    "PR 大仓包（harness/ext）未装 → hook 自己从 progress.md 派生最小回注，不谎报「引擎失败」（地板闸，装不装都得回注）" \
+    "additionalContext 含那条 Pinned 且 systemMessage 含 without the engine" "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(newsb pr-superseded)
+printf '# progress\n\n## Pinned（必守）\n- PIN-LIVE 这条还算数\n- PIN-DEAD 旧口径 → 被 2026-09-15 的新口径取代\n' > "$SB/progress.md"
+run_hook postcompact-reinject "$SB" '{"compact_trigger":"auto"}'
+PRAC=$(jq_ "$OUT" 'String(d.additionalContext)')
+chk "$([ "$RC" -eq 0 ] && hasq 'PIN-LIVE' "$PRAC" && ! hasq 'PIN-DEAD' "$PRAC" && echo 0 || echo 1)" \
+    "PR 标了「→ 被 … 取代」的 Pinned 条目不回注、同段另一条照回注（把作废口径当铁律注回去比不注更坏：那半句「被取代」在摘要里早没了）" \
+    "additionalContext 含 PIN-LIVE、不含 PIN-DEAD" "rc=$RC 回注=[$(show "$PRAC")]"
 
 SB=$(newsb pc-nocommit git)
 run_hook pre-commit-check "$SB" '{"tool_input":{"command":"ls -la"}}'
@@ -276,9 +323,34 @@ chk "$([ "$RC" -eq 0 ] && hasq 'node --check' "$OUT" && echo 0 || echo 1)" \
 SB=$(newsb sg-pending)
 printf 'src/app.ts\nsrc/lib.ts\n' > "$SB/.claude/.needs-review"
 run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && hasq 'src/app.ts' "$OUT" && echo 0 || echo 1)" \
+    "SG-1 待审 2 个文件 → standard 档出 systemMessage 提醒、不拦，且点名待审文件（不点名的提醒没法处理）" \
+    'rc=0 且含 systemMessage 与 src/app.ts、不含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+SB=$(newsb sg-strict); set_tier "$SB" strict
+printf 'src/app.ts\nsrc/lib.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
 chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && hasq 'src/app.ts' "$OUT" && echo 0 || echo 1)" \
-    "SG 待审 2 个文件 → decision:block 且点名待审文件（不点名的拦停没法处理）" \
+    "SG-2 同一份待审清单在 strict 档 → decision:block 真拦（那一档人是审批者）" \
     'rc=0 且含 "decision":"block" 与 src/app.ts' "rc=$RC out=[$(show "$OUT")]"
+
+# 大仓包未装那格假绿（2026-09-15 拆包新开的）：catalog 是开关、ext 是引擎，只放开关时三道闸
+#   的子命令只会 rc 3 降级。闸不拦是对的，零输出不是——「闸没跑成」和「验过了没问题」必须长得不一样。
+#   catalog 造完先提交：未跟踪的 .claude/harness/** 命中 raise.paths 会把沙箱悄悄抬成 strict。
+SB=$(newsb hx-noext git)
+printf '{"version":1,"modules":[]}\n' > "$SB/.claude/harness/module-catalog.json"
+( cd "$SB" && git add -A && git commit -qm catalog ) >/dev/null 2>&1
+echo clean > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && hasq '引擎包未装' "$OUT" && echo 0 || echo 1)" \
+    "SG-3 catalog 在、引擎包（harness/ext）未装 → stop-gate 出 systemMessage 点明本次未验、不拦（回执闸压根没跑，静默放行就是假绿）" \
+    'rc=0 且含 systemMessage 与「引擎包未装」、不含 "decision":"block"' "rc=$RC out=[$(show "$OUT")]"
+
+( cd "$SB" && printf 'export const a = 1;\n' > src/ok.mjs && git add src/ok.mjs ) >/dev/null 2>&1
+run_hook pre-commit-check "$SB" '{"tool_input":{"command":"git commit -m x"}}'
+chk "$([ "$RC" -eq 0 ] && hasq '引擎包未装' "$ERRT" && echo 0 || echo 1)" \
+    "PC-2 同一棵树 commit → pre-commit-check 同一句诊断进 stderr，退出码照旧不拦（四态门一条没跑过，不许零输出）" \
+    "rc=0 且 stderr 含「引擎包未装」" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb sa-basic)
 run_hook subagent-acceptance-reminder "$SB" '{"agent_type":"implementer","agent_id":"a-1"}'
@@ -368,11 +440,42 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hoo
     "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含收工取证正文，不出现 Domain findings、「领域发现」（跨两版措辞的追加句标记）、两个新标记与催补报的话" \
     "rc=$RC 提Domain=$SADF 追加领域句=$SADOM 证据分类=$SACLS 只报不判=$SANOJ 催补话=$SANAG 泄漏句=[$([ "$SADOM" = 有 ] && show "领域发现${SAAC##*领域发现}" || echo 空)]"
 
-SB=$(newsb td-en)
-run_hook tdd-gate "$SB" '{"tool_input":{"command":"claude agent implementer write code"}}'
-chk "$([ "$RC" -eq 0 ] && [ -n "$ERRT" ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
-    "TD 派 implementer 且无红锁标记 → 出提醒走 stderr，但恒 exit 0（三档都是 advise，不硬拦）" \
-    "rc=0 且 stderr 非空、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+SB=$(newsb td-impl)
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+chk "$([ "$RC" -eq 0 ] && hasq 'TDD 闸门' "$ERRT" && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "TD-1 派 implementer 且无红锁标记 → standard 档出提醒走 stderr、exit 0（advise 不硬拦）" \
+    "rc=0 且 stderr 含「TDD 闸门」、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+TDLOG=$(cat "$SB/.claude/evidence/gate-block.log" 2>/dev/null || true)
+chk "$(hasq 'tdd-gate' "$TDLOG" && hasq '[advise]' "$TDLOG" && echo 0 || echo 1)" \
+    "TD-1b 同一次 advise 提醒写进 .claude/evidence/gate-block.log 且带 [advise] 前缀（advise 不记账，gate-audit 就把这道唯一守红锁的活闸判成死闸）" \
+    "账本有 tdd-gate 行且含 [advise]" "账本=[$(show "$TDLOG")]"
+
+SB=$(newsb td-other)
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"x"}}'
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "TD-2 派的不是 implementer（code-reviewer）→ rc 0 零输出（闸只管 GREEN 实现那一步）" \
+    "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+SB=$(newsb td-stale); : > "$SB/.claude/.red-verified"; age_file "$SB/.claude/.red-verified" 10800
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+chk "$([ "$RC" -eq 0 ] && hasq 'TDD 闸门' "$ERRT" && [ ! -e "$SB/.claude/.red-verified" ] && echo 0 || echo 1)" \
+    "TD-3 .red-verified 的 mtime 在 3 小时前 → 视同没有标记照样提醒，且标记当场清掉（过期标记看着像验过，比没有更坏）" \
+    "rc=0、stderr 含「TDD 闸门」、标记文件已删" \
+    "rc=$RC 标记还在=$([ -e "$SB/.claude/.red-verified" ] && echo Y || echo N) err=[$(show "$ERRT")]"
+
+SB=$(newsb td-fresh); : > "$SB/.claude/.red-verified"
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+chk "$([ "$RC" -eq 0 ] && silent && [ -e "$SB/.claude/.red-verified" ] && echo 0 || echo 1)" \
+    "TD-4 新鲜的 .red-verified → rc 0 零输出且标记留着（刚验过红就该放行）" \
+    "rc=0 无输出、标记还在" \
+    "rc=$RC 标记还在=$([ -e "$SB/.claude/.red-verified" ] && echo Y || echo N) out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+SB=$(newsb td-strict); set_tier "$SB" strict
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+chk "$([ "$RC" -eq 2 ] && hasq 'TDD 闸门' "$ERRT" && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "TD-5 strict 档同一件事 → exit 2 真拦（那一档人是审批者）" \
+    "rc=2 且 stderr 含「TDD 闸门」、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
 SB=$(newsb tf-dirty progress git)
 printf 'echo more\n' >> "$SB/src/app.sh"

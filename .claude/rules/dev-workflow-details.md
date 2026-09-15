@@ -116,7 +116,11 @@ paths:
 
     [项目开发阶段]
         触发：用户调用 /dev-builder
-        一条链：dev-builder skill 进 Plan Mode 列出当前 Phase 的 TaskList → 每个 Task 派 implementer 编码（跨 Task 串行，派单包七字段，主 Agent 只写单不动手）→ 派 code-reviewer 一轮（Stage 0 静态闸 → Stage 1 规格合规 → Stage 2 代码质量，一次跑完）→ 只 HIGH 阻断：有 HIGH 派 implementer / bug-fixer 修、同一 reviewer 复核一次即收口，Medium / Low 记进 progress.md 残留随后续 Task 顺手修、不开新一轮 → 回执带反例或报告含「❓ 需求存疑」则调 product-spec-builder 迭代模式（反例作输入；Spec 改了回流 dev-planner 更新受影响 Task，用户确认 Spec 没错则记进澄清记录关闭——存疑不阻塞收口）→ `echo clean > .claude/.needs-review` → commit → 下一个 Task。
+        一条链：dev-builder skill 进 Plan Mode 列出当前 Phase 的 TaskList → 每个 Task 先定档再派发（主 Agent 按 `git diff --stat` 与触及路径机械判，三条任一命中即升到对应档，拿不准按高一档；派单包 Goal 首行写明档位）：
+          · **LOW**（改动 < 50 行，不碰契约 / 解析器 / 鉴权 / 迁移 / 支付 / hooks 类路径，不引新依赖）：派 implementer 一单 → 它自检 + static-check + 跑现有测试 → 主 Agent 对着 diff 与运行器输出验收 → commit。不派 reviewer，不派 tester。
+          · **MEDIUM**（50 到 300 行，或碰上述路径之一，或引新依赖）：implementer → code-reviewer 一轮只跑 Stage 0 + Stage 1（做对了没有）→ 只 HIGH 阻断，修完由同一轮复核一次即收口 → commit。
+          · **HIGH**（> 300 行，或碰两类以上上述路径，或线上 bug / 数据迁移 / 安全相关）：implementer（派单传 `model: opus`）→ code-reviewer 全三 Stage → 有 HIGH 派修 + 同一轮复核 → tester 补关键逻辑测试（写测 ≠ 作者）→ commit。
+        任何档的 Medium / Low finding 记进 progress.md 残留随后续 Task 顺手修，不开新一轮；回执带反例或报告含「❓ 需求存疑」则调 product-spec-builder 迭代模式（反例进 Spec 的规则与例外，签字后回流本链）。同一套流水线一律套全档是 2026-09-15 前的写法，被这张表取代：审一个小 diff 便宜，贵的是仪式。
         所有 Task 完成 → Phase 四步走验证（dev-builder SKILL.md [Phase 完成度判断]；第 2 步「测试完整性」派 tester，重点看跨 Task 的导入关系、文件依赖、命名一致性；发现问题派 bug-fixer 修、`fix:` 提交、四步重来）→ 四态门收尾（PASS / CONCERNS / FAIL / WAIVED）→ 用户确认 Phase 完成 → 进入下一个 Phase，或提示可调用 /release-builder。
         手动入口：用户调 /code-review → 派 code-reviewer 审一轮 → 报告给用户，由用户定修复范围；用户调 /bug-fixer 或报 bug → bug-fixer skill 修复 → 修完建议 /code-review 验证。用户可随时介入切手动模式。
 

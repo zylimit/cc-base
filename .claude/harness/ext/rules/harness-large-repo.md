@@ -5,11 +5,12 @@ paths:
 
 本文件由 CLAUDE.md 下沉；主控命中指针时必须完整读取本文件再行动，不得凭指针行猜测内容。（frontmatter 的 paths 让 Claude Code 原生按需加载本规则——碰 .claude/harness/ 下文件时自动进上下文；未碰时靠 CLAUDE.md 指针手动读，两条路都通。）
 
-[启用条件（铁律：唯一开关）]
-    唯一开关 = `.claude/harness/module-catalog.json` 存在。存在即启用全部大仓能力；不存在即默认关闭、所有 hook 静默走原逻辑（零行为变化）。
-    - hook 自身由 node 拉起；引擎跑不起来（`lib/` 缺失、内部异常）时 hook 通过 `hooks/lib/harness.mjs` 的 `rcInContract` 判出契约外退出码并点名，非假绿、非 crash。
+[启用条件（铁律：两件事都齐才算启用）]
+    先 `bash setup.sh --with-harness`（Windows `setup.ps1 -WithHarness`）装引擎包 `.claude/harness/ext/`，再放一份合规 `.claude/harness/module-catalog.json` 才启用全部大仓能力；catalog 不在即默认关闭、所有 hook 静默走原逻辑（零行为变化）。
+    只放 catalog 不装包：子命令一律 rc 3 + stderr `not installed`，stop-gate / pre-commit-check / harness-async-verify 三道闸会**当场提示未验**（不拦，退出码不变），不静默放行——闸没跑成和门过了，绝不许长成同一副样子。
+    - hook 自身由 node 拉起；引擎跑不起来（`ext/` 或 `lib/` 缺失、内部异常）时 hook 通过 `hooks/lib/harness.mjs` 的 `harnessExtInstalled` / `rcInContract` 判出「包没装」或契约外退出码并点名，非假绿、非 crash。
     - doctor 判启用态：`node harness.mjs doctor` 输出 JSON 看 `catalogPresent` 字段（false=未启用）；`bash doctor.sh` 的人读输出报「module-catalog.json 未配置（大仓治理默认关闭，接线走原逻辑）」同义（前者机器读、后者人读，同一事实两副面孔）。
-    - 启用 = 放一份合规 catalog 文件；关闭 = 删该文件。不动 settings.json、不动任何 hook。
+    - 启用 = 装包 + 放一份合规 catalog 文件；关闭 = 删该文件（包留着不影响）。不动 settings.json、不动任何 hook。
     - 小项目 / 框架本体零负担——未启用时对项目完全透明。
     - fitness / adapters 两个子命令允许无 catalog 直接跑（fitness 无 catalog 时只失去模块分级，规则本身照扫；adapters list 只是查表）；其余定向能力（impact / verify / arch-check / attributes）无 catalog 一律 rc 3 降级。
 
@@ -37,7 +38,7 @@ paths:
     **保守扩张铁律**：unmapped 命中 / global 命中 / 非 git / truncated → 全模块 fanout + `degraded:true`（宁可全跑，不可漏测）。
 
 [三十九能力清单]
-    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进 `.claude/harness/lib/`（core 底层 / catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / init / release / selftest），**harness.mjs 不再能单文件搬走**——只拷它不拷 lib/ 会 ERR_MODULE_NOT_FOUND 起不来。档位单一解析器在 `.claude/hooks/lib/tier.mjs`（hook 侧，引擎 `lib/tier.mjs` import 它，方向只许引擎→hook lib），所以**拷引擎必须连 `.claude/hooks/lib/` 与 `.claude/harness/profile.json` 一起拷**，测试沙箱同理——少了引擎以契约外退出码退出，不假绿。子命令名、JSON 字段、退出码不受拆库影响。**输出里的仓库路径一律正斜杠、一律仓库相对**（Windows 上也一样，平台分隔符与机器目录都不外泄）——stdout 是给 hook / git hook / CI 读的机器契约，同一个仓在两个平台给出两种路径形态，等于让每个消费者各自兜一遍；绝对路径更是把开发者的目录结构写进了输出，下游拿它做不了稳定比对。判据只有一条（`core.mjs` 的 `repoRelative`）：**在仓根之内的绝对路径转仓库相对，在仓根之外的原样回显**（`path.relative()` 的结果要往外爬——以 `..` 开头，或 Windows 上跨盘符压根没有相对路线——即判仓外）；相对路径**先按 cwd 解析再判仓内仓外**——fs 就是这么打开它的，直接回显等于拿仓相对名去指另一个文件（`--catalog nope.json` 在 `.claude/` 下跑读的是 `.claude/nope.json`，答 `nope.json` 却读作 `<仓根>/nope.json`）。调用方自己用 `--file` / `--dir` / `--catalog` 传进来的绝对路径走的就是这条，仓外的按入参原样回显。**「爬出去的相对路径」是三者之外的第四种答案，永远错**——`catalog-lint --catalog /etc/nope/x.json` 曾答 `../../etc/nope/x.json`，既不是调用方指的那个文件，也不是仓里存在的路径，还把 checkout 埋了多深一起说了出去。**软链按拼法算**：入参拼法落在仓根之内就按拼法命名、软链一律不解开（`<仓根>/linkout/nope.json` 答 `linkout/nope.json`，哪怕 linkout 指向仓外）；只有拼法已经在仓外，才两侧 realpath 按文件身份再判一次（经软链递进来的 checkout 靠这一步捞回仓相对名），两次都在仓外的原样回显。
+    载体 `node .claude/harness/harness.mjs <subcommand>`，stdout 单行 JSON、stderr 人读诊断。入口仍是这一个文件，实现已按分节拆进引擎包 `.claude/harness/ext/`（catalog / graph=impact+arch-check+arch-trend / quality=receipt+verify+waiver+attributes / scan=fitness+adapters+adr-check / context / evidence=gate+ledger+gate-audit+retention+risk / task=task+budget / spec=spec-lint+trace+spec+dod / review=review+review-pack+authorship / memory=invariants+recap+archive+sync-check / rules=rules-audit+skills-lint+claude-md-lint / init / release / selftest），底层 core 与档位解析留在核心侧 `.claude/harness/lib/`，**harness.mjs 不再能单文件搬走**——只拷它不拷 `ext/` 与 `lib/` 会 ERR_MODULE_NOT_FOUND 起不来。档位单一解析器在 `.claude/hooks/lib/tier.mjs`（hook 侧，引擎 `lib/tier.mjs` import 它，方向只许引擎→hook lib），所以**拷引擎必须连 `.claude/hooks/lib/` 与 `.claude/harness/profile.json` 一起拷**，测试沙箱同理——少了引擎以契约外退出码退出，不假绿。子命令名、JSON 字段、退出码不受拆库影响。**输出里的仓库路径一律正斜杠、一律仓库相对**（Windows 上也一样，平台分隔符与机器目录都不外泄）——stdout 是给 hook / git hook / CI 读的机器契约，同一个仓在两个平台给出两种路径形态，等于让每个消费者各自兜一遍；绝对路径更是把开发者的目录结构写进了输出，下游拿它做不了稳定比对。判据只有一条（`core.mjs` 的 `repoRelative`）：**在仓根之内的绝对路径转仓库相对，在仓根之外的原样回显**（`path.relative()` 的结果要往外爬——以 `..` 开头，或 Windows 上跨盘符压根没有相对路线——即判仓外）；相对路径**先按 cwd 解析再判仓内仓外**——fs 就是这么打开它的，直接回显等于拿仓相对名去指另一个文件（`--catalog nope.json` 在 `.claude/` 下跑读的是 `.claude/nope.json`，答 `nope.json` 却读作 `<仓根>/nope.json`）。调用方自己用 `--file` / `--dir` / `--catalog` 传进来的绝对路径走的就是这条，仓外的按入参原样回显。**「爬出去的相对路径」是三者之外的第四种答案，永远错**——`catalog-lint --catalog /etc/nope/x.json` 曾答 `../../etc/nope/x.json`，既不是调用方指的那个文件，也不是仓里存在的路径，还把 checkout 埋了多深一起说了出去。**软链按拼法算**：入参拼法落在仓根之内就按拼法命名、软链一律不解开（`<仓根>/linkout/nope.json` 答 `linkout/nope.json`，哪怕 linkout 指向仓外）；只有拼法已经在仓外，才两侧 realpath 按文件身份再判一次（经软链递进来的 checkout 靠这一步捞回仓相对名），两次都在仓外的原样回显。
     - **doctor**：环境自检（node 版本 / catalogPresent / gitRepo / headCommit / subcommands / waivers / attributesDeclared / modulesWithLayer / forbiddenEdges / adaptersPresent）。**始终 rc 0**。注意：harness 子命令 `doctor`（JSON 输出）与框架脚本 `.claude/scripts/doctor.sh`（人读结论）两物同名——后者独立做文件存在性判断、**不调用本子命令**（见启用条件段）。
     - **diff-hash**：当前工作树 canonical diff 的 SHA256（含 untracked 内容 hash；排除 .needs-review / .fast-mode / evidence / receipts / waivers 等运行态）。
     - **selftest**：内置回归断言（glob / catalog 分类 / impact 闭包 / context-pack 预算 / receipt 防篡改 / 四态门 / waiver 规则 / 五性判定 / arch 纯函数 / fitness 规则 / 评审分阶段与裁决 / 作者集判定 / 规模冒烟）。失败 rc 1。
@@ -50,7 +51,7 @@ paths:
     - **waiver list|check|create**：结构化豁免管理。
     - **attributes**：五性静态接线审计（不执行命令）——每模块声明的属性 × 档位 × 已接线的 claiming checks；blocking 档位（critical/high）声明了却无 check 认领 = 可见缺口 rc 1。
     - **arch-check**：真实 import 边 vs 声明依赖图——多语言 import 提取（JS/TS/Python/Go/Java/Kotlin/C#/Rust/Ruby/PHP/Swift/Scala），报 `forbiddenDependencies`（越禁边，含 layer 违规）/ `undeclaredDependencies`（漂移：代码有边、catalog 没声明——会让 impact 少算漏测）/ `unusedDeclarations`（虚边：声明了没人 import，过度扩测且边界已不真实）/ `cycles` / 未行使图诚实说明。声明与禁令冲突时**禁令赢**。`--record` 把漂移指标**连同每条边的身份**快照进趋势台账（`undeclaredEdges` / `forbiddenEdges` / `cycleKeys`，失败也照记——存量债先立基线）。
-    - **fitness**：内置零依赖五性规则扫描（凭 `.claude/rules/quality-attributes.md` 细则）——密钥字面量(security) / 日志含个人数据(privacy) / 静默吞错(reliability) / 无界重试(resilience) / 高危模块未挂单的 TODO(safety，minimumTier=high)。默认扫变更文件，`--all` 扫全 tracked，`--paths a,b` 显式指定；`harness-fitness:ignore` 行内压制单条；`.claude/harness/fitness-rules.json` 可增补/替换规则集。error 级命中 rc 1。
+    - **fitness**：内置零依赖五性规则扫描（凭同目录的 quality-attributes.md 细则，随包装进 `.claude/rules/`）——密钥字面量(security) / 日志含个人数据(privacy) / 静默吞错(reliability) / 无界重试(resilience) / 高危模块未挂单的 TODO(safety，minimumTier=high)。默认扫变更文件，`--all` 扫全 tracked，`--paths a,b` 显式指定；`harness-fitness:ignore` 行内压制单条；`.claude/harness/fitness-rules.json` 可增补/替换规则集。error 级命中 rc 1。
     - **adapters list|add**：外部工具表（semgrep / osv-scanner / trivy / gitleaks / syft / presidio / stryker / schemathesis / k6 / checkov / oslo，各自映射到五性属性）。`list` 报 available（PATH 上有没有）+ wired（catalog.checks 接没接）；`add <id>` 把 check 写进 catalog.checks——接线只是半步，模块 verification 列表引用它才会被选中。
     - **adr-check**：ADR 执法校验——没人盯的架构决策必然漂移。扫 `Architecture-Design.md` 的 `### ADR-xxx` 内联块 + `docs/adr/*.md` 独立文件（均可选，`--file`/`--dir` 可改；传绝对路径就按字面那个位置读——此前是拼到仓根底下，于是报告回声着调用方指的目录、看的却是另一个，仓外的 ADR 一条也扫不到还答「nothing to enforce」），每条**活跃** ADR 的「执法方式/Enforced-by」必须能解析出至少一个真实存在的执法点：catalog check id / fitness 规则 id / harness 能力名（arch-check / layers / forbiddenDependencies / fitness / verify / receipt…）/ 或显式人工标记（评审/人工/manual/review——诚实的"人守"放行但单列 `manualOnly`）。**幽灵引用比没有更糟**（读起来像被执法实际没有）：零可识别 token = fail；已废弃（superseded/deprecated/rejected/已废弃…）豁免；认识的 token 旁边搭车的未知词只上报 `unrecognized` 不拦。
     - **arch-trend**：架构漂移棘轮——arch-check 对任何 undeclared 边都 rc 1，存量带债的老仓根本用不成闸。台账给出接入路径：`arch-check --record` 快照漂移指标与边身份，`arch-trend` 看趋势报告（基线/历史最优/最新/较上次 delta），`arch-trend --gate` 判回退时 rc 1——棘轮只朝一个方向转：旧债可以慢慢还，新债一分不许添。unresolved/unused 是上下文量不进棘轮。首条记录只立基线不比较。**台账有洞照数**：解析不了的行计入 `corruptLines`，报告态只报不判，`--gate` 时 `corruptLines>0` 即 rc 1 并在 `reason` 写 `trend-history-corrupt`——历史缺了一条就分不清新债与没人写下来的旧债，那种 0 是没人建立过的通过。
@@ -210,7 +211,7 @@ paths:
 
 [运行态文件]
     - `.claude/harness/module-catalog.json`：唯一开关，**本体照常分发**（catalog 仓库可选择性提交共享配置；不提交即每工作树独立）。
-    - `.claude/harness/lib/*.mjs`：引擎实现本体，与 harness.mjs 同批分发、同批升级（安装器按整棵树 find 复制，天然带上；手工搬运须整目录一起搬）。不是运行态，列在此处只为提醒它与入口不可拆散。
+    - `.claude/harness/ext/*.mjs`：引擎实现本体（`lib/{core,tier}.mjs` 是核心侧共享库），与 harness.mjs 同批分发、同批升级（安装器按整棵树 find 复制，天然带上；手工搬运须整目录一起搬）。不是运行态，列在此处只为提醒它与入口不可拆散。
     - `.claude/harness/adapters.json`：外部工具表，本体照常分发（项目可自行增删条目）。
     - `.claude/harness/fitness-rules.json`：可选项目自定义 fitness 规则（`{"replace":false,"rules":[...]}`），有则并入内置规则。
     - `.claude/harness/receipts/*.json`：审查回执，**git 忽略**（永不入库）。

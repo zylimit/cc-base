@@ -11,7 +11,7 @@
 2. **它们是 git hook / CI 的第一道**。这一层要能在没有 catalog、没有配置、
    甚至没装任何东西的仓库里直接 `node <path>` 就跑起来。引擎的定向能力
    （impact / verify / arch-check）无 catalog 一律 rc 3 降级，兜底面不能跟着降级。
-3. **不受档位调节**。引擎侧的检查按模块档位收放（见 `.claude/rules/quality-attributes.md`），
+3. **不受档位调节**。引擎侧的检查按模块档位收放（见 `.claude/harness/ext/rules/quality-attributes.md`），
    这是对的——但一个能被调到静音的底线不叫底线。这三只没有档位可调。
 
 代价是有重叠（尤其 `scan-secrets` 与 fitness 的 `no-secret-literal`）。重叠是故意的。
@@ -265,7 +265,7 @@ bash .claude/tests/test-audit-defects.sh                  # 已修缺陷的红�
 
 要真证据（历史提交里的密钥、SAST、依赖漏洞），接
 `.claude/harness/adapters.json` 里的 `secrets-gitleaks` / `sast-semgrep` 等外部工具，
-按属性走 verify 门。见 `.claude/rules/quality-attributes.md`。
+按属性走 verify 门。见 `.claude/harness/ext/rules/quality-attributes.md`。
 
 ## 已知盲区（别把这三只当证明）
 

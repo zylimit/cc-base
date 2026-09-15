@@ -59,6 +59,7 @@ REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 HARNESS="$REPO/.claude/harness/harness.mjs"
 LIBDIR="$(dirname "$HARNESS")/lib"
+EXTDIR="$(dirname "$HARNESS")/ext"
 HOOKSLIB="$REPO/.claude/hooks/lib"
 PROFILE="$REPO/.claude/harness/profile.json"
 
@@ -109,6 +110,8 @@ engdeps() {
 # mksandbox <名> <catalog yes|no> [check命令]
 #   造一个临时项目：一个 core 模块、一条 medium 档 check、一个 src/ 非治理面文件。
 #   引擎按目录整拷（harness.mjs import 同级 lib/，只拷单文件会 ERR_MODULE_NOT_FOUND）。
+#   ext/ 一起搬：release / gate / receipt 都住在那个可选包里，缺它一律 rc 3 报「未安装」，
+#   下面按退出码判的断言会全部读成同一个「没装」。
 #   catalog 把 .claude/** 与 src/** 归入 ignored，好让 catalog-lint / dod 在沙箱里是干净的，
 #   否则 release 里除 gate-fresh 之外还会多出一片跟本测试无关的红。
 mksandbox() {
@@ -117,6 +120,7 @@ mksandbox() {
     mkdir -p "$d/.claude/harness" "$d/core" "$d/src"
     cp "$HARNESS" "$d/.claude/harness/harness.mjs"
     cp -R "$LIBDIR" "$d/.claude/harness/lib"
+    [ -d "$EXTDIR" ] && cp -R "$EXTDIR" "$d/.claude/harness/ext"
     engdeps "$d"
     if [ "$withcat" = yes ]; then
         cat > "$d/.claude/harness/module-catalog.json" <<EOF

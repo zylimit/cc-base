@@ -11,7 +11,7 @@
       "reason": "This is a permissions deny rule. The file has to name .env in order to block reads of it -- naming the path here is the protection, not a pointer to a secret."
     },
     {
-      "file": ".claude/rules/harness-large-repo.md",
+      "file": ".claude/harness/ext/rules/harness-large-repo.md",
       "line": 62,
       "rule": "gate-disable-instruction",
       "sha256": "0b6184ed756c4424acbeb46a95c530c8dab47217b61246cbc3e4db23420610c6",

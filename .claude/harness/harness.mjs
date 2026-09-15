@@ -4,41 +4,47 @@
 // All subcommands: stdout single-line JSON + exit code; human diagnostics -> stderr.
 // Source is ASCII-only (matches the .ps1 pure-ASCII convention) to avoid cross-platform encoding traps.
 //
-// This file holds the CLI only: argument parsing, the dispatch table, and the three
-// subcommands that belong to no section (doctor / diff-hash / selftest). Every other
-// subcommand ships with its own section under lib/ -- the sections outgrew one file once
-// the next batch of capabilities was queued, and a 3000-line file was already the limit of
-// what could be edited without collateral damage.
+// This file holds the CLI only: argument parsing, the dispatch table, and the four
+// subcommands that stay available with nothing else installed (doctor / diff-hash / selftest
+// / tier). Everything else is the large-repo package under ext/ -- fifteen thousand lines that
+// do nothing at all until a module-catalog.json exists, so a project that never governs a
+// monorepo has no reason to carry them, read them, or test them. They ship separately
+// (setup.sh --with-harness) and their dispatch arms import on demand rather than at load time:
+// a static import would put the whole package back in the startup cost of `tier status`.
 //
 // Module map (import direction is one-way, so nothing has to be resolved at load time):
 //   lib/core.mjs      S1 common, S2 git, S3 glob, S9 config + the vocabulary shared across
 //                     sections (typedefs, attribute tiers, parseCsv, DENY/isDenied,
 //                     SOURCE_EXTS, whichCmd). Imports node builtins only.
-//   lib/catalog.mjs   S4 catalog        loadCatalog / validateSchema / classifyPath / lintCatalog
-//   lib/graph.mjs     S5 impact + S12 arch-check + S16 arch-trend + S26 cochange
-//   lib/quality.mjs   S7 receipt + S8 quality gate + S10 waiver + S11 attributes
-//   lib/scan.mjs      S13 fitness + S14 adapters + S15 adr-check
-//   lib/context.mjs   S6 context-pack
-//   lib/evidence.mjs  S17 gate + ledger + gate-audit + retention + risk
-//   lib/task.mjs      S18 task envelope + budget
-//   lib/spec.mjs      S19 spec-lint + trace + spec + dod
-//   lib/review.mjs    S20 review engine + review-pack + the authorship ledger
-//   lib/memory.mjs    S21 invariants + recap + archive + sync-check
-//   lib/rules.mjs     S22 rules-audit + S23 skills-lint + S24 claude-md-lint
-//   lib/init.mjs      S25 init
-//   lib/release.mjs   S27 release readiness (assembly only; publishes nothing)
 //   lib/tier.mjs      S28 tier dial: status / set / explain / validate. The only section that
 //                     imports outside the engine -- the judgement lives in the single resolver
 //                     .claude/hooks/lib/tier.mjs, and reading it from there is what keeps the
 //                     engine from becoming a second answer to "is fast mode on".
-//   lib/selftest.mjs  selftestCases() and its fixture
-// Dependencies: core -> (nothing); catalog -> core; graph -> core, catalog; context and
-// quality -> core, catalog, graph; scan -> core, catalog; evidence -> core, catalog, graph,
-// quality; task -> the same plus evidence; spec -> core, catalog, graph; review -> core,
-// catalog, graph, quality, evidence; memory -> core, quality, evidence, task, spec;
-// rules -> core, catalog; init -> core, catalog, graph, evidence; release -> core, catalog,
-// evidence, spec, memory; tier -> core + hooks/lib/tier.mjs; quality, memory, evidence and
-// release -> tier; selftest -> all of the above; this file -> all of the above. No cycles.
+//   ext/catalog.mjs   S4 catalog        loadCatalog / validateSchema / classifyPath / lintCatalog
+//   ext/graph.mjs     S5 impact + S12 arch-check + S16 arch-trend + S26 cochange
+//   ext/quality.mjs   S7 receipt + S8 quality gate + S10 waiver + S11 attributes
+//   ext/scan.mjs      S13 fitness + S14 adapters + S15 adr-check
+//   ext/context.mjs   S6 context-pack
+//   ext/evidence.mjs  S17 gate + ledger + gate-audit + retention + risk
+//   ext/task.mjs      S18 task envelope + budget
+//   ext/spec.mjs      S19 spec-lint + trace + spec + dod
+//   ext/review.mjs    S20 review engine + review-pack + the authorship ledger
+//   ext/memory.mjs    S21 invariants + recap + archive + sync-check
+//   ext/rules.mjs     S22 rules-audit + S23 skills-lint + S24 claude-md-lint
+//   ext/init.mjs      S25 init
+//   ext/release.mjs   S27 release readiness (assembly only; publishes nothing)
+//   ext/selftest.mjs  selftestCases() and its fixture
+//   ext/rules/        the two rule documents that only mean something with the package
+//                     installed; setup.sh --with-harness drops them into .claude/rules/ so the
+//                     path-scoped frontmatter keeps working where Claude Code looks for it.
+// Dependencies: core -> (nothing); tier -> core + hooks/lib/tier.mjs; catalog -> core;
+// graph -> core, catalog; context and quality -> core, catalog, graph; scan -> core, catalog;
+// evidence -> core, catalog, graph, quality; task -> the same plus evidence; spec -> core,
+// catalog, graph; review -> core, catalog, graph, quality, evidence; memory -> core, quality,
+// evidence, task, spec; rules -> core, catalog; init -> core, catalog, graph, evidence;
+// release -> core, catalog, evidence, spec, memory; quality, memory, evidence and release ->
+// tier; selftest -> all of the above; this file -> lib/ at load time and ext/ on demand.
+// No cycles, and nothing in lib/ imports ext/ -- that direction would reattach the package.
 //
 // Scale target: 600k+ LOC repositories. Hot paths (classifyPath / lintCatalog / impact)
 // go through a compiled-regex cache; git path listings are NUL-separated so non-ASCII
@@ -46,25 +52,45 @@
 // degrades conservatively instead of under-reporting.
 
 import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 import {
-  canonicalDiff, die, emit, headCommit, isGitRepo, loadHarnessConfig, sha256,
+  HARNESS_DIR, canonicalDiff, die, emit, headCommit, isGitRepo, loadHarnessConfig, matchAny, sha256,
 } from './lib/core.mjs';
-import { cmdCatalogLint, loadCatalog } from './lib/catalog.mjs';
-import { cmdArchCheck, cmdArchTrend, cmdCoChange, cmdImpact } from './lib/graph.mjs';
-import { cmdContextPack } from './lib/context.mjs';
-import { cmdAttributes, cmdReceipt, cmdVerify, cmdWaiver, loadWaivers, waiversDir } from './lib/quality.mjs';
-import { adaptersFilePath, cmdAdapters, cmdAdrCheck, cmdFitness } from './lib/scan.mjs';
-import { cmdGate, cmdGateAudit, cmdLedger, cmdRetention, cmdRisk } from './lib/evidence.mjs';
-import { cmdBudget, cmdTask } from './lib/task.mjs';
-import { cmdDod, cmdSpec, cmdSpecLint, cmdTrace } from './lib/spec.mjs';
-import { cmdAuthorship, cmdReview, cmdReviewPack } from './lib/review.mjs';
-import { cmdArchive, cmdInvariants, cmdRecap, cmdSyncCheck } from './lib/memory.mjs';
-import { cmdClaudeMdLint, cmdRulesAudit, cmdSkillsLint } from './lib/rules.mjs';
-import { cmdInit } from './lib/init.mjs';
-import { cmdRelease } from './lib/release.mjs';
 import { cmdTier } from './lib/tier.mjs';
-import { selftestCases } from './lib/selftest.mjs';
+
+const EXT_DIR = path.join(HARNESS_DIR, 'ext');
+const EXT_MISSING = 'large-repo engine not installed: .claude/harness/ext missing (run setup.sh --with-harness)';
+
+/**
+ * Load one ext/ section, or null when the package simply is not installed.
+ *
+ * The two cases have to stay apart. "Not installed" is the default state of every project that
+ * does not govern a monorepo, and answering it with a stack trace would make a normal
+ * installation look broken; a section that is present but throws on import is a broken engine,
+ * and swallowing that into the same answer would hide it behind an install instruction nobody
+ * needs to follow. So the directory's absence is the only thing that turns a resolution failure
+ * into the friendly answer -- anything else rethrows.
+ * @param {string} name  section file name without extension
+ */
+async function tryExt(name) {
+  try {
+    return await import('./ext/' + name + '.mjs');
+  } catch (e) {
+    if (e && e.code === 'ERR_MODULE_NOT_FOUND' && !fs.existsSync(EXT_DIR)) return null;
+    throw e;
+  }
+}
+
+/**
+ * Same, but a missing package ends the run at exit 3 -- degraded, nothing established. Not 1
+ * (that means something was found) and not 2 (the command line was fine); hooks read 3 through
+ * `rcInContract(rc, 0, 3)` and carry on with their original logic, which is exactly what a
+ * project without the package should see.
+ */
+async function ext(name) {
+  return (await tryExt(name)) || die(EXT_MISSING, 3);
+}
 
 // ===========================================================================
 // S0 CLI dispatch
@@ -200,7 +226,9 @@ function flagUsage(cmd, unknown) {
     + 'running in its no-argument shape and reporting success over something it never measured\n';
 }
 
-function main() {
+// The four arms above the divider run with lib/ alone; every arm below it resolves its section
+// at call time, so an uninstalled package costs one existsSync and never a load-time failure.
+async function main() {
   const { cmd, flags, positional } = parseArgs(process.argv.slice(2));
   const unknown = unknownFlags(cmd, flags);
   if (unknown.length) return die(flagUsage(cmd, unknown), 2);
@@ -208,44 +236,44 @@ function main() {
     case 'doctor':       return cmdDoctor();
     case 'diff-hash':    return cmdDiffHash();
     case 'selftest':     return cmdSelftest();
-    case 'catalog-lint': return cmdCatalogLint(flags);
-    case 'impact':       return cmdImpact(flags);
-    case 'context-pack': return cmdContextPack(flags);
-    case 'receipt':      return cmdReceipt(flags, positional);
-    case 'verify':       return cmdVerify(flags);
-    case 'waiver':       return cmdWaiver(flags, positional);
-    case 'attributes':   return cmdAttributes(flags);
-    case 'arch-check':   return cmdArchCheck(flags);
-    case 'fitness':      return cmdFitness(flags);
-    case 'adapters':     return cmdAdapters(flags, positional);
-    case 'adr-check':    return cmdAdrCheck(flags);
-    case 'arch-trend':   return cmdArchTrend(flags);
-    case 'gate':         return cmdGate(flags);
-    case 'ledger':       return cmdLedger(flags);
-    case 'gate-audit':   return cmdGateAudit(flags);
-    case 'retention':    return cmdRetention(flags);
-    case 'risk':         return cmdRisk(flags);
-    case 'task':         return cmdTask(flags, positional);
-    case 'budget':       return cmdBudget(flags);
-    case 'spec-lint':    return cmdSpecLint(flags);
-    case 'trace':        return cmdTrace(flags);
-    case 'spec':         return cmdSpec(flags);
-    case 'dod':          return cmdDod(flags);
-    case 'review':       return cmdReview(flags, positional);
-    case 'review-pack':  return cmdReviewPack(flags);
-    case 'authorship':   return cmdAuthorship(flags, positional);
-    case 'invariants':   return cmdInvariants(flags);
-    case 'recap':        return cmdRecap(flags);
-    case 'archive':      return cmdArchive(flags);
-    case 'sync-check':   return cmdSyncCheck(flags);
-    case 'rules-audit':  return cmdRulesAudit(flags, IMPLEMENTED_SUBCOMMANDS);
-    case 'skills-lint':  return cmdSkillsLint(flags);
-    case 'claude-md-lint': return cmdClaudeMdLint(flags);
-    case 'init':         return cmdInit(flags);
-    case 'cochange':     return cmdCoChange(flags);
-    // No flags argument: the row above is empty, so there is nothing to hand it.
-    case 'release':      return cmdRelease();
     case 'tier':         return cmdTier(flags, positional);
+    case 'catalog-lint': return (await ext('catalog')).cmdCatalogLint(flags);
+    case 'impact':       return (await ext('graph')).cmdImpact(flags);
+    case 'context-pack': return (await ext('context')).cmdContextPack(flags);
+    case 'receipt':      return (await ext('quality')).cmdReceipt(flags, positional);
+    case 'verify':       return (await ext('quality')).cmdVerify(flags);
+    case 'waiver':       return (await ext('quality')).cmdWaiver(flags, positional);
+    case 'attributes':   return (await ext('quality')).cmdAttributes(flags);
+    case 'arch-check':   return (await ext('graph')).cmdArchCheck(flags);
+    case 'fitness':      return (await ext('scan')).cmdFitness(flags);
+    case 'adapters':     return (await ext('scan')).cmdAdapters(flags, positional);
+    case 'adr-check':    return (await ext('scan')).cmdAdrCheck(flags);
+    case 'arch-trend':   return (await ext('graph')).cmdArchTrend(flags);
+    case 'gate':         return (await ext('evidence')).cmdGate(flags);
+    case 'ledger':       return (await ext('evidence')).cmdLedger(flags);
+    case 'gate-audit':   return (await ext('evidence')).cmdGateAudit(flags);
+    case 'retention':    return (await ext('evidence')).cmdRetention(flags);
+    case 'risk':         return (await ext('evidence')).cmdRisk(flags);
+    case 'task':         return (await ext('task')).cmdTask(flags, positional);
+    case 'budget':       return (await ext('task')).cmdBudget(flags);
+    case 'spec-lint':    return (await ext('spec')).cmdSpecLint(flags);
+    case 'trace':        return (await ext('spec')).cmdTrace(flags);
+    case 'spec':         return (await ext('spec')).cmdSpec(flags);
+    case 'dod':          return (await ext('spec')).cmdDod(flags);
+    case 'review':       return (await ext('review')).cmdReview(flags, positional);
+    case 'review-pack':  return (await ext('review')).cmdReviewPack(flags);
+    case 'authorship':   return (await ext('review')).cmdAuthorship(flags, positional);
+    case 'invariants':   return (await ext('memory')).cmdInvariants(flags);
+    case 'recap':        return (await ext('memory')).cmdRecap(flags);
+    case 'archive':      return (await ext('memory')).cmdArchive(flags);
+    case 'sync-check':   return (await ext('memory')).cmdSyncCheck(flags);
+    case 'rules-audit':  return (await ext('rules')).cmdRulesAudit(flags, IMPLEMENTED_SUBCOMMANDS);
+    case 'skills-lint':  return (await ext('rules')).cmdSkillsLint(flags);
+    case 'claude-md-lint': return (await ext('rules')).cmdClaudeMdLint(flags);
+    case 'init':         return (await ext('init')).cmdInit(flags);
+    case 'cochange':     return (await ext('graph')).cmdCoChange(flags);
+    // No flags argument: the row above is empty, so there is nothing to hand it.
+    case 'release':      return (await ext('release')).cmdRelease();
     default:
       return die(usage(cmd), 3);
   }
@@ -290,20 +318,28 @@ function usage(cmd) {
     'planned (not-implemented): ' + NOT_IMPLEMENTED_SUBCOMMANDS.join(', ');
 }
 
-function cmdDoctor() {
+// Five of doctor's fields are answered by ext/ sections, and every one of them reads zero when
+// the package is absent. `extInstalled` is what keeps that zero from being read as "installed,
+// nothing declared" -- the whole point of an environment check is to say which state you are in.
+async function cmdDoctor() {
   const cfg = loadHarnessConfig();
+  const extInstalled = fs.existsSync(EXT_DIR);
   let waiverCount = 0;
   let waiversDirExists = false;
   try {
-    waiversDirExists = fs.existsSync(waiversDir());
-    if (waiversDirExists) waiverCount = loadWaivers().length;
+    const quality = await tryExt('quality');
+    if (quality) {
+      waiversDirExists = fs.existsSync(quality.waiversDir());
+      if (waiversDirExists) waiverCount = quality.loadWaivers().length;
+    }
   } catch (_e) { /* doctor must not throw */ }
   let attributesDeclared = 0;
   let modulesWithLayer = 0;
   let forbiddenEdges = 0;
   try {
-    const loaded = loadCatalog();
-    if (loaded.ok) {
+    const catalog = await tryExt('catalog');
+    const loaded = catalog && catalog.loadCatalog();
+    if (loaded && loaded.ok) {
       for (const m of (loaded.catalog.modules || [])) {
         attributesDeclared += Object.keys(m.attributes || {}).length;
         if (m.layer) modulesWithLayer++;
@@ -311,19 +347,25 @@ function cmdDoctor() {
       }
     }
   } catch (_e) { /* doctor must not throw */ }
+  let adaptersPresent = false;
+  try {
+    const scan = await tryExt('scan');
+    if (scan) adaptersPresent = fs.existsSync(scan.adaptersFilePath());
+  } catch (_e) { /* doctor must not throw */ }
   emit({
     node: process.version,
     catalogPresent: cfg.catalogPresent,
     gitRepo: isGitRepo(),
     headCommit: headCommit(),
     harnessDir: '.claude/harness',
+    extInstalled,
     subcommands: IMPLEMENTED_SUBCOMMANDS,
     waiversDirExists,
     activeWaivers: waiverCount,
     attributesDeclared,
     modulesWithLayer,
     forbiddenEdges,
-    adaptersPresent: fs.existsSync(adaptersFilePath()),
+    adaptersPresent,
   }, 0);
 }
 
@@ -332,8 +374,26 @@ function cmdDiffHash() {
   emit({ diffHash: sha256(buf), baseCommit: headCommit(), nonGit }, 0);
 }
 
-function cmdSelftest() {
-  const cases = selftestCases();
+/**
+ * The one assertion left when ext/ is not installed: core's glob compiler, which every
+ * classification in the package is built on. A smoke test is not a suite, so the output says
+ * `ext: "not installed"` alongside `tests: 1` -- otherwise a green one would be read as the
+ * green hundred-and-forty-one, which is the single worst thing this command could report.
+ */
+function coreSelftest() {
+  if (!matchAny('src/a/b.ts', ['src/**/*.ts'])) throw new Error('src/**/*.ts should match src/a/b.ts');
+  if (matchAny('src/a/b.js', ['src/**/*.ts'])) throw new Error('src/**/*.ts should not match src/a/b.js');
+}
+
+async function cmdSelftest() {
+  const mod = await tryExt('selftest');
+  if (!mod) {
+    try { coreSelftest(); } catch (e) {
+      return emit({ ok: false, tests: 1, ext: 'not installed', failed: [{ name: 'core-glob', error: String(e && e.message || e) }] }, 1);
+    }
+    return emit({ ok: true, tests: 1, ext: 'not installed' }, 0);
+  }
+  const cases = mod.selftestCases();
   const failed = [];
   for (const [name, fn] of cases) {
     try { fn(); } catch (e) { failed.push({ name, error: String(e && e.message || e) }); }

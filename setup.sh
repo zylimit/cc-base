@@ -17,8 +17,8 @@ die() {
 # 报清楚合法选项、退 2（和 die 的 1 分开，让调用方分得出「参数用错」和「装到一半失败」）。
 usage_die() {
   printf 'setup: %s\n' "$1" >&2
-  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [--with-tests] [target_dir]\n' >&2
-  printf '合法选项：-win  -mac  -ubt  --dry-run  --with-tests\n' >&2
+  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [--with-tests] [--with-harness] [target_dir]\n' >&2
+  printf '合法选项：-win  -mac  -ubt  --dry-run  --with-tests  --with-harness\n' >&2
   exit 2
 }
 
@@ -106,6 +106,7 @@ validate_target() {
 # 两者都住在 .claude/.runtime/（排除表已挡，不入装），装完连空目录一起清掉。
 DRY_RUN=0
 WITH_TESTS=0
+WITH_HARNESS=0
 TARGET_ROOT=""
 RUNTIME_DIR=""
 LOCK_FILE=""
@@ -254,7 +255,7 @@ manifest_sha_of() {
 # 复制 .claude 框架树，跳过运行时产物 / 待删 / 机器特定文件；settings.json 不在此复制（走 merge）。
 # 下面的排除表另有三份，改这里必须同改：.claude/scripts/gen-manifest.sh 的 case（清单侧同一套口径，
 #   分叉了就会出现「装了但不在清单」或「在清单但没装」）、setup.ps1 的 $skip + 目录正则（Windows 安装侧）、
-#   .claude/harness/lib/release.mjs MANIFEST_RULES。
+#   .claude/harness/ext/release.mjs MANIFEST_RULES。
 # 不共用一份来源是有意的：setup.sh 要能被单独取走对着源码树跑，多一个 source 依赖就多一条装不上的路。
 # 四份手工同步的口径由测试兜：.claude/tests/test-setup.sh 的 ⑥ 逐臂比对四份表，
 #   .claude/tests/test-release-manifest.sh 造真文件锁生成器与审计者两侧行为一致。
@@ -289,6 +290,7 @@ copy_claude_tree() {
       harness/waivers/*) continue ;;  # 结构化 per-check 豁免
       harness/trend/*) continue ;;  # 架构漂移趋势台账（arch-check --record 快照）
       harness/evidence/*) continue ;;  # 每条 check 的原始 stdout/stderr
+      harness/ext/*) continue ;;  # 大仓治理引擎：目标项目默认不装，setup --with-harness 才整目录拷，不入清单
       .runtime/*) continue ;;  # supervisor 进程守护运行态（supervisor.mjs 本体照常入清单）
       worktrees/*) continue ;;  # Claude Code sub-agent 的 worktree 隔离副本（整棵仓副本，不是这个仓的框架文件）
       tests/*) continue ;;  # 框架自测：目标项目默认不装（setup --with-tests 才整目录拷），不入清单
@@ -339,6 +341,22 @@ copy_claude_tree() {
       [ "$DRY_RUN" = "1" ] && continue
       copy_file "$src" "$dest_dir/$rel"
     done < <(find "$src_dir/tests" -type f -print0)
+  fi
+  # --with-harness：大仓治理引擎整目录照拷（同 --with-tests，不走 manifest 分层——引擎是框架的一部分
+  #   不是用户文件）。harness/ext/rules/ 下的两份细则另拷一份进 .claude/rules/：frontmatter 的 path
+  #   作用域只在那个目录下被 Claude Code 认，留在 ext/ 里它们谁也加载不到。
+  if [ "$WITH_HARNESS" = "1" ] && [ -d "$src_dir/harness/ext" ]; then
+    while IFS= read -r -d '' src; do
+      rel=${src#"$src_dir"/}
+      plan_note create ".claude/$rel"
+      [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/$rel"
+      case "$rel" in
+        harness/ext/rules/*.md)
+          plan_note create ".claude/rules/${rel##*/}"
+          [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/rules/${rel##*/}"
+          ;;
+      esac
+    done < <(find "$src_dir/harness/ext" -type f -print0)
   fi
 }
 
@@ -409,6 +427,7 @@ main() {
       -ubt) platform="ubt" ;;
       --dry-run) DRY_RUN=1 ;;
       --with-tests) WITH_TESTS=1 ;;
+      --with-harness) WITH_HARNESS=1 ;;
       -*) usage_die "未知选项：$1" ;;
       *) target="$1" ;;
     esac
