@@ -2,6 +2,8 @@
 
 纯 Claude Code 框架底座：把一套经过血泪迭代的 hooks / skills / agents / feedback 经验，注入式安装到任意项目，让 Claude Code 在该项目里按既定职责边界、TDD 闸门、审查闭环、三文件同步等规则工作。无 CCB / 无 codex / 无 tmux 依赖。
 
+> 从入门到精通的完整使用指南在 [docs/guide/](docs/guide/README.md)：安装、第一个项目、需求与设计、开发、审查测试、发布、记忆、闸门与档位、Sub-Agent 派发、大仓治理、自测与 CI、定制扩展、故障排查、术语表。
+
 ## 快速部署（3 步）
 
 ```bash
