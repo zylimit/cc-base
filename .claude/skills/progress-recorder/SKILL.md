@@ -122,6 +122,8 @@ user-invocable: false
     第一步：阈值检查 —— Notes 与 Done 合计 > 100 条，或 Decisions > 30 条，或显式 /archive 时执行
     第二步：归档执行
         - Notes / Done 各保留最近 50 条，Decisions 保留最近 30 条，其余原文搬迁至 progress.archive.md 对应段
+        - 先写归档、后删正文：要搬的条目先原文追加进 progress.archive.md，再拿每条开头的「日期 + 标题」逐条到归档里搜一遍，全部搜到了才从 progress.md 删；有一条搜不到就一条都不删，回报里写明缺哪条。反过来先删后写，中途被轮次上限截断就是永久丢失——2026-09-19 真丢过三条 Decisions，靠 git 里的旧版本才找回；被挤出去的若是当轮刚写、还没提交的条目就找不回了，而 recap 默认不读归档，没人会发现
+        - 归档里已经有的条目不重复追加：上一轮搬到一半被截断，这一轮接着搬，结果与一次搬完相同
         - Decisions 段末尾留一行指针（搬走的条数、日期区间、「仍在生效的硬约束已在 Pinned」）；主 Agent recap 默认不读归档
         - 受保护区块（Pinned/TODO）不参与归档
         - progress.archive.md 只增不删，新归档追加到现有内容之后
@@ -141,4 +143,4 @@ user-invocable: false
     2) Pinned/Decisions 仅因高置信语言追加；Decisions 每条有依据、适用范围、取代三要素，被取代的旧条有「→ 被取代」标记
     3) TODO #ID 唯一且单调，去重正确
     4) Done 尽量附证据指针，未提供时不虚构
-    5) 归档时 archive 已创建、内容为原文搬迁、Context Index 已更新
+    5) 归档时 archive 已创建、内容为原文搬迁、搬走的每一条都已在归档里搜到后才从正文删、Context Index 已更新

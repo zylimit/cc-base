@@ -120,6 +120,7 @@ progress-recorder 不是关键词匹配器，它按语义抽取，但写入 Pinn
 搬迁规则：
 
 - Notes / Done 各保留最近 50 条，Decisions 保留最近 30 条，其余**原文**搬到 progress.archive.md 对应段（Archived Notes / Archived Done / Archived Decisions）。
+- **先写归档、后删正文**：要搬的条目先追加进归档，逐条在归档里搜到了才从 progress.md 删，有一条搜不到就一条都不删；已在归档里的不重复追加，所以搬到一半被截断可以接着搬。2026-09-19 本仓先删后写、中途撞到轮次上限，丢过三条 Decisions，靠 git 旧版本才找回。
 - Pinned / TODO **永不搬**。
 - Decisions 段末尾留一行指针：搬走的条数、日期区间、「仍在生效的硬约束已在 Pinned」。
 - progress.archive.md **只增不删**，新归档追加到现有内容之后。
