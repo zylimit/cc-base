@@ -16,3 +16,4 @@
 - [审优先级链判定 + 用户可改配置的四条攻法](pattern_priority-chain-and-config-single-point.md) — 突变全绿常因兜底答案与被删分支撞车；顶层 JSON.parse 是整台引擎的单点故障
 - [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的六条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 两个解析器一警一哑 / 退休词撞模板括注 / 覆盖判据宽于失败消息
 - [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；可选包分支绕 manifest；造装完后的目标树跑自带审计
+- [审「先写归档→重读核对→再删正文」搬迁脚本的七条攻法](pattern_archive-move-scripts.md) — 前缀认区块被诱饵劫走；判重口径≠核对口径=永久卡死；零丢失核对别用 grep

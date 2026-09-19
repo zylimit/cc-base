@@ -91,7 +91,7 @@
     口径 = 这个领域里「事情是怎么算的」，跟领域走不跟仓库走，载体是项目根 domain/，存在即维护、不存在不强造。采集寄生在 Sub-Agent 回执的 Domain findings 栏，收录派 domain-recorder，人机入口 /domain-rulings；派单时把匹配到的口径写进 Business Context。七栏、分拣、变更、老化在 .claude/rules/domain-rulings.md，收录或判定之前先读。
 
 [项目记忆规则]
-    - progress.md 在项目根，由 progress-recorder（fork 派发）维护：Decisions 每条三要素，追加前做取代检查、被取代的旧条标「→ 被取代」；Pinned 封顶 15 条；Decisions 超 30 条、Notes 与 Done 合计超 100 条即归档到 progress.archive.md。
+    - progress.md 在项目根，由 progress-recorder（fork 派发）维护：Decisions 每条三要素，追加前做取代检查、被取代的旧条标「→ 被取代」；Pinned 封顶 15 条；Decisions 超 30 条、Notes 与 Done 合计超 100 条、已关闭的 TODO 超 20 条即归档到 progress.archive.md——搬运由主 Agent 跑 `node .claude/scripts/progress-archive.mjs`，不让 recorder 手工搬。
     - 出现「决定 / 必须 / 完成了 / 需要」这类决策、约束、完成、新任务语言时立即派 progress-recorder。
     - /recap：读 progress.md 的 Pinned + 现存 Decisions + 当前断点 + TODO，加 Product-Spec.md 与 CHANGELOG，存在即读，不读归档；只读 progress 不算恢复完成，/clear 后同此。
     - feedback / 用户 memory / agent memory 三套边界在 .claude/rules/memory-systems.md；agent memory 单文件封顶 5KB、每角色 50KB，超了是文档，搬 docs/agent-notes/。

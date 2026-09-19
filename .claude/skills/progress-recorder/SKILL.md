@@ -34,10 +34,10 @@ user-invocable: false
     - 受保护区块（Pinned/Decisions）不可自动修订或删除；检测到潜在冲突 → 记录于 Notes（含建议与理由）
     - Pinned 封顶 15 条：满了要加新条，先把最弱的一条降级成 Decision 或与同类合并，不是继续追加——Pinned 是每次 recap 必读的那一小段，长了就没人真读
     - Decisions 追加前先做取代检查：新条与现存哪条冲突、推翻或收窄了它，旧条末尾标「→ 被 <日期> 取代」；149 条里只有 3 条标过取代（2026-09-15 实数）就是没做这一步的样子，没做取代检查的追加不算完成
-    - 合并 TODO 执行去重：语义相似则更新原条目；无匹配则新增并分配新 ID（= max(existing_ID)+1，未指定优先级默认 P1）
+    - 合并 TODO 执行去重：语义相似则更新原条目；无匹配则新增并分配新 ID（= 现存最大编号 + 1，未指定优先级默认 P1）；已关闭的 TODO 会被搬进归档，TODO 段末「归档指针」行里记着「已归档最大编号」，取它与正文现存最大编号里大的那个再加 1——编号不重用
     - 自动识别 Done（"完成了/实现了/修复了/上线了/已部署/已发布"等完成语义）并尽量附证据指针
     - 所有新增条目追加日期戳（YYYY-MM-DD）
-    - 历史保护：仅在归档任务中对 Notes/Done/Decisions 执行原文搬迁；Pinned/TODO 永不搬、Decisions 搬走的原文一字不改；**progress.archive.md 只增不删，保持完整历史**
+    - 历史保护：仅在归档任务中对 Notes/Done/Decisions 执行原文搬迁；Pinned 与未关闭的 TODO 永不搬（已关闭的 TODO 见 [快照归档]）、搬走的原文一字不改；**progress.archive.md 只增不删，保持完整历史**
     - 输出完整 Markdown，可直接覆盖写入目标文件
 
 [模板]
@@ -119,16 +119,17 @@ user-invocable: false
         - 返回完整 progress.md 内容
 
 [快照归档]
-    第一步：阈值检查 —— Notes 与 Done 合计 > 100 条，或 Decisions > 30 条，或显式 /archive 时执行
+    第一步：阈值检查 —— Notes 与 Done 合计 > 100 条，或 Decisions > 30 条，或已关闭（DONE / 完成）的 TODO > 20 条，或显式 /archive 时执行；三组各判各的，哪组超线搬哪组
     第二步：归档执行
-        - Notes / Done 各保留最近 50 条，Decisions 保留最近 30 条，其余原文搬迁至 progress.archive.md 对应段
+        - 搬运交给脚本，不手工搬：你没有 Bash，搬一条上千字的条目等于把原文当参数重敲一遍——2026-09-19 两次归档都撞轮次上限没做完，各花二十多万 token，其中一次丢了条目。发现超线就停在这里，回报主 Agent「哪组超线、现有几条」，由主 Agent 跑 `node .claude/scripts/progress-archive.mjs`（先写归档、从磁盘重读核对、再删正文，可重跑）。脚本不在（老安装）才按下面几条手工搬
+        - Notes / Done 各保留最新 35 条，Decisions 保留最新 24 条，已关闭的 TODO 保留编号最大的 10 条（`OPEN` / `部分完成` / `明确不做` 永不搬），其余原文搬迁至 progress.archive.md 对应段。保留线压在触发线下面一截，是为了归档完不贴着线、下一条记录又触发
         - 先写归档、后删正文：要搬的条目先原文追加进 progress.archive.md，再拿每条开头的「日期 + 标题」逐条到归档里搜一遍，全部搜到了才从 progress.md 删；有一条搜不到就一条都不删，回报里写明缺哪条。反过来先删后写，中途被轮次上限截断就是永久丢失——2026-09-19 真丢过三条 Decisions，靠 git 里的旧版本才找回；被挤出去的若是当轮刚写、还没提交的条目就找不回了，而 recap 默认不读归档，没人会发现
         - 归档里已经有的条目不重复追加：上一轮搬到一半被截断，这一轮接着搬，结果与一次搬完相同
-        - Decisions 段末尾留一行指针（搬走的条数、日期区间、「仍在生效的硬约束已在 Pinned」）；主 Agent recap 默认不读归档
-        - 受保护区块（Pinned/TODO）不参与归档
-        - progress.archive.md 只增不删，新归档追加到现有内容之后
+        - 搬过的段末尾留一行指针：脚本写的固定以「（归档指针：」开头，记累计条数与最近一次，TODO 段那行另记已归档最大编号；手工搬的写明搬走条数与日期区间，Decisions 段另注「仍在生效的硬约束已在 Pinned」。主 Agent recap 默认不读归档
+        - 受保护区块（Pinned 与未关闭的 TODO）不参与归档
+        - progress.archive.md 只增不删；本批条目整体插在对应段最前面（段内最新在上），批内顺序与正文一致
     第三步：文件管理
-        - archive 不存在则创建；已存在则读取后在末尾追加
+        - archive 不存在则创建；缺哪一段就在文件末尾新建哪一段
         - 更新 progress.md 的 Context Index archive 指针
         - 更新两文件时间戳；**严禁删除或修改 archive 中任何历史记录**
     第四步：返回精简后的 progress.md + 更新后的 progress.archive.md
@@ -136,7 +137,7 @@ user-invocable: false
 [返回格式]
     返回给主 Agent 一行摘要（agent 据此回报）：
     - record："记录到 progress.md：[区块] +N 条 / 更新 M 条"（无有效信号 → "无新进度"）
-    - archive："归档 N 条到 progress.archive.md，progress.md 现存 M 条"
+    - archive："归档 N 条到 progress.archive.md，progress.md 现存 M 条"；交给脚本搬的写 "超线：<哪组> 现有 N 条，请跑 progress-archive"
 
     自检要点：
     1) progress.md 含全部模板区块、顺序正确、时间戳为当前日期

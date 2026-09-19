@@ -114,18 +114,19 @@ progress-recorder 不是关键词匹配器，它按语义抽取，但写入 Pinn
 
 | 触发 | 阈值 |
 |---|---|
-| 自动 | Notes 与 Done 合计 > 100 条，或 Decisions > 30 条——每次 record 完 recorder 必查 |
+| 自动 | Notes 与 Done 合计 > 100 条，或 Decisions > 30 条，或已关闭的 TODO > 20 条——每次 record 完 recorder 必查，三组各判各的 |
 | 手动 | `/archive` |
 
 搬迁规则：
 
-- Notes / Done 各保留最近 50 条，Decisions 保留最近 30 条，其余**原文**搬到 progress.archive.md 对应段（Archived Notes / Archived Done / Archived Decisions）。
+- **搬运由脚本做**：recorder 发现超线只回报，主 Agent 跑 `node .claude/scripts/progress-archive.mjs`（`--check` 只算不写）。recorder 没有 Bash，手工搬一条上千字的条目等于把原文重敲一遍——2026-09-19 两次都撞轮次上限没做完，各花二十多万 token。脚本不在的老安装才退回手工搬。
+- Notes / Done 各保留最新 35 条，Decisions 保留最新 24 条，已关闭（DONE / 完成）的 TODO 保留编号最大的 10 条，其余**原文**搬到 progress.archive.md 对应段（Archived Notes / Archived Done / Archived Decisions / Archived TODO）。保留线压在触发线下面一截，归档完才不会贴着线、下一条记录又触发。
 - **先写归档、后删正文**：要搬的条目先追加进归档，逐条在归档里搜到了才从 progress.md 删，有一条搜不到就一条都不删；已在归档里的不重复追加，所以搬到一半被截断可以接着搬。2026-09-19 本仓先删后写、中途撞到轮次上限，丢过三条 Decisions，靠 git 旧版本才找回。
-- Pinned / TODO **永不搬**。
+- Pinned 与未关闭的 TODO（`OPEN` / `部分完成` / `明确不做`）**永不搬**。已关闭的 TODO 搬走后编号不重用：TODO 段末的「归档指针」行记着已归档最大编号，新编号取它与正文现存最大编号里大的那个再加 1。实测 recap 读进去的 81KB 里有 32KB 是早已关闭的 TODO，这是纳入它的原因。
 - Decisions 段末尾留一行指针：搬走的条数、日期区间、「仍在生效的硬约束已在 Pinned」。
-- progress.archive.md **只增不删**，新归档追加到现有内容之后。
+- progress.archive.md **只增不删**；每批条目整体插在对应段最前面（段内最新在上），批内顺序与正文一致。
 
-本仓当前 progress.md：Pinned 15 条（刚好封顶）、Decisions 31 条、Done 58 条、Notes 56 条；progress.archive.md 242KB，2026-09-15 首批搬了 119 条 Decisions。这就是「超 30 归档」在真实项目里的样子。
+本仓 2026-09-20 用脚本跑的第一次：Done 52 → 35、Notes 51 → 35、Decisions 31 → 24、已关闭的 TODO 61 → 10，共搬 91 条，progress.md 从 168KB 降到 112KB，recap 要读的四段从约 81KB 降到约 59KB；此前 2026-09-15 首批搬过 119 条 Decisions。这就是「超线归档」在真实项目里的样子。
 
 ### 为什么 recap 不读归档
 

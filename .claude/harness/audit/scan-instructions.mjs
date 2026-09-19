@@ -211,9 +211,15 @@ const README_PATH = '.claude/harness/audit/README.md';
 // owner reads often. Re-reading the line comes first and is not automatable:
 // hashes handed over without looking at what they now bind would turn the one
 // checkpoint this binding exists to create into a rubber stamp.
+// The split() here has to strip a leading UTF-8 BOM and normalize \r\n -> \n,
+// in the same order the scanner uses below (TODO #73): a line re-hashed
+// straight off a CRLF checkout, or off the first line of a file that opens
+// with a BOM, used to land on a different sha256 than the one the scanner
+// computes, so a re-signed entry would lapse again on the very next scan.
+// Lone \r bytes are left alone, same reasoning as the scanner's.
 const REHASH_CMD = 'node -e "const f=process.argv[1],i=+process.argv[2]-1,'
   + 'h=s=>require(\'crypto\').createHash(\'sha256\').update(s).digest(\'hex\'),'
-  + 'L=require(\'fs\').readFileSync(f,\'utf8\').split(\'\\n\');'
+  + 'L=require(\'fs\').readFileSync(f,\'utf8\').replace(/^\\uFEFF/,\'\').replace(/\\r\\n/g,\'\\n\').split(\'\\n\');'
   + 'console.log(JSON.stringify({line:i+1,sha256:h(L[i]),'
   + 'context:h((L[i-1]||\'\')+\'\\n\'+L[i]+\'\\n\'+(L[i+1]||\'\'))}))" <file> <line>';
 const MAX_BYTES = 1024 * 1024;
@@ -452,6 +458,7 @@ const allowlisted = [];
 const scannedFiles = new Set();
 let scanned = 0;
 let prohibitionSkips = 0;
+let crlfNormalizedFiles = 0;
 
 for (const f of targets) {
   let text;
@@ -488,6 +495,25 @@ for (const f of targets) {
   if (text.charCodeAt(0) === 0xFEFF) {
     text = text.slice(1);
     notes.push({ file: f, note: 'utf8-bom-stripped-before-scan' });
+  }
+
+  // core.autocrlf=true (the Git for Windows install default) checks every line
+  // out with a trailing \r, and hashing that byte into the allowlist binding
+  // made every entry in this file fail on such a checkout (TODO #73) -- the
+  // scan itself stayed correct, only the exemptions stopped applying, so a
+  // clean repository read as broken. Normalized here, before the line split, so
+  // the finding line numbers, the allowlist sha256/context and REHASH_CMD all
+  // agree regardless of checkout line endings. Only the \r\n pair is touched: a
+  // lone \r with nothing after it is left on the line on purpose and still
+  // counts toward its hash, so a line whose exemption was signed before that
+  // byte landed in it stops matching and the exemption lapses -- erring toward
+  // blocking a changed line rather than quietly keeping its old signature. Counted
+  // rather than noted per file, because on a CRLF checkout every scanned file
+  // hits this -- one note per file would bury the notes that are actually
+  // informative; the tally goes out as a single summary note below.
+  if (text.indexOf('\r\n') !== -1) {
+    text = text.replace(/\r\n/g, '\n');
+    crlfNormalizedFiles++;
   }
 
   const lines = text.split('\n');
@@ -538,6 +564,12 @@ for (const f of targets) {
       findings.push(hit);
     }
   }
+}
+
+// One summary note for the whole run, not one per file: see the comment at the
+// normalization site above for why per-file would drown out everything else.
+if (crlfNormalizedFiles > 0) {
+  notes.push({ file: '(scope)', note: 'crlf-normalized-before-scan:files=' + crlfNormalizedFiles });
 }
 
 // "Nothing to scan" and "did not manage to scan" are different answers and must
