@@ -206,5 +206,57 @@ chk "$ok" "D-7g --with-harness 不顺带把 tests/ 带出去" \
   "不存在（两个开关各管各的，一个开了另一个不跟着开）" \
   "存在=$([ -e "$CL4/tests" ] && echo yes || echo no)"
 
+# ---- D-7h 同一份字节，两条路径必须被 scan-instructions 判成同一个结论（TODO #70 红锁）----
+# --with-harness 把 rules/*.md 逐字节复制到两处：.claude/rules/（Claude Code 真加载的那份）与
+# .claude/harness/ext/rules/（随包的源）。instructions-allowlist.json 的豁免只绑
+# .claude/harness/ext/rules/harness-large-repo.md:63 这一条路径，装出来的 rules/ 那份拿不到同一条
+# 豁免——下游项目一装完、一开 githooks 就被这份「装出来的文件」自己的指令审计拦停，装坏的是
+# 别人的项目，不是这仓自己。复用 D-7 段已经装好的 $T4/$CL4，不再起第二个沙箱。
+# 在当前实现下这段必红：rules/ 那份 rc=1 / error=1 / allowlisted=0，
+# 与 ext/rules/ 那份的 rc=0 / error=0 / allowlisted=1 对不上；D-7h3 的 sha256 一致则证明
+# 这不是内容差异，纯粹是豁免只认路径没认字节。
+jget() {  # jget <json文本> <字段路径，如 counts.error> — 经环境变量传 JSON，避开引号/中文转义
+  J="$1" node -e '
+    let d;
+    try { d = JSON.parse(process.env.J); } catch (e) { process.stdout.write("<PARSE-ERROR>"); process.exit(0); }
+    let cur = d;
+    for (const k of process.argv[1].split(".").filter(Boolean)) cur = (cur == null) ? undefined : cur[k];
+    process.stdout.write(cur === undefined ? "<UNDEFINED>" : String(cur));
+  ' "$2"
+}
+
+RULES_RC=0
+RULES_JSON=$( (cd "$T4" && node .claude/harness/audit/scan-instructions.mjs --paths .claude/rules/harness-large-repo.md --json) 2>"$TMP/d7h-rules.err" ) || RULES_RC=$?
+EXT_RC=0
+EXT_JSON=$( (cd "$T4" && node .claude/harness/audit/scan-instructions.mjs --paths .claude/harness/ext/rules/harness-large-repo.md --json) 2>"$TMP/d7h-ext.err" ) || EXT_RC=$?
+
+RULES_ERR=$(jget "$RULES_JSON" counts.error)
+RULES_AL=$(jget "$RULES_JSON" counts.allowlisted)
+ok=0
+[ "$RULES_RC" = "0" ] || ok=1
+[ "$RULES_ERR" = "0" ] || ok=1
+case "$RULES_AL" in ''|*[!0-9]*) ok=1 ;; *) [ "$RULES_AL" -ge 1 ] || ok=1 ;; esac
+chk "$ok" "D-7h1 装出的 .claude/rules/harness-large-repo.md 扫描应 rc=0 / error=0 / allowlisted>=1" \
+  "rc=0 counts.error=0 counts.allowlisted>=1（第 63 行那条 gate-disable-instruction 豁免该随字节走，不该只认 ext/rules/ 那一条路径）" \
+  "rc=$RULES_RC counts.error=$RULES_ERR counts.allowlisted=$RULES_AL stderr=[$(d_head "$TMP/d7h-rules.err")]"
+
+OK1=$(jget "$RULES_JSON" ok); OK2=$(jget "$EXT_JSON" ok)
+ERR1="$RULES_ERR"; ERR2=$(jget "$EXT_JSON" counts.error)
+AL1="$RULES_AL"; AL2=$(jget "$EXT_JSON" counts.allowlisted)
+ok=0
+[ "$OK1" = "$OK2" ] || ok=1
+[ "$ERR1" = "$ERR2" ] || ok=1
+[ "$AL1" = "$AL2" ] || ok=1
+chk "$ok" "D-7h2 rules/ 与 ext/rules/ 两条路径对同一份字节的扫描结论必须一致（防两边一起坏掉的假绿）" \
+  "ok 相等 且 counts.error 相等 且 counts.allowlisted 相等" \
+  "rules/: ok=$OK1 error=$ERR1 allowlisted=$AL1 | ext/rules/: ok=$OK2 error=$ERR2 allowlisted=$AL2 rc=$RULES_RC/$EXT_RC"
+
+SHA1=$(sha256sum "$CL4/rules/harness-large-repo.md" 2>/dev/null | cut -d' ' -f1)
+SHA2=$(sha256sum "$CL4/harness/ext/rules/harness-large-repo.md" 2>/dev/null | cut -d' ' -f1)
+ok=0; [ -n "$SHA1" ] && [ "$SHA1" = "$SHA2" ] || ok=1
+chk "$ok" "D-7h3 两份 harness-large-repo.md 字节完全相同（判定差异不是内容差异，是路径绑定）" \
+  "sha256 相同且非空（同一份字节，两条路径）" \
+  "rules/=$SHA1 ext/rules/=$SHA2"
+
 printf '==== test-distribution：PASS=%s FAIL=%s ====\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ] || exit 1

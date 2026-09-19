@@ -17,6 +17,14 @@
       "sha256": "0b6184ed756c4424acbeb46a95c530c8dab47217b61246cbc3e4db23420610c6",
       "context": "fa2fb3cea77c8868590654743ec8a614af06a8b6642921f39c2bb37b5ab2a86c",
       "reason": "--no-verify-evidence is a real ledger flag, and the sentence naming it argues against using it in the same breath -- on by default, and a check that is off by default is no check. Documenting where a switch stops being safe is not telling anyone to flip it."
+    },
+    {
+      "file": ".claude/rules/harness-large-repo.md",
+      "line": 63,
+      "rule": "gate-disable-instruction",
+      "sha256": "0b6184ed756c4424acbeb46a95c530c8dab47217b61246cbc3e4db23420610c6",
+      "context": "fa2fb3cea77c8868590654743ec8a614af06a8b6642921f39c2bb37b5ab2a86c",
+      "reason": "setup.sh --with-harness copies harness/ext/rules/harness-large-repo.md byte-for-byte to this rules/ path so Claude Code's frontmatter path-scoping can load it; the allowlist keys on file path, not on content, so the same exemption has to be keyed twice for the one line of source it actually covers -- otherwise every downstream project that installs --with-harness and enables githooks gets blocked by its own copy of a file this repository already cleared."
     }
   ]
 }

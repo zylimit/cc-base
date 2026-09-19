@@ -7,7 +7,7 @@ description: design-brief-builder 迭代模式启动时读。用户调整设计�
     已有 Design-Brief.md（多半也有 DESIGN.md），用户要调整视觉方向、改页面、换组件风格，或 Spec 变更波及设计。
 
 [顶层规则]
-    接住需求直接问，不开场白。守 interview-principles：一次一问、逼出具体、反失败自检。别一听就照单全收。
+    接住需求直接问，不开场白。守 interview-principles：先问上游能并才并、逼出具体、反失败自检。别一听就照单全收。
     先判轻重：只改一个 token 值或一页的一个区域 → 直推，改完复述一句；换密度、换主题、换形态、换导航 → 走完整追问。
 
 [流程]

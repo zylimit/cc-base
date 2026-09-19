@@ -1,24 +1,18 @@
 ---
 name: installer-and-selfcheck-attacks
-description: 审安装器 / 自检工具（setup.sh·ps1、doctor）的六条固定攻法——分母缩水报绿、装完自检恒红、锁 test-then-write、trap 标记扛不住 SIGKILL
+description: 审安装器 / 自检工具（setup.sh·ps1、doctor）的八条固定攻法——分母缩水、装完自检、锁、trap 标记、可选包绕过三层保护、字节签名怕 CRLF
 metadata:
   type: project
 ---
 
-本仓凡是「往别人项目里装」或「装完自查完整性」的工具，照这六条打。2026-09-04 审批 4/5 时六条中五条。
+本仓凡是「往别人项目里装」或「装完自查完整性」的工具，照这八条打。
 
-1. **「全量比对」的分母会自己缩水**。`doctor.sh` 逐条比 sha 报 `✓ 全量比对 N 条一致`，但「登记了、盘上没有」的走 `continue` 不进分母、只落一句 stderr `!`，rc 仍 0。
-   固定实验：移走 10 个清单登记的文件（挑只有清单管的，避开工具的其它显式检查）→ 看 rc 和那行 ✓ 的数字。
-   本仓已有正解可引用：`release.mjs` 的 `manifestFindings` 把 `stale`（listed but absent）计进 FAIL 总数。同一件事两个工具两套口径，是这类仓的常态。
-   同族一起造：清单文件整个删掉 / 清空成 0 条 / 清单里的路径变成目录 —— 本轮三个全是 rc 0。
+1. **「全量比对」的分母会自己缩水**。固定实验：移走 10 个清单登记的文件 → 看 rc 和 ✓ 那行的数字；同族：清单删掉 / 清空 / 路径变目录。`doctor.sh` 已修成缺件计 ✗（2026-09-19 复核），但比对仍**单向**：盘上有、清单没登记的（`--with-harness` 装出的 ext/ 与 rules/ 副本）永远不查、升级也不刷新。
 
-2. **自检工具必须装到干净目标再跑，不能只在开发仓里跑**。`doctor.sh` 硬判仓根的 `make-release.sh`，而安装器按设计只装 `.claude/` —— 于是**每一个被安装的项目**上 doctor 恒 rc 1。恒红等于没红。
-   查检：`setup.sh /tmp/x && doctor.sh /tmp/x`，看 rc。
-   **它自己的测试会用桩文件绕过而不是修**：`test-doctor.sh` 沙箱里补了个 `make-release.sh` 桩，注释还写明「缺了它基线就 rc=1，rc 断言当场失去分辨力」——夹具绕过缺陷的原话就写在那儿，读测试注释能直接捡到 finding。
+2. **自检工具必须装到干净目标再跑**：`setup.sh /tmp/x && doctor.sh /tmp/x` 看 rc。当年 doctor 硬判仓根 `make-release.sh`、每个下游恒 rc 1，已修（现为 `!` 跳过）。**测试会用桩文件绕过而不是修**——读夹具注释能直接捡到 finding。
 
 3. **锁是 `[ -f ] … > lock` 的一律不是锁**。test-then-write 中间没有原子原语。
-   固定实验：**别只读代码**，用原样脚本跑 24~36 轮 × 2 并发装同一个 mktemp 目标，数「两边都 rc 0 装完」的轮数——本轮约 8%（3/36），足够当复现证据。再拿 /tmp 副本在 `-f` 与写之间插一行 sleep 做 100% 确证。
-   本仓已有原子范式：`core.mjs` 的 `withDirLock()`（`mkdirSync` + EEXIST + 陈旧龄）。
+   固定实验：原样脚本跑 24~36 轮 × 2 并发装同一 mktemp 目标，数「两边都 rc 0」的轮数（当年约 8%）。setup.sh 已改 `set -o noclobber`（2026-09-19 仍是）；范式另见 `core.mjs` 的 `withDirLock()`。
 
 4. **trap 写的「中断标记」扛不住 trap 跑不了的场景**，而那恰恰是标记存在的理由。
    `setup.sh` 的 EXIT trap 把 marker 翻 `interrupted`（doctor 判 ✗ rc 1）；`kill -9` 后 marker 停在 `active` + 死 pid，doctor 只给 `!` warn、rc 0。marker 里已经记了 pid、`acquire_lock` 里已经有 `kill -0`，消费方却不用。
@@ -28,9 +22,12 @@ metadata:
 5. **`case` 里的 `*) target="$1"` = 未知参数被静默当参数**。`setup.sh --dryrun /tmp/x` 真装 240 个文件、rc 0、零告警——零写入安全开关拼错一个连字符就变成完整写入。
    查检：安全类 flag 一律白名单，未知参数 die。
 
-6. **多份排除表要自己数，注释里的数字不算**。本轮注释写「另有三份/四份」，实际七处（+ `static-check.sh` 的 `JS_PRUNE`）。
-   验的正确姿势不是读表：源树里造**真实形态**的样本（worktree 副本里还有一层 `.claude/`），把两个安装器 + 生成器都跑一遍，比 `comm` 双向差集；`manifestIncludes` / `isStateExcluded` / `isDenied` 三个纯函数直接 import 探针，一次问完深层/反斜杠/嵌套/裸目录四种形态。
-   本轮七处全对齐——排除表这次是干净的，别再重复审同一面。
+6. **多份排除表要自己数，注释里的数字不算**。注释写「另有三份/四份」，实际七处。
+   验法不是读表：源树里造**真实形态**样本（worktree 副本里还有一层 `.claude/`），两个安装器 + 生成器都跑一遍比 `comm` 双向差集；`manifestIncludes` / `isStateExcluded` / `isDenied` 三个纯函数直接 import 探针。
+   主循环那七处对齐过一次，但**可选包分支根本不过表**：`--with-harness` 实测把 `ext/.DS_Store`、`scan.mjs.bak`、`ext/state/run.json` 一起拷出去。
 
-**同一个文件里两张排除表口径不一致 = 其中一张裸奔**：`static-check.sh` 给 JS 专门写了第二张不排 `.claude/` 的表（注释还写明理由），`.sh` 那张原样排掉整个 `.claude/` —— 于是 shellcheck 面只覆盖 63 个 `.sh` 里的 2 个。证据不是「覆盖率低」，是**把它打开当场就红**（本轮改动的 15 个 .sh 里 7 个非零、含一个 SC1087 error）——从来没跑过才会这样。
+7. **可选包分支也绕过 manifest 三层保护**（2026-09-19）。`--with-tests` / `--with-harness` 直接 `copy_file` / `Copy-Item -Force`：重装覆盖用户改动，sh 留 `.bak`、ps1 什么都不留、两边都不落 `.framework-new`；`--dry-run` 对已存在的文件一律报 `create`，汇总行 `create=18 update=0` 是假的。实验：装完改一行再装一次，比 sha + 数 `.bak`。
+8. **按字节签名的表都要问 CRLF**。manifest 归一（`tr -d '\r'`），`instructions-allowlist.json` 不归一 → Windows autocrlf 检出当场豁免失效 rc 1；仓里没 `.gitattributes`，`gate.yml` 给 Windows 格设 `core.autocrlf false` 把这条盖住了。
+
+**同一个文件里两张排除表口径不一致 = 其中一张裸奔**：`static-check.mjs` 给 JS 写了第二张不排 `.claude/` 的表，`.sh` 那张原样排掉整个 `.claude/` —— shellcheck 面只覆盖 46 个 `.sh` 里的 2 个（2026-09-19 复核仍如此）。凡是审 `.claude/**/*.sh` 的改动，Stage 0 那行「全绿（shellcheck）」不覆盖它，自己手跑一遍再下结论。
 相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_duplicated-rule-tables]]、[[pattern_evidence-ledger-attacks]]
