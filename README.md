@@ -86,7 +86,7 @@ target/
 
 框架 settings.json 在 hooks 之外带三层 Claude Code 原生配置：
 
-- **permissions deny/ask（密钥红线 + HIGH 档机器化）**：`Read(**/.env)`、`Read(**/id_rsa*)`、`Read(secrets/**)` 等 deny 规则让密钥文件对任何工具不可读（同路径 Edit/Write 连带被挡，Bash 里的 cat/head/sed 也认；任意子进程绕读由 secret-exfil-guard hook 补拦）；`Bash(git push*)`、`Bash(gh release *)`、`Bash(npm publish*)`、`Bash(docker push*)` ask 规则把「发布/push 必停等审批」做成机器强制——**bypassPermissions 模式下 ask 规则照样弹审批**（官方语义），与审批三档的 HIGH 档一致。
+- **permissions deny/ask（密钥红线 + HIGH 档机器化）**：`Read(**/.env)`、`Read(**/id_rsa*)`、`Read(secrets/**)` 等 deny 规则让密钥文件对任何工具不可读（同路径 Edit/Write 连带被挡，Bash 里的 cat/head/sed 也认；任意子进程绕读由 secret-exfil-guard hook 补拦）；`Bash(gh release *)`、`Bash(npm publish*)`、`Bash(docker push*)` ask 规则把「发布必停等审批」做成机器强制（`git push` 不在 ask 列里——用户 2026-09-06 指令定期推送不再确认，由 auto-push hook 接管，这条没有机器闸兜底）——**bypassPermissions 模式下 ask 规则照样弹审批**（官方语义），与审批三档的 HIGH 档一致。
 - **statusLine（治理状态常驻可见）**：`.claude/scripts/statusline.mjs` 显示 `[模型] | ctx N% | $成本 | tier: 档位（fast 剩余h） | 待审 N | harness ON`——fast-mode 忘关、待审欠账、大仓开关全程在眼前，不再只靠开场 banner。
 - **env**：`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25`——Claude Code 对 Stop 闸有「连拦 8 次强制放行」的原生上限，提额到 25 作兜底（stop-gate 自身三振熔断先触发）。
 
