@@ -11,6 +11,7 @@
 |---|---|---|---|
 | 2026-09-04 | deepseek-base（`/mnt/d/code/deepseek-base`） | HEAD `ea0d815`，2026-07-31 后 57 个 commit | Explore 只读 + 主 Agent 对每条指控在 cc-base 源码逐一核实 |
 | 2026-09-04 | codex-base（`~/code/codex-base`） | HEAD `f4e8790`，v3→v4→v5 共 12 个 commit | 同上 |
+| 2026-09-21 起 | ccb-base（ai-node `~/code/ccb-base`，十四席四线集群） | 分支 `fix/install-path-and-floor-gates`，集成提交 `d9e700e` | 不是摸底，是实战回流：主 Agent 当外部顾问盯它修安装路径与地板闸，过程中凡照出 cc-base 自己毛病的、或它做得比本仓好的，记在「ccb-base 实战回流」一节；用户 2026-09-21 指示「过程中可以 cc-base 整改的都记录，后面一起清理」 |
 
 ## 他们对 cc-base 的判定，以及核实结果
 
@@ -68,6 +69,32 @@ deepseek-base 的 `docs/CROSS-POLLINATION.md:40-58` 把 cc-base 定性为「a de
 | `never` 模式下 `prompt` 即死锁 → 无应答通道的闸不是保护是死锁 | `b547f30`、ADR-0005 | 本仓 headless / CI 下 hook 的 block 路径没专门审过 | 观察：#10 headless 烟囱测试做了才有证据 | — |
 | PermissionRequest 精确 argv 放行 | `config.toml:55-63` | 本仓 `bypassPermissions`，不走 PermissionRequest | 拒绝：前提不成立 | — |
 | Codex 原生面（execpolicy Starlark / `[auto_review]` / `codex exec --output-schema` / `/hooks` 信任哈希） | — | — | 拒绝：平台特有 | — |
+
+## ccb-base 实战回流（2026-09-21 起，随盯梢持续追加，统一清理时再排批）
+
+ccb-base 的 Claude 侧单兵层就是照本仓抄的，所以它在实战里撞出来的毛病，多半本仓也有。下表的「判定」一律还没动手：**吸收（待排期）** = 已有实证、等统一清理；**观察** = 缺一块证据，写明缺什么；**已挂账** = progress.md 里已有 TODO，这里只留句柄不重复。家底类（hooks / skills / rules / `.github`）动之前照旧要用户拍板。
+
+用户 2026-09-21 19:20 已点头、随统一清理落地的三条（原话「我这边都同意，按照你建议走」）：单兵 Git 工作流补「宿主已绑定分支时不得另开或切换」的边界注记；「谁在守」再标接没接线（doctor 那一半仍是观察，缺的证据不变）；读密钥闸按 ccb-base 线 4 最终版的两层判据修（#76）。同一句话里用户还签了 ccb-base 的 B2 方案 D（逐进程 bubblewrap），那条不归本仓。
+
+| 机制 / 发现 | 它在哪（证据） | cc-base 现状 | 判定 | 落点 |
+|---|---|---|---|---|
+| 读密钥闸的判据从「命令是不是读取器」翻成「argv 里有没有密钥路径」：命中即拦，只对一张很短的、封闭的元数据命令表（`ls` / `stat` / `test` / `chmod` / `chown` / `rm` 一级）放行；`$()` 与反引号同一处理、递归同一判据；解析不了的**只看原始命令文本里有没有密钥路径 token，有就拦、没有就放行，不因为「看不懂」而拦** | ccb-base `ccb/group/line4`：`22eb92c`（翻判据）→ `4399baf`（有界静态兜底），`.claude/hooks/lib/floor-policy.py`；顾问探测 43 条（20 必拦 / 23 必放）两侧重放 86/86；Codex 原生调用的记录器落盘：读假 `.env` rc=2、界外 `rm -rf` rc=2、哨兵目录完好 | `secret-exfil-guard.mjs:22-29` 按命令名枚举，实测 `tac .env` / `paste .env` / `jq -R . .env` rc=0 | **已挂账 #76**；修法直接参照 `4399baf`，不必另行设计 | `secret-exfil-guard.mjs` + `test-hooks-floor.sh` |
+| 地板闸必须同时有「必须放行」断言：一道会拦日常命令的地板闸，结局是被人关掉，比没有还糟 | ccb-base `2686999` 为拦命令替换读密钥，一度把 `export PATH="$(ls -d …)"`、`cd $(git rev-parse --show-toplevel)`、`` echo `date` ``、`grep … $(git ls-files)` 全拦了，且同一写法换个外层命令行为就不同；`4399baf` 修复后 14/14 | `test-hooks-floor.sh` 读密钥闸的放行侧只有 SE-1（普通命令）与 SE-5（`.env.example`）两条，没有元数据命令、没有命令替换 | **吸收（待排期）**，随 #76 一起：放行侧补两三条代表用例（元数据命令一条、不含密钥路径的命令替换一条），不铺开 | `test-hooks-floor.sh` |
+| 本仓读密钥闸对**引号 / heredoc 里的字样**也拦：命令本身不读任何密钥，只是正文里提到了「读取器 + `.env`」就被拒 | 2026-09-21 11:55 主 Agent 用 Bash heredoc 写一条给 ccb-base 指挥官的消息，正文含 `cat .env` 字样，被本仓 `secret-exfil-guard` 拦下（未绕闸，改用写文件工具落盘后再发） | 规则是对整条命令串做正则，不区分「要执行的命令」与「数据」 | **观察**：#76 改成 argv 级判定后第一层自然不再误拦；但上一行的第二层文本兜底会保留这类误拦——取舍留到修 #76 时定，缺的证据是这类误拦在日常里多不多 | `secret-exfil-guard.mjs` |
+| 安全文档承诺得不许比实现强 | PR #2 去掉了 README 里并不存在的 `Bash(git push*)` ask 规则；同一行还剩一句「任意子进程绕读由 secret-exfil-guard hook 补拦」，实测不成立 | `README.md:89` | **已挂账 #76**（末尾已补一句，修 #76 时一并改） | `README.md` |
+| 单兵 Git 工作流的边界注记：「动手前先开分支」只在单一工作树下成立；宿主或编排层已把工作树钉在某个分支上时，不得另开或切换，以编排层规则为准 | ccb-base 2026-09-21 09:39：线 1、线 2 的编码席（两家不同模型）几分钟内各自按单兵 skill 开了工作分支，CCB 启动校验 `workspace branch mismatch`，整队起不来；ccb-base 为此加了编队规则第 7 条（`302901b`）。cc-base 差距报告 R3 与 codex-base 差距报告「反向」一节独立给出同一建议 | `dev-builder/SKILL.md` [开发规则清单] 的 Git 工作流没有这条前提 | **吸收（待排期）**：一句话边界注记，不引入任何集群概念 | `.claude/skills/dev-builder/SKILL.md`（家底） |
+| 「谁在守」再细一层：不光标闸名，还标这道闸**接没接线、验没验过**；没验过的如实写「仍靠自觉，不能宣称机器闸已生效」 | ccb-base `.ccb/ccb_memory.md` 第 7 条的写法；当天的实证——Codex / Grok / AGY 三种 CLI 上闸文件都装了，但未经人工信任前 Codex 显示 Installed 2 / **Active 0**、Grok `Hooks(0)`、AGY 加载 0，静默跳过、无任何报错 | `.claude/CLAUDE.md` 铁律每条末尾标闸名，不标接线状态；`doctor.sh` 核 hooks 目录、语法、lib 齐全，是否逐条核 `settings.json` 挂的命令指向的文件存在——未查证 | **观察**：缺的证据是在一个全新克隆的目标项目里首次启动 Claude Code，看未确认工作区信任前项目 hook 是否执行；若同样静默跳过，则 `docs/guide` 安装章要写明这一步、doctor 要报「装了但未生效」 | `doctor.sh` + `docs/guide` 安装章 |
+| 本仓装出的 `.claude/settings.json` 会被别家 CLI 吃到 | Grok 1.0.34 自带文档 `~/.grok/docs/user-guide/10-hooks.md:70` 把 `<project>/.claude/settings.json` 列为「Claude compatibility」的项目级 hook 来源；实测信任后 `/hooks` 显示 `Custom: …/.claude (2 hooks)`。但工具名不同：读密钥闸的 matcher 要写成 `Bash|Read|ReadFile|read_file|view_file|run_terminal_command` 才盖得住 | 本仓 matcher 只写 Claude Code 的工具名 | **观察**：属 grok-base / ccb-base 的事；本仓只需知道有这条通路，别在 settings 里放只对 Claude 成立的假设。等 ccb-base 的 Grok 原生反测出结果再定 | — |
+| 只在我们没有的环境里才执行的测试分支，等于从没被测过 | PR #2：`test-ui-audit.sh` 的 U4 在 `HAS_ENGINE=1` 时走隔离分支，本机与 CI 都没装 playwright-core，该分支从未执行，装了引擎的机器上恒红（假红）；修复后本机重跑仍未覆盖到那条分支。同日 ccb-base 三个席位各自注明「本机无 shellcheck，静态检查只做了 `bash -n`」，副官的回归驱动把临时目录放错位置导致误报红——都是换个环境才露馅 | CI 矩阵是 ubuntu / windows × node 22 / 24，无「引擎在场」的格子 | **吸收（待排期）**：CI 加一个装 playwright-core 的格子；或至少让套件在输出里点名「本环境未覆盖的分支」，别让 PASS 冒充覆盖 | `.github/workflows`（家底）+ `test-ui-audit.sh` |
+| `run-all` 失败汇总点名到具体套件 | PR #2 正文；`run-all.sh:324` | 四个套件共用一句写死的「安装器 / 路由一致性不过」 | **已挂账 #77** | `.claude/tests/cases/run-all.sh` |
+| 验收时对新写的红锁用例亲手做一次变异（把实现改坏一处，看用例红不红） | 2026-09-21 对 ccb-base 两个测试席交的用例各做一两个变异：线 3 退出码恒 0 → 7 红、去掉 grok 检查 → 恰好 1 红并点名；线 4 密钥路径永不命中 → 4 红涨到 14 红。本仓 #75 当时 A5 没牙，也是主 Agent 自己做变异才发现的 | harness 层 golden 有 `--mutate`；验收五步闸与 test-builder 里没有「对红锁用例做一次变异」 | **观察**：只给 red-locks 与 HIGH 档、每次一处、主 Agent 亲手做，做完还原——防的是「测试全绿但没牙」；缺的证据是它会不会沦为又一道形式，先在下两次红锁里手工试 | `.claude/rules/dev-workflow-details.md` 验收段 |
+| 两条测试反模式点名：①用测试把实现里的名单重新枚举一遍（实现漏一个命令名，测试就锁一个，永远差一个）；②测试比被测代码还长 | ccb-base：线 4 测试席锁 `nl`、编码席补 `nl`，下一个是 `tac`；顾问列了 11 种绕过读法，明确要求「只锁一条红，不许铺成 11 条」。线 3 的 `test-env-check.sh` 449 行，被测脚本约 310 行，退回后砍到每个验收项一条（`71f9f2d`） | test-builder 有「按风险给预算、不做全量覆盖」，没有点名这两条 | **吸收（待排期）**：各一句话 | `.claude/skills/test-builder/SKILL.md`（家底） |
+| 「闸靠数据留」现在是空转的：下游项目的拦停记录从未回流 | PR #2 正文的题外话，属实：本仓 `gate-audit` 十个闸全零记录、0 份 `gate-block.log`，脚本自己诚实标了「零拦停无从评价」 | Pinned 有「闸靠数据留」原则，无回流通道 | **观察**：ccb-base 十四席真跑起来之后是第一批真数据；缺的是回流通道怎么做（谁把下游的 `gate-block.log` 带回来、隐私怎么处理）。留到与用户谈 ccb-base 第 3 步范围时一起定 | `gate-audit.sh` |
+| 上游 → 下游编队层的同步：记上游提交与文件哈希，三方比对（上次上游 / 最新上游 / 下游现状），**只出差异报告、不自动覆盖**；清单三层标记 `upstream` / `forked` / `local` | ccb-base `.ccb/evidence/step3-base-sync/cc-base-gap.md` 与 `codex-base-gap.md` 两份报告各自独立得出同一方案；活证据是 ccb-base 的 `.claude/` 停在 2026-08-11、`.claude/agents` 停在 06-15，本仓 09-15 的重构一点没吃到 | 有 `FRAMEWORK-MANIFEST` 与 `gen-manifest.sh`（#71 排除表从头锚定的毛病会直接影响这件事） | **观察**：属 ccb-base 第 3 步；本仓这一侧可能要提供一个只读的 `sync-check` 报告，先修 #71 | 待定 |
+| `.sh` 的静态检查 | ccb-base 当天装了 shellcheck 0.11.0 后，顾问对三条线已提交的 7 个 shell 文件跑 `-S warning`，0 告警 | 本仓 CI 与 doctor 都不跑 shellcheck（全仓无引用），`.sh` 只靠各自的用例 | **观察**：0 告警说明它在那批文件上没增量价值；缺的证据是在本仓自己的 `.sh` 上跑一次看有没有真问题，有再谈进 CI | — |
+| 闸认不出输入载荷时：不静默放行、也不一律拒绝——对**整段原始 stdin 文本**跑第二层（出现密钥路径 token / 「递归删除 + 界外路径」就拦，否则放行），并把「收到过不认识的输入」写一条 gate log | ccb-base 2026-09-21 AGY 原生反测：hook 被真实调用四次、两道闸全部返回 0，假 `.env` 被读出——AGY 喂的是 `{"toolCall":{"name":"view_file","args":{"AbsolutePath":…}}}` / `args.CommandLine`，闸只认 `tool_name` / `tool_input.command`，认不出来就当成没什么可查的放行了；而载荷原文里明写着 `…/.env` 与 `rm -rf -- /var/tmp/…`。同一批动作在 Codex 上两道闸各返回 2。这是「规则钉在一种精确形态上」的第七次 | 本仓只面向 Claude Code，载荷形态单一；但 `test-hooks-floor.sh:124` DP-6 明写「损坏输入 → fail-open 静默 exit 0」，读密钥闸对解析不了的输入同样静默放行、不留痕 | **观察**：本仓不需要多形态适配；值得抄的只有后半——解析失败时扫原文兜底 + 留一条 gate log。随 #76 一起看；缺的证据是 Claude Code 升级改过 hook 载荷字段没有（改过一次就值得做） | `secret-exfil-guard.mjs` / `dangerous-pkill-guard.mjs` |
+
+正向验证（无需动作，记一笔免得下次重评）：本仓的七字段派单包与回执信封被下游证明有用——ccb-base 线 2 的回执缺 SHA / AC 对应 / 证据路径 / 复现入口，是副官独立复核才发现的，它的差距报告把「统一回执信封」排在最值得吸收的第一位；「归档搬运交给脚本」（#72 / #75）排第二；「压缩两端的闸」排第三。ccb-base 判**不适用**的一项也值得记：agent-memory 封顶机制是给每次 fresh 的子 Agent 攒跨次记忆用的，常驻席位的问题是上下文会涨、不是记不住——同一个机制换了运行模型未必成立。
 
 ## 本轮吸收批次
 
