@@ -58,14 +58,16 @@ echo "  [ENV] 浏览器引擎可用=$HAS_ENGINE"
 mkdir -p "$TMP/site"
 printf '%s\n' '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>派单</title></head><body>一页</body></html>' > "$TMP/site/index.html"
 
-# U4 缺引擎必须是 rc 3。引擎在场时把脚本复制到仓外目录跑，让 require 沿 /tmp 往上找不到包——
-#   ui-audit.mjs 哪天 import 了 harness/lib 里的东西，这条会因找不到相对模块而红，
-#   那时该换隔离手法，不是实现的错。
+# U4 缺引擎必须是 rc 3。引擎在场时把脚本复制到仓外目录，**并且在该目录里跑**：
+#   ui-audit.mjs 的回退解析是 createRequire(join(process.cwd(), 'noop.js'))，认的是 cwd 不是文件位置——
+#   只搬文件不切 cwd 的话，ESM 那步确实找不到包，但紧接着的 require 回退仍从仓库根解析得到，
+#   引擎正常起来 rc 0，本条就在装过 playwright-core 的机器上恒红（假红，不是实现的错）。
+#   两条解析路径得一起掘断，缺一不可。
 U4RUN="$AUDIT"
 if [ "$HAS_ENGINE" -eq 1 ] && [ -f "$AUDIT" ]; then
     mkdir -p "$TMP/iso"; cp "$AUDIT" "$TMP/iso/ui-audit.mjs"; U4RUN="$TMP/iso/ui-audit.mjs"
 fi
-NODE_PATH=/nonexistent node "$U4RUN" "$TMP/site" > "$TMP/o" 2> "$TMP/e"
+(cd "$(dirname "$U4RUN")" && NODE_PATH=/nonexistent node "$U4RUN" "$TMP/site") > "$TMP/o" 2> "$TMP/e"
 RC=$?; STDERR=$(cat "$TMP/e")
 if [ "$RC" -eq 3 ] && contains 'UI 审计缺席' "$STDERR"; then r=0; else r=1; fi
 chk "$r" "U4 引擎不可用 → stderr 一行「UI 审计缺席」，rc 3（缺席不许冒充通过）" \
