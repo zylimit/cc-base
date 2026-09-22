@@ -1,6 +1,6 @@
 {
   "$schema": "cc-base exclusions v1",
-  "note": "框架分发/清单/安装的唯一排除表真相源。gen-exclusions.mjs 据此重写 gen-manifest.sh / setup.sh 的 case 臂与 setup.ps1 的 skip 表；release.mjs 的 MANIFEST_RULES 是审计者、故意手写不生成，test-setup ⑥ 逐臂对拍两者。keep=true 的臂是白名单（不排除）。",
+  "note": "框架分发/清单/安装的唯一排除表真相源。gen-exclusions.mjs 据此重写 gen-manifest.sh / setup.sh 的 case 臂与 setup.ps1 的 skip 表；release.mjs 的 MANIFEST_RULES 是审计者、故意手写不生成，test-setup ⑥ 逐臂对拍两者。keep=true 的臂是白名单（不排除）。optionalLeaf=true 的条目额外供 --with-tests / --with-harness 可选包分支用（setup.sh is_optional_excluded / setup.ps1 Test-OptionalExcluded，同样由本脚本生成，见各条目 ps1.optionalToken）；mainTree=false 表示该条目只服务可选包、不进 gen-manifest.sh / setup.sh 主循环 / setup.ps1 主循环这三张表（例如 state/* ——main 树目前没有这类路径，不为它改动主循环行为）。",
   "entries": [
     {
       "pattern": "FRAMEWORK-MANIFEST.txt",
@@ -140,19 +140,23 @@
     {
       "pattern": "signals.jsonl",
       "keep": false,
+      "optionalLeaf": true,
       "note": "evolution 运行态信号队列",
       "ps1": {
         "kind": "skip",
-        "token": "signals.jsonl"
+        "token": "signals.jsonl",
+        "optionalToken": "(^|/)signals\\.jsonl$"
       }
     },
     {
       "pattern": "*/signals.jsonl",
       "keep": false,
+      "optionalLeaf": true,
       "note": "evolution 运行态信号队列",
       "ps1": {
         "kind": "skipAnyDepth",
-        "token": "signals.jsonl"
+        "token": "signals.jsonl",
+        "optionalToken": "(^|/)signals\\.jsonl$"
       }
     },
     {
@@ -266,64 +270,78 @@
     {
       "pattern": "*.bak",
       "keep": false,
+      "optionalLeaf": true,
       "note": "安装器产物",
       "ps1": {
         "kind": "regex",
-        "token": "\\.(bak|framework-new|swp)$"
+        "token": "\\.(bak|framework-new|swp)$",
+        "optionalToken": "\\.(bak|framework-new|swp)$"
       }
     },
     {
       "pattern": "*.framework-new",
       "keep": false,
+      "optionalLeaf": true,
       "note": "安装器产物",
       "ps1": {
         "kind": "regex",
-        "token": "\\.(bak|framework-new|swp)$"
+        "token": "\\.(bak|framework-new|swp)$",
+        "optionalToken": "\\.(bak|framework-new|swp)$"
       }
     },
     {
       "pattern": ".DS_Store",
       "keep": false,
+      "optionalLeaf": true,
       "note": "macOS 目录元数据（每层都会长，.gitignore 同条）",
       "ps1": {
         "kind": "skip",
-        "token": ".DS_Store"
+        "token": ".DS_Store",
+        "optionalToken": "(^|/)\\.DS_Store$"
       }
     },
     {
       "pattern": "*/.DS_Store",
       "keep": false,
+      "optionalLeaf": true,
       "note": "macOS 目录元数据（每层都会长，.gitignore 同条）",
       "ps1": {
         "kind": "skipAnyDepth",
-        "token": ".DS_Store"
+        "token": ".DS_Store",
+        "optionalToken": "(^|/)\\.DS_Store$"
       }
     },
     {
       "pattern": "Thumbs.db",
       "keep": false,
+      "optionalLeaf": true,
       "note": "Windows 缩略图缓存（.gitignore 同条）",
       "ps1": {
         "kind": "skip",
-        "token": "Thumbs.db"
+        "token": "Thumbs.db",
+        "optionalToken": "(^|/)Thumbs\\.db$"
       }
     },
     {
       "pattern": "*/Thumbs.db",
       "keep": false,
+      "optionalLeaf": true,
       "note": "Windows 缩略图缓存（.gitignore 同条）",
       "ps1": {
         "kind": "skipAnyDepth",
-        "token": "Thumbs.db"
+        "token": "Thumbs.db",
+        "optionalToken": "(^|/)Thumbs\\.db$"
       }
     },
     {
       "pattern": "*.swp",
       "keep": false,
+      "optionalLeaf": true,
       "note": "vim 交换文件（.gitignore 同条）",
       "ps1": {
         "kind": "regex",
-        "token": "\\.(bak|framework-new|swp)$"
+        "token": "\\.(bak|framework-new|swp)$",
+        "optionalToken": "\\.(bak|framework-new|swp)$"
       }
     },
     {
@@ -351,6 +369,16 @@
       "ps1": {
         "kind": "regex",
         "token": "^feedback/[^/]+\\.md$"
+      }
+    },
+    {
+      "pattern": "*/state/*|state/*",
+      "keep": false,
+      "mainTree": false,
+      "optionalLeaf": true,
+      "note": "运行态子目录（如 harness/ext/state/）不随可选包分发；main 树里 harness/state/* 等已有专门条目管，这条只供 --with-tests / --with-harness 用，不进主循环三张表",
+      "ps1": {
+        "optionalToken": "(^|/)state/"
       }
     }
   ]

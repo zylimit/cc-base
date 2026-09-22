@@ -239,16 +239,24 @@ copy_file() {
 
 # --with-tests / --with-harness 各自另起一段 find，整目录直拷，不经过 copy_claude_tree 主循环里
 # 那段由 gen-exclusions.mjs 生成的 @exclusions 分支（那段本身把 harness/ext/* 与 tests/* 整棵
-# continue 掉，对这两支线没用——它们要装的恰恰就是这两棵子树）。这里补一份判断，只收生成块里
-# 那些与路径深度无关的「叶子级」臂（.DS_Store / *.bak 等，用 * 天然跨 / 的 case 语义直接复用同一
-# 写法）；state/ 子目录参照 harness/state 等既有「运行态目录不分发」口径手写补上——exclusions.json
-# 目前没有 harness/ext/state/* 这一条（ext 包内部现在也没有真 state/ 目录），不为此改 json，先在
-# 安装器这层挡住。不进 @exclusions 生成块、不改 exclusions.json，--check 不受影响。
+# continue 掉，对这两支线没用——它们要装的恰恰就是这两棵子树）。这里另起一个判定函数，同样由
+# gen-exclusions.mjs 生成（harness/exclusions.json 里 optionalLeaf:true 标记的那批：与目录深度
+# 无关的「叶子级」项——.DS_Store / *.bak / state/* 等），不再手写第二份口径（progress.md TODO #82；
+# 此前手写过一版，json 加条目不会自动同步过来，两处会漂移）。
 is_optional_excluded() {
   case "$1" in
-    *.bak|*.framework-new|*.swp) return 0 ;;
-    *.DS_Store|*Thumbs.db|*signals.jsonl) return 0 ;;
-    */state/*|state/*) return 0 ;;
+    # @exclusions:optional-begin （由 .claude/scripts/gen-exclusions.mjs 从 harness/exclusions.json 生成，手改会被 --check 抓出）
+    signals.jsonl) return 0 ;;  # evolution 运行态信号队列
+    */signals.jsonl) return 0 ;;  # evolution 运行态信号队列
+    *.bak) return 0 ;;  # 安装器产物
+    *.framework-new) return 0 ;;  # 安装器产物
+    .DS_Store) return 0 ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+    */.DS_Store) return 0 ;;  # macOS 目录元数据（每层都会长，.gitignore 同条）
+    Thumbs.db) return 0 ;;  # Windows 缩略图缓存（.gitignore 同条）
+    */Thumbs.db) return 0 ;;  # Windows 缩略图缓存（.gitignore 同条）
+    *.swp) return 0 ;;  # vim 交换文件（.gitignore 同条）
+    */state/*|state/*) return 0 ;;  # 运行态子目录（如 harness/ext/state/）不随可选包分发；main 树里 harness/state/* 等已有专门条目管，这条只供 --with-tests / --with-harness 用，不进主循环三张表
+    # @exclusions:optional-end
     *) return 1 ;;
   esac
 }
@@ -268,6 +276,89 @@ manifest_sha_of() {
   awk -F '\t' -v p="$1" '$0 !~ /^#/ && $1 == p { print $2; exit }' "$OLD_MANIFEST"
 }
 
+# --- 可选包自己的清单（FRAMEWORK-MANIFEST-OPTIONAL.txt，只在用过 --with-tests / --with-harness
+#   的目标里出现）---
+# tests/* 与 harness/ext/* 有意不进 FRAMEWORK-MANIFEST.txt（gen-manifest.sh 的排除表，见上方
+# copy_claude_tree 的 @exclusions 分支），这是主循环清单的既有口径，不因为可选包要用 old_sha
+# 就去改它。可选包在目标侧自己另记一份账：装的时候把每个文件（来自 SRC 的当前哈希）记进目标的
+# FRAMEWORK-MANIFEST-OPTIONAL.txt；下次装时先读这份账当 old_sha 来源，读完再整份重写——重写覆盖
+# 本次实际处理过的 rel（用当前 SRC 哈希），本次没碰到的 rel（比如只跑 --with-harness 时之前
+# --with-tests 留下的 tests/* 记录）原样保留，不清空（progress.md TODO #81 收口 reviewer HIGH-1：
+# 此前没有这份账，old_sha 永远查不到，update 分支是死代码，src 升级、用户没碰过的文件也被当
+# conflict 处理）。没跑过任何可选包开关时这个文件不存在，也不创建，读它按"查不到"处理、不报错。
+OLD_OPTIONAL_MANIFEST=""  # 目标侧旧可选包清单路径（存在时）
+NEW_OPTIONAL_ENTRIES=""   # 本次实际处理过的可选包文件：rel<TAB>sha（来自 SRC 当前内容），换行分隔
+
+optional_manifest_sha_of() {
+  # $1=rel 路径；从旧可选包清单查该文件上次安装时的 SHA，查不到输出空
+  [ -n "$OLD_OPTIONAL_MANIFEST" ] || return 0
+  awk -F '\t' -v p="$1" '$0 !~ /^#/ && $1 == p { print $2; exit }' "$OLD_OPTIONAL_MANIFEST"
+}
+
+# 把本次处理过的可选包文件（NEW_OPTIONAL_ENTRIES）与旧清单里本次没碰到的行合并，整份重写进
+# 目标的 FRAMEWORK-MANIFEST-OPTIONAL.txt；dry-run 或本次压根没跑任何可选包开关（entries 为空）
+# 时什么都不做——不能在没装可选包的安装上凭空造出这个文件。
+write_optional_manifest() {
+  local dest_dir=$1 out="$1/FRAMEWORK-MANIFEST-OPTIONAL.txt" tmp
+  [ "$DRY_RUN" = "1" ] && return 0
+  [ -n "$NEW_OPTIONAL_ENTRIES" ] || return 0
+  tmp=$(mktemp) || die "无法创建临时文件"
+  {
+    printf '%s\n' "$NEW_OPTIONAL_ENTRIES" | grep -v '^$'
+    if [ -n "$OLD_OPTIONAL_MANIFEST" ] && [ -f "$OLD_OPTIONAL_MANIFEST" ]; then
+      grep -v '^#' "$OLD_OPTIONAL_MANIFEST" | grep -v '^$'
+    fi
+    # awk 的 !seen[$1]++ 保留首次出现——本次处理过的行排在前面先占坑，旧清单里同 key 的行
+    # 因此被丢弃，未被本次碰到的 key 才从旧清单里保留下来
+  } | awk -F '\t' '!seen[$1]++' | LC_ALL=C sort >"$tmp"
+  {
+    printf '# cc-base FRAMEWORK-MANIFEST-OPTIONAL（可选包清单：--with-tests / --with-harness 装出的\n'
+    printf '# tests/* 与 harness/ext/*，由 setup.sh / setup.ps1 在目标侧自己记账；源仓\n'
+    printf '# FRAMEWORK-MANIFEST.txt 有意不收这些路径，见 gen-manifest.sh 的排除表）\n'
+    printf '# algorithm: sha256 of LF-normalized bytes（与主清单同算法）\n'
+    printf '# format: <path relative to .claude/>\tsha256\n'
+    printf '# 只记这次真正跑过的开关涉及的路径：没跑过 --with-tests 就没有 tests/* 记录，没跑过\n'
+    printf '# --with-harness 就没有 harness/ext/* 与对应 rules/* 记录；两个开关分开跑，各自的记录互不清空。\n'
+    cat "$tmp"
+  } >"$out" || die "无法写入 $out"
+  rm -f "$tmp"
+  note_write "$out"
+}
+
+# 对一对 (src, dest) 做 manifest 分层判定并按需落盘：create（新文件）/ skip（内容相同）/
+# update（目标 == 旧记录版本，安全覆盖升级，copy_file 仍留 .bak）/ conflict（用户改过或查不到
+# 历史记录，不覆盖，落 .framework-new 供手工合并）。主循环（copy_claude_tree 下方）与
+# --with-tests / --with-harness 两条可选包支线共用本函数——这是覆盖语义"对等"的落地点，不为
+# 可选包另写一份判定（progress.md TODO #81）。
+# $1=src 实际文件 $2=dest 实际路径 $3=展示用 label（dry-run 打印，形如 .claude/xxx）
+# $4=用于落 .framework-new 时记账的 rel 路径 $5=old_sha——调用方按自己的清单来源算好传进来：
+# 主循环传 manifest_sha_of（查 FRAMEWORK-MANIFEST.txt），可选包两条支线传
+# optional_manifest_sha_of（查 FRAMEWORK-MANIFEST-OPTIONAL.txt，见上）。查不到旧记录时，
+# 内容有差异一律按"未知/已改过"处理，不静默覆盖——首次跑可选包开关的目标就是这种情况。
+plan_and_apply() {
+  local src=$1 dest=$2 label=$3 rel=$4 old_sha=$5
+  if [ -e "$dest" ] && ! cmp -s "$src" "$dest"; then
+    if [ -n "$old_sha" ] && [ "$(norm_sha "$dest")" = "$old_sha" ]; then
+      plan_note update "$label"  # 目标 == 旧框架版本，安全覆盖升级（copy_file 仍留 .bak）
+    else
+      # 用户改过（SHA 与旧记录不符）或查不到历史记录（老版本装的 / 目标从没装过这份可选包）→ 不覆盖
+      plan_note conflict "$label"
+      [ "$DRY_RUN" = "1" ] && return 0
+      cp -p "$src" "$dest.framework-new" || die "无法写入 $dest.framework-new"
+      FRAMEWORK_NEW_LIST="${FRAMEWORK_NEW_LIST}${rel}
+"
+      note_write "$dest.framework-new"
+      return 0
+    fi
+  elif [ -e "$dest" ]; then
+    plan_note skip "$label"
+  else
+    plan_note create "$label"
+  fi
+  [ "$DRY_RUN" = "1" ] && return 0
+  copy_file "$src" "$dest"
+}
+
 # 复制 .claude 框架树，跳过运行时产物 / 待删 / 机器特定文件；settings.json 不在此复制（走 merge）。
 # 下面的排除表另有三份，改这里必须同改：.claude/scripts/gen-manifest.sh 的 case（清单侧同一套口径，
 #   分叉了就会出现「装了但不在清单」或「在清单但没装」）、setup.ps1 的 $skip + 目录正则（Windows 安装侧）、
@@ -276,9 +367,10 @@ manifest_sha_of() {
 # 四份手工同步的口径由测试兜：.claude/tests/test-setup.sh 的 ⑥ 逐臂比对四份表，
 #   .claude/tests/test-release-manifest.sh 造真文件锁生成器与审计者两侧行为一致。
 copy_claude_tree() {
-  local src_dir=$1 dest_dir=$2 rel src dest old_sha
+  local src_dir=$1 dest_dir=$2 rel src dest
   [ -d "$src_dir" ] || die "源 .claude 不存在：$src_dir"
   [ -f "$dest_dir/FRAMEWORK-MANIFEST.txt" ] && OLD_MANIFEST="$dest_dir/FRAMEWORK-MANIFEST.txt"
+  [ -f "$dest_dir/FRAMEWORK-MANIFEST-OPTIONAL.txt" ] && OLD_OPTIONAL_MANIFEST="$dest_dir/FRAMEWORK-MANIFEST-OPTIONAL.txt"
   while IFS= read -r -d '' src; do
     rel=${src#"$src_dir"/}
     case "$rel" in
@@ -325,65 +417,55 @@ copy_claude_tree() {
       # @exclusions:end
     esac
     dest="$dest_dir/$rel"
-    # manifest 分层判断：目标已存在且内容不同时才需要区分「可升级」vs「用户改过」
-    if [ -e "$dest" ] && ! cmp -s "$src" "$dest"; then
-      old_sha=$(manifest_sha_of "$rel")
-      if [ -n "$old_sha" ] && [ "$(norm_sha "$dest")" = "$old_sha" ]; then
-        plan_note update ".claude/$rel"  # 目标 == 旧框架版本，安全覆盖升级（copy_file 仍留 .bak）
-      else
-        # 用户改过（SHA 与旧 MANIFEST 不符）或目标无 MANIFEST（老版本装的）→ 不覆盖
-        plan_note conflict ".claude/$rel"
-        [ "$DRY_RUN" = "1" ] && continue
-        cp -p "$src" "$dest.framework-new" || die "无法写入 $dest.framework-new"
-        FRAMEWORK_NEW_LIST="${FRAMEWORK_NEW_LIST}${rel}
-"
-        note_write "$dest.framework-new"
-        continue
-      fi
-    elif [ -e "$dest" ]; then
-      plan_note skip ".claude/$rel"
-    else
-      plan_note create ".claude/$rel"
-    fi
-    [ "$DRY_RUN" = "1" ] && continue
-    copy_file "$src" "$dest"
+    plan_and_apply "$src" "$dest" ".claude/$rel" "$rel" "$(manifest_sha_of "$rel")"
   done < <(find "$src_dir" -type f -print0)
-  # --with-tests：框架自测整目录照拷（不走 manifest 分层——它们是框架的测试不是用户文件，升级时直接换新，
-  #   目标已存在的按 plan_pair 报 create/skip/update，与主循环同一种「不静默覆盖」形态，copy_file 自带 .bak）
+  # --with-tests：框架自测整目录照拷，与主循环共用 plan_and_apply——覆盖语义对等（progress.md TODO #81）：
+  #   用户改过的测试文件不覆盖、落 .framework-new，未改过的照常更新，新文件 create，相同内容 skip。
+  #   此前「框架自测不是用户文件、升级时直接换新」那句口径已废弃：tests/* 不入 FRAMEWORK-MANIFEST.txt，
+  #   old_sha 改查 FRAMEWORK-MANIFEST-OPTIONAL.txt（见上方 optional_manifest_sha_of），装过的文件
+  #   下次能正确区分"框架升级、用户没碰"（update）与"用户改过"（conflict），不再像早前只要有差异
+  #   就一律 conflict（收口 reviewer HIGH-1）。每处理一个文件顺手记一笔进 NEW_OPTIONAL_ENTRIES，
+  #   循环结束后 write_optional_manifest 统一落盘。
   if [ "$WITH_TESTS" = "1" ] && [ -d "$src_dir/tests" ]; then
     while IFS= read -r -d '' src; do
       rel=${src#"$src_dir"/}
       case "$rel" in tests/golden/*|tests/fixtures/*|tests/*) ;; *) continue ;; esac
       is_optional_excluded "$rel" && continue
-      plan_pair "$src" "$dest_dir/$rel" ".claude/$rel"
-      [ "$DRY_RUN" = "1" ] && continue
-      copy_file "$src" "$dest_dir/$rel"
+      plan_and_apply "$src" "$dest_dir/$rel" ".claude/$rel" "$rel" "$(optional_manifest_sha_of "$rel")"
+      NEW_OPTIONAL_ENTRIES="${NEW_OPTIONAL_ENTRIES}${rel}	$(norm_sha "$src")
+"
     done < <(find "$src_dir/tests" -type f -print0)
   fi
-  # --with-harness：大仓治理引擎整目录照拷（同 --with-tests，不走 manifest 分层——引擎是框架的一部分
-  #   不是用户文件，目标已存在同样按 plan_pair + copy_file）。harness/ext/rules/ 下的两份细则另拷一份进
-  #   .claude/rules/：frontmatter 的 path 作用域只在那个目录下被 Claude Code 认，留在 ext/ 里它们谁也加载
-  #   不到；只收顶层 .md，嵌套目录（如 rules/nested/x.md）不压平——bash case 的 * 跨 /，直接拿
-  #   harness/ext/rules/*.md 去匹配会把 nested/x.md 也吃进来，先剥掉固定前缀再看剩余里有没有 /。
+  # --with-harness：大仓治理引擎整目录照拷，同 --with-tests 共用 plan_and_apply（覆盖语义对等，见上，
+  #   old_sha 同样查 FRAMEWORK-MANIFEST-OPTIONAL.txt）。harness/ext/rules/ 下的两份细则另拷一份进
+  #   .claude/rules/：frontmatter 的 path 作用域只在那个目录下被 Claude Code 认，留在 ext/ 里它们谁也
+  #   加载不到；只收顶层 .md，嵌套目录（如 rules/nested/x.md）不压平——bash case 的 * 跨 /，直接拿
+  #   harness/ext/rules/*.md 去匹配会把 nested/x.md 也吃进来，先剥掉固定前缀再看剩余里有没有 /；这份
+  #   rules/ 副本同样走 plan_and_apply、同样记进 NEW_OPTIONAL_ENTRIES（key 用 rules/xxx，不是
+  #   harness/ext/rules/xxx，两处各自独立判定、独立记账，互不影响）。
   if [ "$WITH_HARNESS" = "1" ] && [ -d "$src_dir/harness/ext" ]; then
     while IFS= read -r -d '' src; do
       rel=${src#"$src_dir"/}
       is_optional_excluded "$rel" && continue
-      plan_pair "$src" "$dest_dir/$rel" ".claude/$rel"
-      [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/$rel"
+      plan_and_apply "$src" "$dest_dir/$rel" ".claude/$rel" "$rel" "$(optional_manifest_sha_of "$rel")"
+      NEW_OPTIONAL_ENTRIES="${NEW_OPTIONAL_ENTRIES}${rel}	$(norm_sha "$src")
+"
       case "$rel" in
         harness/ext/rules/*.md)
           case "${rel#harness/ext/rules/}" in
             */*) : ;;  # 嵌套目录里的规则文档，原样留在 harness/ext/rules/ 下，不压平进 .claude/rules/
             *)
-              plan_pair "$src" "$dest_dir/rules/${rel##*/}" ".claude/rules/${rel##*/}"
-              [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/rules/${rel##*/}"
+              plan_and_apply "$src" "$dest_dir/rules/${rel##*/}" ".claude/rules/${rel##*/}" \
+                "rules/${rel##*/}" "$(optional_manifest_sha_of "rules/${rel##*/}")"
+              NEW_OPTIONAL_ENTRIES="${NEW_OPTIONAL_ENTRIES}rules/${rel##*/}	$(norm_sha "$src")
+"
               ;;
           esac
           ;;
       esac
     done < <(find "$src_dir/harness/ext" -type f -print0)
   fi
+  write_optional_manifest "$dest_dir"
 }
 
 merge_settings() {

@@ -30,4 +30,5 @@ metadata:
 8. **按字节签名的表都要问 CRLF**。manifest 归一（`tr -d '\r'`），`instructions-allowlist.json` 不归一 → Windows autocrlf 检出当场豁免失效 rc 1；仓里没 `.gitattributes`，`gate.yml` 给 Windows 格设 `core.autocrlf false` 把这条盖住了。
 
 **同一个文件里两张排除表口径不一致 = 其中一张裸奔**：`static-check.mjs` 给 JS 写了第二张不排 `.claude/` 的表，`.sh` 那张原样排掉整个 `.claude/` —— shellcheck 面只覆盖 46 个 `.sh` 里的 2 个（2026-09-19 复核仍如此）。凡是审 `.claude/**/*.sh` 的改动，Stage 0 那行「全绿（shellcheck）」不覆盖它，自己手跑一遍再下结论。
+9. **「对等语义」查manifest 缺席会让 update 分支永死**（2026-09-22 审 #81/#82）：装一次 → 只改 SRC 的某 ext/tests 文件（target 不动）→ 重装，该文件仍报 conflict 不报 update——因为 `harness/ext/*`/`tests/*` 故意不入 FRAMEWORK-MANIFEST.txt，`old_sha` 永远查不到，靠「target sha == 旧 manifest sha」判定的 update 分支对这两棵子树是死代码；对照改主树文件走同一函数会正确 update。详情见 [[../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md]]。
 相关：[[pattern_gate-scripts-false-green-in-machine-channel]]、[[pattern_duplicated-rule-tables]]、[[pattern_evidence-ledger-attacks]]

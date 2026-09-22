@@ -159,6 +159,59 @@ if (Test-Path $oldManifestPath) {
 }
 $script:frameworkNewList = @()
 
+# The optional package's own manifest (FRAMEWORK-MANIFEST-OPTIONAL.txt, present only on a target
+# that has used -WithTests / -WithHarness at least once). tests/* and harness/ext/* are excluded
+# from FRAMEWORK-MANIFEST.txt on purpose (gen-manifest.sh's exclusion table - that is the main
+# loop's own source of truth and this does not touch it). Without a manifest of their own, old_sha
+# for these paths was always empty and Invoke-PlanAndApply's 'update' branch was dead code for
+# them: a file the source repo upgraded, that the user never touched, still landed as 'conflict'
+# with a .framework-new next to it, and dry-run could not tell that case apart from a real user
+# edit (progress.md TODO #81, closing reviewer HIGH-1). The fix: the optional package keeps its
+# own account on the target side. $oldOptionalManifest is read here, before anything is written;
+# $newOptionalEntries collects one entry per file actually processed by -WithTests / -WithHarness
+# below (the source's current hash), and Write-OptionalManifest merges that onto whatever old
+# entries this run did not touch (so running -WithHarness alone does not erase a prior
+# -WithTests-only install's records) and writes the merged result back. Not run at all (or
+# -DryRun) means the entries list stays empty and Write-OptionalManifest does nothing.
+$script:oldOptionalManifest = @{}
+$oldOptionalManifestPath = Join-Path $targetClaude 'FRAMEWORK-MANIFEST-OPTIONAL.txt'
+if (Test-Path $oldOptionalManifestPath) {
+  foreach ($line in Get-Content $oldOptionalManifestPath) {
+    if ($line -match '^#' -or -not $line.Trim()) { continue }
+    $parts = $line -split "`t"
+    if ($parts.Count -ge 2) { $script:oldOptionalManifest[$parts[0]] = $parts[1] }
+  }
+}
+$script:newOptionalEntries = [ordered]@{}
+
+function Write-OptionalManifest {
+  if ($DryRun) { return }
+  if ($script:newOptionalEntries.Count -eq 0) { return }
+  $lines = New-Object System.Collections.Generic.List[string]
+  $lines.Add('# cc-base FRAMEWORK-MANIFEST-OPTIONAL (optional-package manifest: tests/* and harness/ext/*')
+  $lines.Add('# installed by -WithTests / -WithHarness, tracked here on the target side by setup.sh /')
+  $lines.Add('# setup.ps1; FRAMEWORK-MANIFEST.txt on purpose does not carry these paths, see')
+  $lines.Add('# gen-manifest.sh''s exclusion table)')
+  $lines.Add('# algorithm: sha256 of LF-normalized bytes (same as the main manifest)')
+  $lines.Add('# format: <path relative to .claude/>' + "`t" + 'sha256')
+  $lines.Add('# only the switch(es) actually run this time are recorded: no -WithTests run means no')
+  $lines.Add('# tests/* entries, no -WithHarness run means no harness/ext/* or rules/* entries; running')
+  $lines.Add('# one switch does not clear the other switch''s earlier records.')
+  $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+  foreach ($key in $script:newOptionalEntries.Keys) {
+    $lines.Add($key + "`t" + $script:newOptionalEntries[$key])
+    [void]$seen.Add($key)
+  }
+  foreach ($key in $script:oldOptionalManifest.Keys) {
+    if ($seen.Contains($key)) { continue }
+    $lines.Add($key + "`t" + $script:oldOptionalManifest[$key])
+  }
+  $out = Join-Path $targetClaude 'FRAMEWORK-MANIFEST-OPTIONAL.txt'
+  Set-Content -Path $out -Value ($lines -join "`n") -Encoding UTF8 -NoNewline
+  Add-Content -Path $out -Value '' -Encoding UTF8
+  Register-Write 'FRAMEWORK-MANIFEST-OPTIONAL.txt'
+}
+
 # Take the lock and drop the marker before the first byte is written. A lock whose pid is still
 # alive means someone else is writing this target: refuse. A dead pid is the leftover of a crash
 # (stale lock): say so on the way past and take it over, so a crash cannot lock the target forever.
@@ -224,16 +277,53 @@ function Copy-WithBackup($src, $dest) {
 # -WithTests / -WithHarness each walk their own subtree directly, bypassing the $skip /
 # $skipAnyDepth / regex arms above (those are generated from harness/exclusions.json and one of
 # them, ^harness/ext/, exists precisely to skip the whole subtree these two switches exist to
-# install - reusing it verbatim would exclude everything). This mirrors setup.sh's
-# is_optional_excluded: only the leaf-level, depth-independent patterns (.DS_Store / *.bak / ...).
-# A state/ subdirectory is handled the same way as harness/state/* etc. above even though
-# harness/exclusions.json has no harness/ext/state/* entry (there is no real one under ext/ today) -
-# caught here in the installer instead of touching exclusions.json for it.
+# install - reusing it verbatim would exclude everything). This is a second function, generated
+# from the same source (harness/exclusions.json entries flagged optionalLeaf:true - the
+# leaf-level, depth-independent ones: .DS_Store / *.bak / state/ / ...), not a hand-written
+# second table (progress.md TODO #82 - a hand-written copy drifts the day someone adds a json
+# entry and forgets this file).
 function Test-OptionalExcluded([string]$relSlash) {
+  # @exclusions:optional-begin (generated by .claude/scripts/gen-exclusions.mjs from harness/exclusions.json; hand edits are caught by --check)
+  if ($relSlash -match '(^|/)signals\.jsonl$') { return $true }
   if ($relSlash -match '\.(bak|framework-new|swp)$') { return $true }
-  if ($relSlash -match '(^|/)(\.DS_Store|Thumbs\.db|signals\.jsonl)$') { return $true }
+  if ($relSlash -match '(^|/)\.DS_Store$') { return $true }
+  if ($relSlash -match '(^|/)Thumbs\.db$') { return $true }
   if ($relSlash -match '(^|/)state/') { return $true }
+  # @exclusions:optional-end
   return $false
+}
+
+# Manifest-layered plan-and-write for one (src, dest) pair: create (new file) / skip (identical
+# content) / update (target == old recorded version, safe overwrite, Copy-WithBackup still keeps
+# a .bak) / conflict (user-modified or no history on record, do not overwrite, drop
+# .framework-new for manual merge instead). The main loop below and both -WithTests / -WithHarness
+# arms share this one function -- that sharing is what "overwrite semantics on par with the main
+# loop" (progress.md TODO #81) actually means, not a second copy of the same decision.
+# $oldSha is looked up by the caller, not here: the main loop reads $oldManifest
+# (FRAMEWORK-MANIFEST.txt), -WithTests / -WithHarness read $script:oldOptionalManifest
+# (FRAMEWORK-MANIFEST-OPTIONAL.txt, see above) -- two different accounts, one shared decision.
+# When it is empty, a content difference is always treated as "unknown / user-modified" and never
+# silently overwritten -- the state of a target that has never recorded that file before.
+function Invoke-PlanAndApply([string]$src, [string]$dest, [string]$relSlash, [string]$oldSha) {
+  if ((Test-Path $dest) -and -not (Test-FilesEqual $src $dest)) {
+    if (-not ($oldSha -and (Get-NormalizedSha $dest) -eq $oldSha)) {
+      Add-Plan 'conflict' $relSlash
+      if (-not $DryRun) {
+        Copy-Item $src "$dest.framework-new" -Force
+        $script:frameworkNewList += $relSlash
+        Register-Write ($relSlash + '.framework-new')
+      }
+      return
+    }
+    Add-Plan 'update' $relSlash
+  } elseif (Test-Path $dest) {
+    Add-Plan 'skip' $relSlash
+  } else {
+    Add-Plan 'create' $relSlash
+  }
+  if ($DryRun) { return }
+  Copy-WithBackup $src $dest
+  Register-Write $relSlash
 }
 
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
@@ -280,90 +370,55 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
   if ($relSlash -match '^feedback/[^/]+\.md$') { return }
   # @exclusions:regex-end
   $dest = Join-Path $targetClaude $rel
-  # Manifest layering: only when the target exists with different content do we decide
-  # "safe upgrade" vs "user-modified, do not overwrite".
-  if ((Test-Path $dest) -and -not (Test-FilesEqual $_.FullName $dest)) {
-    $oldSha = $oldManifest[$relSlash]
-    if (-not ($oldSha -and (Get-NormalizedSha $dest) -eq $oldSha)) {
-      # user-modified (SHA differs from old manifest) or no old manifest (legacy install)
-      Add-Plan 'conflict' $relSlash
-      if (-not $DryRun) {
-        Copy-Item $_.FullName "$dest.framework-new" -Force
-        $script:frameworkNewList += $relSlash
-        Register-Write ($relSlash + '.framework-new')
-      }
-      return
-    }
-    # else: target == old framework version, fall through to safe overwrite (with .bak)
-    Add-Plan 'update' $relSlash
-  } elseif (Test-Path $dest) {
-    Add-Plan 'skip' $relSlash
-  } else {
-    Add-Plan 'create' $relSlash
-  }
-  if ($DryRun) { return }
-  Copy-WithBackup $_.FullName $dest
-  Register-Write $relSlash
+  Invoke-PlanAndApply $_.FullName $dest $relSlash $oldManifest[$relSlash]
 }
 
-# -WithTests: copy the framework self-tests wholesale (no manifest layering - they are the framework's
-# tests, not user files, so an upgrade just replaces them). Same arm as setup.sh --with-tests. A target
-# that already has the file is reported create/skip/update like the main loop above (not silently
-# clobbered), and the actual write goes through Copy-WithBackup so a changed file keeps a .bak - plain
-# Copy-Item -Force here used to drop the previous content with nothing kept, unlike the main loop.
+# -WithTests: copy the framework self-tests wholesale, through the same Invoke-PlanAndApply as the
+# main loop above -- overwrite semantics on par with it (progress.md TODO #81): a test file the
+# user modified on the target side is not overwritten, a fresh copy lands beside it as
+# .framework-new; a file the source repo upgraded that the target's copy still matches the last
+# recorded hash for updates cleanly, new ones create, identical ones skip. old_sha now comes from
+# $script:oldOptionalManifest (FRAMEWORK-MANIFEST-OPTIONAL.txt, see above), not
+# FRAMEWORK-MANIFEST.txt -- tests/* is excluded from that one on purpose (gen-manifest.sh), so a
+# lookup against it was always empty and 'update' was unreachable for these files until this
+# tracking existed (closing reviewer HIGH-1). Every file processed here is recorded into
+# $script:newOptionalEntries at the source's current hash; Write-OptionalManifest writes it out
+# once, after both switches have run.
 if ($WithTests -and (Test-Path (Join-Path $srcClaude 'tests'))) {
   Get-ChildItem -Path (Join-Path $srcClaude 'tests') -Recurse -File -Force | ForEach-Object {
     $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
     $relSlash = $rel -replace '\\', '/'
     if (Test-OptionalExcluded $relSlash) { return }
-    $dest = Join-Path $targetClaude $rel
-    if (Test-Path $dest) {
-      if (Test-FilesEqual $_.FullName $dest) { Add-Plan 'skip' $relSlash } else { Add-Plan 'update' $relSlash }
-    } else {
-      Add-Plan 'create' $relSlash
-    }
-    if ($DryRun) { return }
-    Copy-WithBackup $_.FullName $dest
-    Register-Write $relSlash
+    Invoke-PlanAndApply $_.FullName (Join-Path $targetClaude $rel) $relSlash $script:oldOptionalManifest[$relSlash]
+    $script:newOptionalEntries[$relSlash] = Get-NormalizedSha $_.FullName
   }
 }
 
-# -WithHarness: copy the large-repo governance engine wholesale (same arm as setup.sh --with-harness;
-# no manifest layering - the engine is part of the framework, not a user file). The two documents under
-# harness/ext/rules/ get a second copy into .claude/rules/, because the path scope in their frontmatter
-# is only honoured where Claude Code looks for rules - left in ext/ they would load nowhere. Same
-# create/skip/update reporting and Copy-WithBackup write as -WithTests above, for both copies.
+# -WithHarness: copy the large-repo governance engine wholesale, same Invoke-PlanAndApply as
+# -WithTests above (overwrite semantics on par with the main loop, old_sha from the same optional
+# manifest). The two documents under harness/ext/rules/ get a second copy into .claude/rules/,
+# because the path scope in their frontmatter is only honoured where Claude Code looks for rules -
+# left in ext/ they would load nowhere; that copy goes through Invoke-PlanAndApply too (its own
+# key is 'rules/xxx', not 'harness/ext/rules/xxx' -- the two copies are judged and recorded
+# independently), so a user edit to the installed rules/ copy is likewise not silently overwritten.
 if ($WithHarness -and (Test-Path (Join-Path $srcClaude 'harness/ext'))) {
   Get-ChildItem -Path (Join-Path $srcClaude 'harness/ext') -Recurse -File -Force | ForEach-Object {
     $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
     $relSlash = $rel -replace '\\', '/'
     if (Test-OptionalExcluded $relSlash) { return }
-    $dest = Join-Path $targetClaude $rel
-    if (Test-Path $dest) {
-      if (Test-FilesEqual $_.FullName $dest) { Add-Plan 'skip' $relSlash } else { Add-Plan 'update' $relSlash }
-    } else {
-      Add-Plan 'create' $relSlash
-    }
+    Invoke-PlanAndApply $_.FullName (Join-Path $targetClaude $rel) $relSlash $script:oldOptionalManifest[$relSlash]
+    $script:newOptionalEntries[$relSlash] = Get-NormalizedSha $_.FullName
     # Nested documents under harness/ext/rules/ (e.g. rules/nested/x.md) are not flattened into
     # .claude/rules/ - [^/]+ in the match below does not cross /, so only the top-level ones qualify.
     $ruleRel = if ($relSlash -match '^harness/ext/rules/[^/]+\.md$') { 'rules/' + (Split-Path $rel -Leaf) } else { '' }
     if ($ruleRel) {
-      $ruleDest = Join-Path $targetClaude $ruleRel
-      if (Test-Path $ruleDest) {
-        if (Test-FilesEqual $_.FullName $ruleDest) { Add-Plan 'skip' $ruleRel } else { Add-Plan 'update' $ruleRel }
-      } else {
-        Add-Plan 'create' $ruleRel
-      }
-    }
-    if ($DryRun) { return }
-    Copy-WithBackup $_.FullName $dest
-    Register-Write $relSlash
-    if ($ruleRel) {
-      Copy-WithBackup $_.FullName $ruleDest
-      Register-Write $ruleRel
+      Invoke-PlanAndApply $_.FullName (Join-Path $targetClaude $ruleRel) $ruleRel $script:oldOptionalManifest[$ruleRel]
+      $script:newOptionalEntries[$ruleRel] = Get-NormalizedSha $_.FullName
     }
   }
 }
+
+Write-OptionalManifest
 
 # -DryRun stops here. The three files the copy loop does not own get planned too: settings.json is
 # rewritten hook by hook so an existing one always counts as an update, the other two are plain copies.
