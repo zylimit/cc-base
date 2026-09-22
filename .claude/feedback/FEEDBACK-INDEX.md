@@ -49,3 +49,4 @@
 - ✅[已毕业] [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
 - ✅[已毕业] [避免过度设计、过度测试、过度检视——根源是过度可信](avoid-over-design-testing-review-trust-charter.md) — 新增闸/测试/审查层/记忆层/规则前先问是否踩了四个"过度"（信提示词自律/信闸能守/信同模型复审/信决策都被正确加权，同根过度可信）；落地判据：规则点名机器闸或明标靠自觉，闸说得出挡过什么，测试说得出防的回归，记忆说得出谁会读它
 - [对照外部 skill 仓找借鉴，范围是 skill 正文，不是流程](external-skill-benchmark-scope-is-skill-content-not-workflow.md) — 用户拿外部 skill 仓问「有什么启发」时，对照的是 SKILL.md 正文与 references 的写法和内容；skill 先后与路由、谁能触发、子 Agent 接线、CLAUDE.md 调度段属流程层，没问就不进建议清单；顺带查出的实锤缺陷报一次挂 TODO，不借它带流程改造
+- [收口阶段空闲席位不是加派新任务的理由](idle-capacity-not-license-to-expand-scope.md) — 「加速/全力开动」指把已有任务并行推完，不等于填满空闲算力去找新活；收口阶段范围视为冻结，新发现的缺口记下一轮待办不当场派；同一信号连续出现两次（先问"还有这么多任务吗"、后纠正"又新增需求了"）是识别延迟的警报
