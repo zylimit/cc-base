@@ -64,3 +64,5 @@
 - `grep -n "Product-Spec.md" .claude/skills/product-spec-builder/SKILL.md`：5 处（现 8、15、33、188、222 行），逐处均可判「默认名」语义，见上条说明。
 - `grep -rn "\.agents\|\.codex\|resolver\|controls\|Assurance" .claude/skills/product-spec-builder/`：无匹配（exit 1）。
 - `bash .claude/tests/test-skills-lint-wording.sh`：`PASS=2 FAIL=0`，exit 0。
+
+**更正（2026-09-22，第三轮，Codex 复核）**：提交 `025cbac` 的说明称「六份 after-sales 示例加虚构教学例声明」，计数有误——`git ls-files ".claude/skills/*after-sales-dispatch*"` 实际只有五份（`arch-designer` / `design-brief-builder` 两份 brief+DESIGN / `dfx-designer` / `product-spec-builder` 各一），均已在文件头声明虚构教学例，声明本身无缺漏，只是提交说明的计数写错。依据：`docs/handoff/codex-recheck-cc-adaptation-20260922.md`（`codex-base-ro` 只读克隆）第 24 行。此更正只改文档记录，不改任何 `.claude/skills/` 内容，也不改历史提交说明（git 提交信息不可回溯改写）。

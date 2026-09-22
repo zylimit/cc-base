@@ -42,3 +42,13 @@ Codex 的 resolver 六输入 / `harness.mjs plan lint` / `[Assurance]` 是它的
 | Medium PL3 | `[分析维度清单]` 第 43-44 行「逐项 WebSearch」无条件；`[确认策略]` 第 86-87 行「小项目 3-5 个 Phase」选择题无条件；`[工作流程]` 第 93 行生成流程无条件 WebSearch 技术栈 | `[分析维度清单]`（技术栈那条）、`[确认策略]`、`[工作流程]`（生成模式一句，与 PL2 合并改写）、`[任务]`（生成模式一句，顺手补齐一致性） | 三处都加同一条件：只有本次确实新引入或变更技术栈时才 WebSearch 选型，已有项目沿用现有版本不必重新逐项核实；只有存在多个可独立验收的交付组、且 Phase 粒度确有偏好空间时才让用户在 Phase 数量里选，完整结果一个 Task 就够、或已有项目一条配置 / 文案 Task 时不问技术栈也不问 Phase 数。`[分析策略]`（依赖图构建法 / 价值排序法 / 粒度校准法 / 假设前置法）与 `[第一性原则]` 未改动，按要求保留 K 的依赖 DAG 与假设前置方法。`[任务]` 的「生成模式」一句原本也无条件写「WebSearch 验证技术选型」，审查未点名但与三处新条件矛盾，顺手补上同一条件，避免同一份 SKILL.md 内前后不一致；`[第一性原则]` 的「联网优先」一句未被审查点名、也未改——它讲的是「确实需要定版本时先 WebSearch」的一般方法，不是无条件触发指令，与新条件不冲突，不属于本轮改动范围。 |
 
 验证（原始输出见回执）：`grep -n "Product-Spec.md" .claude/skills/dev-planner/SKILL.md` 6 处全部是「默认名，用户指定/会话确认的实际来源同样有效」语义；`grep -rn "范围外" .claude/skills/dev-planner/SKILL.md .claude/skills/dev-planner/templates/dev-plan-template.md` 两个文件都命中；`grep -rn "\.agents\|\.codex\|resolver\|controls\|Assurance" .claude/skills/dev-planner/` 为空；`bash .claude/tests/test-skills-lint-wording.sh` PASS=2 FAIL=0；顺手跑了 `node .claude/harness/harness.mjs skills-lint`（非任务要求的必跑项，但改了 frontmatter description 顺手核对）：18 个 skill 全部 in-scope，0 findings，dev-planner description 78 字符，在预算内。
+
+## 第三轮修正（2026-09-22，Codex 复核 PL2）
+
+依据：`docs/handoff/codex-recheck-cc-adaptation-20260922.md`（`codex-base-ro` 只读克隆）指出第二轮 `[工作流程]`（现 93 行）仍指导**无参**运行 `bash .claude/scripts/plan-lint.sh`，而脚本无参时只默认取 DEV-PLAN.md 同目录的 `Product-Spec.md`，需求来源换了名字或不在同目录时找不到便跳过覆盖检查（退出 0），覆盖缺口漏报。
+
+改法：`[工作流程]` 生成模式一句把调用改成 `bash .claude/scripts/plan-lint.sh DEV-PLAN.md <实际需求来源路径>`——路径取 [依赖检测] 判定的实际来源，默认来源 `Product-Spec.md` 也显式传、不省略第二参数；补一句「需求来源只存在于本次会话、没有文件可传时，lint 跳过覆盖检查，在 DEV-PLAN.md「开工前置」段写明『REQ 覆盖未验证』，不把 Phase/Task 结构检查通过说成覆盖检查通过」。`[生成前自检]`（REQ 覆盖那条）与 `[信息充足度判断]` 中提到 `plan-lint.sh` 的句子是行为描述、不是调用语句，未改；`templates/dev-plan-template.md` 的「写作要点」里没有现成的调用命令句，按派单第 2 条「没有就不加」未动。`plan-lint.sh` 本身未改（脚本早已支持第二参数，本轮是补测试覆盖，不是修脚本缺陷）；`test-plan-lint.sh` 新增 L18（显式传非默认名、非同目录的 `docs/prd/order.md` → 覆盖检查按该文件做，漏引用的 REQ FAIL 并点名；同一夹具无参跑仍 rc 0，作为对照写进用例说明）与 L19（同一显式路径 + 目标 REQ 在「范围外（本次不计划）」声明 → 通过并 WARN），并把 `:174` 的「未覆盖」清单里「第二位置参数显式指定 Spec 路径」一项删除（已覆盖）。
+
+另：`025cbac` 提交说明「六份 after-sales 示例加虚构教学例声明」的计数有误，见 `docs/predev-adaptation-20260922/product-spec-builder.md` 第二轮修正节末尾的更正。
+
+验证（原始输出见回执）：`bash .claude/tests/test-plan-lint.sh` PASS=20 FAIL=0；`bash -n` 与 `shellcheck` 对 `test-plan-lint.sh` 均无告警；`node .claude/hooks/static-check.mjs .` 全绿；`bash .claude/tests/test-skills-lint-wording.sh` PASS=2 FAIL=0；`grep -n "plan-lint" .claude/skills/dev-planner/SKILL.md .claude/skills/dev-planner/templates/dev-plan-template.md` 中唯一的调用句（现 93 行）带 `DEV-PLAN.md <实际需求来源路径>`，其余命中均为行为描述、不涉及调用语法。

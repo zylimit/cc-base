@@ -171,7 +171,51 @@ D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_and_referenced; expec
 
 D=$(newdir); write_spec "$D"; write_plan "$D"; expect "$D" 0 'plan-lint: 通过' "L17 没有「范围外」节时行为与旧版一致（回归：合规计划照常通过，新解析不误伤）"
 
-echo "  [NOTE] 未覆盖：多余位置参数 rc 2、第二位置参数显式指定 Spec 路径、Spec 正文提过但未声明的编号（悬空判据用的是全文提及）、非 UTF-8 文档。"
+# ---------------------------------------------------------------------------
+# 本批新增：显式传第二个 Spec 路径（非默认名、非同目录，Codex 复核 PL2）
+# ---------------------------------------------------------------------------
+write_order_spec() { # <dir> — 唯一权威需求来源不叫 Product-Spec.md、也不与 DEV-PLAN.md 同目录
+    local d=$1
+    mkdir -p "$d/docs/prd"
+    printf '%s\n' '# 订单模块 PRD' '' '## 功能需求' \
+                   '- [REQ-ORDER-001] 下单：选品 -> 提交订单' \
+                   '- [REQ-ORDER-002] 退单：申请退款 -> 系统退款' \
+        > "$d/docs/prd/order.md"
+}
+
+write_order_plan() { # <dir> [variant] — DEV-PLAN.md 只引用 REQ-ORDER-001；oos 变体加「范围外」声明 002
+    local d=$1 v=${2:-plain}
+    {
+        printf '%s\n' '# 订单模块 DEV-PLAN' '' '## Phase 1：下单闭环' \
+                       '**交付内容**：用户能下单' \
+                       '**验证的假设**：无' \
+                       '**关键文件**：src/order.ts' \
+                       '**Task 清单**' \
+                       '- **Task 1.1：下单接口** 覆盖 REQ-ORDER-001' \
+                       '**验收标准**：下单后返回订单号'
+        if [ "$v" = oos ]; then
+            printf '%s\n' '' '## 范围外（本次不计划）' '- REQ-ORDER-002：原因（已押后）'
+        fi
+    } > "$d/DEV-PLAN.md"
+}
+
+D=$(newdir); write_order_spec "$D"; write_order_plan "$D"
+run_lint "$D/DEV-PLAN.md" "$D/docs/prd/order.md"
+if [ "$RC" -eq 1 ] && contains '需求没人做: REQ-ORDER-002' "$OUT"; then r=0; else r=1; fi
+chk "$r" "L18 显式传第二个 Spec 路径（非默认名 docs/prd/order.md、非 DEV-PLAN 同目录）→ 覆盖检查按该文件做，未被引用的 REQ-ORDER-002 → FAIL 并点名" \
+    "rc=1 且输出含「需求没人做: REQ-ORDER-002」" "rc=$RC；输出：$(brief "$OUT")"
+# 对照（现状，不计入 PASS/FAIL，本次不改脚本）：同一夹具无参跑——默认只在 DEV-PLAN.md 同目录找 Product-Spec.md，
+# 这里找不到就整段跳过覆盖检查、rc 0，REQ-ORDER-002 的缺口不会被无参调用发现，这正是 PL2 要修的问题本身
+run_lint "$D/DEV-PLAN.md"
+echo "  [NOTE] L18 对照（现状不变）：同一夹具无参跑 → rc=$RC，输出：$(brief "$OUT")"
+
+D=$(newdir); write_order_spec "$D"; write_order_plan "$D" oos
+run_lint "$D/DEV-PLAN.md" "$D/docs/prd/order.md"
+if [ "$RC" -eq 0 ] && contains '范围外（已声明）：REQ-ORDER-002' "$OUT"; then r=0; else r=1; fi
+chk "$r" "L19 显式传第二个 Spec 路径 + REQ-ORDER-002 在「范围外（本次不计划）」声明 → 通过并 WARN" \
+    "rc=0 且输出含「范围外（已声明）：REQ-ORDER-002」" "rc=$RC；输出：$(brief "$OUT")"
+
+echo "  [NOTE] 未覆盖：多余位置参数 rc 2、Spec 正文提过但未声明的编号（悬空判据用的是全文提及）、非 UTF-8 文档。"
 
 echo ""
 echo "==== test-plan-lint：PASS=$PASS FAIL=$FAIL ===="

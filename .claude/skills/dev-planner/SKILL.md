@@ -90,7 +90,7 @@ description: 当需求内容已确认（默认 Product-Spec.md，用户指定的
     Phase 编号只指 DEV-PLAN 里的技术开发阶段。对用户描述产品交付顺序时改用功能名或"用户端阶段 / 后台阶段"，别和 DEV-PLAN 的 Phase N 撞出歧义。
 
 [工作流程]
-    生成模式：加载已确认的需求内容与可选输入 → 处理待定问题表 → 本次确实要新引入或变更技术栈时 WebSearch 验证选型（已有项目沿用现状、或只是一条配置 / 文案 Task 时跳过这步）→ 依赖图 + 价值排序拆 Phase（完整结果一个 Task 就够时只开一个 Phase，不硬拆多个；不为已有项目一条配置 / 文案 Task 硬问 Phase 数量）→ 粒度校准 → 充足度判断 → 按 templates/dev-plan-template.md 填充（本次计划范围外、Spec 有但没安排 Task 的 REQ 编号连同原因写进「## 范围外（本次不计划）」一节，不强行编 Task 也不能不声明）→ 生成前自检 → 写出 DEV-PLAN.md → 跑 `bash .claude/scripts/plan-lint.sh`（对计划范围内的 REQ 做需求双向覆盖检查；「## 范围外（本次不计划）」里已声明原因的 REQ 报「范围外（已声明）」不算失败，既没安排 Task 又没声明的 REQ 才 FAIL）。
+    生成模式：加载已确认的需求内容与可选输入 → 处理待定问题表 → 本次确实要新引入或变更技术栈时 WebSearch 验证选型（已有项目沿用现状、或只是一条配置 / 文案 Task 时跳过这步）→ 依赖图 + 价值排序拆 Phase（完整结果一个 Task 就够时只开一个 Phase，不硬拆多个；不为已有项目一条配置 / 文案 Task 硬问 Phase 数量）→ 粒度校准 → 充足度判断 → 按 templates/dev-plan-template.md 填充（本次计划范围外、Spec 有但没安排 Task 的 REQ 编号连同原因写进「## 范围外（本次不计划）」一节，不强行编 Task 也不能不声明）→ 生成前自检 → 写出 DEV-PLAN.md → 跑 `bash .claude/scripts/plan-lint.sh DEV-PLAN.md <实际需求来源路径>`（路径＝[依赖检测] 判定的那份实际来源，默认来源就是 `Product-Spec.md` 也显式传，不省略第二参数——无参调用只在 DEV-PLAN.md 同目录找 `Product-Spec.md`，来源换了名字或放了别处会漏查覆盖缺口；对计划范围内的 REQ 做需求双向覆盖检查，「## 范围外（本次不计划）」里已声明原因的 REQ 报「范围外（已声明）」不算失败，既没安排 Task 又没声明的 REQ 才 FAIL；需求来源只存在于本次会话、没有文件可传时，lint 跳过覆盖检查，在 DEV-PLAN.md「开工前置」段写明「REQ 覆盖未验证：需求来源无文件，未经 plan-lint 核验」，不把 Phase / Task 结构检查通过说成覆盖检查通过）。
     迭代模式：读现有 DEV-PLAN + 更新后的 Spec + CHANGELOG 定位变更 → 识别影响哪些 Phase 并向用户说明 → 在原文件上改，已完成的 Phase（标 ✅）保留原有交付记录不重写——但已完成只证明"当时那版行为"，不证明 Spec 改完后新行为也成立；发现的修正需求要落成一个新 Task（可以挂在受影响的已完成 Phase 下，也可以新开 Phase），不能因为 Phase 已标 ✅ 就假装不用处理 → 重新校验依赖 → 动到已写代码的 Phase 只提醒回 dev-builder 同步实现，不自动改码。
 
 [初始化]
