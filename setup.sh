@@ -237,6 +237,22 @@ copy_file() {
   note_write "$dest"
 }
 
+# --with-tests / --with-harness 各自另起一段 find，整目录直拷，不经过 copy_claude_tree 主循环里
+# 那段由 gen-exclusions.mjs 生成的 @exclusions 分支（那段本身把 harness/ext/* 与 tests/* 整棵
+# continue 掉，对这两支线没用——它们要装的恰恰就是这两棵子树）。这里补一份判断，只收生成块里
+# 那些与路径深度无关的「叶子级」臂（.DS_Store / *.bak 等，用 * 天然跨 / 的 case 语义直接复用同一
+# 写法）；state/ 子目录参照 harness/state 等既有「运行态目录不分发」口径手写补上——exclusions.json
+# 目前没有 harness/ext/state/* 这一条（ext 包内部现在也没有真 state/ 目录），不为此改 json，先在
+# 安装器这层挡住。不进 @exclusions 生成块、不改 exclusions.json，--check 不受影响。
+is_optional_excluded() {
+  case "$1" in
+    *.bak|*.framework-new|*.swp) return 0 ;;
+    *.DS_Store|*Thumbs.db|*signals.jsonl) return 0 ;;
+    */state/*|state/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # --- 框架核心层 vs 项目私有层（FRAMEWORK-MANIFEST.txt）---
 # 目标侧旧 MANIFEST 记录了上次安装时各框架文件的 SHA（LF 归一化后 sha256，抗 autocrlf）。
 # 覆盖前对照：目标文件 == 旧框架版本 → 安全覆盖升级；用户改过或无旧 MANIFEST → 不覆盖，
@@ -332,28 +348,38 @@ copy_claude_tree() {
     [ "$DRY_RUN" = "1" ] && continue
     copy_file "$src" "$dest"
   done < <(find "$src_dir" -type f -print0)
-  # --with-tests：框架自测整目录照拷（不走 manifest 分层——它们是框架的测试不是用户文件，升级时直接换新）
+  # --with-tests：框架自测整目录照拷（不走 manifest 分层——它们是框架的测试不是用户文件，升级时直接换新，
+  #   目标已存在的按 plan_pair 报 create/skip/update，与主循环同一种「不静默覆盖」形态，copy_file 自带 .bak）
   if [ "$WITH_TESTS" = "1" ] && [ -d "$src_dir/tests" ]; then
     while IFS= read -r -d '' src; do
       rel=${src#"$src_dir"/}
       case "$rel" in tests/golden/*|tests/fixtures/*|tests/*) ;; *) continue ;; esac
-      plan_note create ".claude/$rel"
+      is_optional_excluded "$rel" && continue
+      plan_pair "$src" "$dest_dir/$rel" ".claude/$rel"
       [ "$DRY_RUN" = "1" ] && continue
       copy_file "$src" "$dest_dir/$rel"
     done < <(find "$src_dir/tests" -type f -print0)
   fi
   # --with-harness：大仓治理引擎整目录照拷（同 --with-tests，不走 manifest 分层——引擎是框架的一部分
-  #   不是用户文件）。harness/ext/rules/ 下的两份细则另拷一份进 .claude/rules/：frontmatter 的 path
-  #   作用域只在那个目录下被 Claude Code 认，留在 ext/ 里它们谁也加载不到。
+  #   不是用户文件，目标已存在同样按 plan_pair + copy_file）。harness/ext/rules/ 下的两份细则另拷一份进
+  #   .claude/rules/：frontmatter 的 path 作用域只在那个目录下被 Claude Code 认，留在 ext/ 里它们谁也加载
+  #   不到；只收顶层 .md，嵌套目录（如 rules/nested/x.md）不压平——bash case 的 * 跨 /，直接拿
+  #   harness/ext/rules/*.md 去匹配会把 nested/x.md 也吃进来，先剥掉固定前缀再看剩余里有没有 /。
   if [ "$WITH_HARNESS" = "1" ] && [ -d "$src_dir/harness/ext" ]; then
     while IFS= read -r -d '' src; do
       rel=${src#"$src_dir"/}
-      plan_note create ".claude/$rel"
+      is_optional_excluded "$rel" && continue
+      plan_pair "$src" "$dest_dir/$rel" ".claude/$rel"
       [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/$rel"
       case "$rel" in
         harness/ext/rules/*.md)
-          plan_note create ".claude/rules/${rel##*/}"
-          [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/rules/${rel##*/}"
+          case "${rel#harness/ext/rules/}" in
+            */*) : ;;  # 嵌套目录里的规则文档，原样留在 harness/ext/rules/ 下，不压平进 .claude/rules/
+            *)
+              plan_pair "$src" "$dest_dir/rules/${rel##*/}" ".claude/rules/${rel##*/}"
+              [ "$DRY_RUN" = "1" ] || copy_file "$src" "$dest_dir/rules/${rel##*/}"
+              ;;
+          esac
           ;;
       esac
     done < <(find "$src_dir/harness/ext" -type f -print0)

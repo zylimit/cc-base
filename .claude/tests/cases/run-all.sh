@@ -154,7 +154,7 @@ echo ""
 echo ">>> [2/3] 静态自测（test-setup / test-routing / 闸回归，无需 claude CLI）"
 STATIC_RC=0
 FAILED_SUITES=""
-for s in test-setup.sh test-routing.sh test-fix-platform.sh test-hook-parity.sh test-gate-audit.sh test-three-file-sync-gate.sh test-fast-mode.sh test-supervisor.sh; do
+for s in test-setup.sh test-setup-optional.sh test-routing.sh test-fix-platform.sh test-hook-parity.sh test-gate-audit.sh test-three-file-sync-gate.sh test-fast-mode.sh test-supervisor.sh; do
     run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
 done
 # harness 自测在 cases/（无需 claude CLI，只需 node），归第二段跑；无 node 时其自身打 SKIPPED 非假绿。

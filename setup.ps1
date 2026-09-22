@@ -221,6 +221,21 @@ function Copy-WithBackup($src, $dest) {
   Copy-Item $src $dest -Force
 }
 
+# -WithTests / -WithHarness each walk their own subtree directly, bypassing the $skip /
+# $skipAnyDepth / regex arms above (those are generated from harness/exclusions.json and one of
+# them, ^harness/ext/, exists precisely to skip the whole subtree these two switches exist to
+# install - reusing it verbatim would exclude everything). This mirrors setup.sh's
+# is_optional_excluded: only the leaf-level, depth-independent patterns (.DS_Store / *.bak / ...).
+# A state/ subdirectory is handled the same way as harness/state/* etc. above even though
+# harness/exclusions.json has no harness/ext/state/* entry (there is no real one under ext/ today) -
+# caught here in the installer instead of touching exclusions.json for it.
+function Test-OptionalExcluded([string]$relSlash) {
+  if ($relSlash -match '\.(bak|framework-new|swp)$') { return $true }
+  if ($relSlash -match '(^|/)(\.DS_Store|Thumbs\.db|signals\.jsonl)$') { return $true }
+  if ($relSlash -match '(^|/)state/') { return $true }
+  return $false
+}
+
 # 2. Copy the .claude framework files (skip runtime artifacts / scratch / machine-specific; settings.json is rewritten separately)
 # Same exclusion set as setup.sh copy_claude_tree, .claude/scripts/gen-manifest.sh and
 # .claude/harness/ext/release.mjs MANIFEST_RULES -- change one, change all four. The four are kept
@@ -292,16 +307,23 @@ Get-ChildItem -Path $srcClaude -Recurse -File -Force | ForEach-Object {
 }
 
 # -WithTests: copy the framework self-tests wholesale (no manifest layering - they are the framework's
-# tests, not user files, so an upgrade just replaces them). Same arm as setup.sh --with-tests.
+# tests, not user files, so an upgrade just replaces them). Same arm as setup.sh --with-tests. A target
+# that already has the file is reported create/skip/update like the main loop above (not silently
+# clobbered), and the actual write goes through Copy-WithBackup so a changed file keeps a .bak - plain
+# Copy-Item -Force here used to drop the previous content with nothing kept, unlike the main loop.
 if ($WithTests -and (Test-Path (Join-Path $srcClaude 'tests'))) {
   Get-ChildItem -Path (Join-Path $srcClaude 'tests') -Recurse -File -Force | ForEach-Object {
     $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
     $relSlash = $rel -replace '\\', '/'
-    Add-Plan 'create' $relSlash
-    if ($DryRun) { return }
+    if (Test-OptionalExcluded $relSlash) { return }
     $dest = Join-Path $targetClaude $rel
-    New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
-    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+    if (Test-Path $dest) {
+      if (Test-FilesEqual $_.FullName $dest) { Add-Plan 'skip' $relSlash } else { Add-Plan 'update' $relSlash }
+    } else {
+      Add-Plan 'create' $relSlash
+    }
+    if ($DryRun) { return }
+    Copy-WithBackup $_.FullName $dest
     Register-Write $relSlash
   }
 }
@@ -309,23 +331,35 @@ if ($WithTests -and (Test-Path (Join-Path $srcClaude 'tests'))) {
 # -WithHarness: copy the large-repo governance engine wholesale (same arm as setup.sh --with-harness;
 # no manifest layering - the engine is part of the framework, not a user file). The two documents under
 # harness/ext/rules/ get a second copy into .claude/rules/, because the path scope in their frontmatter
-# is only honoured where Claude Code looks for rules - left in ext/ they would load nowhere.
+# is only honoured where Claude Code looks for rules - left in ext/ they would load nowhere. Same
+# create/skip/update reporting and Copy-WithBackup write as -WithTests above, for both copies.
 if ($WithHarness -and (Test-Path (Join-Path $srcClaude 'harness/ext'))) {
   Get-ChildItem -Path (Join-Path $srcClaude 'harness/ext') -Recurse -File -Force | ForEach-Object {
     $rel = $_.FullName.Substring($srcRootLen).TrimStart('/', '\')
     $relSlash = $rel -replace '\\', '/'
-    Add-Plan 'create' $relSlash
-    $ruleRel = if ($relSlash -match '^harness/ext/rules/[^/]+\.md$') { 'rules/' + (Split-Path $rel -Leaf) } else { '' }
-    if ($ruleRel) { Add-Plan 'create' $ruleRel }
-    if ($DryRun) { return }
+    if (Test-OptionalExcluded $relSlash) { return }
     $dest = Join-Path $targetClaude $rel
-    New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
-    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-    Register-Write $relSlash
+    if (Test-Path $dest) {
+      if (Test-FilesEqual $_.FullName $dest) { Add-Plan 'skip' $relSlash } else { Add-Plan 'update' $relSlash }
+    } else {
+      Add-Plan 'create' $relSlash
+    }
+    # Nested documents under harness/ext/rules/ (e.g. rules/nested/x.md) are not flattened into
+    # .claude/rules/ - [^/]+ in the match below does not cross /, so only the top-level ones qualify.
+    $ruleRel = if ($relSlash -match '^harness/ext/rules/[^/]+\.md$') { 'rules/' + (Split-Path $rel -Leaf) } else { '' }
     if ($ruleRel) {
       $ruleDest = Join-Path $targetClaude $ruleRel
-      New-Item -ItemType Directory -Force -Path (Split-Path $ruleDest -Parent) | Out-Null
-      Copy-Item -LiteralPath $_.FullName -Destination $ruleDest -Force
+      if (Test-Path $ruleDest) {
+        if (Test-FilesEqual $_.FullName $ruleDest) { Add-Plan 'skip' $ruleRel } else { Add-Plan 'update' $ruleRel }
+      } else {
+        Add-Plan 'create' $ruleRel
+      }
+    }
+    if ($DryRun) { return }
+    Copy-WithBackup $_.FullName $dest
+    Register-Write $relSlash
+    if ($ruleRel) {
+      Copy-WithBackup $_.FullName $ruleDest
       Register-Write $ruleRel
     }
   }
