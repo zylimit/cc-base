@@ -17,3 +17,4 @@
 - [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的六条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 两个解析器一警一哑 / 退休词撞模板括注 / 覆盖判据宽于失败消息
 - [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；可选包分支绕 manifest；造装完后的目标树跑自带审计
 - [审「先写归档→重读核对→再删正文」搬迁脚本的七条攻法](../../../docs/agent-notes/code-reviewer/pattern_archive-move-scripts.md) — 前缀认区块被诱饵劫走；判重口径≠核对口径=永久卡死；零丢失核对别用 grep
+- [审「参数里有没有密钥路径」切词判据闸的五条攻法](pattern_secret-path-arg-matcher.md) — 命令替换裹走动词=HIGH真绕过；嵌套引号命中纯文本提及=过度拦截；glob 绕字面匹配但 \S* 正则会误中部分后缀
