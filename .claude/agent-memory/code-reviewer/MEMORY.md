@@ -17,4 +17,5 @@
 - [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的六条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 两个解析器一警一哑 / 退休词撞模板括注 / 覆盖判据宽于失败消息
 - [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；可选包分支绕 manifest；造装完后的目标树跑自带审计
 - [审「先写归档→重读核对→再删正文」搬迁脚本的七条攻法](../../../docs/agent-notes/code-reviewer/pattern_archive-move-scripts.md) — 前缀认区块被诱饵劫走；判重口径≠核对口径=永久卡死；零丢失核对别用 grep
-- [审「参数里有没有密钥路径」切词判据闸的五条攻法](pattern_secret-path-arg-matcher.md) — 命令替换裹走动词=HIGH真绕过；嵌套引号命中纯文本提及=过度拦截；glob 绕字面匹配但 \S* 正则会误中部分后缀
+- [审「参数里有没有密钥路径」切词判据闸的固定攻法](pattern_secret-path-arg-matcher.md) — 放行子命令连带危险flag（log -p）/ 管道分段洗白密钥路径 / grep 不认裸 -- / stripWrappers 吃穿收尾双引号
+- [审跨模型 skill 内容合成（来源表 K/C/合并）的固定攻法](pattern_cross-model-skill-synthesis.md) — 数章节数对表 / diff 声称搬入的文件 / 标"K"但无对应单一小节要打折 / 姊妹例文件漏加免责声明 / grep 目标仓没有的脚本与第三方编排概念

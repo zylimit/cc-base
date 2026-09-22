@@ -26,7 +26,7 @@ metadata:
    验法不是读表：源树里造**真实形态**样本（worktree 副本里还有一层 `.claude/`），两个安装器 + 生成器都跑一遍比 `comm` 双向差集；`manifestIncludes` / `isStateExcluded` / `isDenied` 三个纯函数直接 import 探针。
    主循环那七处对齐过一次，但**可选包分支根本不过表**：`--with-harness` 实测把 `ext/.DS_Store`、`scan.mjs.bak`、`ext/state/run.json` 一起拷出去。
 
-7. **可选包分支也绕过 manifest 三层保护**（2026-09-19）。`--with-tests` / `--with-harness` 直接 `copy_file` / `Copy-Item -Force`：重装覆盖用户改动，sh 留 `.bak`、ps1 什么都不留、两边都不落 `.framework-new`；`--dry-run` 对已存在的文件一律报 `create`，汇总行 `create=18 update=0` 是假的。实验：装完改一行再装一次，比 sha + 数 `.bak`。
+7. **可选包分支也绕过 manifest 三层保护**（2026-09-19 发现，2026-09-22 复审：`.bak`/`dry-run` 动作名/排除表/rules 顶层四项已修，见 `review-hotspots-installers.md` 详情）。`--with-tests` / `--with-harness` 不走 manifest 分层是有意设计（测试/引擎不算用户文件），但**永不拒绝覆盖**——manifest 分层对核心文件的语义是「不确定就不碰 live，落 `.framework-new`」，可选包分支就算内容完全是用户自己改的也一律覆盖 live（留 `.bak`）；dry-run 复用 `update` 这个词汇报告，跟核心文件真正安全升级时的 `update` 同名不同质，掩盖了「这条 update 其实在吃掉用户改动」。连续两轮「改动→重装」会把第一轮的 `.bak` 也覆盖掉——`.bak` 只有一代。实验：装完改一行再装一次，比 sha + 数 `.bak`；反复两轮改会证明单代 `.bak` 丢失。
 8. **按字节签名的表都要问 CRLF**。manifest 归一（`tr -d '\r'`），`instructions-allowlist.json` 不归一 → Windows autocrlf 检出当场豁免失效 rc 1；仓里没 `.gitattributes`，`gate.yml` 给 Windows 格设 `core.autocrlf false` 把这条盖住了。
 
 **同一个文件里两张排除表口径不一致 = 其中一张裸奔**：`static-check.mjs` 给 JS 写了第二张不排 `.claude/` 的表，`.sh` 那张原样排掉整个 `.claude/` —— shellcheck 面只覆盖 46 个 `.sh` 里的 2 个（2026-09-19 复核仍如此）。凡是审 `.claude/**/*.sh` 的改动，Stage 0 那行「全绿（shellcheck）」不覆盖它，自己手跑一遍再下结论。
