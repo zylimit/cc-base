@@ -1,5 +1,7 @@
 # 设计规范：售后工单派单
 
+> 虚构教学例：其中页面数、token、状态与业务假设不自动成为任何项目的要求，也不可当作验收证据。
+
 > 填充范例（与 product-spec-builder/examples/after-sales-dispatch.md 同一产品）。示范从情境与首要动作起手、surface closure、八态、token 引用不写值、假设与待确认。视觉 token 在同目录 after-sales-dispatch-DESIGN.md。
 
 ## 0. AI 使用说明

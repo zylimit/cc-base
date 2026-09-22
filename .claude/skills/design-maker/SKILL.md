@@ -119,24 +119,29 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
 
 [Phase 2：生成（odc 为主，AI Studio 兜底）]
     默认走 odc（2A + 2B）。仅当 odc daemon 不可用 / agent 鉴权失败 / 产物验收始终不过时，降级到 AI Studio（2C）。
-    Phase 1 第 7 步已判定方向已经拍板（DESIGN.md 判据清楚、用户明确授权）时跳过 2A，项目建好直接进 2B 用选定方向出全稿；仍需要比较方向时才走 2A。
 
-    [2A：方向样张（先选方向再出全稿）]
-        1. 建项目（**不带 `--mode`**，--mode 只接受 design|chat）：
-           ```
-           odc project create --name "<项目名> Design" --skill <skillId> --design-system <designSystemId> --json
-           ```
-           输出过滤 `[plugins]` 后取 **`.project.id`**（不是顶层 projectId）
-        2. 发起方向样张 run：message = design-prompt.md 的 DESIGN.md 与设计计划部分 + 「只做首屏（SCREEN-1）的三个完整视觉方向，各自独立成一个 section 并排：三者在密度、字重、动效暗示、品牌气质上明显不同，都遵守同一套 token 与 Don'ts；用真实内容；单文件离线」
+    [共同入口：建项目取 ID]
+        不论方向是否已拍板，2A 与 2B 共用同一个项目，先建项目取 ID（**不带 `--mode`**，--mode 只接受 design|chat）：
+        ```
+        odc project create --name "<项目名> Design" --skill <skillId> --design-system <designSystemId> --json
+        ```
+        输出过滤 `[plugins]` 后取 **`.project.id`**（不是顶层 projectId），后续 2A、2B 的 `<projectId>` 都指这个。
+        Phase 1 第 7 步已判定方向已经拍板（DESIGN.md 判据清楚、用户明确授权）时跳过 2A，建完项目直接进 2B 用既定方向出全稿；仍需要比较方向时才走 2A 再进 2B。
+
+    [2A：方向样张（可选，先选方向再出全稿）]
+        跳过条件见 [共同入口]；只在方向仍待定或用户要求比较时执行。
+        1. 发起方向样张 run：message = design-prompt.md 的 DESIGN.md 与设计计划部分 + 「只做首屏（SCREEN-1）的三个完整视觉方向，各自独立成一个 section 并排：三者在密度、字重、动效暗示、品牌气质上明显不同，都遵守同一套 token 与 Don'ts；用真实内容；单文件离线」
            ```
            odc run start --project <projectId> --agent claude --message "$(cat direction-prompt.md)" --json
            ```
-        3. 轮询到 `succeeded` 且 `exitCode == 0`（判据同 2B），取 `resolvedDir/index.html` 复制到 `demo/directions/`
-        4. 让用户在浏览器里看三个方向选一个（或一主一辅），把选择与理由写进 design-plan.md；无 odc 时用文字各描一句画面让用户选
-        5. 没有方向被选中 → 按用户的反馈改 design-plan.md 重出一次，不第三次
+        2. 轮询到 `succeeded` 且 `exitCode == 0`（判据同 2B），取 `resolvedDir/index.html` 复制到 `demo/directions/`
+        3. 让用户在浏览器里看三个方向选一个（或一主一辅），把选择与理由写进 design-plan.md；无 odc 时用文字各描一句画面让用户选
+        4. 没有方向被选中 → 按用户的反馈改 design-plan.md 重出一次，不第三次
 
     [2B：全稿生成]
-        1. 同一项目发起生成 run（prompt = 完整 design-prompt.md + 「按用户选定的方向 N」）：
+        1. 用 [共同入口] 取到的同一个 `<projectId>` 发起生成 run：
+           - 走过 2A（比较过方向）→ prompt = 完整 design-prompt.md + 「按用户选定的方向 N」
+           - 跳过了 2A（方向已由 DESIGN.md / 用户授权拍板）→ prompt = 完整 design-prompt.md，直接按该既定方向构造；不写「方向 N」——没有 2A 就没有编号可指，既定方向本身已经写在 design-prompt.md 里
            ```
            odc run start --project <projectId> --agent claude --message "$(cat design-prompt.md)" --json
            ```
@@ -182,7 +187,7 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
 
     "✅ 设计稿已生成（Open Design 一套出 HTML）
 
-     **产物**：demo/index.html（N KB，可交互、离线）；方向样张 demo/directions/（用户选定方向 N，或「方向已拍板，跳过 2A」）；设计计划 demo/design-plan.md
+     **产物**：demo/index.html（N KB，可交互，单文件自包含；[离线自包含已核实 / 是否发出外部网络请求未验证，见下方「未验证」]）；方向样张 demo/directions/（用户选定方向 N，或「方向已拍板，跳过 2A」）；设计计划 demo/design-plan.md
      **skill / design system**：<skillId> / <designSystemId>（token 以 DESIGN.md 为准）
      **验收**：页面 N/N 覆盖、八态 N/N、token 一致 ✓、模拟边界属实 ✓、UI 审计 [通过 / 缺席（无引擎）]、任务试走 [场景 N，参与者/Agent 自检，结果概述]、通病自检改了 X 处
      **未验证**：<按 [验收] 里逐条写「未验证」的项列出，没有就写「无」>

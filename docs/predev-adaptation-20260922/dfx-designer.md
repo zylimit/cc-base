@@ -30,3 +30,22 @@
 1. **[压力场景] 只搬了专项指令圈定的一条**：合成版原有四条压力场景，本仓专项指令第 5 条明确写「[迭代与纠正]、[压力场景]：测量语义纠正、旧证据失效、未达标项目如何保留差距」，据此只搬了「既有项目大量维度不达标」一条；「用户要求全部 critical」「只有『好用』类诉求」「无 catalog 的小项目」三条未搬——前者要用到 Codex 四层 catalog tier 经济学（与本仓六档不兼容，专项指令第 6 点也明说「Codex 的 catalog 四层 tier…不搬」），后两条超出圈定的三个主题。如果三条里有内容也该搬，需要回来确认范围。
 2. **grep 验收里的 `catalog` 字面无法为空**：dfx-designer 改动前就已把 `catalog`（指 `.claude/harness/module-catalog.json`）当自有词汇用，[依赖检测]、[评审模式（Review）]、[工作流程]、templates/dfx-spec-template.md、examples/after-sales-dispatch-dfx.md 里 K 原文本就有 7 处以上命中，对照 `git show HEAD:.claude/skills/dfx-designer/SKILL.md` 可核实这些命中均为改动前既有内容。本次新增内容里出现的 `catalog`/`harness attributes` 同样指本仓自己的 module-catalog.json，不是 Codex 的 `.codex/harness/module-catalog.json` 或 catalog attribute tier 概念；`.agents`/`.codex`/`resolver`/`controls`/`Assurance` 五项改动后确认零命中（见回执 Verified 一节的 grep 输出）。按字面读验收条款这条会显示非空，但非空的部分全部是本仓固有词汇，无新污染；提请主 Agent 按此口径核验。
 3. **[十三维 DFX 清单] 第 1/6/8/11/12 维不是单纯新增，而是对 K 原文的有限编辑**（在原句中插入一小段 C 判法 + 追加 N/A 出口），属于对既有 K 段落的修改而非整段新增。这是专项指令第 5 条明确授权的例外（"把 C 的判法整句并进本仓该维那一行"），但如果按合成规则第 1 条「K 段一字不动」的字面严格解释，这五行技术上不算"不动"，特此注明供复核。
+
+## 第二轮修正（2026-09-22，Codex 审 + 线 4 对等）
+
+依据：`docs/handoff/codex-review-cc-adaptation-20260922.md` 第 3 节「dfx-designer」（HIGH D1、Medium D2、Medium D3）+ 派单第 4、5 条对等项。逐条记改动与依据，不重复第一轮已核过的内容。
+
+| 编号 | 位置 | 改动 | 依据 |
+|---|---|---|---|
+| D1（HIGH） | `[依赖检测]`（原第 15–23 行） | 「必需」栏由「根目录 Product-Spec.md，缺失回 /product-spec-builder」改为「已确认的实际需求来源——用户指定的 PRD/Spec 路径或会话里确认的局部需求；`Product-Spec.md` 只是没有既有载体时的默认文件名」，只有确无任何等价事实才回需求阶段；「可选」栏 Architecture-Design.md / Design-Brief.md / DFX-Spec.md 三行各加「或用户指定的实际…路径」，缺则按局部就绪处理（全局定档 / 待办记一行 / 不强求迁到默认名），不再要求先有固定默认文件名。 | Codex 审查 D1：触发例「已确认需求在 docs/prd/order.md，用户要求为其定义恢复与隐私目标」在原文会被本节挡在门外，即使 [从损失推导目标] 已允许用实际来源取证；T4 第 3 节 `[依赖检测]` 判「C 领先」，要求沿用实际 Spec/架构路径。 |
+| D2（Medium） | `[第一性原则]`「可度量或不写」（原第 38 行） | 度量出口由单一「数字 + 单位 + 测法」改为并列两种：「数字 + 单位 + 测法，或安全 / 隐私类可重复判定的明确断言 + 判定方法」，并给出与 [从损失推导目标] 第 57 行一致的例子（指定角色不能读取他人记录 + 权限矩阵测试，违规次数 = 0）；同步改 `templates/dfx-spec-template.md` 第 5 行（predev-lint 说明加「安全/隐私类可用可判定断言，但仍要落成含数字的判定结果才过检」）与第 18 行表头（度量列标题加同一提示），并在维度总表前加一行「度量列阈值是示例，生成时替换成已确认目标或候选/待定，不自动成为本项目承诺」。 | Codex 审查 D2：新方法（原第 57、63–66 行）允许安全/隐私用明确断言、不为量化编漏洞数，与旧 `[第一性原则]` 「必须数字+单位+测法，写不出退回重问」及模板「度量列含数字或 N/A」字面冲突，同一诉求会同时收到相反指令。改动后两个出口并列，且断言仍落成可数结果（如「违规次数 = 0」），不改变 predev-lint `UNMEASURED` 检查的实际判据（含数字或 N/A），只是把断言型度量的合法写法写清楚。 |
+| D3（Medium） | `[工作流程]` `[过堂阶段]`（设计模式，原第 191–192 行）+ `[输出阶段]` 第一步（原第 201 行） | 过堂阶段加一句「过堂范围 = 本轮实际改动涉及的维度（按 [信息充足度判断] 的局部适用范围收敛）…范围外维度不重新过堂，保留既有 DFX-Spec 结论与来源，写『本轮未评价，沿用 <版本/日期> 结论』；仅当用户明确要求"全量 DFX 评审"时，十三维才逐项重新过堂」；输出阶段第一步由「填充生成 DFX-Spec.md」改为「按 [过堂阶段] 的评价范围填充生成或更新…范围外维度照抄既有结论与来源，不因本轮未评价而清空」。 | Codex 审查 D3：`[信息充足度判断]`（原第 155–160 行）已把范围外维度记「本轮未评价」，但 `[工作流程]` 设计模式仍无条件「按十三维逐维过堂 + 整份模板生成」，单一测量语义修订会被后段拉回全维评价，两节自相矛盾。改动只在 [工作流程] 补上与 [信息充足度判断] 一致的范围收敛条件，未改 [信息充足度判断] 本身（第一轮已核过）。 |
+| 对等项 4 | `templates/dfx-spec-template.md` §4 隐含合规扫描 | 在原有的合规追踪表前插入 SKILL.md `[隐含合规扫描]` 的九行参考表（表头保留「一出现就是需求的词」，逐行与 SKILL.md 完全相同，已用 `diff` 核对一致），并加一句「按实际命中逐条填下面的合规追踪表；确无命中也记录扫描范围和扫描者」。 | 派单第 4 条对等项：ccb 线 4 验收表要求 SKILL.md 与模板各有一份九行合规表，逐行相同，使模板脱离 SKILL.md 也能独立核对触发词。 |
+| 对等项 5 | `examples/after-sales-dispatch-dfx.md` 开头 | 标题下加一行「> 虚构教学例：其中数字、法规条目、命令、路径不自动成为任何项目的要求，也不可当作验收证据。」，与原有「生成/档位/范例配套」三行 blockquote 合并成一块。 | 派单第 5 条对等项：本例此前只声明「不能当本项目证据」（[文件结构] 一句带过），未在例子文件本身开头声明虚构边界；补齐后与 references/measurement-methods.md 的声明风格一致。 |
+
+验证（跑于本次改动后）：
+- `grep -n "^\[" .claude/skills/dfx-designer/SKILL.md` 仍为 18 节，与第一轮来源表行数一致，未增删节。
+- `diff` 核对 templates/dfx-spec-template.md 新增九行表与 SKILL.md `[隐含合规扫描]` 九行表逐字一致（含表头「一出现就是需求的词」）。
+- `grep -rn "\.agents\|\.codex\|resolver\|controls\|Assurance" .claude/skills/dfx-designer/` 无输出。
+- `node .claude/scripts/predev-lint.mjs --root <把 examples/after-sales-dispatch-dfx.md 复制为 DFX-Spec.md 的临时目录>` → `通过（检查 1 份，warning 0）`，确认新增的声明行不影响 predev-lint 对维度总表 / 预算表 / 占位符的解析。
+- `bash .claude/tests/test-skills-lint-wording.sh` → `PASS=2 FAIL=0`。

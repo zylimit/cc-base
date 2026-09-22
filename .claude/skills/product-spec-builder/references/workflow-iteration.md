@@ -1,10 +1,10 @@
 ---
 name: workflow-iteration
-description: product-spec-builder 迭代模式启动时读。用户对已有 Product-Spec.md 提变更时的分类、追问、冲突检测、影响矩阵与阶段回退。
+description: product-spec-builder 迭代模式启动时读。用户对已确定的需求来源提变更时的分类、追问、冲突检测、影响矩阵与阶段回退。
 ---
 
 [使用时机]
-    项目里已有 Product-Spec.md，用户开发中提新功能、改需求、调 UI、纠正误解，或下游送回「需求存疑」的反例。
+    项目里已有 SKILL.md [依赖检测] 确定的需求来源（没有既有载体时默认 Product-Spec.md），用户开发中提新功能、改需求、调 UI、纠正误解，或下游送回「需求存疑」的反例。
 
 [顶层规则]
     无缝衔接，不开场白，接住需求直接往下问。
@@ -56,7 +56,7 @@ description: product-spec-builder 迭代模式启动时读。用户对已有 Pro
     在现有 Spec 上直接改，保持结构，只改需要改的部分；标记与来源同步更新；被推翻的条目标「→ 被 <日期> 取代」，不删历史，不复用编号。
     反例进「规则与例外」标来源（哪个下游、哪个情境）；新答案追加澄清记录。
     涉及新 AI 功能 → 补 question-bank 12 的四问与护栏。
-    按 templates/changelog-template.md 追加 Product-Spec-CHANGELOG.md：为什么改、原判断哪里错、影响、变更分类、回退到哪个阶段。
+    按 templates/changelog-template.md 追加 SKILL.md [依赖检测] 确定的变更记录（没有既有载体时默认 Product-Spec-CHANGELOG.md）：为什么改、原判断哪里错、影响、变更分类、回退到哪个阶段。
     改完按 SKILL.md [复述理解] 复述改后那次会怎么发生，通过即完成；跑 spec-lint 与 predev-lint。
 
 [禁止]

@@ -1,5 +1,6 @@
 # DFX Spec — 售后工单派单
 
+> 虚构教学例：其中数字、法规条目、命令、路径不自动成为任何项目的要求，也不可当作验收证据。
 > 生成：2026-09-10 · 模式：设计 Design-in · 档位：M · 状态：待批准
 > 档位定义与判定规则见 `quality-attributes.md`（随 setup --with-harness 装进 .claude/rules/，源在 .claude/harness/ext/rules/）；本项目无 module-catalog，档位只进本文档，由 code-review 与 tester 守。
 > 范例与 product-spec-builder/examples/after-sales-dispatch.md、arch-designer/examples/after-sales-dispatch-arch.md 配套。

@@ -4,7 +4,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
 ---
 
 [任务]
-    读取 Product-Spec.md，通过模块划分推演 + 七大设计原则自检，输出一份可执行的架构设计文档 Architecture-Design.md（模块边界 / 依赖规则 / 一致性约定 / 运行与部署包络 / 关键决策 ADR / 押后决定 / 扩展点）。中大型项目同步产出 `.claude/harness/module-catalog.json` 骨架——让架构约束进 arch-check 机器闸门，防腐不靠自觉。
+    读取权威需求来源（默认 Product-Spec.md；用户已指定其他已批准路径的 PRD / Spec 时按该实际路径），通过模块划分推演 + 七大设计原则自检，输出一份可执行的架构设计文档 Architecture-Design.md（模块边界 / 依赖规则 / 一致性约定 / 运行与部署包络 / 关键决策 ADR / 押后决定 / 扩展点）。中大型项目同步产出 `.claude/harness/module-catalog.json` 骨架——让架构约束进 arch-check 机器闸门，防腐不靠自觉。
     文档只写**不变量**：两个各自独立开发的单元会在这上面做出不兼容选择的决定；其余（栈、目录树、完整数据形状）是种子，代码一出现就归代码。
     已有 Architecture-Design.md 或 ADR 时按需做增量——只更新这次业务变化涉及的模块边界 / 依赖 / 决策，不默认推倒重写整份文档或重新走一遍全部维度；新起项目仍走 [工作流程] 的全套推演。
 
@@ -12,7 +12,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
     Skill 启动时第一步自动执行：
 
     必需：
-    - Product-Spec.md → 缺失则提示先调用 /product-spec-builder；但缺 Product-Spec.md 不等于不能讨论——用户已给出具体片段、局部模块或某条 ADR 决策时，可先就这部分展开，只在要落盘完整文档前提示先补 /product-spec-builder
+    - 权威需求来源 → 用户指定或项目已确认的实际来源（已批准的 PRD、位于其他路径的 Spec、Product-Spec.md）都可作为来源；记录来源路径与适用范围，按该实际路径生成或更新完整 Architecture-Design.md，不强求先把它改名或搬成 Product-Spec.md。`Product-Spec.md` 只是没有指定来源时的默认路径；两者都缺失才提示先调用 /product-spec-builder。真正缺失的只是业务依据本身——没有任何可核实的来源，用户只给出具体片段、局部模块或某条 ADR 决策时，可先就这部分展开，只在要落盘完整文档前提示先补 /product-spec-builder
 
     可选（降级模式）：
     - 已有项目代码 → 有则先跑 `node .claude/harness/harness.mjs arch-check`（如已有 catalog）摸清现状依赖图，进入「演进模式」：先读够真实代码，尊重并 ratify 现存约定，只画增量与迁移路径，不推倒重来
@@ -211,7 +211,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
 
 [工作流程]
     [启动阶段]
-        第一步：执行 [依赖检测]；读 Product-Spec.md 提取功能清单、数据实体与归属、集成点、故障后果、用户量级预期、隐含合规；已有 Architecture-Design.md / ADR 时判断这次是新起还是迭代，迭代按 [迭代与纠正] 只处理受影响范围。
+        第一步：执行 [依赖检测]，确定权威需求来源（用户指定的实际路径优先，否则默认 Product-Spec.md）；读取该来源提取功能清单、数据实体与归属、集成点、故障后果、用户量级预期、隐含合规；已有 Architecture-Design.md / ADR 时判断这次是新起还是迭代，迭代按 [迭代与纠正] 只处理受影响范围。
         第二步：按 [规模分级] 判档，向用户报档位与将走的流程深度（用户可改档）；问 Coaching 还是 Fast。
         第三步：涉及不熟的风格 / 中间件 / starter → WebSearch 确认现状与版本再进推演。
 

@@ -160,7 +160,7 @@ description: 当用户说要确定设计风格、视觉方向，或说'我想要
     生成后引导下一步：/design-maker 出可交互设计稿，或 /dev-planner。
 
 [工作流程（迭代模式）]
-    见 references/workflow-iteration.md：接住需求直接问；新参考立刻搜同调性参考做二选一；模糊词翻译 recap；检测与现有 brief 的冲突（新方向 vs 已定密度或色彩）让用户取舍；两份文件一起改；设计稿已生成的提醒重生，样式已写的提醒回 dev-builder 同步，只提醒不自动改。
+    见 references/workflow-iteration.md：接住需求直接问；新参考立刻搜同调性参考做二选一；模糊词翻译 recap；检测与现有 brief 的冲突（新方向 vs 已定密度或色彩）让用户取舍；按实际影响改一份或两份载体——只影响某页 / 组件 / 局部视觉细节的改动只改受影响的那份（Design-Brief 或 DESIGN.md 其一），涉及信息架构、状态语义变化或新增页面时两份一起改；设计稿已生成的提醒重生，样式已写的提醒回 dev-builder 同步，只提醒不自动改。
 
 [交接]
     - **给 design-maker**：DESIGN.md 的 token 与八段 prose 原样进生成 prompt；Design-Brief 的页面清单、八态、组件清单是覆盖判据；Do's and Don'ts 是验收的反面清单。

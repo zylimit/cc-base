@@ -17,7 +17,7 @@ description: design-brief-builder 迭代模式启动时读。用户调整设计�
     Spec 变更触发的：先读 Product-Spec-CHANGELOG 定位变更，只动受影响的 SCREEN / CMP / 流程；新需求没有页面接的补页面，页面没有流程落到的问用户。
 
 [更新]
-    两份文件一起改：行为改 Design-Brief.md，视觉与 token 改 DESIGN.md；一处 token 变了，prose 里说它为什么存在的那句也要跟着改。
+    按实际影响范围决定改几份文件：只影响某页 / 组件 / 局部视觉细节的改动，只改受影响的那份载体（行为类改 Design-Brief.md，视觉与 token 类改 DESIGN.md，不强制联动另一份）；涉及信息架构、状态语义变化或新增页面时两份一起改——行为改 Design-Brief.md，视觉与 token 改 DESIGN.md；一处 token 变了，prose 里说它为什么存在的那句也要跟着改。
     被推翻的方向标「→ 被 <日期> 取代」，不删历史。
     跑 `node .claude/scripts/predev-lint.mjs`；能跑 `npx @google/design.md lint` 就跑。
     涉及设计稿已生成的，提醒重生（design-maker）；涉及已写代码的样式实现的，提醒回 dev-builder 同步 token；只提醒不自动改。

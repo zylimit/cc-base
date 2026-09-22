@@ -1,5 +1,7 @@
 # Architecture Design — 售后工单派单
 
+> 虚构教学例：其中数字、命令、路径不自动成为任何项目的要求，也不可当作验收证据。
+
 > 生成：2026-09-10 · 档位：M · 路：Coaching · 状态：待批准
 > 本文档只写不变量（两个独立构建的单元会在这上面选得不兼容的决定），其余是种子，代码一出现就归代码。M 档没有 module-catalog，依赖规则靠人工评审与 code-review Stage 2 守。
 > 版本号为示例；真实项目在技术栈表钉死联网核过的精确版本。范例与 product-spec-builder/examples/after-sales-dispatch.md 配套，SCOPE / FLOW / Q 编号指向那份 Spec。

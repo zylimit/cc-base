@@ -5,7 +5,7 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 
 # DEV-PLAN 输出模板
 
-文件命名：DEV-PLAN.md，放项目根目录。段名（**交付内容** / **验证的假设** / **关键文件** / **Task 清单** / **验收标准**）与 `- **Task N.M：**` 条目格式是 `plan-lint.sh` 检查的锚点，写法不能改；Task 条目下的 Business Context / 依赖类型 / 证据产生者 三个子字段不受 `plan-lint.sh` 检查，但要写全——它们直接对应 implementer 派单的七字段包（Business Context / Verification 等，见 .claude/rules/subagent-dispatch.md [派单包七字段]），写全了派单时不用主 Agent 现补。
+文件命名：DEV-PLAN.md，放项目根目录。段名（**交付内容** / **验证的假设** / **关键文件** / **Task 清单** / **验收标准**）与 `- **Task N.M：**` 条目格式，以及 `## 范围外（本次不计划）` 小节标题，是 `plan-lint.sh` 检查的锚点，写法不能改；Task 条目下的 Business Context / 依赖类型 / 证据产生者 三个子字段不受 `plan-lint.sh` 检查，但要写全——它们直接对应 implementer 派单的七字段包（Business Context / Verification 等，见 .claude/rules/subagent-dispatch.md [派单包七字段]），写全了派单时不用主 Agent 现补。
 一个完整结果一个 Task 就能交付时，仍用一个 Phase 装下这一个 Task（`plan-lint.sh` 要求至少一个 `## Phase` 小节），不为只有一个 Task 硬拆成多个 Phase；出现多个可独立验收的交付组才真正拆成多个 Phase。
 
 ```markdown
@@ -44,6 +44,16 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 ---
 
 <按实际功能数量增减 Phase，结构相同>
+
+---
+
+## 范围外（本次不计划）
+
+<本次计划没有安排 Task、但 Spec 里出现过的 REQ 编号；每条要给原因和回来的条件，不是漏做的借口；没有就写"无">
+
+- REQ-XXX-01：待确认——[等什么信息确认后才能排，找谁确认]
+- REQ-XXX-02：已押后——[押后到哪个后续计划 / Phase，为什么现在不做]
+- REQ-XXX-03：归别的计划——[实际由哪份计划 / 哪个项目负责，不是本次遗漏]
 
 ---
 
@@ -92,3 +102,4 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 12. 依赖类型区分功能前置与验证前置：功能前置进拓扑序、决定开工先后，验证前置只影响验收能不能收口、不卡开工；共享写入的文件明确唯一 owner Task，其余 Task 只读不改
 13. 证据产生者对应本仓 LOW / MEDIUM / HIGH 判档（见 .claude/rules/dev-workflow-details.md [项目开发阶段]）：写清这条验证归谁跑，不是主 Agent 自己跑，也不是"跑完就算"
 14. 一个完整结果只用一个 Task 时，仍装进一个 Phase（`plan-lint.sh` 要求至少一个 `## Phase` 小节）；出现多个可独立验收的交付组才真正拆成多个 Phase，Phase 数量不是预设的固定门槛
+15. 「## 范围外（本次不计划）」声明不是豁免：每条 REQ 要写原因（待确认 / 已押后 / 归别的计划）和回来的条件（等什么发生、回到哪份计划），不能只写编号不写理由；`plan-lint.sh` 对已声明原因的 REQ 报「范围外（已声明）」不算失败，但既没安排 Task 又没声明的 REQ 仍然 FAIL，没有待声明的条目就整节删掉，不留空壳

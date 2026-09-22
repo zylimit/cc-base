@@ -153,11 +153,45 @@ if spec_path is not None:
         for i, line in enumerate(lines):
             if i not in fenced and TASK_ITEM_RE.match(line):
                 task_ids.update(REQ_REF.findall(line))
+
+        # 4.5) 范围外声明：dev-planner 允许局部计划，顶格 "## 范围外（本次不计划）" 标题到
+        #      下一个 "## " 之间的 "- REQ-XXX：原因" 行算数；REQ 号复用上面 REQ_REF 那条正则
+        OOS_HEADING_RE = re.compile(r"^## 范围外（本次不计划）\s*$")
+        OOS_ITEM_RE = re.compile(r"^\s*-\s*(" + REQ_REF.pattern + r")\s*[:：]\s*(.*)$")
+        oos_declared = {}
+        in_oos = False
+        for i, line in enumerate(lines):
+            if i in fenced:
+                continue
+            if OOS_HEADING_RE.match(line):
+                in_oos = True
+                continue
+            if in_oos and re.match(r"^## ", line):
+                in_oos = False
+                continue
+            if in_oos:
+                m = OOS_ITEM_RE.match(line)
+                if m and m.group(1) not in oos_declared:
+                    oos_declared[m.group(1)] = (i + 1, m.group(2).strip())
+
         for req_id, ln in spec_declared.items():
-            if req_id not in task_ids:
+            if req_id not in task_ids and req_id not in oos_declared:
                 fail(f"需求没人做: {req_id}（{spec_path.name} L{ln}）在 {path.name} 里没有任何 Task 引用")
-        # 悬空看 Spec 全文提到的编号，不止声明行——正文提过就算它还在
-        for req_id in sorted(plan_mentioned.keys() - spec_mentioned.keys()):
+
+        # 范围外声明本身要经得住查：Spec 里没这个编号多半是拼错；已经被 Task 引用又声明不计划是自相矛盾
+        for req_id, (ln, reason) in oos_declared.items():
+            if req_id not in spec_mentioned:
+                fail(f"范围外声明的编号不存在: {req_id}（{path.name} L{ln}，{spec_path.name} 中没有这个编号"
+                     "——检查是不是拼错了）")
+            elif req_id in task_ids:
+                fail(f"范围外声明与 Task 矛盾: {req_id} 既被 Task 引用又在「范围外」节声明为不计划"
+                     f"（{path.name} L{ln}）")
+            else:
+                print(f"plan-lint: 范围外（已声明）：{req_id}——{reason}（{path.name} L{ln}）", file=sys.stderr)
+
+        # 悬空看 Spec 全文提到的编号，不止声明行——正文提过就算它还在；已经在范围外声明里报过
+        # 一次「编号不存在」的不再重复报，避免同一处拼错冒出两条不同措辞的失败
+        for req_id in sorted(plan_mentioned.keys() - spec_mentioned.keys() - oos_declared.keys()):
             hits = [i + 1 for i, line in enumerate(lines)
                     if i not in fenced and req_id in line]
             loc = ", ".join(f"L{n}" for n in hits)

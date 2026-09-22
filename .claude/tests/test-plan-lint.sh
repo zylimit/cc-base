@@ -122,6 +122,55 @@ D=$(newdir); write_plan "$D" no_anchor; expect "$D" 1 '缺字段 **验证的假�
 
 D=$(newdir); write_spec "$D"; write_plan "$D" fenced; expect "$D" 0 'plan-lint: 通过' "L12 围栏里的 REQ-DEMO-999 与 TODO 不制造假红（模板自带这种示例段）"
 
+# ---------------------------------------------------------------------------
+# 本批新增：范围外声明（dev-planner 局部计划 × plan-lint 新契约，Codex 审查 HIGH PL2）
+# ---------------------------------------------------------------------------
+write_plan_oos() { # <dir> <variant> — 「## 范围外（本次不计划）」专用夹具，独立于 write_plan 避免连累既有用例
+    local d=$1 v=$2
+    {
+        printf '%s\n' '# 派单小工具 DEV-PLAN' '' '## Phase 1：派单闭环' \
+                       '**交付内容**：组长能派单，师傅能回单' \
+                       '**验证的假设**：师傅愿意在手机上点开派单链接' \
+                       '**关键文件**：src/dispatch.ts' \
+                       '**Task 清单**' \
+                       '- **Task 1.1：派单接口** 覆盖 REQ-DISPATCH-001'
+        case "$v" in
+            declared_and_referenced)
+                printf '%s\n' '- **Task 1.2：回单接口** 覆盖 REQ-REPORT-002' \
+                               '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- REQ-REPORT-002：原因（已押后）'
+                ;;
+            declared_unknown_req)
+                printf '%s\n' '- **Task 1.2：回单接口** 覆盖 REQ-REPORT-002' \
+                               '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- REQ-GHOST-777：原因（归别的计划）'
+                ;;
+            section_present_still_uncovered)
+                printf '%s\n' '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- 暂无其它安排'
+                ;;
+            declared|*)
+                printf '%s\n' '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- REQ-REPORT-002：原因（待确认）'
+                ;;
+        esac
+    } > "$d/DEV-PLAN.md"
+}
+
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared; expect "$D" 0 '范围外（已声明）：REQ-REPORT-002' "L13 Spec 里已声明的 REQ 在「范围外」节声明不计划 → 不 FAIL，报「范围外（已声明）」"
+
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" section_present_still_uncovered; expect "$D" 1 '需求没人做: REQ-REPORT-002' "L14 有「范围外」节但目标 REQ 既未被 Task 引用也未被节内声明 → 仍 FAIL（回归：新节不是免死金牌）"
+
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_unknown_req; expect "$D" 1 '范围外声明的编号不存在: REQ-GHOST-777' "L15 「范围外」节声明了 Spec 里不存在的编号 → FAIL（防拼错）"
+
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_and_referenced; expect "$D" 1 '范围外声明与 Task 矛盾: REQ-REPORT-002' "L16 同一 REQ 既有 Task 引用又在「范围外」节声明 → FAIL（矛盾）"
+
+D=$(newdir); write_spec "$D"; write_plan "$D"; expect "$D" 0 'plan-lint: 通过' "L17 没有「范围外」节时行为与旧版一致（回归：合规计划照常通过，新解析不误伤）"
+
 echo "  [NOTE] 未覆盖：多余位置参数 rc 2、第二位置参数显式指定 Spec 路径、Spec 正文提过但未声明的编号（悬空判据用的是全文提及）、非 UTF-8 文档。"
 
 echo ""
