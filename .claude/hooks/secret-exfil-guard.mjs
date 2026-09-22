@@ -46,9 +46,13 @@ const SECRET_CORE = `(${SECRET_NAMES})([\\s"']|$)`;
 const SECRET_PATH = new RegExp(`^([^\\s"']*/)?(${SECRET_NAMES})$`);
 // glob 判据用：典型密钥名固定清单——像放行表一样列得完，不像「还有哪些命令能读文件」那张表。
 // token 里带 * ? [ 时当模式看，用线性时间的 globMatch（见下）逐个试这份清单，match 到一个就算命中。
+// credentials.json 不进这份候选：*.json 是开发里最常见的通配（grep --include=*.json、jq . *.json、
+// prettier 这类工具链天天用），把它放进候选会让 --include=*.json 的 = 右值被当模式碰上、逼人绕闸；
+// key.pem / key.ppk 留着是因为 pem / ppk 几乎只用于密钥证书，没有这种高频误伤。字面 credentials.json
+// 不受影响，仍由 SECRET_PATH（SECRET_NAMES）按原样拦。
 const TYPICAL_SECRET_NAMES = [
   '.env', '.env.local', 'id_rsa', 'id_ed25519', 'key.pem', 'key.ppk',
-  'credentials.json', '.aws/credentials', '.ssh/id_rsa',
+  '.aws/credentials', '.ssh/id_rsa',
 ];
 // 参数区前缀：动词后紧跟（空格即边界）或经任意参数后以空格/斜杠/引号/=/@ 为前界——两种都算命中
 const ARGPFX = "\\s+([^|;&]*[\\s/\"'=@])?";

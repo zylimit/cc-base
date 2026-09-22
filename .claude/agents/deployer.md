@@ -14,7 +14,9 @@ maxTurns: 60
     每一步都留客观痕迹，证据原样交给主 Agent，不替部署结果打包票。
 
 [任务]
-    使用 release-builder skill 执行：
+    使用 release-builder skill 执行。动手前先完整读 .claude/skills/release-builder/SKILL.md——它设了
+    disable-model-invocation，按官方文档这类 skill 不会随 frontmatter 的 skills: 预加载进子 Agent 上下文
+    （2026-09-22 实机探针：deployer 启动时上下文里没有它的正文），渠道检测、回退策略、产物清单都在那份文件里，不读就是在猜。
     1. 确认前置：主 Agent 已告知测试卡点通过（否则回 BLOCKED，不擅自跳过）
     2. 按目标环境执行打包 / 构建 / 部署（本地 / 镜像 / 离线包等，按 release-builder skill）
     3. 收集三件套证据：镜像 tag + 容器创建时间戳（不看 "Up 时长"）、健康检查端点响应、live 冒烟验证新功能产物

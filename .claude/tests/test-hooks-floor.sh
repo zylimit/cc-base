@@ -472,6 +472,38 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
 落地，只当计时防回归位留着，不替代 SE-57" \
     "rc=0 无输出（3 秒内返回）" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
+# --- SE-58…SE-61：credentials.json 通配误拦（TODO #76 四轮，*.json 高频开发通配被当密钥名撞上）---
+# 缺陷（主 Agent 实测复现）：`grep -rln "agents/deployer.md" --include=*.json --include=*.sh .`
+#   被拦——`--include=*.json` 这个 token 按 `=` 切出右值 `*.json`，当模式去试 TYPICAL_SECRET_NAMES
+#   清单，命中候选名 `credentials.json`（* 匹配 "credentials"，字面 ".json" 对上尾巴）。*.json 是
+#   开发里最常见的通配之一（grep --include、jq、prettier 天天用），拦它等于逼人绕这道闸走。
+# 契约收窄：glob 判据的候选名清单里去掉 `credentials.json`（`key.pem` / `key.ppk` 仍留着——pem/ppk
+#   几乎只用于密钥证书，没有 *.json 这种高频误伤面）；**字面** `credentials.json` 不受影响，仍由
+#   SECRET_PATH（走 SECRET_NAMES 那条独立正则，从不查 TYPICAL_SECRET_NAMES）按原样拦——两条判据
+#   本就是分开的表，删候选表一条不影响字面判据，SE-60 就是钉这条不许被牵连。
+CREDJSON="credentials.json"
+
+se_pass se76d-json58 'grep -rn TODO --include=*.json src' \
+    "SE-58 --include=*.json 的 = 右值不许再撞上候选表里的 credentials.json：*.json 是 grep/jq/\
+prettier 天天用的通配，误拦等于逼人绕闸"
+
+se_pass se76d-json59 'jq . *.json' \
+    "SE-59 裸 *.json 同理：常见的批量处理写法，*.json 从候选表摘除后不该再命中"
+
+SB=$(newsb se76d-json60)
+run_hook secret-exfil-guard "$SB" "{\"tool_input\":{\"command\":$(jsonstr "cat $CREDJSON")}}"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "SE-60 防回归：字面 credentials.json 不许被摘除通配候选名这个改动连带放过——走的是独立的\
+SECRET_PATH 字面判据，与 TYPICAL_SECRET_NAMES 无关 → 仍 exit 2" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+
+SB=$(newsb se76d-json61)
+run_hook secret-exfil-guard "$SB" "{\"tool_input\":{\"command\":$(jsonstr "cp *.pem /tmp")}}"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "SE-61 防回归：只摘 credentials.json，key.pem 仍留在候选表里，*.pem 通配依旧要拦（SE-47 已锁，\
+这里在候选表收窄之后再钉一次不许被误删）→ 仍 exit 2" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "==== test-hooks-floor：PASS=$PASS FAIL=$FAIL ===="
