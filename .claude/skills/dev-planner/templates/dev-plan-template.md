@@ -5,7 +5,8 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 
 # DEV-PLAN 输出模板
 
-文件命名：DEV-PLAN.md，放项目根目录。段名（**交付内容** / **验证的假设** / **关键文件** / **Task 清单** / **验收标准**）与 Task 条目格式是 `plan-lint.sh` 检查的锚点，写法不能改。
+文件命名：DEV-PLAN.md，放项目根目录。段名（**交付内容** / **验证的假设** / **关键文件** / **Task 清单** / **验收标准**）与 `- **Task N.M：**` 条目格式是 `plan-lint.sh` 检查的锚点，写法不能改；Task 条目下的 Business Context / 依赖类型 / 证据产生者 三个子字段不受 `plan-lint.sh` 检查，但要写全——它们直接对应 implementer 派单的七字段包（Business Context / Verification 等，见 .claude/rules/subagent-dispatch.md [派单包七字段]），写全了派单时不用主 Agent 现补。
+一个完整结果一个 Task 就能交付时，仍用一个 Phase 装下这一个 Task（`plan-lint.sh` 要求至少一个 `## Phase` 小节），不为只有一个 Task 硬拆成多个 Phase；出现多个可独立验收的交付组才真正拆成多个 Phase。
 
 ```markdown
 # Development Plan — [项目名称]
@@ -33,6 +34,9 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 
 **Task 清单**：
 - **Task 1.1：[具体改动]** — 文件路径 + 改哪个函数 / 加哪个字段 + 验证命令
+  - Business Context：[为谁解决什么问题；关键规则来源（Spec 第几条 / `[REQ-模块-编号]`）；一个能区分对错的输入输出例子——直接抄进 implementer 派单的 Business Context 字段，不让 fresh 实例猜]
+  - 依赖类型：[功能前置：必须先完成才能开工的 Task / 已具备能力；验证前置：验收要用到的外部条件（真实接口、隔离数据、可达初态）；都没有写"无"；共享写入的文件标唯一 owner Task]
+  - 证据产生者：[这条验证命令归谁跑——LOW 档 implementer 自检；MEDIUM 起 code-reviewer 复核；HIGH 档另派 tester 独立验证，对应 dev-workflow-details.md [项目开发阶段] 判档]
 
 **验收标准**：
 - [能编译、能启动、能看到 XX 效果；假设成立的证据是什么]
@@ -69,6 +73,7 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 - **验证的假设**：Claude API 的 SSE 在 Electron 渲染进程能逐块到达（技术未知）——页面上看到逐字输出即成立
 - **关键文件**：`src/lib/db.ts` — 建表与 db 单例；`src/app/api/chat/route.ts` — 聊天 API
 - **Task 清单**：Task 2.1 新建 `src/lib/db.ts`，建 sessions / messages 表，验证 `pnpm tsc --noEmit`；Task 2.2 新建 `src/app/api/chat/route.ts` 返回 SSE，验证 `curl -N localhost:3000/api/chat`
+  - Task 2.2 的 Business Context：已登录用户发消息要逐字看到回复，不是等全部生成完再一次性显示——区分例子：发送"你好"应逐块收到"你" "好"，不是等 2 秒后整句弹出；依赖类型：功能前置＝Task 2.1 先建好 messages 表（要写入这张表）；证据产生者：implementer 自检（本 Task 判 LOW 档，不追加 reviewer）
 - **验收标准**：能建会话、发消息、收到流式回复；刷新后会话和消息不丢
 
 ## 写作要点
@@ -76,10 +81,14 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 1. Phase 用功能名命名，不用编号序列——"聊天核心 + SQLite 持久化"比"Phase 2"好认
 2. 交付内容动词开头，一条一个可感知交付物；基础设施 Phase 写"XX 表 + CRUD API"，业务 Phase 写用户能做什么
 3. 验证的假设每 Phase 必填、可为「无」；一条假设一 bullet，写清来源（Spec 的 [推断] / [待定] / [默认] 或技术未知）和成立的证据
-4. 关键文件用项目内相对路径 + 用途说明，不列测试和配置文件（除非它是本 Phase 的核心交付物）
-5. Task 清单每条给齐三样：文件路径 + 具体改动 + 验证命令；不写"类似 Task N"、"按需调整"
+4. 关键文件用项目内相对路径 + 用途说明，不列测试和配置文件（除非它是本 Phase 的核心交付物）；被多个 Task 共写的文件额外标唯一 owner Task，避免几个 Task 都以为自己负责收口
+5. Task 清单每条给齐三样：文件路径 + 具体改动 + 验证命令；不写"类似 Task N"、"按需调整"；再加 Business Context / 依赖类型 / 证据产生者三个子字段，让 Task 能直接抄进 implementer 派单
 6. 验收标准最低"能编译 + 能启动 + 新功能可用"，推荐加"现有功能未破坏"
 7. 技术栈表标经 WebSearch 验证的版本号；数据库表标在哪个 Phase 建，后续 migration 写进那个 Phase 的交付内容
 8. 开工前置段没有待定 / 推断 / 缺口时整段删掉，不留空壳
 9. Phase 顺序：核心价值流程（含它依赖的最小骨架）→ 验证核心假设 → 重要功能 → 辅助功能 → 收尾（i18n / 打包 / 部署）；依赖只做校正，不做主轴
 10. Spec 条目带 `[REQ-模块-编号]` 时，Task 描述里写上对应编号——plan-lint 双向查：需求没被任何 Task 引用、引用了 Spec 里没有的编号，都报错
+11. Business Context 只写一两句能直接塞进派单的内容（为谁、什么规则、一个区分对错的例子），不复制整段 Spec 正文；REQ 编号已覆盖的规则不重复抄
+12. 依赖类型区分功能前置与验证前置：功能前置进拓扑序、决定开工先后，验证前置只影响验收能不能收口、不卡开工；共享写入的文件明确唯一 owner Task，其余 Task 只读不改
+13. 证据产生者对应本仓 LOW / MEDIUM / HIGH 判档（见 .claude/rules/dev-workflow-details.md [项目开发阶段]）：写清这条验证归谁跑，不是主 Agent 自己跑，也不是"跑完就算"
+14. 一个完整结果只用一个 Task 时，仍装进一个 Phase（`plan-lint.sh` 要求至少一个 `## Phase` 小节）；出现多个可独立验收的交付组才真正拆成多个 Phase，Phase 数量不是预设的固定门槛

@@ -29,9 +29,18 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     可选：`node -e "require('playwright-core')"` 成功 → 验收跑 ui-audit；失败 → 报告注明「UI 审计缺席」
     缺 Product-Spec.md 或 Design-Brief.md → 退出，提示补全后重新调用
 
+[文件结构]
+    design-maker/
+    ├── SKILL.md                          # 本文件：odc / 提示词模式两条生成路 + 两遍法 + 原型构建与任务试走方法 + Phase + 验收 + 交付
+    └── references/
+        ├── prototype-construction.md     # 从关键屏到 token/组件/状态/页面逐层展开、实际渲染与键盘/内容核对方法（含预约教学例）
+        └── task-walkthrough.md           # 带任务试走方法：参与者带目的试走、观察理解与恢复、发现回填到正确来源
+    视觉词汇与质量地板复用 ../design-brief-builder/references/style-vocabulary.md、ui-quality-floor.md，两遍法自审与验收抽查时读。
+
 [第一性原则]
     **完整覆盖原则**：Product Spec 中每个有 UI 的功能、Design-Brief 里每个 SCREEN 都必须在生成 prompt 里点名，确保产物覆盖。漏一个页面，开发时就少一个参照。
     **状态完备原则**：每个页面不只默认态。八态（空 / 加载 / 成功 / 错误 / 冲突 / 离线 / 无权限 / AI 工作中）在 prompt 里逐页要求，Design-Brief 已写的照抄不改。
+    **原型边界原则**：结果未知（已提交但还不能确认成功或失败）是合法状态，不能靠转圈动画或默认成功掩盖；产物里清楚区分真实本地交互与模拟的外部 / 后端行为（不真的发送、同步、扣款、持久化到后端），模拟标注写在原型说明里，不混进产品主流程文案。每个会改变结果的动作说明保存位置、刷新后是否保留、以及怎样重置，让同一任务与异常能反复试走。
     **文档驱动原则**：一切设计决策来自三份文档。颜色、字号、圆角、间距只从 DESIGN.md token 来，不散写 hex；DESIGN.md 的 Do's and Don'ts 原样进 prompt 当护栏；不添加文档未描述的功能。
     **两遍法原则**：生成前先写一页紧凑的设计计划（token 摘录、每页 ASCII 线框与对齐、大胆放在哪一处、动效只留哪一处），再对照 brief 与 `../design-brief-builder/references/style-vocabulary.md` 的 AI 通病清单审一遍——任何一处是「给任何同类页面都会给的默认」而不是给这个产品的选择，就改并说出改了什么；只有审过才生成。
     **真实内容原则**：prompt 里提供 Spec 与 Brief 里的真实文案和样本业务数据（案例里的人名、型号、地址），要求产物不使用 Lorem ipsum 或无意义占位符。
@@ -42,9 +51,27 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     - `demo/design-plan.md`：两遍法的设计计划与自审记录（token 摘录、线框、大胆一处、通病自检结果、选定方向）
     - `demo/design-prompt.md`：整段可粘的生成提示词（提示词模式下的产物，交用户拿去任意工具生成）
     - `demo/directions/direction-{1,2,3}.html`：三个首屏方向样张（同一页面三种完整人格，不是换色）
-    - `demo/index.html`：全稿——**给开发**编码核心参照；**给领导/干系人**评审时浏览器直接打开看，可点可交互
+    - `demo/index.html`：全稿——**给开发**编码核心参照；**给领导/干系人**评审时浏览器直接打开看，可点可交互；内部标注哪些操作是真实本地交互、哪些是模拟（不真的发送 / 同步 / 扣款 / 持久化），模拟数据保存在哪里、刷新后是否保留；每个可能改变结果的动作提供可重置的演示入口，让同一任务与异常能反复试走
     - `demo/ui-audit/`：审计 JSON 与截图（有引擎时）
-    产物必须满足 [第一性原则]：完整页面覆盖、八态、真实数据、离线自包含、质量地板。
+    产物必须满足 [第一性原则]：完整页面覆盖、八态、真实数据、离线自包含、质量地板、原型边界（模拟标注与可重置）。
+
+[从关键屏落到完整原型]
+    **先解决最重要的可见问题**：从覆盖矩阵（[Phase 1：准备] 新增的那一步）里选最能暴露当前未知的关键屏，用真实内容先处理主次、对齐、密度和动作位置，再实际打开看渲染；已有 Design-Brief / DESIGN.md 的 token 优先继承，不能只把 token 写对就假定页面已经有正确的视觉层次。
+
+    **按关键屏 → token → 组件 → 状态 → 页面展开**：从关键屏提炼实际需要的颜色角色、排版、间距，集中成 design-plan.md / DESIGN.md 里的具名 token；建立对应语义组件，再让组件经历当前任务的真实状态，最后扩展到 Brief 里其余 SCREEN 和导航关系。一个组件复用的是一致的作用与行为，不能把所有对象套成同样卡片；发现状态语义与 Brief 不一致时回 Design-Brief 核对，不自己另造一套。
+
+    **每个动作都能说明结果与恢复**：按「触发 → 可见反馈 → 保留数据 → 可用动作 → 退出/恢复」写清每个会改变结果的动作（简单动作一句话即可）；区分真实的本地交互、模拟的外部 / 后端行为和未实现部分。显示 toast 不能代替保存，出现「可撤销」必须真的能恢复所声明的原型数据，取消加载动画也不等于撤销已经发生的业务动作。涉及异步结果或用户正在编辑的内容时，核对对象、请求代次与当前意图，旧结果不能无说明覆盖新内容。详细方法（含预约教学例）见 `references/prototype-construction.md`。
+
+    **让内容、键盘与焦点一起工作**：先让内容顺序与主任务在窄屏成立，再调整装饰；核心路线用键盘实际走通，检查焦点进入、模态约束、退出后返回，以及错误后的下一步；非模态区域不能无故困住焦点。代表长文案、放大、固定导航遮挡、状态播报与 reduced-motion 分别核查，不把加了 ARIA 属性当完成验证——这几项在 [验收] 里有 UI 审计引擎时随 ui-audit 一起跑，没有引擎时人工核对，查不到的写「未验证」。
+
+[任务试走方法]
+    比字符串 grep 或结构检查更能识别「按钮能点但任务做不完」：让参与者（没有真实参与者时 Agent 自行追演，明确只是自检）带着一个来自 Product-Spec / Design-Brief 的真实任务目的去走原型，不把每一步该点哪里先告诉参与者——那只能证明能跟指令，暴露不出入口、信息次序或状态文案的问题。
+
+    观察三件事：认不认得出入口、理解不理解动作后果和当前结果、被打断或出错后能不能接上（返回、纠错、中断恢复、重复操作）。按当前设计的不确定性挑一个相关异常（输入不全、结果尚未确认、无权限、操作被取消），看信息和输入是否保留、下一步是否明确。反馈不明时请参与者描述看到的结果和下一步，不问引导性的「这样是不是方便」；只记录实际动作、具体话语、卡点，Agent 自演与真实观察分开标注，不虚构满意评分。
+
+    发现按来源回填：布局 / 视觉层次问题回 Design-Brief；数据含义、权限、成功条件或流程分歧回 Product-Spec；跨模块的结果 / 恢复承诺交主 Agent 同步架构 / DFX；再更新 design-plan.md 与产物本身。一次试走通过不证明所有人、设备或异常都可用，没走过的路线要在交付时列出。方法细节与虚构教学例见 `references/task-walkthrough.md`。
+
+    并入 [Phase 2：生成] 的 [验收]，与 ui-audit 并列跑：ui-audit 是渲染审计（溢出 / 对比度 / 焦点可见性等结构性检查），任务试走是任务审计（能不能真的走完一个业务任务），两者都要，不能用其中一个替代另一个。
 
 [视觉方向 → design system 映射]
     DESIGN.md 是 token 的唯一来源，odc 的 design system 只当基底：
@@ -70,9 +97,10 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
        - 其余按 skills list 输出里语义最贴近的 ID 选
        ⚠️ 不要用 `example-*`——那是 scenario 示例，不是 skill，create 会 `SKILL_NOT_FOUND`
        拿不准列候选给用户选
-    7. **两遍法第一遍——写 `demo/design-plan.md`**：token 摘录（4-6 个具名色、字族角色、圆角与间距刻度）；每个 SCREEN 一段 ASCII 线框 + 对齐说明（左对齐 / 居中 / 两端）；首屏开在题材最有特征的什么上；大胆放在哪一处；动效只留哪一处；组件复用清单
-    8. **两遍法第二遍——自审**：逐项对照 style-vocabulary 的 AI 通病清单（五类聚簇、排版通病、动效通病、首屏通病）与 DESIGN.md 的 Don'ts；命中的写「原本 → 改成 → 为什么」进 design-plan.md；brief 钉死的照 brief
-    9. **构建生成 prompt**（写入临时文件 `design-prompt.md`，[提示词模式] 下落盘到 `demo/design-prompt.md`）——一份 prompt 两条路通用，视觉规范必须写进正文（odc 有 design-system 注入，交人拿去生成的那条全靠 prompt，2C 与 [提示词模式] 都走它）：
+    7. **划覆盖矩阵**：页面 × 状态 × 任务 → 交互 → 验收锚点，把 Design-Brief 的 SCREEN/CMP 和 Product-Spec 的业务任务对齐；标出哪些已经有明确依据（Spec/Brief/DESIGN.md 写清楚了）、哪些是本次真正的未知（业务规则未定、可逆视觉细节由 Agent 按现状决定并说明）。只暂停依赖未决决定的部分，已确认的继续往下走。已有明确方向（DESIGN.md 判据清楚、用户此前已选定或明确授权某个方向）时跳过 2A 方向样张，项目建好直接进 2B 全稿；只有方向仍待定或用户要求比较时才出方向样张，不为了走流程而重复确认已经拍板的方向。
+    8. **两遍法第一遍——写 `demo/design-plan.md`**：token 摘录（4-6 个具名色、字族角色、圆角与间距刻度）；每个 SCREEN 一段 ASCII 线框 + 对齐说明（左对齐 / 居中 / 两端）；首屏开在题材最有特征的什么上；大胆放在哪一处；动效只留哪一处；组件复用清单
+    9. **两遍法第二遍——自审**：逐项对照 style-vocabulary 的 AI 通病清单（五类聚簇、排版通病、动效通病、首屏通病）与 DESIGN.md 的 Don'ts；命中的写「原本 → 改成 → 为什么」进 design-plan.md；brief 钉死的照 brief
+    10. **构建生成 prompt**（写入临时文件 `design-prompt.md`，[提示词模式] 下落盘到 `demo/design-prompt.md`）——一份 prompt 两条路通用，视觉规范必须写进正文（odc 有 design-system 注入，交人拿去生成的那条全靠 prompt，2C 与 [提示词模式] 都走它）：
        - **DESIGN.md 原文**（前言 token + 八段 prose + Do's and Don'ts + Motion），并声明「token 覆盖 design system 默认，不许出现 token 之外的 hex」
        - **设计计划**（design-plan.md 的线框、大胆一处、动效一处）
        - 逐页面：SCREEN 编号 + 布局分区 + 内容层级 + 真实内容 + 交互（每个交互写明「点击 X → Y」）+ 八态 + 响应式断点 + 页面间跳转关系
@@ -87,10 +115,11 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
          Use only the color / type / radius / spacing tokens given above; do not invent new hex values.
          Respect prefers-reduced-motion; all interactive elements keyboard-reachable with visible focus.
          ```
-    10. 向用户展示计划（页面数 / 变体数 + 选定的 skill + design system + 通病自审改了什么），确认后进 Phase 2
+    11. 向用户展示计划（页面数 / 变体数 + 选定的 skill + design system + 覆盖矩阵里的未知项 + 通病自审改了什么），确认后进 Phase 2
 
 [Phase 2：生成（odc 为主，AI Studio 兜底）]
     默认走 odc（2A + 2B）。仅当 odc daemon 不可用 / agent 鉴权失败 / 产物验收始终不过时，降级到 AI Studio（2C）。
+    Phase 1 第 7 步已判定方向已经拍板（DESIGN.md 判据清楚、用户明确授权）时跳过 2A，项目建好直接进 2B 用选定方向出全稿；仍需要比较方向时才走 2A。
 
     [2A：方向样张（先选方向再出全稿）]
         1. 建项目（**不带 `--mode`**，--mode 只接受 design|chat）：
@@ -131,13 +160,15 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
 
     [验收]（两路统一，客观判据，对照 [第一性原则]；逐条跑，不凭看）：
         - **完整无截断**：含 `</html>`、`<style>`/`<script>` 配平、正常收尾（硬判据，不是体积）✓
-        - **离线自包含**：无 `cdn.`/`unpkg.`/`googleapis` 字样 ✓
+        - **离线自包含**：无 `cdn.`/`unpkg.`/`googleapis` 字样——但这只是必要不充分的第一遍，字符串没命中不等于零外部请求：SVG 的 `xmlns="http://www.w3.org/2000/svg"` 是命名空间不算，纯文字说明里的链接不算，真正要看的是会实际发起请求的 `<script src>`/`<link>`/`@import`/fetch 目标。ui-audit 只渲染截图不监听网络请求，证明不了零外部请求，这一项明确写「未验证：是否发出外部网络请求未查」，不能因为字符串检查过了就宣称完全离线 ✓
         - **页面覆盖**：grep Brief 里每个 SCREEN 的页面名或功能关键词都在 ✓
         - **八态覆盖**：grep 每页的空 / 加载 / 错误等状态文案（Brief 写了什么就查什么）✓
         - **token 一致**：产物里出现的 hex 值全部在 DESIGN.md 的 colors 里（`grep -o '#[0-9a-fA-F]\{6\}' | sort -u` 对照），多出来的要么改回 token 要么说明理由 ✓
-        - **UI 审计**：`node .claude/scripts/ui-audit.mjs demo --themes light --widths 1280,390 --out demo/ui-audit --strict`（DESIGN.md 有深色 token 时 `--themes light,dark`）→ 溢出 / 折行 / 对比度 / 空白渲染为零；无引擎时 rc 3，报告注明「UI 审计缺席」，不冒充通过 ✓
+        - **模拟边界属实**：产物里声明的模拟行为（不真的发送 / 同步 / 扣款 / 持久化）与实际代码行为一致，不存在表面成功但什么都没发生却没声明的按钮；每个可能改变结果的动作能重置，同一任务能反复试走 ✓
+        - **UI 审计**（渲染审计）：`node .claude/scripts/ui-audit.mjs demo --themes light --widths 1280,390 --out demo/ui-audit --strict`（DESIGN.md 有深色 token 时 `--themes light,dark`）→ 溢出 / 折行 / 对比度 / 空白渲染为零；无引擎时 rc 3，报告注明「UI 审计缺席」，不冒充通过 ✓
+        - **任务试走**（任务审计，见 [任务试走方法]，与 UI 审计并列、不互相替代）：挑 1-2 个 Spec/Brief 里的真实任务目的，参与者或 Agent 自演带目的走一遍，看认不认得入口、懂不懂结果、断了能不能接上；发现按来源回填 Brief/Spec/design-plan.md；没有可用参与者时写明是 Agent 自检 ✓
         - **AI 通病自检**：ui-audit 的 `genericTells` 与人工过一遍 style-vocabulary 清单（ALL-CAPS 小标签、中点串、按钮尾巴「→」、一律圆角、每段淡入、奶油底陶土橙）——命中的说明留或改 ✓
-        - **质量地板抽查**：Tab 一遍主流程焦点可见；缩到 390px 无横向滚动；`prefers-reduced-motion` 下无动画（ui-audit 已覆盖溢出，其余人工）✓
+        - **质量地板抽查**：有可用浏览器时实际 Tab 一遍主流程看焦点可见、缩到 390px 看有无横向滚动、开 `prefers-reduced-motion` 看动画是否停（ui-audit 已覆盖溢出类结构检查，其余需要人工操作）；没有可用浏览器时明确写「未验证：键盘 / 窄屏 / reduced-motion 未查」，不能拿字符串或结构检查冒充体验验证 ✓
         - 体积仅参考：多页面应用通常 >20KB；极简单页可低至几 KB，不据此判失败（<3KB 才警惕空壳）
         验收失败 → 调 prompt 重新生成（A 路重新 run / B 路让用户重生成），或在 odc web UI 手动迭代；同一失败两轮无新证据 → 停下向用户报阻塞
 
@@ -145,20 +176,21 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
     [落地]
         - 2B（odc）：`cp <resolvedDir>/index.html <项目根>/demo/index.html`
         - 2C（AI Studio）：用户回传的 HTML 已在 Phase 2 写入 `demo/index.html`，跳过
-        - `git add demo/ && git commit -m "design: 生成可交互 HTML 设计稿（demo/index.html，含方向样张与设计计划）"`
+        - 提交交由用户或主 Agent 决定何时提交：本 Skill 不自动 `git add`/`git commit`，产物落盘即止，版本控制是独立的授权动作
 
     输出完成报告：
 
     "✅ 设计稿已生成（Open Design 一套出 HTML）
 
-     **产物**：demo/index.html（N KB，可交互、离线）；方向样张 demo/directions/（用户选定方向 N）；设计计划 demo/design-plan.md
+     **产物**：demo/index.html（N KB，可交互、离线）；方向样张 demo/directions/（用户选定方向 N，或「方向已拍板，跳过 2A」）；设计计划 demo/design-plan.md
      **skill / design system**：<skillId> / <designSystemId>（token 以 DESIGN.md 为准）
-     **验收**：页面 N/N 覆盖、八态 N/N、token 一致 ✓、UI 审计 [通过 / 缺席（无引擎）]、通病自检改了 X 处
+     **验收**：页面 N/N 覆盖、八态 N/N、token 一致 ✓、模拟边界属实 ✓、UI 审计 [通过 / 缺席（无引擎）]、任务试走 [场景 N，参与者/Agent 自检，结果概述]、通病自检改了 X 处
+     **未验证**：<按 [验收] 里逐条写「未验证」的项列出，没有就写「无」>
 
      ---
 
-     **给开发**：编码照此 demo 实现，颜色字号圆角只用 DESIGN.md token。
-     **给领导/干系人评审**：浏览器直接打开 demo/index.html，可点可交互，这就是最终成品的样子。
+     **给开发**：编码照此 demo 实现，颜色字号圆角只用 DESIGN.md token；原型里标注的模拟边界（哪些是假的后端行为）在真实实现时要替换成真实调用。
+     **给领导/干系人评审**：浏览器直接打开 demo/index.html，可点可交互，这就是最终成品的样子；试走结果与未验证项见上。
 
      编码参照优先级：demo/index.html（最高）→ DESIGN.md（token）→ Design-Brief.md（行为）→ Product-Spec.md
 
@@ -166,8 +198,8 @@ description: 当 Design Brief 完成后、用户需要生成设计稿时使用�
 
 [提示词模式]
     没有 odc 时的另一条路：前期功课一步不省，只是 HTML 换成用户拿提示词去别处生成。
-    1. Phase 1 的 1-9 步照走，只跳过第 6 步——选 skill 是 odc 的东西，没有 odc 就没这回事；第 5 步选基底直接按 [视觉方向 → design system 映射] 的表挑，不跑 `design-systems list`。第 10 步没有 Phase 2 可进，换成下面第 3 步的交付话术
-    2. 第 9 步构建出来的那份 prompt 就是产物，与 odc 路只差两点：落盘到 `demo/design-prompt.md`，不写临时文件；「DESIGN.md 原文」那一项后面补上 DESIGN.md 硬约束节整表
+    1. Phase 1 的 1-11 步照走，只跳过第 6 步——选 skill 是 odc 的东西，没有 odc 就没这回事；第 5 步选基底直接按 [视觉方向 → design system 映射] 的表挑，不跑 `design-systems list`；第 7 步「已拍板则跳过 2A」这半句不适用（提示词模式没有 2A/2B 之分），只保留划覆盖矩阵那部分。第 11 步没有 Phase 2 可进，换成下面第 3 步的交付话术
+    2. 第 10 步构建出来的那份 prompt 就是产物，与 odc 路只差两点：落盘到 `demo/design-prompt.md`，不写临时文件；「DESIGN.md 原文」那一项后面补上 DESIGN.md 硬约束节整表
     3. 输出交付话术：
 
     "✅ 设计提示词已生成（本机没有 odc，走的提示词模式）

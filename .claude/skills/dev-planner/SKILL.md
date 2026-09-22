@@ -7,17 +7,27 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     **生成模式**：读 Product-Spec.md 与可选输入，分析功能依赖，WebSearch 验证技术选型，按 templates/dev-plan-template.md 输出 DEV-PLAN.md。
     **迭代模式**：Spec 变更后分析影响范围，更新 DEV-PLAN.md 的 Phase 划分和文件清单。
     能用一句话描述 diff 的改动不写计划，直接进 dev-builder。
+    **计划粒度判据**：完整结果一个 Task 就能交付时，用一个 Phase 装下这一个 Task 就够（本仓 `plan-lint.sh` 要求 DEV-PLAN.md 至少有一个 `## Phase` 小节，不硬拆成多个凑数）；出现多个可独立验收的交付组才真正拆成多个 Phase。Phase 数量由交付组数决定，不是预设几个才算够——Phase 完成时的四步走质量门是 dev-builder 的事，这里只管切多大、切几份。
 
 [依赖检测]
     Skill 启动时第一步自动执行。
     必需：Product-Spec.md → 缺失则提示先调用 /product-spec-builder。
-    可选（缺了标降级模式继续）：
-    - Architecture-Design.md → Phase 按模块边界拆，目录结构沿用其骨架，依赖正序按其依赖图排
+    Spec 里已确认的部分足够支撑局部计划时，可先对已确认部分直接出计划；未确认部分只阻断依赖它的 Phase / Task，不因为 Spec 没写全就拒绝出计划——形成一份「部分可执行 + 明确阻塞点」的计划，好过等全部谈拢才动笔。
+    可选（缺了标降级模式继续；文档实际拆成多份子文档或放在非默认路径时，按项目里的实际路径读，不假设都叫这几个固定文件名）：
+    - Architecture-Design.md（含拆出的 ADR 子文档，如有）→ Phase 按模块边界拆，目录结构沿用其骨架，依赖正序按其依赖图排
     - DFX-Spec.md → 各维验证手段折进对应 Phase 的验收标准，critical / high 档验证不许推到最后一个 Phase；缺则把 Spec「非功能」表的 P0 项折进对应 Phase 验收
     - Design-Brief.md → 页面 Task 按 SCREEN 编号拆；缺则视觉细节标 [待 Design Brief 补充]
-    - DESIGN.md → token 落地（主题配置）作为首个含 UI 的 Phase 里的独立 Task
-    - 设计工具 MCP → 有则 Phase 拆分与关键文件以设计稿的实际页面结构为准，不只看 Spec 文字
-    - 已有项目代码 → 扫描现有结构作为约束，进迭代模式
+    - DESIGN.md → token 落地按实际需要折进相关 UI Task 的改动范围，不强行为每个项目单开一个固定的「token Task」
+    - 设计工具 MCP 或仓库内已有原型 → 有则 Phase 拆分与关键文件以设计稿 / 原型的实际页面结构为准，不只看 Spec 文字
+    - 已有项目代码 → 扫描现有结构、清单与已实现能力作为约束，进迭代模式
+
+[文件结构]
+    dev-planner/
+    ├── SKILL.md
+    ├── references/
+    │   └── acceptance-and-dependencies.md   # 验收与依赖方法：区分功能依赖与验证依赖、让每个结果有证据产生者、研究 Task 的退出条件
+    └── templates/
+        └── dev-plan-template.md              # DEV-PLAN.md 输出模板
 
 [第一性原则]
     **可验证**：每个 Phase 完成后能编译、能运行、能看到效果，不允许"写一堆代码但什么都跑不起来"的 Phase。
@@ -56,13 +66,13 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     计划阶段发现 Spec 缺口或自相矛盾（待定表的默认与正文条目打架、规则没覆盖的分支）→ 报「需求存疑」+ 反例回流 product-spec-builder，不自行补需求；必须先动时取最简默认，在「开工前置」段列明待回签。
 
 [信息充足度判断]
-    **必须满足**（差一条 Plan 就是废纸，未达成继续分析，不生成半成品）：
-    - 技术栈已确定（框架 + 版本 + 关键依赖，经 WebSearch 验证）
-    - Phase 拆分完成，每个 Phase 有明确的交付清单
-    - 依赖顺序合理，没有 Phase 依赖未完成的前置 Phase
-    - 每个 Phase 有关键文件列表（具体路径，不是模糊描述）
-    - 每个 Phase 有「验证的假设」（可为「无」），Spec 的 `[推断]` / `[待定]` 核心条目都落在某个 Phase 的假设里、且这些 Phase 不排在纯功能堆叠之后
-    - Spec 中的所有核心功能都被覆盖，没有遗漏
+    **必须满足**（差一条本次范围就不能派发，未达成继续分析，不生成半成品）：
+    - 本次范围要落地的技术栈已确定：首次引入框架 / 关键依赖时经 WebSearch 验证；已有项目沿用现有版本不必重新选型，不为出计划强行升级
+    - 本次范围的 Task 拆分完成，每个 Task 有明确的交付内容；出现多个可独立验收的交付组才用多个 Phase 分组，一个完整结果只用一个 Phase 装（`plan-lint.sh` 要求至少一个 Phase 小节），不为凑够几个 Phase 硬拆
+    - 依赖顺序合理，没有 Task / Phase 依赖未完成的前置
+    - 每个 Task 有关键文件列表（具体路径，不是模糊描述）
+    - 每个 Phase（有 Phase 时）或整份计划有「验证的假设」（可为「无」），Spec 的 `[推断]` / `[待定]` 核心条目都落在某个 Task / Phase 的假设里、且这些不排在纯功能堆叠之后
+    - 本次范围声明要覆盖的核心功能都被安排，没有遗漏；范围外仍待定的部分只阻断依赖它的 Task / Phase，不倒过来阻断已确认部分先出计划
     **尽量满足**：数据库表梳理完成、每个 Phase 有验收标准、已知风险和限制已标注。未达成时在对应 Phase 写最低验收标准（能编译 + 能启动 + 新功能可用），不使用占位符。
 
 [生成前自检]
@@ -70,6 +80,8 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     - 命名一致：同一个函数 / 类型 / 字段 / 文件，跨 Phase 跨 Task 的措辞前后一致——不能一处叫 clearLayers 另一处叫 clearFullLayers，不能一处 user_id 另一处 userId
     - Spec 覆盖：把 Spec 的功能逐条拉出来核对，漏的补 Task，凭空多出的核对是否真有 Spec 依据
     - 假设覆盖：Spec 的 `[推断]` / `[待定]` 每条落在某个 Phase 的「验证的假设」里，或在计划开头写明押后到哪、押后期间按什么做
+    - Task 可派发：每个 Task 除文件路径 + 具体改动 + 验证命令外，还带齐 Business Context（为谁解决什么、关键规则来源、一个能区分对错的输入输出例子）、依赖类型（功能前置 / 验证前置，共享写入标唯一 owner）、证据产生者（这条验证归谁跑——对应 dev-workflow-details.md 的 LOW / MEDIUM / HIGH 判档），能直接抄进 implementer 派单不用主 Agent 现补
+    - REQ 覆盖：Spec 里带 `[REQ-模块-编号]` 的条目，在某个 Task 标题或紧邻行里都能找到对应编号，交给 `plan-lint.sh` 做双向核对（Spec 未用编号则跳过）
 
 [确认策略]
     只在三种情形向用户确认：技术栈有多个合理选项（给 2-3 个方案 + 优劣对比让用户选）、Phase 粒度偏好（小项目 3-5 个，中型粗粒度 6-8 个或细粒度 10-15 个）、功能优先级有歧义（先做 A 还是先做 B）。除此之外 Spec 已经写清楚了，不追问。
@@ -78,8 +90,8 @@ description: 当 Product-Spec.md 已完成、需要规划怎么分阶段开发�
     Phase 编号只指 DEV-PLAN 里的技术开发阶段。对用户描述产品交付顺序时改用功能名或"用户端阶段 / 后台阶段"，别和 DEV-PLAN 的 Phase N 撞出歧义。
 
 [工作流程]
-    生成模式：加载 Spec 与可选输入 → 处理待定问题表 → WebSearch 验证技术栈 → 依赖图 + 价值排序拆 Phase → 粒度校准 → 充足度判断 → 按 templates/dev-plan-template.md 填充 → 生成前自检 → 写出 DEV-PLAN.md → 跑 `bash .claude/scripts/plan-lint.sh`。
-    迭代模式：读现有 DEV-PLAN + 更新后的 Spec + CHANGELOG 定位变更 → 识别影响哪些 Phase 并向用户说明 → 在原文件上改，已完成的 Phase（标 ✅）不动 → 重新校验依赖 → 动到已写代码的 Phase 只提醒回 dev-builder 同步实现，不自动改码。
+    生成模式：加载 Spec 与可选输入 → 处理待定问题表 → WebSearch 验证技术栈 → 依赖图 + 价值排序拆 Phase（完整结果一个 Task 就够时只开一个 Phase，不硬拆多个）→ 粒度校准 → 充足度判断 → 按 templates/dev-plan-template.md 填充 → 生成前自检 → 写出 DEV-PLAN.md → 跑 `bash .claude/scripts/plan-lint.sh`（按整份 Spec / Plan 做需求双向覆盖检查；只想核对本次改动涉及的编号子集时，脚本目前不支持传子集参数，人工核对涉及的那几条即可，不假装脚本已经区分了子集）。
+    迭代模式：读现有 DEV-PLAN + 更新后的 Spec + CHANGELOG 定位变更 → 识别影响哪些 Phase 并向用户说明 → 在原文件上改，已完成的 Phase（标 ✅）保留原有交付记录不重写——但已完成只证明"当时那版行为"，不证明 Spec 改完后新行为也成立；发现的修正需求要落成一个新 Task（可以挂在受影响的已完成 Phase 下，也可以新开 Phase），不能因为 Phase 已标 ✅ 就假装不用处理 → 重新校验依赖 → 动到已写代码的 Phase 只提醒回 dev-builder 同步实现，不自动改码。
 
 [初始化]
     执行 [依赖检测]，按有无 DEV-PLAN.md 与 Spec 是否变更判定进生成模式还是迭代模式。
