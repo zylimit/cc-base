@@ -98,6 +98,18 @@ ledger_append() {
     fi
 }
 
+# 静态套件失败点名：置 STATIC_RC、把套件名追加进 FAILED_SUITES、照旧提示这一条判 FAIL——
+#   汇总行不再写死一句话，读的人一眼看出是哪几个套件红了。
+mark_static_fail() {
+    STATIC_RC=1
+    if [ -z "$FAILED_SUITES" ]; then
+        FAILED_SUITES="$1"
+    else
+        FAILED_SUITES="$FAILED_SUITES、$1"
+    fi
+    echo "（上面这个静态测试判 FAIL）"
+}
+
 # 跑一套测试：按 --level 决定跑不跑，跑了就 tee 一份进账本，返回被测脚本自己的退出码。
 #   因分级跳过 / 文件还没落地时返回 0 并计数——这两种都在汇总行里点名，不冒充通过。
 run_test() {
@@ -141,11 +153,12 @@ fi
 echo ""
 echo ">>> [2/3] 静态自测（test-setup / test-routing / 闸回归，无需 claude CLI）"
 STATIC_RC=0
+FAILED_SUITES=""
 for s in test-setup.sh test-routing.sh test-fix-platform.sh test-hook-parity.sh test-gate-audit.sh test-three-file-sync-gate.sh test-fast-mode.sh test-supervisor.sh; do
-    run_test "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
 done
 # harness 自测在 cases/（无需 claude CLI，只需 node），归第二段跑；无 node 时其自身打 SKIPPED 非假绿。
-run_test "$DIR/test-harness.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+run_test "$DIR/test-harness.sh" || mark_static_fail "test-harness.sh"
 # audit 三只哨兵：同样只需 node + git，归第二段跑。两套分工不同，都要跑——
 #   test-audit-scripts 锁「脚本该有的行为」（干净仓 rc 0 / 坏样例 rc 1 / 豁免可见 / 非 git rc 3），
 #   test-audit-defects 锁「已修的那批缺陷不再复发」（--staged 只判索引、压制外置、超限不假绿……）。
@@ -154,7 +167,7 @@ run_test "$DIR/test-harness.sh" || { STATIC_RC=1; echo "（上面这个静态测
 AUDIT_NOTE=""
 if command -v node >/dev/null 2>&1; then
     for s in test-audit-scripts.sh test-audit-defects.sh; do
-        run_test "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+        run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
     done
     # 前期闸这一组：predev-lint（五份文档结构 + 延迟与重试预算算术）、ui-audit（渲染审计）、
     #   plan-lint（需求↔计划双向覆盖）、ui-slop-scan（界面通病静态扫描）。
@@ -167,7 +180,7 @@ if command -v node >/dev/null 2>&1; then
         if [ "$PREDEV_RC" -eq 3 ]; then
             AUDIT_NOTE="$AUDIT_NOTE；$s 有 SKIPPED（无浏览器引擎，未执行 != 通过）"
         elif [ "$PREDEV_RC" -ne 0 ]; then
-            STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
+            mark_static_fail "$s"
         fi
     done
 else
@@ -185,7 +198,7 @@ fi
 HOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
     for s in test-hooks-floor.sh test-hooks-node.sh test-hooks-settings.sh test-tier.sh test-tier-hardening.sh test-distribution.sh test-skills-lint-wording.sh test-progress-archive.sh; do
-        run_test "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+        run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
     done
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——hook 行为与注册面回归跳过，未执行 != 通过。"
@@ -197,7 +210,7 @@ fi
 #   只需 node + git + sleep；无 node 时它自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
 EVIDENCE_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    run_test "$TESTS_DIR/test-evidence-defects.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    run_test "$TESTS_DIR/test-evidence-defects.sh" || mark_static_fail "test-evidence-defects.sh"
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——证据层红锁跳过，未执行 != 通过。"
     EVIDENCE_NOTE="；证据层红锁 SKIPPED（无 node）"
@@ -207,7 +220,7 @@ fi
 #   注意它**不跑** pre-push 的 FULL 模式——那会反过来拉起本文件，再拉起 claude -p。
 GITHOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    run_test "$TESTS_DIR/test-githooks.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    run_test "$TESTS_DIR/test-githooks.sh" || mark_static_fail "test-githooks.sh"
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——git hooks 强制层回归跳过，未执行 != 通过。"
     GITHOOKS_NOTE="；git hooks 回归 SKIPPED（无 node）"
@@ -228,9 +241,8 @@ if command -v node >/dev/null 2>&1; then
     if [ "$DOD_RC" -eq 0 ]; then
         echo "dod: rc 0（每条 blocking 治理步都有结论）"
     else
-        STATIC_RC=1
         echo "dod: rc $DOD_RC（有 blocking step 没过或引擎崩了，跑 node .claude/harness/harness.mjs dod 看是哪条）"
-        echo "（上面这个静态测试判 FAIL）"
+        mark_static_fail "dod"
     fi
 
     echo "----- 运行 release（发版就绪装配器，判结构不判就绪）-----"
@@ -240,9 +252,8 @@ if command -v node >/dev/null 2>&1; then
         echo "SKIPPED: release rc 3（非 git 仓，或八项全 UNKNOWN 什么都没确立）——未执行 != 通过。"
         ONEKEY_NOTE="；release SKIPPED（rc 3 什么都没确立）"
     elif [ "$RELEASE_RC" -ne 0 ] && [ "$RELEASE_RC" -ne 1 ]; then
-        STATIC_RC=1
         echo "release: rc $RELEASE_RC 不在 {0,1,3} 契约内——引擎崩了，不是判定未就绪"
-        echo "（上面这个静态测试判 FAIL）"
+        mark_static_fail "release"
     else
         printf '%s' "$RELEASE_JSON" | node -e '
 let s = "";
@@ -275,21 +286,21 @@ process.stdin.on("data", d => s += d).on("end", () => {
   console.log("release: 清单结构完整（" + got.length + " 项，blockers=" + (j.blockers || []).length
     + "，established=" + j.established + "）——就绪与否是它的判定，不是本测试的断言");
 });
-' || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+' || mark_static_fail "release"
     fi
 
     # release 的 manifest 项：上面那条只判清单结构，判不出八项里某一项的内容对不对。
     #   这份在沙箱仓里造真的运行态文件（.stop-gate-strikes / harness/state/* / .runtime/* …），
     #   断言 manifest 仍 PASS 且 unlisted=0——MANIFEST_RULES 的运行态排除规则此前无人守，
     #   删掉整批 selftest 与 golden 都照样全绿。它自身有 node/git/sha256sum 守卫会打 SKIPPED。
-    run_test "$TESTS_DIR/test-release-manifest.sh" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+    run_test "$TESTS_DIR/test-release-manifest.sh" || mark_static_fail "test-release-manifest.sh"
 
     # 借鉴兄弟仓那轮落地的四份（2026-09-04），同样只需 node + git，各自内部有守卫：
     #   test-doctor 锁「清单全量比对、不抽样」；test-scan-secrets-userinfo 锁 url-userinfo 那条密钥模式；
     #   test-static-check 锁 Stage 0 对 .mjs 不再空绿；test-release-binding 锁 release 的 gate-fresh /
     #   trustBoundary、receipt 绑引擎哈希、治理面 risk、shim 发现。
     for s in test-doctor.sh test-scan-secrets-userinfo.sh test-static-check.sh test-release-binding.sh; do
-        run_test "$TESTS_DIR/$s" || { STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"; }
+        run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
     done
 else
     echo "SKIPPED: 无 node（command -v node 未找到）——dod / release 一键闸跳过，未执行 != 通过。"
@@ -308,7 +319,7 @@ if command -v pwsh >/dev/null 2>&1; then
     if [ "$PS1_RC" -eq 3 ]; then
         PS1_NOTE="；剩余 .ps1 回归有整组 SKIPPED（未执行 != 通过）"
     elif [ "$PS1_RC" -ne 0 ]; then
-        STATIC_RC=1; echo "（上面这个静态测试判 FAIL）"
+        mark_static_fail "test-ps1-behavior.ps1"
     fi
 else
     echo "SKIPPED: 无 pwsh（command -v pwsh 未找到）——剩余 .ps1 回归跳过，未执行 != 通过。"
@@ -321,7 +332,7 @@ if [ "$SKIP_MEDIUM" -gt 0 ] || [ "$SKIP_LOW" -gt 0 ]; then
 fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
-    echo "########## 结果：静态自测失败（安装器/路由一致性不过）${LEVEL_NOTE}${MISSING_NOTE}，停止。 ##########"
+    echo "########## 结果：静态自测失败（失败套件：$FAILED_SUITES）${LEVEL_NOTE}${MISSING_NOTE}，停止。 ##########"
     exit "$STATIC_RC"
 fi
 
