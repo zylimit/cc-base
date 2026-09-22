@@ -99,7 +99,11 @@ mklegacyflag() {
 }
 
 silent()   { [ -z "$OUT" ] && [ -z "$ERRT" ]; }
-show()     { printf '%s' "${1:-空}" | tr '\n' '~' | cut -c1-260; }
+# show <文本> —— 诊断串截断。cut -c 在本机 coreutils 下按字节切，会在多字节字符中间断开产生非法
+#   UTF-8；跟 test-plan-lint.sh / test-predev-lint.sh / test-ui-audit.sh 等既有 brief() 同一手法，
+#   截完再过一遍 iconv -c 把被切断的尾部残片丢掉——不依赖 cut 是否按 locale 识字符，天生跟 LC_ALL/
+#   LANG 设成什么无关，比指望 cut/awk 在特定 locale 下按字符切更稳。
+show()     { printf '%s' "${1:-空}" | tr '\n' '~' | cut -c1-260 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null; }
 gatelogged() { grep -q "$2" "$1/.claude/evidence/gate-block.log" 2>/dev/null; }
 # crashmsg <文本> —— SE-51/52 判「闸自己崩了」的探针：runFailOpen 兜底异常时固定打这四个字，
 #   正常拦截理由与正常放行都不含它，用来分辨「真判定」和「判定器自己先炸了、蒙对了退出码」。

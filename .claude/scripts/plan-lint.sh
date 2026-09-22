@@ -158,7 +158,7 @@ if spec_path is not None:
         #      下一个 "## " 之间的 "- REQ-XXX：原因" 行算数；REQ 号复用上面 REQ_REF 那条正则
         OOS_HEADING_RE = re.compile(r"^## 范围外（本次不计划）\s*$")
         OOS_ITEM_RE = re.compile(r"^\s*-\s*(" + REQ_REF.pattern + r")\s*[:：]\s*(.*)$")
-        oos_declared = {}
+        oos_items = []  # 全部匹配行，含重复声明，按出现顺序——「每条要有原因」按行查，不去重
         in_oos = False
         for i, line in enumerate(lines):
             if i in fenced:
@@ -171,8 +171,28 @@ if spec_path is not None:
                 continue
             if in_oos:
                 m = OOS_ITEM_RE.match(line)
-                if m and m.group(1) not in oos_declared:
-                    oos_declared[m.group(1)] = (i + 1, m.group(2).strip())
+                if m:
+                    oos_items.append((m.group(1), i + 1, m.group(2).strip()))
+
+        # 声明不是豁免：每一条范围外声明都要有原因，空原因不许悄悄放行成「已声明」
+        for req_id, ln, reason in oos_items:
+            if not reason:
+                fail(f"范围外声明缺原因: {req_id}（{path.name} L{ln}）")
+
+        # 同一 REQ 声明多次：仍以首条为准（不改判定结果），但重复本身要点名，不许静默吞掉后面几条
+        oos_lines_by_id = {}
+        for req_id, ln, _reason in oos_items:
+            oos_lines_by_id.setdefault(req_id, []).append(ln)
+        for req_id, lns in oos_lines_by_id.items():
+            if len(lns) > 1:
+                loc = "、".join(f"L{n}" for n in lns)
+                print(f"plan-lint: 警告（不改 rc）：{req_id} 在「范围外」节重复声明 {len(lns)} 次"
+                      f"（{loc}），仍以首条 L{lns[0]} 为准", file=sys.stderr)
+
+        oos_declared = {}
+        for req_id, ln, reason in oos_items:
+            if req_id not in oos_declared:
+                oos_declared[req_id] = (ln, reason)
 
         for req_id, ln in spec_declared.items():
             if req_id not in task_ids and req_id not in oos_declared:

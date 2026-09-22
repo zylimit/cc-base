@@ -152,6 +152,17 @@ write_plan_oos() { # <dir> <variant> — 「## 范围外（本次不计划）」
                                '## 范围外（本次不计划）' \
                                '- 暂无其它安排'
                 ;;
+            declared_empty_reason)
+                printf '%s\n' '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- REQ-REPORT-002：'
+                ;;
+            declared_twice)
+                printf '%s\n' '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
+                               '## 范围外（本次不计划）' \
+                               '- REQ-REPORT-002：原因（第一次声明）' \
+                               '- REQ-REPORT-002：原因（第二次声明，应被 WARN 点名但不影响判定）'
+                ;;
             declared|*)
                 printf '%s\n' '**验收标准**：派单后师傅端 5 秒内收到通知' '' \
                                '## 范围外（本次不计划）' \
@@ -214,6 +225,24 @@ run_lint "$D/DEV-PLAN.md" "$D/docs/prd/order.md"
 if [ "$RC" -eq 0 ] && contains '范围外（已声明）：REQ-ORDER-002' "$OUT"; then r=0; else r=1; fi
 chk "$r" "L19 显式传第二个 Spec 路径 + REQ-ORDER-002 在「范围外（本次不计划）」声明 → 通过并 WARN" \
     "rc=0 且输出含「范围外（已声明）：REQ-ORDER-002」" "rc=$RC；输出：$(brief "$OUT")"
+
+
+# ---------------------------------------------------------------------------
+# 本批新增：范围外声明的两处松动（progress.md TODO #84，「范围外」节声明不是豁免、每条要有原因）
+# ---------------------------------------------------------------------------
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_empty_reason
+run_lint "$D/DEV-PLAN.md"
+if [ "$RC" -eq 1 ] && contains '范围外声明缺原因: REQ-REPORT-002' "$OUT"; then r=0; else r=1; fi
+chk "$r" "L20 「范围外」节声明原因留空（- REQ-REPORT-002：后面空着）→ FAIL（契约：声明不是豁免，每条要有原因）" \
+    "rc=1 且输出含「范围外声明缺原因: REQ-REPORT-002」" "rc=$RC；输出：$(brief "$OUT")"
+
+D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_twice
+run_lint "$D/DEV-PLAN.md"
+if [ "$RC" -eq 0 ] && contains '范围外（已声明）：REQ-REPORT-002——原因（第一次声明）' "$OUT" \
+    && contains 'L12' "$OUT" && contains 'L13' "$OUT"; then r=0; else r=1; fi
+chk "$r" "L21 同一 REQ 在「范围外」节声明两次 → 仍以首条为准通过，但 WARN 点名两处行号（不静默取首条）" \
+    "rc=0 且首条原因生效、WARN 含 L12 与 L13 两处行号" \
+    "rc=$RC；输出：$(brief "$OUT")"
 
 echo "  [NOTE] 未覆盖：多余位置参数 rc 2、Spec 正文提过但未声明的编号（悬空判据用的是全文提及）、非 UTF-8 文档。"
 
