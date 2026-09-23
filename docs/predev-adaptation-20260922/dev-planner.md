@@ -52,3 +52,17 @@ Codex 的 resolver 六输入 / `harness.mjs plan lint` / `[Assurance]` 是它的
 另：`025cbac` 提交说明「六份 after-sales 示例加虚构教学例声明」的计数有误，见 `docs/predev-adaptation-20260922/product-spec-builder.md` 第二轮修正节末尾的更正。
 
 验证（原始输出见回执）：`bash .claude/tests/test-plan-lint.sh` PASS=20 FAIL=0；`bash -n` 与 `shellcheck` 对 `test-plan-lint.sh` 均无告警；`node .claude/hooks/static-check.mjs .` 全绿；`bash .claude/tests/test-skills-lint-wording.sh` PASS=2 FAIL=0；`grep -n "plan-lint" .claude/skills/dev-planner/SKILL.md .claude/skills/dev-planner/templates/dev-plan-template.md` 中唯一的调用句（现 93 行）带 `DEV-PLAN.md <实际需求来源路径>`，其余命中均为行为描述、不涉及调用语法。
+
+
+## 2026-09-23 Matt Skills 整改同步
+
+依据：`codex-base` `git diff 3e199f6 407c3bc -- .agents/skills`（计划 `docs/research/20260918-matt-skills-learning-plan.md`，行为对照在 `docs/research/20260918-matt-skills-study/`）。上游 `mattpocock/skills@74ca5fe`（MIT），处理方式 synthesized：只取方法，不搬 Codex 运行时概念。来源列 C = codex-base `407c3bc`，括号内为对应批次。
+
+| 本仓章节 | 变更 | 来源（C = codex-base 407c3bc，对应批次 L1–L6；上游 mattpocock/skills@74ca5fe，MIT，synthesized） | 一句理由 |
+|---|---|---|---|
+| [分析策略] | 新增「大范围迁移法」一条（接在假设前置法之后），指向参考的「大范围迁移的兼容与退出」 | C（L3） | C 把它放在 [策略] 的跨批路径与命名之后；本仓对应方法集中在 [分析策略]。 |
+| [待定问题处理] | 追加一段：待定口径写不出预期行为与验收时，依赖写成「谁 / 哪份来源回答什么 → 解锁哪项行为、Task 与验收」，先排取证，不提前列可派发 Task | C（L1） | C 只改了参考文件；本仓 SKILL.md 原先对 acceptance-and-dependencies.md 只在 [文件结构] 登记、没有读取时机，按 L6「漏读先修指针」在最贴近的 [待定问题处理] 补一处指针。 |
+| references/acceptance-and-dependencies.md | 「按完整结果切片与排序」追加业务口径未定时的取证依赖一段；新增「大范围迁移的兼容与退出」一节（位于「研究任务结束的是未知」之前） | C（L1、L3） | 正文照搬；「Git 分支、合入和回退操作仍须有实际授权」改为「分支合入、回退与远端操作仍按审批三档取得授权」，「共享集成分支或工作区」写作「共享集成分支或 worktree」。 |
+| templates/dev-plan-template.md | Task 条目下新增可选子字段「迁移与可运行基线」；写作要点新增第 16 条 | C（L3） | C 改的是模板字段与第 10 条「跨 Phase 一致」；本仓写作要点没有同名条目，新增一条承接，不动原第 1–15 条与 plan-lint 锚点。 |
+
+现有句子未改：本次全部为新增行或新增节。acceptance-and-dependencies.md 文件头仍写 `d1a3287`，新增两段的来源以本表为准；C 在 SKILL.md 把「读取参考中的『让每个结果……』『区分……』『研究任务……』」泛化为「读取参考中的适用方法」，本仓该句本不存在，未搬。

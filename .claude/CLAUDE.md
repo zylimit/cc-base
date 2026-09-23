@@ -46,7 +46,7 @@
     - /arch-designer - 自动：Spec 批准后判为 M/L 档时建议；用户说"架构设计 / 模块划分 / 技术架构 / 分层 / 架构评审"。手动：/arch-designer。前置：Product-Spec.md
     - /dfx-designer - 自动：arch-designer 完成后建议顺路做；用户说"DFX / 非功能需求 / 质量属性 / 可靠性 / 可测试性 / 可服务性 / 威胁建模 / DFX 评审"。手动：/dfx-designer。前置：Product-Spec.md
     - /design-brief-builder - 手动：/design-brief-builder。前置：Product-Spec.md
-    - /design-maker - 手动：/design-maker。前置：Product-Spec.md + Design-Brief.md
+    - /design-maker - 手动：/design-maker。前置：Product-Spec.md + Design-Brief.md；只做逻辑沙盘时有 Product-Spec.md 或会话里已确认的规则片段即可
     - /dev-planner - 手动：/dev-planner。前置：Product-Spec.md
     - /dev-builder - 手动：/dev-builder。前置：Product-Spec.md + DEV-PLAN.md
     - /bug-fixer - 自动：code-review 发现问题后的修复；用户报 bug、功能异常、编译或运行时错误，说"坏了 / 报错了 / 不正常"。手动：/bug-fixer。前置：项目代码

@@ -39,3 +39,19 @@
 
 - **HIGH M1（已定方向的新增跳过路径缺项目创建步骤）**：[Phase 2：生成] 新增 [共同入口：建项目取 ID] 子节，把唯一的 `odc project create` 与 `.project.id` 获取从 [2A] 第 1 步移到 2A/2B 共同入口，2A、2B 之后统一引用同一个 `<projectId>`；[2A] 收窄为「可选，先选方向再出全稿」并注明跳过条件见 [共同入口]；[2B] 第 1 步改为按是否走过 2A 分两种 prompt 构造方式——走过 2A 用「按用户选定的方向 N」，跳过 2A（方向已由 DESIGN.md / 用户授权拍板）时不写方向 N，直接按既定方向构造完整 prompt（既定方向已经写在 design-prompt.md 正文里，不需要编号可指）。依据：Codex 侧审查 M1——[Phase 1：准备] 第 7 步与 [Phase 2] 开头都写了「已定方向跳过 2A、项目建好直接进 2B」，但项目创建与 ID 获取唯一入口在 [2A]，方向已拍板跳过 2A 时既没有 projectId 也没有可引用的「方向 N」，2B 的生成命令实际执行不了；这是接线漏了公共前置，不是 C 的「已定方向不重选」方法本身有问题，按 Codex 给的修法把建项目步骤挪到公共入口解决。[提示词模式] 引用的 Phase 1 步骤号未变（只重排了 Phase 2 内部子节，未动 Phase 1 编号），第 206 行「第 7 步『已拍板则跳过 2A』」的引用仍准确，未同步改动。
 - **Medium M2（离线验收与交付声明矛盾）**：[Phase 3：交付] 完成报告「产物」行的「demo/index.html（N KB，可交互、离线）」改为「demo/index.html（N KB，可交互，单文件自包含；[离线自包含已核实 / 是否发出外部网络请求未验证，见下方「未验证」]）」，把「离线」从无条件断言改成按 [验收] 里「离线自包含」那条的真实检查结果二选一；本仓当前 ui-audit 不监听网络请求，字符串检查只是必要不充分的第一遍，因此这一项默认落在「未验证」分支，与完成报告下方「未验证」字段（已由 [验收] 逐条产生）保持一致，不再一边写「离线」一边在未验证里承认没查。[提示词模式] 的交付话术本来就没有「离线」断言，未改动。
+
+
+## 2026-09-23 Matt Skills 整改同步
+
+依据：`codex-base` `git diff 3e199f6 407c3bc -- .agents/skills`（计划 `docs/research/20260918-matt-skills-learning-plan.md`，行为对照在 `docs/research/20260918-matt-skills-study/`）。上游 `mattpocock/skills@74ca5fe`（MIT），处理方式 synthesized：只取方法，不搬 Codex 运行时概念。来源列 C = codex-base `407c3bc`，括号内为对应批次。
+
+| 本仓章节 | 变更 | 来源（C = codex-base 407c3bc，对应批次 L1–L6；上游 mattpocock/skills@74ca5fe，MIT，synthesized） | 一句理由 |
+|---|---|---|---|
+| frontmatter description | 追加：用户要用离线逻辑沙盘检验一个明确的业务状态或规则问题时也使用，这时可在 Design Brief 之前做 | C（L2） | C 同步改了 description；本仓保留原触发句不动，只在其后追加，skills-lint 预算内。 |
+| [任务] | 追加一行：只需回答一个明确状态 / 规则问题时走 [逻辑沙盘入口]，不必先定视觉方向，不走 odc 与三阶段 | C（L2） | C 改写了整段 [任务]；本仓的 odc 工具链与三阶段不动，只加入口一句。 |
+| [依赖检测] | 末尾追加一行：必需项与分路只管完整设计稿，沙盘只要 Spec 或会话里已确认的规则片段足以说清问题，不要求 Design-Brief / DESIGN.md、不查 odc | C（L2） | 对应 C「完整 UI 稿再提取视觉约束」的收窄；不改原有必需项措辞。 |
+| [文件结构] | 登记 references/logic-prototype.md | C（L2） | 同 C 的文件树改动。 |
+| （新增） | [逻辑沙盘入口]（位于 [任务试走方法] 之后） | C（L2） | 合并 C 的 [选择入口] 与 [按需参考] 首行、以及散在 [第一性原则] / [交付物] / Phase / [验收] 里的「完整 UI 稿 vs 沙盘」分流：本仓 Phase 与验收高度绑定 odc，逐条插入限定语改动面太大，改为一节集中写何时走、怎么做、照样要守的原则与验收项、交付与回填。 |
+| references/logic-prototype.md | 新增 | C（L2） | 正文照搬；「ignored state 或 `/tmp`」「owned paths 与沙箱许可」改为默认 `demo/logic-<问题简名>.html`、不覆盖全稿 `demo/index.html`；「按主 Skill 检查」指到本仓 SKILL.md [第一性原则] 的离线自包含与质量地板；文件头照同目录两份参考加教学材料声明。 |
+
+改动的现有句子：仅 frontmatter description（在原句后追加，原句保留）。未搬：C 在 [第一性原则]、[交付物]、[Phase 1] / [Phase 2] 与 [验收] 各条前加「完整 UI 稿」限定语——本仓这些段落本身就是 odc 全稿流程，沙盘不走它们，由 [逻辑沙盘入口] 一处写明哪些照守、哪些不走。CLAUDE.md [Skill 调用规则] 里 /design-maker 的前置仍写「Product-Spec.md + Design-Brief.md」，沙盘不要求 Design-Brief；同批已由主 Agent 在 CLAUDE.md 与 rules/dev-workflow-details.md 补注「只做逻辑沙盘时有 Product-Spec.md 或会话里已确认的规则片段即可」。审查后另补两处：沙盘的 ui-audit 须另放目录命名为 index.html 再跑（本仓 ui-audit 只收目录、只开 index.html）；[文件结构] 的 SKILL.md 注释登记沙盘入口。

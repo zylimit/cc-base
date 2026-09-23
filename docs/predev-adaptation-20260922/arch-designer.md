@@ -37,3 +37,16 @@
 
 - **Medium A1（实际来源全稿承接不完整）**：[任务] 第一句「读取 Product-Spec.md」改为「读取权威需求来源（默认 Product-Spec.md；用户已指定其他已批准路径的 PRD / Spec 时按该实际路径）」；[依赖检测] 必需项从「缺失则提示先调用 /product-spec-builder；但……可先就这部分展开」改写为「用户指定或项目已确认的实际来源都可作为来源，按该实际路径生成或更新完整 Architecture-Design.md，不强求先把它改名或搬成 Product-Spec.md；`Product-Spec.md` 只是没有指定来源时的默认路径；两者都缺失才提示先调用 /product-spec-builder；真正缺失的只是业务依据本身时才只能先就片段展开」；[工作流程] [启动阶段] 第一步「读 Product-Spec.md 提取……」改为「确定权威需求来源（用户指定的实际路径优先，否则默认 Product-Spec.md）；读取该来源提取……」。依据：Codex 侧审查 A1——局部讨论出口已实现，但落盘完整文档时仍被写死的默认文件名挡住；已确认的权威需求（即便路径不是 Product-Spec.md）现在可以直接承接到全稿生成/更新，不必先假装成默认文件名，也不必只能做局部讨论。
 - **对等项**：`examples/after-sales-dispatch-arch.md` 标题下新增一行「虚构教学例：其中数字、命令、路径不自动成为任何项目的要求，也不可当作验收证据。」，避免范例里的档位、ADR、版本号被误当某个真实项目的验收依据。
+
+
+## 2026-09-23 Matt Skills 整改同步
+
+依据：`codex-base` `git diff 3e199f6 407c3bc -- .agents/skills`（计划 `docs/research/20260918-matt-skills-learning-plan.md`，行为对照在 `docs/research/20260918-matt-skills-study/`）。上游 `mattpocock/skills@74ca5fe`（MIT），处理方式 synthesized：只取方法，不搬 Codex 运行时概念。来源列 C = codex-base `407c3bc`，括号内为对应批次。
+
+| 本仓章节 | 变更 | 来源（C = codex-base 407c3bc，对应批次 L1–L6；上游 mattpocock/skills@74ca5fe，MIT，synthesized） | 一句理由 |
+|---|---|---|---|
+| [以关键场景评价方案]「让候选经受同一个情境」 | 段后追加一行：抽象或公共接口去留时写出代表调用方的「之前调用 → 之后调用」、需懂的约束、职责归属与变更传播，删掉该层后职责由谁承担；实现短或只有一个实现不足以决定去留 | C（L4） | 原句照搬，仅把 C 的双引号改成本仓的直角引号。 |
+| [以关键场景评价方案]「先定反证，再选最小实验」 | 段后追加一行：反证取决于领域人员操作状态或事件顺序时，在交接里建议走 /design-maker 的逻辑沙盘入口 | C（L2） | C 写「交主 Agent 路由 design-maker」；本仓 design-maker 是用户手动入口，改为在交接里建议，职责划分（权威事实与不变量仍归本阶段）不变。 |
+| references/decision-evaluation.md 第 3 节 | 新增子节「调用方与职责比较（抽象或公共接口去留时）」，含 Facade 三方案表与「不能为保留纯透传层虚构职责」的反例说明 | C（L4） | 判据与例子照搬；C 的「场景 C」是其行为对照记录里的场景编号，本仓无此上下文，改称「某次改动」；末句补一处指向 dev-planner「大范围迁移的兼容与退出」的指针。 |
+
+现有句子未改：本次全部为新增行或新增节。decision-evaluation.md 文件头仍写 `d1a3287`，新增子节的来源以本表为准。

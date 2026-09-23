@@ -66,3 +66,17 @@
 - `bash .claude/tests/test-skills-lint-wording.sh`：`PASS=2 FAIL=0`，exit 0。
 
 **更正（2026-09-22，第三轮，Codex 复核）**：提交 `025cbac` 的说明称「六份 after-sales 示例加虚构教学例声明」，计数有误——`git ls-files ".claude/skills/*after-sales-dispatch*"` 实际只有五份（`arch-designer` / `design-brief-builder` 两份 brief+DESIGN / `dfx-designer` / `product-spec-builder` 各一），均已在文件头声明虚构教学例，声明本身无缺漏，只是提交说明的计数写错。依据：`docs/handoff/codex-recheck-cc-adaptation-20260922.md`（`codex-base-ro` 只读克隆）第 24 行。此更正只改文档记录，不改任何 `.claude/skills/` 内容，也不改历史提交说明（git 提交信息不可回溯改写）。
+
+
+## 2026-09-23 Matt Skills 整改同步
+
+依据：`codex-base` `git diff 3e199f6 407c3bc -- .agents/skills`（计划 `docs/research/20260918-matt-skills-learning-plan.md`，行为对照在 `docs/research/20260918-matt-skills-study/`）。上游 `mattpocock/skills@74ca5fe`（MIT），处理方式 synthesized：只取方法，不搬 Codex 运行时概念。来源列 C = codex-base `407c3bc`，括号内为对应批次。
+
+| 本仓章节 | 变更 | 来源（C = codex-base 407c3bc，对应批次 L1–L6；上游 mattpocock/skills@74ca5fe，MIT，synthesized） | 一句理由 |
+|---|---|---|---|
+| [文件结构] 按需读取说明段 | discovery-methods.md 的读取说明末尾追加「多个未知同时牵制下一步决定时，读其中的『选择下一问与记录依赖』」 | C（L1） | C 在主入口读取指针上加的同一句；本仓读取时机写在 [文件结构] 说明段而非 C 的依赖段，落点随宿主。 |
+| [收敛条件] 待定表一条 | 追加：每行写明答案会解锁哪项决定（需求 / Task / 验收），答复前不依赖它的工作照常推进；没有可靠低风险默认、须有权者拍板或还得取案例才说得清的口径，不拿猜定的 `[默认]` 写成可派发开发 Task，先留作取证 / 决策依赖 | C（L1） | 对应 C [交互原则] 里「阻塞项说明答案会解锁哪项决定、尚不能写出行为与验收的部分不伪装成开发 Task」；本仓无 [交互原则] 节，落到管待定表的收敛条件，并与本仓「有可靠低风险默认才用 `[默认]`」的底线对齐。 |
+| references/discovery-methods.md | 新增「选择下一问与记录依赖」一节（位于分支 1 之前） | C（L1） | 原文照搬；「沿主入口的第三方问卷分支」改为直接链到本目录 third-party-questionnaire.md，「权威需求」改「来源文档」。 |
+| references/discovery-examples.md | 末尾新增「下一问解锁什么」例（技师 / 验收员 / 完成率分子分母） | C（L1） | 例子实质不改；「修订状态/统计 Task 的依赖和验收」改为「在变更记录里写明、交主 Agent 让 dev-planner 同步」，对齐本仓迭代模式第五步纠正传播只改 owned 范围的约定。 |
+
+现有句子只在行尾追加、原措辞未改：[文件结构] 说明段「……不是项目事实。」的句号改为分号后接新句；[收敛条件] 待定表那条在原句后追加。discovery-methods.md / discovery-examples.md 文件头仍写 `d1a3287`，新增两节的来源以本表为准，文件头未改。

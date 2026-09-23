@@ -173,8 +173,8 @@ paths:
 
     [design-maker]
         **手动调用**：/design-maker
-        前置条件：Product-Spec.md 和 Design-Brief.md 必须存在（DESIGN.md 有则 token 进 prompt）
-        执行方式：方向样张 → 两遍法生成 → 八态覆盖 → `ui-audit.mjs --strict` 验收；无浏览器引擎时报「UI 审计缺席」，人工核对截图不冒充机器通过
+        前置条件：Product-Spec.md 和 Design-Brief.md 必须存在（DESIGN.md 有则 token 进 prompt）；只做逻辑沙盘时有 Product-Spec.md 或会话里已确认的规则片段即可
+        执行方式：方向样张 → 两遍法生成 → 八态覆盖 → `ui-audit.mjs --strict` 验收；无浏览器引擎时报「UI 审计缺席」，人工核对截图不冒充机器通过；逻辑沙盘按 SKILL.md [逻辑沙盘入口] 单独走，只回答一个业务状态或规则问题，不出方向样张、不跑八态
 
     [dev-planner]
         **手动调用**：/dev-planner
