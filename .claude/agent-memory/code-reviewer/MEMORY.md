@@ -18,4 +18,5 @@
 - [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；可选包分支绕 manifest；造装完后的目标树跑自带审计
 - [审「先写归档→重读核对→再删正文」搬迁脚本的七条攻法](../../../docs/agent-notes/code-reviewer/pattern_archive-move-scripts.md) — 前缀认区块被诱饵劫走；判重口径≠核对口径=永久卡死；零丢失核对别用 grep
 - [审「参数里有没有密钥路径」切词判据闸的固定攻法](pattern_secret-path-arg-matcher.md) — 放行子命令连带危险flag（log -p）/ 管道分段洗白密钥路径 / grep 不认裸 -- / stripWrappers 吃穿收尾双引号
+- [linter 清零只对本机版本成立](pattern_linter-version-drift.md) — SC2329 在 0.9 叫 SC2317；拉旧版二进制对拍，分「默认装」与「仅框架仓」两个文件集报
 - [审跨模型 skill 内容合成（来源表 K/C/合并）的固定攻法](pattern_cross-model-skill-synthesis.md) — 数章节数对表 / diff 声称搬入的文件 / 标"K"但无对应单一小节要打折 / 姊妹例文件漏加免责声明 / grep 目标仓没有的脚本与第三方编排概念

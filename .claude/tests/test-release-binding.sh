@@ -152,6 +152,7 @@ run() {
     local d="$1"; shift
     RC=0
     OUT=$( cd "$d" && CLAUDE_PROJECT_DIR="$d" node "$d/.claude/harness/harness.mjs" "$@" 2>"$TMP/.stderr" ) || RC=$?
+    # shellcheck disable=SC2034  # run() 的 RC/OUT/ERR 三元组契约（见上方注释），本文件断言未消费 stderr 文本，保留补齐契约不影响行为
     ERR=$(cat "$TMP/.stderr" 2>/dev/null || true)
 }
 

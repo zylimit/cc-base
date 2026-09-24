@@ -24,6 +24,7 @@ REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 AUDIT="$REPO/.claude/harness/audit"
 SI=scan-instructions.mjs
 SS=scan-secrets.mjs
+# shellcheck disable=SC2034  # 三个被测脚本名的完整登记（见文件头注释），本文件的缺陷用例目前只覆盖 SI/SS，CS 保留补齐三元组
 CS=check-syntax.mjs
 
 # node 缺失 → 可见跳过，非假绿。三个被测脚本是纯 node，没有它一条断言都跑不了；
@@ -117,6 +118,7 @@ D=$(newrepo p11a_ss)
 printf 'const k = "%s";\n' "$GH_TOKEN" > "$D/leak.js"
 (cd "$D" && git add -A)
 printf 'const k = "clean";\n' > "$D/leak.js"
+# shellcheck disable=SC2015  # 不是伪装 if-else：末尾 || true 是吞掉 grep -c 零命中的非零退出（防 set -e 误杀），C 恒为 true，不是条件性的另一分支
 STAGED_HIT=$(cd "$D" && git show :leak.js | grep -c 'ghp_' || true)
 # 对照组：默认 tracked 模式判的就是工作树，工作树已清 -> rc 0 是正确行为。
 # 这一条是「两种模式判据不同」的锚，现在就该绿；它红了说明测试脚手架坏了。

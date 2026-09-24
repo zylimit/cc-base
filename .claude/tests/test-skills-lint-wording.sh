@@ -67,7 +67,7 @@ run_case() {
 run_case W1 wording-trigger-ok "当用户说要审查代码时使用。"
 codes=$(codes_of "$CASE_OUT")
 [ "$CASE_RC" -eq 0 ] && [ "$codes" = "(none)" ] && r=0 || r=1
-chk $r "W-1 「当…时使用」是触发式：rc 0 且无措辞类 finding（合规写法不许误伤）" \
+chk "$r" "W-1 「当…时使用」是触发式：rc 0 且无措辞类 finding（合规写法不许误伤）" \
     "rc=0 findings=(none)" \
     "rc=$CASE_RC findings=$codes ; stderr尾: $(tail -n 1 "$CASE_ERR" 2>/dev/null || true)"
 
@@ -75,7 +75,7 @@ run_case W2 wording-summary-bad "生成完整项目架构文档，分阶段输�
 codes=$(codes_of "$CASE_OUT")
 case " $codes " in *" DESCRIPTION_NOT_TRIGGER_SHAPED "*) hasCode=0 ;; *) hasCode=1 ;; esac
 [ "$CASE_RC" -eq 1 ] && [ $hasCode -eq 0 ] && r=0 || r=1
-chk $r "W-2 无触发条件的流程总结 description：rc 1 且有 DESCRIPTION_NOT_TRIGGER_SHAPED" \
+chk "$r" "W-2 无触发条件的流程总结 description：rc 1 且有 DESCRIPTION_NOT_TRIGGER_SHAPED" \
     "rc=1 findings 含 DESCRIPTION_NOT_TRIGGER_SHAPED" \
     "rc=$CASE_RC findings=$codes"
 

@@ -6,7 +6,7 @@
 set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../test-helpers.sh
+# shellcheck source=SCRIPTDIR/../test-helpers.sh
 . "$DIR/../test-helpers.sh"
 
 PROMPT="这个功能坏了，一跑就报错，帮我修一下"

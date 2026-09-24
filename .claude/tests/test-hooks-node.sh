@@ -225,6 +225,7 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
 
 SB=$(newsb mr-src)
 run_hook mark-review-needed "$SB" '{"tool_input":{"file_path":"src/app.ts"}}'
+# shellcheck disable=SC2002  # 非「无用 cat」：cat ... 2>/dev/null 是有意吞掉「文件不存在」的错误，改成 tr < file 2>/dev/null 救不回来（实测：重定向本身失败时结尾 2>/dev/null 补不上，rc 从 0 变 1 且错误仍会打印），保留 cat 形态
 chk "$([ "$RC" -eq 0 ] && grep -qxF 'src/app.ts' "$SB/.claude/.needs-review" 2>/dev/null && echo 0 || echo 1)" \
     "MR 编辑业务源码 → rc 0 且 .needs-review 登记 src/app.ts" \
     "清单含 src/app.ts" "rc=$RC 清单=[$(cat "$SB/.claude/.needs-review" 2>/dev/null | tr '\n' ',')] err=[$(show "$ERRT")]"

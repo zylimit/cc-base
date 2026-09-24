@@ -408,6 +408,7 @@ se_pass se76-globlog "tac *.log" \
 #     全匹配空——判成命中（rc 2，实测证实）；契约的 >512 上限要求整串按字面比对，604 字符的字面串
 #     不等于任何密钥名 → 应 rc 0。原文的 600 个 ? 构造留作 SE-57b，当一条无分辨力但仍要计时防
 #     挂死的控制组，回执里点明它测不出契约②有没有实现。
+# shellcheck disable=SC1087  # 有意的字面拼接：$DOTENV 后紧跟字面方括号 [z-a]，不是数组下标
 DOTENV_CLS="$DOTENV[z-a]"
 STARS200=$(printf '*%.0s' {1..200})
 
@@ -415,7 +416,7 @@ SB=$(newsb se51-crash)
 run_hook secret-exfil-guard "$SB" "{\"tool_input\":{\"command\":$(jsonstr "cat $DOTENV_CLS $DOTENV")}}"
 chk "$([ "$RC" -eq 2 ] && ! crashmsg "$ERRT" && echo 0 || echo 1)" \
     "SE-51 畸形字符类不许把整条扫描炸崩：cat .env[z-a] .env 里第一个 token 判不出就该跳过继续判，\
-后面真正的 .env 仍要拦（rc=2 且 stderr 不含"内部异常"；现状是异常冒穿到 runFailOpen、整条被静默放行）" \
+后面真正的 .env 仍要拦（rc=2 且 stderr 不含「内部异常」；现状是异常冒穿到 runFailOpen、整条被静默放行）" \
     "rc=2 且 stderr 不含「内部异常」" "rc=$RC err=[$(show "$ERRT")]"
 
 SB=$(newsb se52-crash)
@@ -441,6 +442,7 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
 未返回），线性匹配不许留这条命门 → 3 秒内返回且 rc 0" \
     "rc=0 无输出（3 秒内返回，RC≠124）" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
+# shellcheck disable=SC2016  # 单引号内是喂给 secret-exfil-guard 的命令样本字面量，故意不让本 shell 展开其中的 $f
 se_pass se76c-star54 'for f in *; do wc -c "$f"; done' \
     "SE-54 契约「纯通配不算命中」：裸 * 是常见 shell 循环写法，没有指向任何具体密钥名的字面\
 字符，不算命中 → 放行（现状 * 会被判成命中任意不含 / 的候选名，这条循环会被误拦）"

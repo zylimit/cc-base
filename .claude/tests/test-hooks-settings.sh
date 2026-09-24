@@ -40,6 +40,7 @@ chk() {
 # sq <js 表达式> —— 在 settings.json 上求值，打印结果。作用域里可用：s（整份 settings）、
 # entries（[{ev, matcher, h}] 展平的 hook 条目）、ROOT、fs / path、nameOf、resolveArg。
 sq() {
+    # shellcheck disable=SC2016  # 单引号内是要喂给 node -e 的 JS 源码，故意不让 shell 展开其中的 $ 记号
     node -e '
 const fs = require("node:fs");
 const path = require("node:path");

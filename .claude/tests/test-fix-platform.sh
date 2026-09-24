@@ -56,6 +56,7 @@ mkfixture() {
   printf 'export const x = 1;\n'   > "$cl/hooks/lib/fastmode.mjs"
   printf '#!/usr/bin/env bash\necho hi\n' > "$cl/scripts/fast-mode.sh"
   chmod -x "$cl/scripts/fast-mode.sh" 2>/dev/null || true
+  # shellcheck disable=SC2016  # 单引号内是要喂给 node -e 的 JS 源码，故意不让 shell 展开其中的 $CLAUDE_PROJECT_DIR 字面量
   node -e '
 const fs = require("node:fs");
 const data = {

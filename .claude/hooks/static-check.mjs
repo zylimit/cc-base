@@ -6,6 +6,7 @@
 //       用模型无关的机械化静态检查补偿——静态绿才进语义审查（Stage 1/2）。
 // 这不是 hook：不读 stdin、不注册进 settings，退出码是「有没有红」而非 hook 的放行/拦停语义。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { out, say, run } from './lib/io.mjs';
 
@@ -17,6 +18,11 @@ const PRUNE = new Set(['node_modules', '.git', '.ccb', 'dist', 'build', '.venv',
 // 重复检查 N 遍，还会把别的分支的代码算到本次审查头上。
 const JS_PRUNE = new Set(['node_modules', '.git', '.ccb', 'dist', 'build', '.venv', 'out', 'coverage', '.opencode']);
 const JS_PRUNE_PATHS = new Set(['.claude/worktrees']);
+// shell 同理（TODO #85）：.claude 底下的 .sh（scripts/、tests/、skills/ 各测试脚手架）以前被
+// PRUNE 整块排掉，框架自己的 shell 从来没人做过 shellcheck。worktrees 排掉的理由同 JS；另外
+// 排掉 harness/ext/——那是 --with-harness 才装的可选包，目标项目默认不装，不该拖累默认检查。
+const SH_PRUNE = new Set(['node_modules', '.git', '.ccb', 'dist', 'build', '.venv', 'out', '.opencode']);
+const SH_PRUNE_PATHS = new Set(['.claude/worktrees', '.claude/harness/ext']);
 
 const ran = [];
 let fail = 0;
@@ -58,6 +64,66 @@ function findFiles({ match, prune, prunePaths = new Set(), maxDepth = Infinity }
 
 const extIs = (...exts) => (name) => exts.some((x) => name.endsWith(x));
 
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** node --check 的噪音行：纯调用栈与版本号，不是语法错误本身的一部分。 */
+function filterNodeCheckNoise(text) {
+  return String(text).split('\n')
+    .filter((l) => !l.startsWith('    at ') && !l.startsWith('Node.js v'))
+    .join('\n');
+}
+
+/** 普通 JS/MJS/CJS：node --check 原样查，输出自带 <文件>:<行>，不用另外映射。 */
+function checkPlainJs(f) {
+  const r = run(process.execPath, ['--check', f]);
+  return { status: r.status, text: filterNodeCheckNoise(`${r.stdout}${r.stderr}`) };
+}
+
+const WORKFLOWS_DIR_RE = /(^|\/)\.claude\/workflows\//;
+
+/**
+ * .claude/workflows/*.js 是 Workflow 工具脚本：约定顶层允许 return / await（宿主按此约定包一层
+ * async function 执行——见 export const meta 之后的脚本体），裸 node --check 拿它当模块顶层查，
+ * 会把合法的顶层 return 判成语法错（Illegal return statement）。这里同样包一层 async function
+ * 再查，语法错误的判定才如实；export 关键字在函数体内不合法，原地换成等长空格（不占位移，不影响
+ * 其余行的行号，也不影响多数列号）；只在头部加了一行包裹壳，行号统一减 1 换算回原文件即可对上——
+ * 真语法错误（多/少括号、逗号等）照样会被这层壳外的 node --check 抓到并报出来。
+ * 行号换算只是减 1，「缺右括号/大括号」这类错误 node 会报在 EOF 之后一行——包壳又在尾部
+ * 多补了一行收口的 `}`，两笔相加换回原文件时可能越过原文件最后一行（1 行的文件报出 :3）；
+ * 换算完再钳到 [1, 原文件行数] 之内，报不出编辑器里根本不存在的行号。
+ */
+function checkWorkflowScript(f) {
+  const src = fs.readFileSync(f, 'utf8');
+  const neutralized = src.replace(/^export(?=\s)/gm, '      ');
+  const body = neutralized.endsWith('\n') ? neutralized : `${neutralized}\n`;
+  const wrapped = `async function __static_check_workflow__() {\n${body}}\n`;
+  const totalLines = src.replace(/\n$/, '').split('\n').length;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-check-wf-'));
+  const tmp = path.join(tmpDir, path.basename(f));
+  try {
+    fs.writeFileSync(tmp, wrapped);
+    const r = run(process.execPath, ['--check', tmp]);
+    if (r.status === 0) return { status: 0, text: '' };
+    const lineRe = new RegExp(`^${escapeRegExp(tmp)}:(\\d+)$`);
+    const text = filterNodeCheckNoise(`${r.stdout}${r.stderr}`).split('\n')
+      .map((l) => {
+        const m = l.match(lineRe);
+        if (!m) return l;
+        const mapped = Math.min(Math.max(Number(m[1]) - 1, 1), totalLines);
+        return `${f}:${mapped}`;
+      })
+      .join('\n');
+    return { status: r.status, text };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_e) { /* 临时目录，删不掉不影响判定 */ }
+  }
+}
+
+/** 一份 JS 文件该用哪种方式查：workflows/ 下的走包壳版，其余走裸 node --check。 */
+function checkJsFile(f) {
+  return WORKFLOWS_DIR_RE.test(f) ? checkWorkflowScript(f) : checkPlainJs(f);
+}
+
 // ---- 入口参数：目录 ----
 const dir = process.argv[2] || '.';
 if (dir.includes('..')) {
@@ -71,7 +137,12 @@ if (dir.includes('..')) {
 
 function main() {
   // ---- shell ----
-  const sh = findFiles({ match: extIs('.sh'), prune: PRUNE });
+  // 不加 -x：这里的 `.sh` 是一次性全批传给 shellcheck（不是逐文件单跑），被 source 的文件
+  // （如 test-helpers.sh）本来就在同一批输入里，shellcheck 靠 `# shellcheck source=SCRIPTDIR/...`
+  // 指令就能在批内找到它，不用 -x 去磁盘上跟——实测过 -x 在这批全量调用下不产生任何差异；
+  // -x 唯一还有意义的场景是脚本 source 了批外的文件（当前 .claude/**/*.sh 里没有这种写法），
+  // 真出现那种写法时再按需加，不为一个用不上的场景常年多带一个标志位。
+  const sh = findFiles({ match: extIs('.sh'), prune: SH_PRUNE, prunePaths: SH_PRUNE_PATHS });
   if (sh.length > 0 && have('shellcheck')) {
     ran.push('shellcheck');
     const r = run('shellcheck', sh);
@@ -117,13 +188,10 @@ function main() {
       // 落在跑过 tsc 的子树里的不重复检查：tsc 看得比语法更远，同一份文件报两遍只是噪音。
       if (tsDirs.some((d) => f.startsWith(`${d}/`))) continue;
       jsn += 1;
-      // node --check 自己就打 <文件>:<行>，原样透出去、不另造格式；只滤掉纯噪音的调用栈。
-      const r = run(process.execPath, ['--check', f]);
-      if (r.status !== 0) {
-        jsout += `${`${r.stdout}${r.stderr}`.split('\n')
-          .filter((l) => !l.startsWith('    at ') && !l.startsWith('Node.js v'))
-          .join('\n')}\n`;
-      }
+      // workflows/ 走包壳版查法（见 checkWorkflowScript）；其余原样 node --check，
+      // 输出自带 <文件>:<行>，不另造格式，只滤掉纯噪音的调用栈。
+      const r = checkJsFile(f);
+      if (r.status !== 0) jsout += `${r.text}\n`;
     }
     if (jsn > 0) {
       ran.push(`node --check(${jsn})`);

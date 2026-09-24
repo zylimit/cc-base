@@ -9,7 +9,7 @@
 set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./test-helpers.sh
+# shellcheck source=SCRIPTDIR/test-helpers.sh
 . "$DIR/test-helpers.sh"
 
 GOOD="$DIR/fixtures/good-run.jsonl"

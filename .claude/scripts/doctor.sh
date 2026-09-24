@@ -26,21 +26,26 @@ if [ -f .claude/.runtime/install.marker ]; then
 fi
 
 # 主控文件
+# shellcheck disable=SC2015  # ok/bad 恒返回0（printf 不判失败），A&&B||C 在此处等价 if-else
 [ -f .claude/CLAUDE.md ] && ok ".claude/CLAUDE.md 存在" || bad ".claude/CLAUDE.md 缺失"
 
 # 主控下沉细则（rules/）
+# shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -d .claude/rules ] && ok ".claude/rules 存在" || bad ".claude/rules 缺失"
 # harness-large-repo / quality-attributes 不在这张地板名单里：它们随 setup --with-harness 才落进
 # rules/，默认不装的项目缺它们是正常状态，当缺陷报会让每个小项目的自检天天红一条。
 for r in file-structure workflow-orchestration dev-workflow-details; do
+  # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -f ".claude/rules/$r.md" ] && ok "rule $r" || bad "rule $r 缺失"
 done
 
 # agent 装齐
+# shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -d .claude/agents ] && ok ".claude/agents 存在" || bad ".claude/agents 缺失"
 # 七个核心角色写死当地板：调度表和 agents/ 一起错（整批改名、两边同时空）时，
 # 两边同样错的动态比对会互相抵消判绿，写死的这份不会。
 for name in implementer code-reviewer tester deployer feedback-observer evolution-runner progress-recorder; do
+  # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -f ".claude/agents/$name.md" ] && ok "agent $name" || bad "agent $name 缺失"
 done
 # 份数不写死。要查的是「该装的都装上了」，不是「恰好是某个数字」——写死 7 只挡得住那年的名单，
@@ -53,11 +58,13 @@ if [ -f .claude/CLAUDE.md ]; then
   if [ "$reg_count" -lt 7 ]; then
     bad "CLAUDE.md 调度表只解析到 $reg_count 个 agent 条目（至少该有七个核心角色）：表被改坏或没装全，名单比对失效"
   else
+    # shellcheck disable=SC2086  # $registered 是换行分隔的多个名字，此处故意不加引号借 IFS 分词拼成单行空格分隔清单
     reg_flat=" $(printf '%s ' $registered)"
     miss=""
     for name in $registered; do
       [ -f ".claude/agents/$name.md" ] || miss="$miss $name"
     done
+    # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
     [ -z "$miss" ] && ok "agent 名单与 CLAUDE.md 调度表一致（登记 $reg_count 份）" \
       || bad "调度表登记了但本地没装：${miss# }（调度表共登记 $reg_count 份）"
     for f in .claude/agents/*.md; do
@@ -71,19 +78,23 @@ else
 fi
 
 # 每个 skill 都有 SKILL.md
+# shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -d .claude/skills ] && ok ".claude/skills 存在" || bad ".claude/skills 缺失"
 for d in .claude/skills/*/; do
   [ -d "$d" ] || continue
   s=$(basename "$d")
+  # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -f "$d/SKILL.md" ] && ok "skill $s/SKILL.md" || bad "skill $s 缺 SKILL.md"
 done
 
 # hooks 语法：hook 全是 node 跑的 .mjs，不需要执行位；坏的是语法——注册着却起不来，
 # 每次事件报一次 hook error，谁也不会去看那行小字。
+# shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -d .claude/hooks ] && ok ".claude/hooks 存在" || bad ".claude/hooks 缺失"
 if command -v node >/dev/null 2>&1; then
   for hook in .claude/hooks/*.mjs .claude/hooks/lib/*.mjs; do
     [ -e "$hook" ] || continue
+    # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
     node --check "$hook" >/dev/null 2>&1 && ok "hook 语法 $hook" || bad "hook 语法错 $hook（node --check 不过）"
   done
 else
@@ -92,6 +103,7 @@ fi
 
 # hook 公共库四件（22 个 hook 都 import，缺一件就是一整片 hook 起不来）
 for m in io gatelog tier harness; do
+  # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -f ".claude/hooks/lib/$m.mjs" ] && ok "hooks/lib/$m.mjs 存在" || bad "hooks/lib/$m.mjs 缺失"
 done
 
@@ -113,6 +125,7 @@ fi
 # settings.json 里每条 hook 的 args[0] 指向的文件真的在——注册了却没装，是每次事件报一次 hook error，
 # 而那行小字滚过去谁也不会读。用 node 解析（hook 本来就靠 node 跑，它不在的话下面也验不了语法）。
 if [ -f .claude/settings.json ] && command -v node >/dev/null 2>&1; then
+  # shellcheck disable=SC2016  # node -e 的单引号 JS 源码块，故意不让 shell 展开其中的 ${...}，那是 JS 里的字面量/表达式
   hook_miss=$(node -e '
 const fs = require("node:fs");
 const s = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
@@ -151,6 +164,7 @@ else
   note "非框架仓，跳过发布脚本检查"
 fi
 for s in doctor.sh plan-lint.sh predev-lint.mjs ui-audit.mjs test-age.mjs; do
+  # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -f ".claude/scripts/$s" ] && ok ".claude/scripts/$s 存在" || bad ".claude/scripts/$s 缺失"
 done
 # skill description 的 CSO 门（形状 + 措辞）已整条搬进引擎，存在性跟着挪到子命令上
@@ -161,9 +175,13 @@ else
 fi
 
 # 运行时工具
+# shellcheck disable=SC2015  # note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 command -v git  >/dev/null 2>&1 && ok "git 可用"  || note "未找到 git；git 相关 hook 能力受限"
+# shellcheck disable=SC2015  # 同上：note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 command -v bash >/dev/null 2>&1 && ok "bash 可用" || note "未找到 bash"
+# shellcheck disable=SC2015  # 同上：note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 command -v jq   >/dev/null 2>&1 && ok "jq 可用（可选）"      || note "未找到 jq（可选）"
+# shellcheck disable=SC2015  # ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 command -v node >/dev/null 2>&1 && ok "node 可用（22 个 hook 全靠它跑）" || bad "未找到 node；hook 一个都起不来"
 
 # Claude Code 版本：hook 的 exec form（command:node + args）要够新的 Claude Code 才认。版本号拿不到就
@@ -176,18 +194,23 @@ else
 fi
 
 # 大仓治理 harness（默认关闭，catalog 存在即启用）——只报告状态，不 fail 小项目
+# shellcheck disable=SC2015  # ok/note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -f .claude/harness/harness.mjs ] && ok "harness.mjs 存在" \
   || note "harness.mjs 缺失（大仓治理运行时；若不用大仓治理可忽略）"
+# shellcheck disable=SC2015  # 同上：ok/note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -f .claude/harness/lib/core.mjs ] && ok "harness lib/ 存在（引擎拆库后 harness.mjs 单文件跑不起来）" \
   || note "harness lib/ 缺失（只拷 harness.mjs 不够，须连 .claude/harness/lib/ 一起装）"
+# shellcheck disable=SC2015  # 同上：ok/note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ -d .claude/harness/ext ] && ok "harness ext/ 存在（大仓治理引擎已装）" \
   || note "harness ext/ 未装（默认如此；要 impact/verify/gate 那套跑 setup.sh --with-harness）"
 if [ -f .claude/harness/module-catalog.json ]; then
   ok "module-catalog.json 存在（大仓治理已启用）"
   # 开关开了、引擎没装 = stop-gate / pre-commit-check / harness-async-verify 三道闸一次也验不成。
   # 判 ✗ 不判 !：单看上面那行「ext 未装（默认如此）」是常态，配上 catalog 就是配置自相矛盾。
+  # shellcheck disable=SC2015  # ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   [ -d .claude/harness/ext ] && ok "harness ext/ 与 catalog 配套（三道大仓闸能真跑）" \
     || bad "module-catalog.json 在但 harness ext/ 未装：stop-gate / pre-commit-check / harness-async-verify 三道闸只会当场提示未验、验不成——跑 setup.sh --with-harness 装包，或删掉 catalog 关闭大仓治理"
+  # shellcheck disable=SC2015  # ok/note 恒返回0，A&&B||C 是安全的 if-else 惯用写法
   command -v node >/dev/null 2>&1 && ok "node 可用（harness 可跑）" \
     || note "未找到 node；大仓治理 harness 判定将降级跳过（非假绿）"
 else

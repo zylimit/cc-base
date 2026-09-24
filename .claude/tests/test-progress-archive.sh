@@ -71,7 +71,7 @@ TODO_SMALL=$(gen_todo_small)
 # 没超线：三组阈值都不过线，两份文件必须逐字节不变。红了说明"没东西要搬"时仍动了文件，或阈值算错。
 A1_ROOT="$TMP/a1"; mkdir -p "$A1_ROOT"
 A1_PROG="$A1_ROOT/progress.md"; A1_ARCH="$A1_ROOT/progress.archive.md"
-build_progress "$A1_PROG" "$(gen_entries 10 done 0)" "$(gen_entries 10 notes 0)" "$(gen_entries 10 dec 0)" "$TODO_SMALL"
+build_progress "$A1_PROG" "$(gen_entries 10 "done" 0)" "$(gen_entries 10 notes 0)" "$(gen_entries 10 dec 0)" "$TODO_SMALL"
 printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n' > "$A1_ARCH"
 B1=$(sha "$A1_PROG"); B2=$(sha "$A1_ARCH")
 run_pa "$A1_ROOT"
@@ -83,7 +83,7 @@ chk "$ok" "A1 没超线：两份文件逐字节不变，退出码 0" "rc=0 且�
 # 打死：①阈值按单段而非"合计"判断；②非条目行被误当条目数/搬，边界算错一位；③续行被切断或漏搬。
 A2_ROOT="$TMP/a2"; mkdir -p "$A2_ROOT"
 A2_PROG="$A2_ROOT/progress.md"; A2_ARCH="$A2_ROOT/progress.archive.md"
-A2_DONE_ENTRIES=$(gen_entries 60 done 40)
+A2_DONE_ENTRIES=$(gen_entries 60 "done" 40)
 A2_PTR='- （2020-08-01 及更早的 Done 条目已搬迁，参见 progress.archive.md）'
 A2_DONE_BODY=$(printf '%s\n%s' "$A2_DONE_ENTRIES" "$A2_PTR")
 build_progress "$A2_PROG" "$A2_DONE_BODY" "$(gen_entries 50 notes 0)" "$(gen_entries 10 dec 0)" "$TODO_SMALL"
@@ -112,7 +112,7 @@ chk "$ok" "A2c Done 第36-60条（含续行）整体、原序搬进 Archived Don
 A3_ROOT="$TMP/a3"; mkdir -p "$A3_ROOT"
 A3_PROG="$A3_ROOT/progress.md"; A3_ARCH="$A3_ROOT/progress.archive.md"
 A3_DEC=$(gen_entries 35 dec 0)
-build_progress "$A3_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$A3_DEC" "$TODO_SMALL"
+build_progress "$A3_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$A3_DEC" "$TODO_SMALL"
 run_pa "$A3_ROOT" --json
 A3_DEC_POST=$(extract_block "$A3_PROG" '## Decisions')
 A3_KEPT_GOT=$(printf '%s\n' "$A3_DEC_POST" | sed -n '1,24p')
@@ -122,7 +122,7 @@ A3_ARCH_DEC=$(extract_block "$A3_ARCH" '## Archived Decisions' | norm)
 ok=0; [ "$PA_RC" = "0" ] || ok=1; [ "$A3_KEPT_GOT" = "$A3_KEPT_WANT" ] || ok=1; [ "$A3_ARCH_DEC" = "$A3_MOVED_WANT" ] || ok=1
 chk "$ok" "A3a Decisions 超30：留最新24条，其余11条整体搬进 Archived Decisions" "rc=0，保留区前24条不变，Archived Decisions=第25-35条" \
   "rc=$PA_RC 保留相等=$([ "$A3_KEPT_GOT" = "$A3_KEPT_WANT" ] && echo yes || echo no) 归档相等=$([ "$A3_ARCH_DEC" = "$A3_MOVED_WANT" ] && echo yes || echo no)"
-A3_DONE_POST=$(extract_block "$A3_PROG" '## Done' | norm); A3_DONE_WANT=$(gen_entries 5 done 0 | norm)
+A3_DONE_POST=$(extract_block "$A3_PROG" '## Done' | norm); A3_DONE_WANT=$(gen_entries 5 "done" 0 | norm)
 A3_NOTES_POST=$(extract_block "$A3_PROG" '## Notes' | norm); A3_NOTES_WANT=$(gen_entries 5 notes 0 | norm)
 ok=0; [ "$A3_DONE_POST" = "$A3_DONE_WANT" ] || ok=1; [ "$A3_NOTES_POST" = "$A3_NOTES_WANT" ] || ok=1
 chk "$ok" "A3b 三组各判各的：Decisions 单独超线时，没超线的 Done / Notes 不被连带搬" "Done / Notes 正文逐字节不变" \
@@ -167,7 +167,7 @@ A4_TODO_BODY=$(cat <<'EOF'
 - [P1][完成][#15]  占位任务 15 已完成
 EOF
 )
-build_progress "$A4_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 5 dec 0)" "$A4_TODO_BODY"
+build_progress "$A4_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 5 dec 0)" "$A4_TODO_BODY"
 run_pa "$A4_ROOT"
 A4_TODO_POST=$(extract_block "$A4_PROG" '## TODO')
 A4_ARCH_TODO=$(extract_block "$A4_ARCH" '## Archived TODO')
@@ -204,7 +204,7 @@ chk "$ok" "A4e TODO 区末尾指针行带「已归档最大编号 #15」" "指�
 # 打死：读归档失败被当成"归档不存在"处理，继续往下走。
 A5_ROOT="$TMP/a5"; mkdir -p "$A5_ROOT"
 A5_PROG="$A5_ROOT/progress.md"
-build_progress "$A5_PROG" "$(gen_entries 60 done 0)" "$(gen_entries 50 notes 0)" "$(gen_entries 5 dec 0)" "$TODO_SMALL"
+build_progress "$A5_PROG" "$(gen_entries 60 "done" 0)" "$(gen_entries 50 notes 0)" "$(gen_entries 5 dec 0)" "$TODO_SMALL"
 mkdir -p "$A5_ROOT/progress.archive.md"
 A5_SHA_BEFORE=$(sha "$A5_PROG")
 run_pa "$A5_ROOT"
@@ -215,7 +215,7 @@ chk "$ok" "A5 归档读不了（同名目录顶替）：退出码1，progress.md
 # 打死：「先删正文、后写归档」的旧顺序（事故根因）——归档写失败时正文已被裁剪，数据丢失。
 A5A_ROOT="$TMP/a5a"; mkdir -p "$A5A_ROOT"
 A5A_PROG="$A5A_ROOT/progress.md"; A5A_ARCH="$A5A_ROOT/progress.archive.md"
-build_progress "$A5A_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"  # 必须真超线，注入点才走得到
+build_progress "$A5A_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"  # 必须真超线，注入点才走得到
 printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n' > "$A5A_ARCH"
 B5A1=$(sha "$A5A_PROG"); B5A2=$(sha "$A5A_ARCH")
 PA_FAIL_AT=archive-write
@@ -230,7 +230,7 @@ chk "$ok" "A5a 故障注入 archive-write：退出码1，stderr非空，progress
 A5B_ROOT="$TMP/a5b"; mkdir -p "$A5B_ROOT"
 A5B_PROG="$A5B_ROOT/progress.md"; A5B_ARCH="$A5B_ROOT/progress.archive.md"
 A5B_DEC=$(gen_entries 35 dec 0)
-build_progress "$A5B_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$A5B_DEC" "$TODO_SMALL"
+build_progress "$A5B_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$A5B_DEC" "$TODO_SMALL"
 B5B=$(sha "$A5B_PROG")
 PA_FAIL_AT=verify
 run_pa "$A5B_ROOT"
@@ -255,7 +255,7 @@ chk "$ok" "A5b2 从 verify 失败的中间态不带注入重跑：rc=0，正文�
 # 打死：①不去重导致归档条目重复；②续搬后正文未被正确裁剪；③第二遍重跑又误判「有东西要搬」。
 A6_ROOT="$TMP/a6"; mkdir -p "$A6_ROOT"
 A6_PROG="$A6_ROOT/progress.md"; A6_ARCH="$A6_ROOT/progress.archive.md"
-A6_DONE_ENTRIES=$(gen_entries 60 done 0)
+A6_DONE_ENTRIES=$(gen_entries 60 "done" 0)
 # Notes 也要给到50条（Done+Notes=110 才过合计100的触发线；只堆 Done 到60不够）。
 build_progress "$A6_PROG" "$A6_DONE_ENTRIES" "$(gen_entries 50 notes 0)" "$(gen_entries 5 dec 0)" "$TODO_SMALL"
 A6_PRESEED=$(printf '%s\n' "$A6_DONE_ENTRIES" | sed -n '36,45p')  # 预置第36-45条，模拟"上一轮写了归档没删正文"
@@ -293,7 +293,7 @@ A7_ROOT="$TMP/a7"; mkdir -p "$A7_ROOT"
 A7_PROG="$A7_ROOT/progress.md"; A7_ARCH="$A7_ROOT/progress.archive.md"
 A7_LINKS='- 占位链接 1：某个外部参考
 - 占位链接 2：另一个外部参考'
-build_progress "$A7_PROG" "$(gen_entries 60 done 0)" "$(gen_entries 50 notes 0)" "$(gen_entries 5 dec 0)" "$TODO_SMALL" "## Links" "$A7_LINKS"
+build_progress "$A7_PROG" "$(gen_entries 60 "done" 0)" "$(gen_entries 50 notes 0)" "$(gen_entries 5 dec 0)" "$TODO_SMALL" "## Links" "$A7_LINKS"
 A7_PINNED_BEFORE=$(extract_block "$A7_PROG" '## Pinned'); A7_LINKS_BEFORE=$(extract_block "$A7_PROG" '## Links')
 {
   printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n\n## Archived Done\n- 2019-01-01 done-entry-old-1 早先已归档的条目1\n\n'
@@ -315,7 +315,7 @@ chk "$ok" "A7b 归档文件只增不删：跑前已有的每一行，跑后仍�
 # 的对应版本）。打死：统一按 \n 读写、把 CRLF 源文件的行尾静默改成 LF（或反过来）。
 A8_LF_ROOT="$TMP/a8lf"; A8_CRLF_ROOT="$TMP/a8crlf"; mkdir -p "$A8_LF_ROOT" "$A8_CRLF_ROOT"
 A8_LF_PROG="$A8_LF_ROOT/progress.md"; A8_CRLF_PROG="$A8_CRLF_ROOT/progress.md"
-build_progress "$A8_LF_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"
+build_progress "$A8_LF_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"
 sed 's/$/\r/' "$A8_LF_PROG" > "$A8_CRLF_PROG"
 run_pa "$A8_LF_ROOT"; A8_LF_RC="$PA_RC"
 run_pa "$A8_CRLF_ROOT"; A8_CRLF_RC="$PA_RC"
@@ -329,7 +329,7 @@ chk "$ok" "A8b LF 的 progress.md 跑完不被改成 CRLF" "rc=0，文件里不�
 # ============================== A9 ==============================
 # CLI 契约：--check 不写任何文件；未知参数退出码2且点名；progress.md 不存在时退出码0。
 A9A_ROOT="$TMP/a9a"; mkdir -p "$A9A_ROOT"; A9A_PROG="$A9A_ROOT/progress.md"
-build_progress "$A9A_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"
+build_progress "$A9A_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 35 dec 0)" "$TODO_SMALL"
 A9A_SHA=$(sha "$A9A_PROG")
 run_pa "$A9A_ROOT" --check --json
 ok=0; [ "$PA_RC" = "0" ] || ok=1; [ "$(sha "$A9A_PROG")" = "$A9A_SHA" ] || ok=1
@@ -350,13 +350,13 @@ chk "$ok" "A9c progress.md 不存在：退出码0，不强造，不凭空创建 
 # （"## TODO 归档说明"）不算。打死：前缀匹配（startsWith）——旧逻辑下它会先命中 "TODO" 这个
 # kind，导致真正的 "## TODO" 反而被当成无关区块跳过、一条都不处理。
 A10_ROOT="$TMP/a10"; mkdir -p "$A10_ROOT"
-A10_PROG="$A10_ROOT/progress.md"; A10_ARCH="$A10_ROOT/progress.archive.md"
+A10_PROG="$A10_ROOT/progress.md"
 A10_DECOY='- [P1][DONE][#900]  这不是真TODO条目，是说明文字，不该被扫描
 - [P1][完成][#901]  同上，形似已关闭TODO但不该被搬迁'
 A10_REAL=$(gen_todo_closed 25)  # 25条顺编号已关闭，超20触发；保留16-25，搬出1-15
 {
   printf '# progress（测试夹具）\n\n_Last updated: 2020-01-01_\n\n## Pinned\n- p\n\n'
-  printf '## Done\n%s\n\n## Notes\n%s\n\n## Decisions\n%s\n\n' "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 5 dec 0)"
+  printf '## Done\n%s\n\n## Notes\n%s\n\n## Decisions\n%s\n\n' "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$(gen_entries 5 dec 0)"
   printf '## TODO 归档说明\n%s\n\n## TODO\n%s\n' "$A10_DECOY" "$A10_REAL"
 } > "$A10_PROG"
 A10_DECOY_BEFORE=$(extract_block "$A10_PROG" '## TODO 归档说明')
@@ -376,7 +376,7 @@ chk "$ok" "A10 形似标题「## TODO 归档说明」不当 TODO 段扫描、逐
 A11_ROOT="$TMP/a11"; mkdir -p "$A11_ROOT"
 A11_PROG="$A11_ROOT/progress.md"; A11_ARCH="$A11_ROOT/progress.archive.md"
 A11_DEC=$(gen_entries 35 dec 0)
-build_progress "$A11_PROG" "$(gen_entries 5 done 0)" "$(gen_entries 5 notes 0)" "$A11_DEC" "$TODO_SMALL"
+build_progress "$A11_PROG" "$(gen_entries 5 "done" 0)" "$(gen_entries 5 notes 0)" "$A11_DEC" "$TODO_SMALL"
 A11_FIRST_MOVED=$(printf '%s\n' "$A11_DEC" | sed -n '25p')
 A11_DECOY_LINE="${A11_FIRST_MOVED} （子串陷阱：更长但不是同一行）"
 { printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n\n## Archived Decisions\n%s\n' "$A11_DECOY_LINE"; } > "$A11_ARCH"

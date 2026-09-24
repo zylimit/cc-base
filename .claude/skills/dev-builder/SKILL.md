@@ -59,6 +59,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         - commit message 前缀：`phase-N:` / `feat:` / `fix:` / `refactor:` / `chore:`
         - 提交门槛：本次改动涉及的栈编译或语法检查通过才许 commit（前端 tsc --noEmit 零错误，后端 ruff check 或 py_compile 通过），由 pre-commit-check 按栈自动卡
         - push 由 hook 处理，保护分支不自动推
+        - 宿主或编排层已把工作树钉在某个分支上时，就在这棵树、这个分支上提交，不另开或切换分支；只有自己管工作树时才自行决定开不开分支
         - 工作目录含多个独立 repo 时，各自 add / commit / push 分开执行、各自验收远程状态，不耦合进同一条命令——细则见 feedback/multi-repo-commit-isolation.md
 
 [设计参照]

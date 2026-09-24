@@ -31,11 +31,14 @@
 set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../test-helpers.sh
+# shellcheck source=SCRIPTDIR/../test-helpers.sh
 . "$DIR/../test-helpers.sh"
 
 # ---- 临时文件统一清理（多 LOG 场景）----
 CLEANUP_FILES=""
+# shellcheck disable=SC2329,SC2317  # trap 注册的退出钩子：脚本以显式 exit "$var" 收尾时 shellcheck 认不出 trap 间接调用，是工具已知误判，非真未调用（SC2329 是 0.10+ 的编号，SC2317 是 0.9 系列同一条判定的旧编号）
+# shellcheck disable=SC2086  # $CLEANUP_FILES 是空格分隔的多个临时文件路径，故意不加引号借词分割逐个传给 rm -f
+# shellcheck disable=SC2015  # 不是伪装 if-else：末尾 || true 恒吞掉 rm -f 的非零退出（防 set -e 误杀），C 恒为 true 不是条件性分支（0.11 起该形状不再报，0.9/0.8 仍报）
 cleanup() { [ -n "$CLEANUP_FILES" ] && rm -f $CLEANUP_FILES 2>/dev/null || true; }
 trap cleanup EXIT
 mktemp_log() {

@@ -93,6 +93,7 @@ mkrepo "$S"
 
 # ① 干净仓 → exit 0
 run "$S" scan-secrets.mjs
+# shellcheck disable=SC2015  # pass/fail 恒返回0（仅计数+echo），A&&B||C 在此处等价 if-else
 [ "$RC" -eq 0 ] && pass "干净仓 exit 0" || fail "干净仓应 exit 0（rc=$RC，stderr：$OUT_HUMAN）"
 
 # ② 注入密钥字面量 → exit 1
@@ -115,6 +116,7 @@ fi
 printf 'const key = "%s"; // scan-secrets:ignore\n' "$FAKEKEY" > "$S/src.js"
 (cd "$S" && git add -A)
 run "$S" scan-secrets.mjs
+# shellcheck disable=SC2015  # 同上：pass/fail 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ "$RC" -eq 0 ] && pass "行内 scan-secrets:ignore -> rc 0" || fail "压制后应 rc 0（rc=$RC，stderr：$OUT_HUMAN）"
 rm -f "$S/src.js"
 
@@ -143,6 +145,7 @@ rm -f "$S/blob.dat" "$S/.env.example"
 # ⑥ 非 git 目录 → exit 3（拒绝猜文件集，不是 exit 0 假绿）
 NOGIT="$TMP/nogit"; mkdir -p "$NOGIT"
 run "$NOGIT" scan-secrets.mjs
+# shellcheck disable=SC2015  # 同上：pass/fail 恒返回0，A&&B||C 是安全的 if-else 惯用写法
 [ "$RC" -eq 3 ] && pass "非 git 目录 exit 3" || fail "非 git 目录应 exit 3（rc=$RC）"
 
 # ---------------------------------------------------------------------------
