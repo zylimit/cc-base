@@ -18,7 +18,7 @@ bash cc-base/setup.sh /path/to/your-project        # Mac / Linux
 pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 ```
 
-装完**在该项目目录启动 Claude Code 即生效**。验证：启动后看到 SessionStart 框架横幅 + `/recap` 能恢复项目状态。
+装完**在该项目目录启动 Claude Code 即生效**。验证：启动后看到 SessionStart 框架横幅 + `/recap-project` 能恢复项目状态（带斜杠的 `/recap` 是 Claude Code 自带命令，不是框架的；不带斜杠说 recap 也行）。
 
 - 不带参数 = 装到当前目录。没有 `jq` 也能装（自动降级）。
 - 不想跑安装器？直接把 `cc-base/.claude/` 整目录复制到目标项目根即可（见「拷贝即用」）。

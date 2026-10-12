@@ -200,7 +200,7 @@ git -c user.name=<name> -c user.email=<email> tag -a vX.Y.Z -m "…"
 
 **原因**（`.claude/hooks/postcompact-reinject.mjs` 头注释）：压缩不是稀释约束，是删除——二十轮没被引用过的铁律正是摘要器最先丢的。框架在压缩边界两端各有一闸：`precompact-gate.mjs` 压缩前检查 `.needs-review` 有欠账或工作树有改动但 progress.md 不在改动集，命中拦一次让人先 `/record`（同 session 10 分钟内不拦第二次）；`postcompact-reinject.mjs` 压缩后跑 `harness invariants` 把不可交易集 + 活跃状态经 `additionalContext` 注回，约 1200 字符预算；包没装走自带最小派生（Pinned + 待审 + 档位）。两者都是地板闸。
 
-**处置**：看到 `PostCompact: .claude/harness/harness.mjs is missing` 或 `the harness failed` 这两句降级说明，说明没注回，手动 `/recap`（读 progress.md + Product-Spec.md + CHANGELOG 三份）；引擎报错去 `node .claude/harness/harness.mjs invariants` 看。
+**处置**：看到 `PostCompact: .claude/harness/harness.mjs is missing` 或 `the harness failed` 这两句降级说明，说明没注回，手动 `/recap-project`（读 progress.md + Product-Spec.md + CHANGELOG 三份）；引擎报错去 `node .claude/harness/harness.mjs invariants` 看。
 
 ## 子 Agent 撞 maxTurns 没回执
 

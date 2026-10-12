@@ -60,7 +60,7 @@
 ## R
 
 - **receipt / 回执**：`.claude/harness/receipts/<taskId>.json`，绑 diffHash / engineHash / contentHash 的审查回执；diff 变一个字节即 stale rc 4，stop-gate 据此拦停。（11）
-- **recap**：`/recap` 读 progress.md 的 Pinned + 现存 Decisions + 断点 + TODO，加 Product-Spec.md 与 CHANGELOG，存在即读不读归档；只读 progress 不算恢复完成。大仓包的 `recap` 子命令按预算从同样三份派生。（08、11）
+- **recap**：`/recap-project`（不带斜杠说 recap 也行；带斜杠的 `/recap` 是 Claude Code 自带命令，到不了框架）读 progress.md 的 Pinned + 现存 Decisions + 断点 + TODO，加 Product-Spec.md 与 CHANGELOG，存在即读不读归档；只读 progress 不算恢复完成。大仓包的 `recap` 子命令按预算从同样三份派生。（08、11）
 - **red-locks-the-bug**：线上行为 bug 与核心解析器 / 契约缺陷的修法——先派 tester 出红、主 Agent 亲见 fail、`touch .claude/.red-verified`（两小时内有效）、再派 implementer 修绿；tdd-gate 守它。（06）
 - **risk 分级**：测试脚本头十行内 `# risk: high|medium|low`，`run-all.sh` 默认只跑 high，CI 跑 all；没打级的按 high。（12）
 - **run-all**：`bash .claude/tests/cases/run-all.sh`，三段——selftest / 静态自测 / 真触发 case（默认跳过），每次把逐条结果追加进 test-ledger.jsonl。（12）

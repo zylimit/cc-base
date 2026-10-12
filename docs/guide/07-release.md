@@ -319,4 +319,4 @@ Windows 差异：`make-release.sh` 在 Git Bash 跑，内部已按 MINGW / MSYS 
 | 把 skill 目录里的 RED-BLUE-REVIEW.md 填了 | 随 make-release 进包 | 每次拷到 `/tmp` 副本再填 |
 | 发布后不再验 | 上线即失联 | 发布后再验一次，有问题走回退 |
 
-下一章：[08 记忆与恢复](08-memory.md)——progress.md、feedback、口径库三套记忆怎么分工、`/recap` 怎么恢复。
+下一章：[08 记忆与恢复](08-memory.md)——progress.md、feedback、口径库三套记忆怎么分工、`/recap-project` 怎么恢复。

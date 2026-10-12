@@ -1,5 +1,5 @@
 // SessionStart：工作树有未提交改动（上个 session 可能中断/上下文压缩、状态未落 progress.md）
-// → 注入提醒：先 /recap 读 progress.md，对照实际改动校准后再继续。
+// → 注入提醒：先 /recap-project 读 progress.md，对照实际改动校准后再继续。
 import { git, emit, fastOff, runFailOpen } from './lib/io.mjs';
 
 runFailOpen(async () => {
@@ -17,6 +17,6 @@ runFailOpen(async () => {
   const count = st.stdout.split('\n').filter((l) => l !== '').length;
   if (count === 0) return;
 
-  const msg = `检测到 git 工作树有 ${count} 处未提交改动——上个 session 可能中断或上下文已压缩，progress.md 未必反映真实状态。建议先 /recap 读 progress.md，对照实际改动校准（决策/完成是否已记）后再继续。`;
+  const msg = `检测到 git 工作树有 ${count} 处未提交改动——上个 session 可能中断或上下文已压缩，progress.md 未必反映真实状态。建议先 /recap-project 读 progress.md，对照实际改动校准（决策/完成是否已记）后再继续。`;
   emit({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: msg } });
 });

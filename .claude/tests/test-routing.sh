@@ -39,8 +39,8 @@ if actual_agents != declared_agents:
 # 从 [可用技能] / [Skill 调用规则] 抽登记的 skill：/<name> 命令名 与 skills/<name>/ 路径
 declared_skills = set(re.findall(r"skills/([a-z0-9-]+)/", text))
 declared_skills |= set(re.findall(r"/([a-z0-9-]+)\s+-\s", text))  # [可用技能] 列表行 "/name   - 说明"
-# 过滤掉 record/archive/recap 这类指令（非 skill 目录）
-indicator_only = {"record", "archive", "recap", "clear", "ccb-clear"}
+# record/archive 已是真 skill 目录；recap 是自带命令名（文档里仍会提到）、clear 同理，不算登记 skill
+indicator_only = {"recap", "clear", "ccb-clear"}
 declared_skills -= indicator_only
 
 skills_dir = cl / "skills"

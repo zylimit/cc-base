@@ -3,7 +3,7 @@
 这章解决一个问题：**上下文随时会没**——你 `/clear`、Claude Code 自动压缩、session 中断，对话里的决策、约束、进度就跟着蒸发。框架把「什么该记、记在哪、怎么恢复」做成了四套互不重叠的记忆和两道压缩闸。读完你能：
 
 - 看懂 progress.md 每一段的用途，知道一条信息该落哪一段、怎么写才算数；
-- 用 `/record` `/archive` `/recap` 三条指令维护和恢复项目状态，知道 recap 读哪三份文件、为什么不读归档；
+- 用 `/record` `/archive` `/recap-project` 三条指令维护和恢复项目状态，知道 recap 读哪三份文件、为什么不读归档；
 - 理解三文件同步铁律和 Stop 时那句提醒是怎么来的；
 - 知道上下文压缩前后两道闸各做什么，压缩后被注回的东西从哪来；
 - 分清 feedback、用户 memory、agent memory、Claude Code 原生 auto memory、领域口径库五种容器的边界，不再把一条信息记错地方。
@@ -29,12 +29,12 @@ progress.md 不放进 `.claude/` 是刻意的：`.claude/` 是框架自己的东
 | 指令 | 谁执行 | 做什么 |
 |---|---|---|
 | `/record` | 派 progress-recorder（record 模式） | 把本轮对话增量按语义抽取，**增量合并**进 progress.md 各段；无有效信号回「无新进度」 |
-| `/archive` | 派 progress-recorder（archive 模式） | 把过多的 Notes / Done / Decisions 原文搬到 progress.archive.md，主文件保持精简 |
-| `/recap` | 主 Agent 自己读 | 读 **progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md** 三份恢复处境；三份存在即读，不存在的跳过不报错 |
+| `/archive` | 主 Agent 跑 `progress-archive.mjs`（脚本不在才派 progress-recorder） | 把过多的 Notes / Done / Decisions 原文搬到 progress.archive.md，主文件保持精简 |
+| `/recap-project` | 主 Agent 自己读 | 读 **progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md** 三份恢复处境；三份存在即读，不存在的跳过不报错 |
 
 同一轮同时出现 `/record` 与 `/archive` → 先 record 再 archive。
 
-三条指令的执行方式来自 `.claude/rules/dev-workflow-details.md`「/record /archive /recap」一节，与 `.claude/CLAUDE.md` [项目记忆规则] 一致。
+三条指令的执行方式来自 `.claude/rules/dev-workflow-details.md`「progress-recorder」一节，与 `.claude/CLAUDE.md` [项目记忆规则] 一致。
 
 ### 什么时候不用你敲 /record
 
@@ -53,7 +53,7 @@ progress.md 不放进 `.claude/` 是刻意的：`.claude/` 是框架自己的东
 
 ```bash
 # 新 session 开头，或 /clear 之后
-/recap
+/recap-project
 ```
 
 主 Agent 读三份文件后应回你一段处境：现在在哪个 Phase、Pinned 里有哪些约束、TODO 排到哪、上次断点在哪。只读 progress.md 不算恢复完成——Spec 和 CHANGELOG 是「需求现在长什么样」的唯一来源，progress.md 里只有决策不带需求全文。
@@ -61,7 +61,7 @@ progress.md 不放进 `.claude/` 是刻意的：`.claude/` 是框架自己的东
 如果工作树有未提交改动，SessionStart 会先给你一句提醒（`recap-on-dirty.mjs`）。你会看到：
 
 ```
-检测到 git 工作树有 4 处未提交改动——上个 session 可能中断或上下文已压缩，progress.md 未必反映真实状态。建议先 /recap 读 progress.md，对照实际改动校准（决策/完成是否已记）后再继续。
+检测到 git 工作树有 4 处未提交改动——上个 session 可能中断或上下文已压缩，progress.md 未必反映真实状态。建议先 /recap-project 读 progress.md，对照实际改动校准（决策/完成是否已记）后再继续。
 ```
 
 这句只是提醒，不拦任何事。
@@ -291,7 +291,7 @@ runner **只提建议不执行**。主 Agent 把提议展示给你逐条确认 /
 
 | 坑 | 现象 | 怎么办 |
 |---|---|---|
-| 只读 progress.md 就当恢复完成 | recap 后主 Agent 不知道需求改过什么，按旧 Spec 派单 | `/recap` 必须读齐三份；CHANGELOG 是「需求最近动过什么」的唯一来源 |
+| 只读 progress.md 就当恢复完成 | recap 后主 Agent 不知道需求改过什么，按旧 Spec 派单 | `/recap-project` 必须读齐三份；CHANGELOG 是「需求最近动过什么」的唯一来源 |
 | 决策埋进 Done | 三周后没人知道「为什么用了 Y」，取代检查也做不了 | 决策单独一条进 Decisions 带三要素；Done 只记完成 + 证据 |
 | Pinned 追加到 20 多条 | recap 时没人真读；postcompact 只注回前 12 条，后面的等于没有 | 封顶 15；加新条前先降级或合并最弱的一条 |
 | 追加 Decision 不做取代检查 | 新旧两条并存打架，下一角色不知道听谁的 | 新条写「取代：<日期>」，旧条末尾标「→ 被 <日期> 取代」 |

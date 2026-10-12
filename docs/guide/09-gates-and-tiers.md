@@ -81,7 +81,7 @@ Windows 纯 PowerShell：`Set-Content .claude/.needs-review clean`、`New-Item -
 | UserPromptExpansion `release-builder` | release-gate | 你敲 `/release-builder` 时：`.needs-review` 有待审 → `decision: block`；干净 → 注发布前置卡点提醒 | guard | block / block / block | 拦 | 清待审清单 | **是** |
 | SessionStart | check-evolution | 数 FEEDBACK-INDEX.md 里未毕业条目，有则提醒派 evolution-runner | recorder | off / on / on | 提醒 | — | |
 | SessionStart | session-rules-banner | 播档位 + 六条核心铁律；`source=compact/resume` 静默，fast 档例外照喊 | recorder | on / on / on | 播报 | — | |
-| SessionStart | recap-on-dirty | 工作树有未提交改动 → 提醒先 `/recap` | recorder | off / on / on | 提醒 | — | |
+| SessionStart | recap-on-dirty | 工作树有未提交改动 → 提醒先 `/recap-project` | recorder | off / on / on | 提醒 | — | |
 | PreToolUse `Bash` | pre-commit-check | 命令含 `git commit` 时按 staged 文件的栈跑门禁：`.ts/.tsx` → `npx --no-install tsc --noEmit`；`.py` → `ruff check`，没 ruff 降级 `py_compile` 只认 SyntaxError；`.mjs/.cjs/.js` → `node --check`；大仓启用再跑 `harness verify` | guard | advise / block / block | 任一红 exit 2 拦 commit | 修红；工具没装自动跳过该栈 | |
 | PreToolUse `Bash` | kill-dev-ports | 命令是 `pnpm dev*` 时清 3000/3001/4173/5173/8080 端口占用（`CC_DEV_PORTS` 可改） | recorder | off / on / on | 顺手清场，零输出 | — | |
 | PreToolUse `Bash` | dangerous-pkill-guard | 拦 `pkill -f` 宽泛匹配（锚定命令起始 / 分隔符，`echo "pkill -f"` 不算） | guard | block / block / block | exit 2 | 先 `pgrep` 拿 PID 再 `kill <PID>` | **是** |

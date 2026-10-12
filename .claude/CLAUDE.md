@@ -59,7 +59,10 @@
     - /skill-builder - 自动：EVOLUTION.md 提议创建新 Skill 且用户确认。手动：/skill-builder
     - /feedback-writer - 由 feedback-observer 调用，不由用户直接触发
     - /evolution-engine - 手动：/evolution-engine
-    - /progress-recorder - 手动：/record /archive /recap
+    - /progress-recorder - 由 progress-recorder sub-agent 调用，不由用户直接触发；人敲的入口是下面三条
+    - /record - 自动：用户说"记一下"。手动：/record。派 progress-recorder 把本轮决策 / 约束 / 完成 / 新任务合并进 progress.md
+    - /archive - 自动：用户说"归档 progress"。手动：/archive。主 Agent 跑 progress-archive.mjs 搬过线的历史条目
+    - /recap-project - 自动：用户说 recap、"恢复上下文"、"现在做到哪了"。手动：/recap-project（带斜杠的 /recap 是 Claude Code 自带命令、到不了框架，不带斜杠的 recap 仍可用）
 
 [Sub-Agent 调度规则]
     | Agent | 文件 | Skill | 默认模型 | 职责 |
@@ -93,7 +96,7 @@
 [项目记忆规则]
     - progress.md 在项目根，由 progress-recorder（fork 派发）维护：Decisions 每条三要素，追加前做取代检查、被取代的旧条标「→ 被取代」；Pinned 封顶 15 条；Decisions 超 30 条、Notes 与 Done 合计超 100 条、已关闭的 TODO 超 20 条即归档到 progress.archive.md——搬运由主 Agent 跑 `node .claude/scripts/progress-archive.mjs`，不让 recorder 手工搬。
     - 出现「决定 / 必须 / 完成了 / 需要」这类决策、约束、完成、新任务语言时立即派 progress-recorder。
-    - /recap：读 progress.md 的 Pinned + 现存 Decisions + 当前断点 + TODO，加 Product-Spec.md 与 CHANGELOG，存在即读，不读归档；只读 progress 不算恢复完成，/clear 后同此。
+    - /recap-project（不带斜杠说 recap 同样生效；带斜杠的 /recap 被 Claude Code 自带命令占用，别敲）：读 progress.md 的 Pinned + 现存 Decisions + 当前断点 + TODO，加 Product-Spec.md 与 CHANGELOG，存在即读，不读归档；只读 progress 不算恢复完成，/clear 后同此。
     - feedback / 用户 memory / agent memory 三套边界在 .claude/rules/memory-systems.md；agent memory 单文件封顶 5KB、每角色 50KB，超了是文档，搬 docs/agent-notes/。
 
 [初始化]

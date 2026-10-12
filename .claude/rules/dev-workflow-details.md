@@ -253,8 +253,8 @@ paths:
 
     [progress-recorder]
         **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
-        **手动调用**：/record /archive /recap
-        执行方式：record/archive 派 progress-recorder sub-agent 执行，recap 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
+        **手动调用**：/record /archive /recap-project，三条各有同名 skill 作入口；不带斜杠的 recap 仍可用，带斜杠的 /recap 是 Claude Code 自带命令、到不了框架
+        执行方式：record 派 progress-recorder sub-agent 执行，archive 主 Agent 跑 progress-archive.mjs（脚本不在才派 sub-agent 手工搬），recap-project 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
 
 [项目进度检测显示格式]
     显示格式：
