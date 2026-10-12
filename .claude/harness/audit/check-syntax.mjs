@@ -195,15 +195,56 @@ function retarget(text, disk, orig) {
 }
 
 // ---------------------------------------------------------------------------
-// JavaScript: node --check. Node decides the parse goal from the extension and
+// JavaScript: node --check (workflows/ scripts wrapped first, see checkWorkflowScript). Node decides the parse goal from the extension and
 // (for ambiguous .js) from module-syntax detection, so the node version is
 // recorded in the output -- a failure here is only interpretable next to it.
 // ---------------------------------------------------------------------------
+const WORKFLOWS_DIR_RE = /(^|\/)\.claude\/workflows\//;
+
+function checkPlainJs(disk) {
+  return spawnSync(process.execPath, ['--check', disk], { encoding: 'utf8', windowsHide: true });
+}
+
+/**
+ * .claude/workflows/*.js are Workflow-tool scripts: the host runs the body inside an async
+ * function, so top-level return / await are legal there. A bare `node --check` treats the file
+ * as a module/CJS top level, and whether that rejects `return` depends on the node version
+ * (CI's node 24.21 does, 24.14 and 22 do not -- and 24.14 also waves through real syntax errors
+ * in such files). Wrap the body in an async function so the verdict no longer depends on the
+ * version. `export` is illegal inside a function body, so a line-leading one becomes equal-width
+ * spaces. The wrapper adds one head line, so reported line numbers drop by 1 and are clamped to
+ * the original file (an EOF error would otherwise land past its last line).
+ * Returns { status, stderr } with stderr naming `disk`, like checkPlainJs.
+ */
+function checkWorkflowScript(disk) {
+  const src = fs.readFileSync(disk, 'utf8');
+  const neutralized = src.replace(/^export(?=\s)/gm, '      ');
+  const body = neutralized.endsWith('\n') ? neutralized : neutralized + '\n';
+  const totalLines = src.replace(/\n$/, '').split('\n').length;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-audit-wf-'));
+  const tmp = path.join(tmpDir, path.basename(disk));
+  try {
+    fs.writeFileSync(tmp, 'async function __audit_workflow__() {\n' + body + '}\n');
+    const r = spawnSync(process.execPath, ['--check', tmp], { encoding: 'utf8', windowsHide: true });
+    if (r.status === 0) return r;
+    const lineLine = tmp + ':';
+    const stderr = String(r.stderr || '').split('\n').map((l) => {
+      if (!l.startsWith(lineLine)) return l;
+      const n = Number(l.slice(lineLine.length));
+      if (!Number.isInteger(n)) return l.split(tmp).join(disk);
+      return disk + ':' + Math.min(Math.max(n - 1, 1), totalLines);
+    }).join('\n');
+    return { status: r.status, stderr };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_e) { /* scratch dir; the verdict does not depend on it */ }
+  }
+}
+
 counts.js = jsFiles.length;
 for (const f of jsFiles) {
   const disk = onDisk(f, 'js');
   if (disk === null) continue;
-  const r = spawnSync(process.execPath, ['--check', disk], { encoding: 'utf8', windowsHide: true });
+  const r = WORKFLOWS_DIR_RE.test(f) ? checkWorkflowScript(disk) : checkPlainJs(disk);
   if (r.status !== 0) failures.push({ file: f, kind: 'js', error: firstLines(retarget(r.stderr, disk, f), 3) });
 }
 

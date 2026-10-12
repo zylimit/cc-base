@@ -306,6 +306,7 @@ const MANIFEST_RULES = [
   { pattern: '.fast-mode', keep: false },
   { pattern: '.subagent-reminded', keep: false },
   { pattern: '.stop-gate-strikes', keep: false },
+  { pattern: '.stop-gate-advised', keep: false },
   { pattern: '.precompact-block-epoch', keep: false },
   { pattern: '.async-verify-last', keep: false },
   { pattern: 'signals.jsonl', keep: false },

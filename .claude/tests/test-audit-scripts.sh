@@ -164,6 +164,42 @@ else
     fail "坏 JSON 应 rc 1 且点名 bad.json（rc=$RC，stderr：$OUT_HUMAN）"
 fi
 
+# workflows/ 下的脚本：顶层 return / await 合法（宿主包 async function），判定不随 node 版本变
+mkdir -p "$C/.claude/workflows"
+rm -f "$C/bad.json"
+printf 'export const meta = { name: "x" }\nconst r = await Promise.resolve(1)\nreturn { r }\n' > "$C/.claude/workflows/ok.js"
+(cd "$C" && git add -A)
+run "$C" check-syntax.mjs
+if [ "$RC" -eq 0 ]; then
+    pass "workflows/ 合法脚本（meta + 顶层 await + return）-> rc 0"
+else
+    fail "workflows/ 合法脚本不应进 failures（rc=$RC，stderr：$OUT_HUMAN）"
+fi
+
+# workflows/ 下的真语法错：node 24.14 裸查对这类文件会放行，包壳后必须抓到，点名原路径、行号在原文件 3 行内
+printf 'export const meta = { name: "x" }\nconst a = (1\nreturn a\n' > "$C/.claude/workflows/bad.js"
+(cd "$C" && git add -A)
+run "$C" check-syntax.mjs
+WF_LINE=$(printf '%s' "$OUT_HUMAN" | grep -oE 'workflows/bad\.js:[0-9]+' | head -1 | cut -d: -f2)
+if [ "$RC" -eq 1 ] && [ -n "$WF_LINE" ] && [ "$WF_LINE" -ge 1 ] && [ "$WF_LINE" -le 3 ]; then
+    pass "workflows/ 真语法错 -> rc 1，点名 bad.js:$WF_LINE（在原文件行数内）"
+else
+    fail "workflows/ 真语法错应 rc 1 且点名 bad.js 行号 1..3（rc=$RC，行号=$WF_LINE，stderr：$OUT_HUMAN）"
+fi
+rm -f "$C/.claude/workflows/bad.js"
+
+# 非 workflows/ 路径的顶层 return：行为不放宽，仍按裸 node --check 的判定（本机与基线一致）
+printf 'return 1\n' > "$C/plain.js"
+(cd "$C" && git add -A)
+node --check "$C/plain.js" >/dev/null 2>&1; PLAIN_RC=$?
+run "$C" check-syntax.mjs
+if { [ "$PLAIN_RC" -eq 0 ] && [ "$RC" -eq 0 ]; } || { [ "$PLAIN_RC" -ne 0 ] && [ "$RC" -eq 1 ] && printf '%s' "$OUT_HUMAN" | grep -q 'plain\.js'; }; then
+    pass "非 workflows/ 的 .js 仍走裸 node --check（裸查 rc=$PLAIN_RC，审计 rc=$RC）"
+else
+    fail "非 workflows/ 的 .js 判定应与裸 node --check 一致（裸查 rc=$PLAIN_RC，审计 rc=$RC，stderr：$OUT_HUMAN）"
+fi
+rm -f "$C/plain.js"
+
 # ---------------------------------------------------------------------------
 echo "-- 本仓自举 --"
 # ---------------------------------------------------------------------------

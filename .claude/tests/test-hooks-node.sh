@@ -335,6 +335,45 @@ chk "$([ "$RC" -eq 0 ] && blocked "$OUT" && hasq 'src/app.ts' "$OUT" && echo 0 |
     "SG-2 同一份待审清单在 strict 档 → decision:block 真拦（那一档人是审批者）" \
     'rc=0 且含 "decision":"block" 与 src/app.ts' "rc=$RC out=[$(show "$OUT")]"
 
+# stop-gate advise 档去重：同一份待审清单不重复提醒（2026-10 下游一天 95 次、同清单重复 91 次）
+SB=$(newsb sg-dedup)
+printf 'src/app.ts\nsrc/lib.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''; run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "SG-4 advise 档同一清单连续第二次 Stop → 静默放行（不出 systemMessage）" "rc=0 且零输出" "rc=$RC out=[$(show "$OUT")]"
+printf 'src/app.ts\nsrc/lib.ts\nsrc/new.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && hasq 'src/new.ts' "$OUT" && echo 0 || echo 1)" \
+    "SG-5 清单变了 → 再提醒一次" "含 systemMessage 与 src/new.ts" "rc=$RC out=[$(show "$OUT")]"
+echo clean > "$SB/.claude/.needs-review"; run_hook stop-gate "$SB" ''
+printf 'src/app.ts\nsrc/lib.ts\nsrc/new.ts\n' > "$SB/.claude/.needs-review"
+run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && echo 0 || echo 1)" \
+    "SG-6 清空后同一清单重现 → 再提醒" "含 systemMessage" "rc=$RC out=[$(show "$OUT")]"
+sed -i 's/^ts=.*/ts=1000/' "$SB/.claude/.stop-gate-advised"
+run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && echo 0 || echo 1)" \
+    "SG-6b 上次提醒超 60 分钟（状态文件时间戳改旧）同一清单 → 再提醒" "含 systemMessage" "rc=$RC out=[$(show "$OUT")]"
+SB=$(newsb sg-dedup-strict); set_tier "$SB" strict
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"
+echo 'sig=x' > "$SB/.claude/.stop-gate-advised"
+run_hook stop-gate "$SB" ''; O1="$OUT"; run_hook stop-gate "$SB" ''
+chk "$(blocked "$O1" && blocked "$OUT" && [ "$(cat "$SB/.claude/.stop-gate-advised")" = "sig=x" ] && echo 0 || echo 1)" \
+    "SG-7 strict 档同一清单连续两次 → 两次都 decision:block，且不写、不删预置的去重状态" "两次 block、去重状态文件原样" "o1=[$(show "$O1")] o2=[$(show "$OUT")]"
+SB=$(newsb sg-dedup-undeletable)
+mkdir -p "$SB/.claude/.stop-gate-advised/sub"; : > "$SB/.claude/.stop-gate-advised/sub/f"
+run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && ! blocked "$OUT" && echo 0 || echo 1)" \
+    "SG-8 去重状态路径删不掉（是非空目录）、无 .needs-review → 不拦停（删不掉最多少提醒一次）" "rc=0 且无 decision:block" "rc=$RC out=[$(show "$OUT")]"
+SB=$(newsb sg-dedup-noext git)
+printf '{"version":1,"modules":[]}\n' > "$SB/.claude/harness/module-catalog.json"
+( cd "$SB" && git add -A && git commit -qm catalog ) >/dev/null 2>&1
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"; run_hook stop-gate "$SB" ''
+echo clean > "$SB/.claude/.needs-review"; run_hook stop-gate "$SB" ''
+printf 'src/app.ts\n' > "$SB/.claude/.needs-review"; run_hook stop-gate "$SB" ''
+chk "$([ "$RC" -eq 0 ] && advised "$OUT" && hasq 'src/app.ts' "$OUT" && echo 0 || echo 1)" \
+    "SG-9 引擎包未装的出口清空清单 → 同一清单重现仍再提醒（不被去重状态吞掉）" "第三步含 systemMessage 与 src/app.ts" "rc=$RC out=[$(show "$OUT")]"
+
 # 大仓包未装那格假绿（2026-09-15 拆包新开的）：catalog 是开关、ext 是引擎，只放开关时三道闸
 #   的子命令只会 rc 3 降级。闸不拦是对的，零输出不是——「闸没跑成」和「验过了没问题」必须长得不一样。
 #   catalog 造完先提交：未跟踪的 .claude/harness/** 命中 raise.paths 会把沙箱悄悄抬成 strict。

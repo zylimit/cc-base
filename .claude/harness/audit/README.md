@@ -85,7 +85,7 @@ cc-base 把行为写在配置里：hook 是 `.sh`/`.ps1`，引擎是 `.mjs`，�
 **畸形 frontmatter 不报错，skill 只是不存在了**——这是本仓最贵的静默失败，
 所以它单独占一类检查。
 
-- `.mjs/.cjs/.js` → `node --check`
+- `.mjs/.cjs/.js` → `node --check`；`.claude/workflows/` 下的 Workflow 脚本（允许顶层 `return` / `await`）先包一层 async function 再查，判定不随 node 版本变
 - `.json` → `JSON.parse`
 - `.sh` → `bash -n`
 - `.ps1` → `[System.Management.Automation.Language.Parser]::ParseFile`（批量一次调用）

@@ -58,6 +58,7 @@ while IFS= read -r -d '' src; do
     .fast-mode) continue ;;  # 运行态标记
     .subagent-reminded) continue ;;  # 运行态标记
     .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
+    .stop-gate-advised) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     .async-verify-last) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     signals.jsonl) continue ;;  # evolution 运行态信号队列

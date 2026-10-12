@@ -120,6 +120,15 @@
       }
     },
     {
+      "pattern": ".stop-gate-advised",
+      "keep": false,
+      "note": "闸门计数 / 纪元 / 异步校验游标",
+      "ps1": {
+        "kind": "skip",
+        "token": ".stop-gate-advised"
+      }
+    },
+    {
       "pattern": ".precompact-block-epoch",
       "keep": false,
       "note": "闸门计数 / 纪元 / 异步校验游标",

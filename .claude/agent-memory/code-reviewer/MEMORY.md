@@ -20,3 +20,4 @@
 - [审「参数里有没有密钥路径」切词判据闸的固定攻法](pattern_secret-path-arg-matcher.md) — 放行子命令连带危险flag（log -p）/ 管道分段洗白密钥路径 / grep 不认裸 -- / stripWrappers 吃穿收尾双引号
 - [linter 清零只对本机版本成立](pattern_linter-version-drift.md) — SC2329 在 0.9 叫 SC2317；拉旧版二进制对拍，分「默认装」与「仅框架仓」两个文件集报
 - [审跨模型 skill 内容合成（来源表 K/C/合并）的固定攻法](pattern_cross-model-skill-synthesis.md) — 数章节数对表 / diff 声称搬入的文件 / 标"K"但无对应单一小节要打折 / 姊妹例文件漏加免责声明 / grep 目标仓没有的脚本与第三方编排概念
+- [审提醒去重状态文件 / 包壳再 node --check](pattern_dedup-state-and-wrapper-check.md) — clean 后同轮重登记被吞 / 提前 return 不清状态 / 壳内残留 import 整份放行 / TMPDIR 软链回写失配
