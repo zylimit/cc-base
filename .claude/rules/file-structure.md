@@ -47,7 +47,7 @@ paths:
             ├── arch-designer/             # 架构设计（不变量 + 模块划分 + C4 + ADR + 押后决定）
             ├── dfx-designer/              # DFX 设计（13 维质量属性定档 + 合规扫描 + 威胁表）
             ├── design-brief-builder/      # 设计规范（Design-Brief.md + DESIGN.md，references 含风格词汇表 / 质量地板 / Agent 交互模式）
-            ├── design-maker/              # 设计图制作（方向样张 + 两遍法 + ui-audit 验收）
+            ├── design-maker/              # 设计图制作（odc 为主，点名时走 Claude Design 画布或提示词；方向样张 + 两遍法 + ui-audit 验收）
             ├── dev-planner/               # 开发计划
             ├── dev-builder/               # 项目开发
             ├── bug-fixer/                 # Bug 修复

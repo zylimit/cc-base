@@ -18,7 +18,7 @@
 | 架构设计 | `/arch-designer`，或 Spec 交付时判为 M / L 档 | Architecture-Design.md（L 档另出 `.claude/harness/module-catalog.json` 骨架） | 主 Agent 直接执行 | 可，S 档默认跳 |
 | DFX 设计 | `/dfx-designer`，或架构完成后顺路建议 | DFX-Spec.md | 主 Agent 直接执行 | 可，不涉钱 / 个人数据 / 医疗 / 物理设备时默认跳 |
 | 设计规范 | `/design-brief-builder` | Design-Brief.md + DESIGN.md | 主 Agent 直接执行 | 纯 CLI / 纯后端可跳 |
-| 设计稿 | `/design-maker` | demo/index.html 等 | 主 Agent 直接执行 | 可 |
+| 设计稿 | `/design-maker` | demo/index.html 等（画布模式为 demo/canvas/） | 主 Agent 直接执行 | 可 |
 
 这五步都是「文档类」工作，CLAUDE.md 允许主 Agent 亲自写，不派 Sub-Agent。编码 / 审查 / 测试 / 部署四个环节才必须派单（见 [05 开发精讲](05-development.md)）。
 
@@ -258,6 +258,8 @@ Spec 有「AI 能力」段时 §8 必填：自主性分级（L0-L3，默认 ≤ 
 ### design-maker：两遍法与 ui-audit 验收
 
 `design-maker` 用 Open Design CLI（`odc`）生成一份单文件可交互 HTML 设计稿，开发照它编码、干系人直接浏览器打开评审。本机没有 `odc` 不退出，走「提示词模式」：前期功课照做，产出 `demo/design-prompt.md` 交你拿去任意工具生成。
+
+三条路的先后：`odc` 优先；你主动点名 Claude Design 才走「画布模式」，主动要提示词才给提示词，不会因为会话里能出画布就自己改道。画布模式下全稿是画布上的一组画板，画完必须把画布上的文件全部拉回 `demo/canvas/` 并入库——画板源文件算编码的一部分，画布链接只是看稿入口。拉回来的还包括画板的运行文件（存成 `demo/canvas/project/support.js`）和一页本地目录 `demo/canvas/index.html`，浏览器打开目录页就能逐张看；双击打不开时在 `demo/canvas/` 下起一个本地静态服务再开。UI 审计一次只审一张，没审到的画板会在报告里写「UI 审计未覆盖」。
 
 三阶段：
 
