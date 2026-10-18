@@ -58,12 +58,12 @@ echo "## 红蓝审查证据包"
 echo
 echo "**审查范围**：$RANGE_LABEL"
 BASE_SHA=$(git rev-parse --short "$BASE" 2>/dev/null || echo "?")
-echo "- BASE：$BASE（$BASE_SHA）"
+echo "- BASE：${BASE}（${BASE_SHA}）"
 if [ "$WORKING" -eq 1 ]; then
   echo "- HEAD：未提交工作树（含已暂存 + 未暂存）"
 else
   HEAD_SHA=$(git rev-parse --short "$HEAD" 2>/dev/null || echo "?")
-  echo "- HEAD：$HEAD（$HEAD_SHA）"
+  echo "- HEAD：${HEAD}（${HEAD_SHA}）"
 fi
 echo
 

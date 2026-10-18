@@ -63,12 +63,12 @@ echo "-- ① 控制组：清单与文件一致 --"
 run_doctor
 BASE_OUT="$DOC_OUT"
 [ "$DOC_RC" -eq 0 ] && r=0 || r=1
-chk "$r" "① 未篡改时 doctor rc = 0" "rc=0" "rc=$DOC_RC；相关行：$(digest "$BASE_OUT")"
-echo "-- ② 篡改抽样窗口之外的一条（第 $TOTAL 条：$TARGET）--"
+chk "$r" "① 未篡改时 doctor rc = 0" "rc=0" "rc=${DOC_RC}；相关行：$(digest "$BASE_OUT")"
+echo "-- ② 篡改抽样窗口之外的一条（第 $TOTAL 条：${TARGET}）--"
 printf '\n# tampered by test-doctor\n' >> "$SB/.claude/$TARGET"
 run_doctor
 case "$DOC_OUT" in *"$TARGET"*) r=0 ;; *) r=1 ;; esac
-chk "$r" "② 逐条点名：输出含被改的 $TARGET（旧实现抽样漏判，这条红）" \
+chk "$r" "② 逐条点名：输出含被改的 ${TARGET}（旧实现抽样漏判，这条红）" \
     "输出含 $TARGET" "相关行：$(digest "$DOC_OUT")"
 [ "$DOC_RC" -ne 0 ] && r=0 || r=1
 chk "$r" "② 有不一致时 doctor rc 非 0（不是 note 级告警）" \

@@ -58,7 +58,7 @@ run_assert assert_skill_invoked "$XLINE" OTHER-skill;            expect_pass "cr
 
 echo ""
 echo "=== selftest 判定：符合预期=$ST_OK  不符预期=$ST_BAD ==="
-echo "    （断言库内部计数 PASS=$TESTS_PASS FAIL=$TESTS_FAIL，其中 premature 的 1 个 FAIL 是预期失败）"
+echo "    （断言库内部计数 PASS=$TESTS_PASS FAIL=${TESTS_FAIL}，其中 premature 的 1 个 FAIL 是预期失败）"
 
 if [ "$ST_BAD" -eq 0 ]; then
     echo "SELFTEST: PASS — 断言库行为符合预期。"

@@ -261,7 +261,7 @@ process.stdout.write(JSON.stringify({ line: i + 1, sha256: h(L[i]), context: h((
 ' "$1" "$2"
 }
 
-# jfield <json 字符串> <取值表达式> —— jval 的无全局变量版，json 由参数传入而非读 $OUT_JSON，
+# jfield <json 字符串> <取值表达式> —— jval 的无全局变量版，json 由参数传入而非读 ${OUT_JSON}，
 # 免得和 run() 回填的全局互相踩踏。
 jfield() {
     printf '%s' "$1" | node -e '

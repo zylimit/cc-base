@@ -71,7 +71,7 @@ fi
 RC=$?; STDERR=$(cat "$TMP/e")
 if [ "$RC" -eq 3 ] && contains 'UI 审计缺席' "$STDERR"; then r=0; else r=1; fi
 chk "$r" "U4 引擎不可用 → stderr 一行「UI 审计缺席」，rc 3（缺席不许冒充通过）" \
-    "rc=3 且 stderr 含「UI 审计缺席」" "rc=$RC；stderr：$(brief "$STDERR")"
+    "rc=3 且 stderr 含「UI 审计缺席」" "rc=${RC}；stderr：$(brief "$STDERR")"
 
 # ---------------------------------------------------------------------------
 # 引擎桩：本机没装 playwright 也要能验「审计判定」与「启动失败」两条路径。
@@ -120,7 +120,7 @@ if [ -f "$TMP/u7out/ui-audit.json" ] && ! grep -qE '"pass"[[:space:]]*:[[:space:
 if [ "$ok" -eq 1 ]; then r=0; else r=1; fi
 chk "$r" "U7 只有对比度不达标也要判红：4.5:1 是 ui-quality-floor 的 MUST，闸不拦等于没闸" \
     "rc=1 且 <out>/ui-audit.json 里 pass=false" \
-    "rc=$RC；报告存在=$([ -f "$TMP/u7out/ui-audit.json" ] && echo yes || echo no)；pass 行：$(grep -a '\"pass\"' "$TMP/u7out/ui-audit.json" 2>/dev/null | tr -d ' ')；stderr：$(brief "$STDERR")"
+    "rc=${RC}；报告存在=$([ -f "$TMP/u7out/ui-audit.json" ] && echo yes || echo no)；pass 行：$(grep -a '\"pass\"' "$TMP/u7out/ui-audit.json" 2>/dev/null | tr -d ' ')；stderr：$(brief "$STDERR")"
 
 # ---------------------------------------------------------------------------
 # 穿越探针：U8（/../ 三种写法）与 U10（软链）判的是同一件事——服务目录外的文件不许被端出来，
@@ -163,7 +163,7 @@ probe U8 "$TMP/u8" '/../secret-outside.txt /%2e%2e/secret-outside.txt /..%2Fsecr
 if [ "$RC" -eq 0 ] && contains 'U8-OK' "$STDOUT"; then r=0; else r=1; fi
 chk "$r" "U8 目录服务不许被 /../ 穿越读到服务目录外的文件（三种写法都要挡）" \
     "rc=0 且 stdout 含 U8-OK（三次穿越都非 200 且不含 canary，站内 index.html 仍 200）" \
-    "rc=$RC；stdout：$(brief "$STDOUT")；stderr：$(brief "$STDERR")"
+    "rc=${RC}；stdout：$(brief "$STDOUT")；stderr：$(brief "$STDERR")"
 
 # U10 前缀校验只看解析后的路径字符串，软链是在 readFile 那一步才被跟随的——站内一个指向
 #   站外的软链就能把 canary 端出来，路径前缀怎么看都还在 root 之内。
@@ -175,7 +175,7 @@ if ln -s ../outside/secret.txt "$TMP/u10/site/link.txt" 2>/dev/null && ln -s ../
     if [ "$RC" -eq 0 ] && contains 'U10-OK' "$STDOUT"; then r=0; else r=1; fi
     chk "$r" "U10 站内指向站外的软链（文件链 + 目录链）不许被端出来" \
         "rc=0 且 stdout 含 U10-OK（两条软链都非 200 且不含 canary，站内 index.html 仍 200）" \
-        "rc=$RC；stdout：$(brief "$STDOUT")；stderr：$(brief "$STDERR")"
+        "rc=${RC}；stdout：$(brief "$STDOUT")；stderr：$(brief "$STDERR")"
 else
     skip "U10 软链穿越：本文件系统建不了符号链接，未执行 != 通过"
 fi
@@ -196,7 +196,7 @@ stub_run u9b "$STUB_THROW" "$TMP/site" --out "$TMP/u9never"
 if [ "$ok" -eq 1 ]; then r=0; else r=1; fi
 chk "$r" "U9 缺席时旧 ui-audit.json 必须被覆写成「没跑」，且不为缺席新建 --out 目录" \
     "rc=3；报告里 pass 不为 true 且含 absent:true；$TMP/u9never 不许被建出来" \
-    "rc=$RC；报告=$(brief "$(cat "$TMP/u9out/ui-audit.json" 2>/dev/null)")；never 目录存在=$([ -d "$TMP/u9never" ] && echo yes || echo no)"
+    "rc=${RC}；报告=$(brief "$(cat "$TMP/u9out/ui-audit.json" 2>/dev/null)")；never 目录存在=$([ -d "$TMP/u9never" ] && echo yes || echo no)"
 
 echo "  [NOTE] 未覆盖：URL 目标、多主题×多宽度组合矩阵、截图文件命名、--json 的 combos 结构细节、"
 echo "         参数解析的花样组合，以及退休掉的对比度判红与空 catch 两条——前者靠 design-maker"

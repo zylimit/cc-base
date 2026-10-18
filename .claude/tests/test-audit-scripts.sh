@@ -82,7 +82,7 @@ run "$R" scan-instructions.mjs
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT_HUMAN" | grep -q 'instruction-override'; then
     pass "CLAUDE.md 提示词注入 -> rc 1 + instruction-override"
 else
-    fail "CLAUDE.md 注入应 rc 1（rc=$RC，stderr：$OUT_HUMAN）"
+    fail "CLAUDE.md 注入应 rc 1（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ mkrepo "$S"
 # ① 干净仓 → exit 0
 run "$S" scan-secrets.mjs
 # shellcheck disable=SC2015  # pass/fail 恒返回0（仅计数+echo），A&&B||C 在此处等价 if-else
-[ "$RC" -eq 0 ] && pass "干净仓 exit 0" || fail "干净仓应 exit 0（rc=$RC，stderr：$OUT_HUMAN）"
+[ "$RC" -eq 0 ] && pass "干净仓 exit 0" || fail "干净仓应 exit 0（rc=${RC}，stderr：${OUT_HUMAN}）"
 
 # ② 注入密钥字面量 → exit 1
 FAKEKEY="sk-AAAABBBBCCCCDDDDEEEEFFFF"  # scan-secrets:ignore 假密钥，供断言用
@@ -104,7 +104,7 @@ run "$S" scan-secrets.mjs
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT_HUMAN" | grep -q 'openai-style-key'; then
     pass "密钥字面量 -> rc 1 + openai-style-key"
 else
-    fail "密钥字面量应 rc 1（rc=$RC，stderr：$OUT_HUMAN）"
+    fail "密钥字面量应 rc 1（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 if printf '%s%s' "$OUT_HUMAN" "$OUT_JSON" | grep -q "$FAKEKEY"; then
     fail "命中输出里回显了密钥原文（等于二次泄露）"
@@ -117,7 +117,7 @@ printf 'const key = "%s"; // scan-secrets:ignore\n' "$FAKEKEY" > "$S/src.js"
 (cd "$S" && git add -A)
 run "$S" scan-secrets.mjs
 # shellcheck disable=SC2015  # 同上：pass/fail 恒返回0，A&&B||C 是安全的 if-else 惯用写法
-[ "$RC" -eq 0 ] && pass "行内 scan-secrets:ignore -> rc 0" || fail "压制后应 rc 0（rc=$RC，stderr：$OUT_HUMAN）"
+[ "$RC" -eq 0 ] && pass "行内 scan-secrets:ignore -> rc 0" || fail "压制后应 rc 0（rc=${RC}，stderr：${OUT_HUMAN}）"
 rm -f "$S/src.js"
 
 # ④ .example 白名单：占位文件里的假值不该报
@@ -127,7 +127,7 @@ run "$S" scan-secrets.mjs
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT_HUMAN" | grep -q 'skipped-allowlisted=1'; then
     pass ".env.example 走白名单跳过且计数可见"
 else
-    fail ".env.example 应被白名单跳过（rc=$RC，stderr：$OUT_HUMAN）"
+    fail ".env.example 应被白名单跳过（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 
 # ⑤ 二进制文件按 NUL 探测跳过（不是靠扩展名猜）
@@ -137,7 +137,7 @@ run "$S" scan-secrets.mjs
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT_HUMAN" | grep -q 'skipped-binary=1'; then
     pass "含 NUL 的二进制文件被跳过且计数可见"
 else
-    fail "二进制文件应按 NUL 跳过（rc=$RC，stderr：$OUT_HUMAN）"
+    fail "二进制文件应按 NUL 跳过（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 rm -f "$S/blob.dat" "$S/.env.example"
 (cd "$S" && git add -A)
@@ -146,7 +146,7 @@ rm -f "$S/blob.dat" "$S/.env.example"
 NOGIT="$TMP/nogit"; mkdir -p "$NOGIT"
 run "$NOGIT" scan-secrets.mjs
 # shellcheck disable=SC2015  # 同上：pass/fail 恒返回0，A&&B||C 是安全的 if-else 惯用写法
-[ "$RC" -eq 3 ] && pass "非 git 目录 exit 3" || fail "非 git 目录应 exit 3（rc=$RC）"
+[ "$RC" -eq 3 ] && pass "非 git 目录 exit 3" || fail "非 git 目录应 exit 3（rc=${RC}）"
 
 # ---------------------------------------------------------------------------
 echo "-- check-syntax --"
@@ -161,7 +161,7 @@ run "$C" check-syntax.mjs
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT_HUMAN" | grep -qE 'FAIL.*json.*bad\.json'; then
     pass "坏 JSON -> rc 1 且点名 bad.json"
 else
-    fail "坏 JSON 应 rc 1 且点名 bad.json（rc=$RC，stderr：$OUT_HUMAN）"
+    fail "坏 JSON 应 rc 1 且点名 bad.json（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 
 # workflows/ 下的脚本：顶层 return / await 合法（宿主包 async function），判定不随 node 版本变
@@ -173,7 +173,7 @@ run "$C" check-syntax.mjs
 if [ "$RC" -eq 0 ]; then
     pass "workflows/ 合法脚本（meta + 顶层 await + return）-> rc 0"
 else
-    fail "workflows/ 合法脚本不应进 failures（rc=$RC，stderr：$OUT_HUMAN）"
+    fail "workflows/ 合法脚本不应进 failures（rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 
 # workflows/ 下的真语法错：node 24.14 裸查对这类文件会放行，包壳后必须抓到，点名原路径、行号在原文件 3 行内
@@ -182,9 +182,9 @@ printf 'export const meta = { name: "x" }\nconst a = (1\nreturn a\n' > "$C/.clau
 run "$C" check-syntax.mjs
 WF_LINE=$(printf '%s' "$OUT_HUMAN" | grep -oE 'workflows/bad\.js:[0-9]+' | head -1 | cut -d: -f2)
 if [ "$RC" -eq 1 ] && [ -n "$WF_LINE" ] && [ "$WF_LINE" -ge 1 ] && [ "$WF_LINE" -le 3 ]; then
-    pass "workflows/ 真语法错 -> rc 1，点名 bad.js:$WF_LINE（在原文件行数内）"
+    pass "workflows/ 真语法错 -> rc 1，点名 bad.js:${WF_LINE}（在原文件行数内）"
 else
-    fail "workflows/ 真语法错应 rc 1 且点名 bad.js 行号 1..3（rc=$RC，行号=$WF_LINE，stderr：$OUT_HUMAN）"
+    fail "workflows/ 真语法错应 rc 1 且点名 bad.js 行号 1..3（rc=${RC}，行号=${WF_LINE}，stderr：${OUT_HUMAN}）"
 fi
 rm -f "$C/.claude/workflows/bad.js"
 
@@ -194,9 +194,9 @@ printf 'return 1\n' > "$C/plain.js"
 node --check "$C/plain.js" >/dev/null 2>&1; PLAIN_RC=$?
 run "$C" check-syntax.mjs
 if { [ "$PLAIN_RC" -eq 0 ] && [ "$RC" -eq 0 ]; } || { [ "$PLAIN_RC" -ne 0 ] && [ "$RC" -eq 1 ] && printf '%s' "$OUT_HUMAN" | grep -q 'plain\.js'; }; then
-    pass "非 workflows/ 的 .js 仍走裸 node --check（裸查 rc=$PLAIN_RC，审计 rc=$RC）"
+    pass "非 workflows/ 的 .js 仍走裸 node --check（裸查 rc=${PLAIN_RC}，审计 rc=${RC}）"
 else
-    fail "非 workflows/ 的 .js 判定应与裸 node --check 一致（裸查 rc=$PLAIN_RC，审计 rc=$RC，stderr：$OUT_HUMAN）"
+    fail "非 workflows/ 的 .js 判定应与裸 node --check 一致（裸查 rc=${PLAIN_RC}，审计 rc=${RC}，stderr：${OUT_HUMAN}）"
 fi
 rm -f "$C/plain.js"
 
@@ -209,7 +209,7 @@ run "$SRC/.." scan-secrets.mjs
 if [ "$RC" -eq 0 ]; then
     pass "本仓 tracked 源码无未标记的密钥字面量"
 else
-    fail "本仓扫出密钥字面量（rc=$RC）：$(printf '%s' "$OUT_HUMAN" | grep '^ ERR ' | sed 's/  */ /g' | tr '\n' ';')"
+    fail "本仓扫出密钥字面量（rc=${RC}）：$(printf '%s' "$OUT_HUMAN" | grep '^ ERR ' | sed 's/  */ /g' | tr '\n' ';')"
 fi
 
 echo ""

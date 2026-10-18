@@ -59,7 +59,7 @@ OUT=$(node "$HARNESS" selftest) || RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
   pass "selftest 返回 {\"ok\":true} 且 exit 0"
 else
-  fail "selftest 未通过（exit $RC，输出：$OUT）"
+  fail "selftest 未通过（exit ${RC}，输出：${OUT}）"
 fi
 
 # ② doctor：exit 0 且 stdout 是 JSON 对象（含 node 字段）
@@ -72,7 +72,7 @@ esac
 if [ "$RC" -eq 0 ] && [ "$DJSON" -eq 1 ]; then
   pass "doctor 出 JSON 且 exit 0"
 else
-  fail "doctor 未出预期 JSON（exit $RC，输出：$OUT）"
+  fail "doctor 未出预期 JSON（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑤ verify 退出码契约（pre-commit-check 消费：rc=2 阻断 commit、rc=3 静默降级、rc=0 放行）
@@ -107,7 +107,7 @@ OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"state":"PASS"'; then
   pass "verify 全 PASS -> rc 0"
 else
-  fail "verify 全 PASS 应 rc 0（exit $RC，输出：$OUT）"
+  fail "verify 全 PASS 应 rc 0（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPV"
 
@@ -118,7 +118,7 @@ OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '"state":"FAIL"'; then
   pass "verify FAIL -> rc 2"
 else
-  fail "verify FAIL 应 rc 2（exit $RC，输出：$OUT）"
+  fail "verify FAIL 应 rc 2（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPV"
 
@@ -129,7 +129,7 @@ OUT=$(cd "$TMPV" && CLAUDE_PROJECT_DIR="$TMPV" node "$HARNESS" verify) || RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '"state":"BLOCKED"'; then
   pass "verify 缺命令 -> BLOCKED -> rc 2（不假绿）"
 else
-  fail "verify 缺命令应 BLOCKED rc 2（exit $RC，输出：$OUT）"
+  fail "verify 缺命令应 BLOCKED rc 2（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPV"
 
@@ -152,10 +152,10 @@ if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"taskId":"T1"' \
   if [ "$RC2" -eq 0 ]; then
     pass "receipt write 落盘 -> verify 同 diff rc 0"
   else
-    fail "receipt verify 同 diff 应 rc 0（exit $RC2，输出：$OUT2）"
+    fail "receipt verify 同 diff 应 rc 0（exit ${RC2}，输出：${OUT2}）"
   fi
 else
-  fail "receipt write 应 rc 0 + 落盘 T1.json + contentHash（exit $RC，输出：$OUT）"
+  fail "receipt write 应 rc 0 + 落盘 T1.json + contentHash（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑥b 改一个字节后 verify -> rc 4（STALE：stop-gate 拦停强制重审）
@@ -165,7 +165,7 @@ OUT=$(cd "$TMPR" && CLAUDE_PROJECT_DIR="$TMPR" node "$HARNESS" receipt verify) |
 if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q '"state":"STALE"'; then
   pass "receipt diff 变动 -> verify rc 4（STALE）"
 else
-  fail "receipt verify 改一字节应 rc 4 STALE（exit $RC，输出：$OUT）"
+  fail "receipt verify 改一字节应 rc 4 STALE（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPR"
 
@@ -185,7 +185,7 @@ fi
 if [ "$RC" -eq 0 ] && [ -n "$WPATH" ] && [ -f "$TMPW/$WPATH" ] && grep -q '"contentHash"' "$TMPW/$WPATH"; then
   pass "waiver create 真写 -> rc 0 + 落盘（path 为仓库相对）+ contentHash"
 else
-  fail "waiver create 真写未落盘（rc=$RC，path=$WPATH，输出：$OUT）"
+  fail "waiver create 真写未落盘（rc=${RC}，path=${WPATH}，输出：${OUT}）"
 fi
 rm -rf "$TMPW"
 
@@ -199,7 +199,7 @@ WAIVER_COUNT=$(find "$TMPW/.claude/harness/waivers" -name '*.json' 2>/dev/null |
 if [ "$RC" -ne 0 ] && [ "${WAIVER_COUNT:-0}" -eq 0 ]; then
   pass "waiver create reason 含 security -> rc 非 0 + 未落盘"
 else
-  fail "waiver create 禁词应拒绝且不落盘（rc=$RC，waiver count=$WAIVER_COUNT，输出：$OUT）"
+  fail "waiver create 禁词应拒绝且不落盘（rc=${RC}，waiver count=${WAIVER_COUNT}，输出：${OUT}）"
 fi
 rm -rf "$TMPW"
 
@@ -212,7 +212,7 @@ OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-good.json" \
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
   pass "catalog-lint good -> rc 0"
 else
-  fail "catalog-lint good 应 rc 0（exit $RC，输出：$OUT）"
+  fail "catalog-lint good 应 rc 0（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑪b UNMAPPED（tracked 驱动）-> rc 1
@@ -222,7 +222,7 @@ OUT=$(node "$HARNESS" catalog-lint --catalog "$FX/catalog-bad-unmapped.json" \
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"UNMAPPED"'; then
   pass "catalog-lint UNMAPPED -> rc 1"
 else
-  fail "catalog-lint UNMAPPED 应 rc 1（exit $RC，输出：$OUT）"
+  fail "catalog-lint UNMAPPED 应 rc 1（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑪f 无 catalog -> rc 3
@@ -232,7 +232,7 @@ OUT=$(cd "$TMPCL" && CLAUDE_PROJECT_DIR="$TMPCL" node "$HARNESS" catalog-lint) |
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"catalog-missing"'; then
   pass "catalog-lint 无 catalog -> rc 3"
 else
-  fail "catalog-lint 无 catalog 应 rc 3（exit $RC，输出：$OUT）"
+  fail "catalog-lint 无 catalog 应 rc 3（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPCL"
 
@@ -255,7 +255,7 @@ OUT=$(CLAUDE_PROJECT_DIR="$TMPI" node "$HARNESS" impact \
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"affected":\["core","api"\]'; then
   pass "impact 正常 -> rc 0 + 反向闭包"
 else
-  fail "impact 正常应 rc 0（exit $RC，输出：$OUT）"
+  fail "impact 正常应 rc 0（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑫b 无 catalog -> rc 3
@@ -265,7 +265,7 @@ OUT=$(CLAUDE_PROJECT_DIR="$TMPI" node "$HARNESS" impact \
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"catalog-missing"'; then
   pass "impact 无 catalog -> rc 3"
 else
-  fail "impact 无 catalog 应 rc 3（exit $RC，输出：$OUT）"
+  fail "impact 无 catalog 应 rc 3（exit ${RC}，输出：${OUT}）"
 fi
 
 # ⑫c 非 git（catalog 在，不传 --changed 走 changedPaths 自动检测）-> rc 3
@@ -282,7 +282,7 @@ OUT=$(cd "$TMPI2" && CLAUDE_PROJECT_DIR="$TMPI2" node "$HARNESS" impact \
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '"non-git"'; then
   pass "impact 非 git -> rc 3"
 else
-  fail "impact 非 git 应 rc 3（exit $RC，输出：$OUT）"
+  fail "impact 非 git 应 rc 3（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPI" "$TMPI2"
 
@@ -304,7 +304,7 @@ OUT=$(cd "$TMPC" && CLAUDE_PROJECT_DIR="$TMPC" node "$HARNESS" context-pack) || 
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"diffHash"'; then
   pass "context-pack 正常 -> rc 0"
 else
-  fail "context-pack 正常应 rc 0（exit $RC，输出：$OUT）"
+  fail "context-pack 正常应 rc 0（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPC"
 
@@ -315,7 +315,7 @@ OUT=$(cd "$TMPC" && CLAUDE_PROJECT_DIR="$TMPC" node "$HARNESS" context-pack) || 
 if [ "$RC" -eq 3 ]; then
   pass "context-pack 非 git -> rc 3"
 else
-  fail "context-pack 非 git 应 rc 3（exit $RC，输出：$OUT）"
+  fail "context-pack 非 git 应 rc 3（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPC"
 
@@ -327,7 +327,7 @@ if [ "$RC" -eq 3 ] && printf '%s' "$ERR" | grep -q 'unknown subcommand: bogus-cm
    && printf '%s' "$ERR" | grep -q 'usage: node harness.mjs'; then
   pass "unknown 命令 -> rc 3 + usage"
 else
-  fail "unknown 命令应 rc 3 + usage（exit $RC，stderr：$ERR）"
+  fail "unknown 命令应 rc 3 + usage（exit ${RC}，stderr：${ERR}）"
 fi
 
 # ⑭b 可选包没装：ext/ 的子命令降级到 rc 3 并说清怎么装，lib/ 那四个照常跑。
@@ -343,7 +343,7 @@ if [ "$RC" -eq 3 ] && printf '%s' "$ERR" | grep -q 'not installed' \
    && printf '%s' "$ERR" | grep -q -- '--with-harness'; then
   pass "ext 未装 -> impact rc 3 + stderr 说清怎么装"
 else
-  fail "ext 未装时 impact 应 rc 3 + not installed（exit $RC，stderr：$ERR）"
+  fail "ext 未装时 impact 应 rc 3 + not installed（exit ${RC}，stderr：${ERR}）"
 fi
 
 RC=0
@@ -351,7 +351,7 @@ OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" tier status 2>/dev/nul
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"tier"'; then
   pass "ext 未装 -> tier status 仍 rc 0（档位盘不依赖可选包）"
 else
-  fail "ext 未装时 tier status 应 rc 0（exit $RC，输出：$OUT）"
+  fail "ext 未装时 tier status 应 rc 0（exit ${RC}，输出：${OUT}）"
 fi
 
 RC=0
@@ -359,7 +359,7 @@ OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" doctor 2>/dev/null) ||
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"extInstalled":false'; then
   pass "ext 未装 -> doctor 仍 rc 0 且 extInstalled:false（不把「没装」报成「装了但是空的」）"
 else
-  fail "ext 未装时 doctor 应 rc 0 + extInstalled:false（exit $RC，输出：$OUT）"
+  fail "ext 未装时 doctor 应 rc 0 + extInstalled:false（exit ${RC}，输出：${OUT}）"
 fi
 
 RC=0
@@ -367,7 +367,7 @@ OUT=$(cd "$TMPX" && CLAUDE_PROJECT_DIR="$TMPX" node "$XH" selftest 2>/dev/null) 
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ext":"not installed"'; then
   pass "ext 未装 -> selftest rc 0 但自报只跑了核心那条（一条绿不冒充整套绿）"
 else
-  fail "ext 未装时 selftest 应 rc 0 + ext:\"not installed\"（exit $RC，输出：$OUT）"
+  fail "ext 未装时 selftest 应 rc 0 + ext:\"not installed\"（exit ${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPX"
 
@@ -397,7 +397,7 @@ if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '无匹配的已通过回执'
    && printf '%s' "$OUT" | grep -qE '"(systemMessage|decision)"'; then
   pass "stop-gate 端到端 rc=4 告警链（stale receipt -> 点名「无匹配的已通过回执」）"
 else
-  fail "stop-gate 未按 rc=4 点名 STALE 回执（rc=$RC，输出：$OUT）"
+  fail "stop-gate 未按 rc=4 点名 STALE 回执（rc=${RC}，输出：${OUT}）"
 fi
 
 # ⑰b 写匹配 receipt -> stop-gate 放行 + 清理 .needs-review
@@ -409,7 +409,7 @@ if [ "$RC" -eq 0 ] && [ ! -f "$TMPS/.claude/.needs-review" ] \
    && ! printf '%s' "$OUT" | grep -q '"decision":"block"'; then
   pass "stop-gate 端到端放行链（匹配 receipt -> 放行 + 清 .needs-review）"
 else
-  fail "stop-gate 匹配 receipt 未放行（rc=$RC, needs-review 残留=$([ -f "$TMPS/.claude/.needs-review" ] && echo YES || echo NO), 输出：$OUT）"
+  fail "stop-gate 匹配 receipt 未放行（rc=$RC, needs-review 残留=$([ -f "$TMPS/.claude/.needs-review" ] && echo YES || echo NO), 输出：${OUT}）"
 fi
 rm -rf "$TMPS"
 
@@ -437,7 +437,7 @@ OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CL
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '大仓四态质量门未通过'; then
   pass "pre-commit 端到端 rc=2 阻断链（verification FAIL -> exit 2）"
 else
-  fail "pre-commit 未按 rc=2 阻断（rc=$RC，输出：$OUT）"
+  fail "pre-commit 未按 rc=2 阻断（rc=${RC}，输出：${OUT}）"
 fi
 
 # ⑱b 改 verification PASS -> pre-commit exit 0（放行）
@@ -453,7 +453,7 @@ OUT=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$TMPP" && CL
 if [ "$RC" -eq 0 ]; then
   pass "pre-commit 端到端放行链（verification PASS -> exit 0）"
 else
-  fail "pre-commit verification PASS 应放行 exit 0（rc=$RC，输出：$OUT）"
+  fail "pre-commit verification PASS 应放行 exit 0（rc=${RC}，输出：${OUT}）"
 fi
 
 # ⑲c 无 catalog -> rc 3
@@ -464,7 +464,7 @@ OUT=$(cd "$TMPA" && CLAUDE_PROJECT_DIR="$TMPA" node "$HARNESS" arch-check) || RC
 if [ "$RC" -eq 3 ]; then
   pass "arch-check 无 catalog -> rc 3"
 else
-  fail "arch-check 无 catalog 应 rc 3（rc=$RC，输出：$OUT）"
+  fail "arch-check 无 catalog 应 rc 3（rc=${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPA"
 
@@ -476,7 +476,7 @@ OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths l
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"no-secret-literal"'; then
   pass "fitness 密钥字面量 -> rc 1 + no-secret-literal 命中"
 else
-  fail "fitness 密钥应 rc 1（rc=$RC，输出：$OUT）"
+  fail "fitness 密钥应 rc 1（rc=${RC}，输出：${OUT}）"
 fi
 printf '// harness-fitness:ignore\nconst apiKey = "AKIAABCDEFGHIJKLMNOP";\n' > "$TMPF/leak.ts"  # scan-secrets:ignore 同上
 RC=0
@@ -484,7 +484,7 @@ OUT=$(cd "$TMPF" && CLAUDE_PROJECT_DIR="$TMPF" node "$HARNESS" fitness --paths l
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
   pass "fitness 行内压制 -> rc 0"
 else
-  fail "fitness 压制后应 rc 0（rc=$RC，输出：$OUT）"
+  fail "fitness 压制后应 rc 0（rc=${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPF"
 
@@ -503,7 +503,7 @@ OUT=$(CLAUDE_PROJECT_DIR="$TMPQ" node "$HARNESS" attributes --catalog "$TMPQ/.cl
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q '"unwiredBlocking":1'; then
   pass "attributes critical 声明未接线 -> rc 1 可见缺口"
 else
-  fail "attributes 未接线应 rc 1（rc=$RC，输出：$OUT）"
+  fail "attributes 未接线应 rc 1（rc=${RC}，输出：${OUT}）"
 fi
 node -e '
   const fs = require("fs");
@@ -518,7 +518,7 @@ OUT=$(CLAUDE_PROJECT_DIR="$TMPQ" node "$HARNESS" attributes --catalog "$TMPQ/.cl
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"ok":true'; then
   pass "attributes 接线后 -> rc 0"
 else
-  fail "attributes 接线后应 rc 0（rc=$RC，输出：$OUT）"
+  fail "attributes 接线后应 rc 0（rc=${RC}，输出：${OUT}）"
 fi
 rm -rf "$TMPQ"
 
@@ -530,7 +530,7 @@ OUT=$(cd "$TMPADR" && CLAUDE_PROJECT_DIR="$TMPADR" node "$HARNESS" adr-check) ||
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '"records":0'; then
   pass "adr-check 无 ADR 文档 -> rc 0 nothing to enforce"
 else
-  fail "adr-check 无文档应 rc 0（rc=$RC，输出：$OUT）"
+  fail "adr-check 无文档应 rc 0（rc=${RC}，输出：${OUT}）"
 fi
 
 echo ""

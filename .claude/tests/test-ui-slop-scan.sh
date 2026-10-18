@@ -58,12 +58,12 @@ fi
 OUT=$(cd "$REPO" && node "$SCAN" 2>&1); RC=$?
 if [ "$RC" -eq 0 ] && contains '未找到界面源码，跳过' "$OUT"; then r=0; else r=1; fi
 chk "$r" "U1 在本仓根目录默认扫描：跳过且 rc 0（没界面的仓库不该被这道闸弄红）" \
-    "rc=0 且输出含「未找到界面源码，跳过」" "rc=$RC；输出：$(brief "$OUT")"
+    "rc=0 且输出含「未找到界面源码，跳过」" "rc=${RC}；输出：$(brief "$OUT")"
 
 OUT=$(node "$SCAN" --bogus 2>&1); RC=$?
 if [ "$RC" -eq 2 ] && contains '未知参数：--bogus' "$OUT"; then r=0; else r=1; fi
 chk "$r" "U3 未知参数 → rc 2 并点名那个参数" "rc=2 且输出含「未知参数：--bogus」" \
-    "rc=$RC；输出：$(brief "$OUT")"
+    "rc=${RC}；输出：$(brief "$OUT")"
 
 # ---------------------------------------------------------------------------
 # 假绿一侧：五条判据各来一条真阳性，按 code@行号 对齐
@@ -76,7 +76,7 @@ GOT=$(jread "$OUT" codes)
 WANT='BIG_RADIUS@4 GRADIENT_STOPS@5 LINE_HEIGHT@3 PURPLE_PRIMARY@1 SMALL_BODY_TEXT@2'
 if [ "$RC" -eq 1 ] && [ "$GOT" = "$WANT" ]; then r=0; else r=1; fi
 chk "$r" "U4 五条判据各命中一行：紫靛主色 / 正文 12px / 行高 1.2 / 圆角 16px / 渐变 4 色标" \
-    "rc=1（三条 error）且 codes=[$WANT]" "rc=$RC；codes=[$GOT]"
+    "rc=1（三条 error）且 codes=[$WANT]" "rc=${RC}；codes=[$GOT]"
 
 # ---------------------------------------------------------------------------
 # 假红一侧（重点）：这四行是正当写法，一条都不许报
@@ -88,7 +88,7 @@ run_json "$D"
 GOT=$(jread "$OUT" codes)
 if [ "$RC" -eq 0 ] && [ -z "$GOT" ]; then r=0; else r=1; fi
 chk "$r" "U5 角标 line-height:1 / 图标 0 / 48px 收字距 / 胶囊 9999px 一条都不许报（判据收窄后的防误伤地板）" \
-    "rc=0 且 findings 为空" "rc=$RC；codes=[$GOT]；warnings=$(jread "$OUT" warnings)"
+    "rc=0 且 findings 为空" "rc=${RC}；codes=[$GOT]；warnings=$(jread "$OUT" warnings)"
 
 # ---------------------------------------------------------------------------
 # 逃逸口：有意为之的写 unslop-ignore，跳过并计入已豁免（不是悄悄不算）
@@ -99,7 +99,7 @@ run_json "$D"
 GOT=$(jread "$OUT" codes); EX=$(jread "$OUT" exempt)
 if [ "$RC" -eq 0 ] && [ -z "$GOT" ] && [ "$EX" = "1" ]; then r=0; else r=1; fi
 chk "$r" "U6 命中行上一行写 unslop-ignore：不报且 exempt 计 1（豁免要看得见，不然等于没设闸）" \
-    "rc=0；findings 空；exempt=1" "rc=$RC；codes=[$GOT]；exempt=$EX"
+    "rc=0；findings 空；exempt=1" "rc=${RC}；codes=[$GOT]；exempt=$EX"
 
 echo "  [NOTE] 未覆盖：真实前端项目（.tsx/.vue/styled-components）上的表现、TOO_MANY_COLORS/TOO_MANY_FAMILIES/CREAM_TERRACOTTA 三条文件级判据、块注释与跨行渐变的解析、--paths 多根去重。"
 

@@ -57,7 +57,7 @@ fi
 # 核心断言：(b) 死闸段**不该**出现任何信息类 hook。
 for h in "${info_only[@]}"; do
   if printf '%s\n' "$SECTION_B" | grep -qE "•[[:space:]]+${h}\$"; then
-    fail "信息类 hook 被误列进 (b) 死闸段：$h（它不调 gateLog，不是闸）"
+    fail "信息类 hook 被误列进 (b) 死闸段：${h}（它不调 gateLog，不是闸）"
   else
     pass "信息类 hook 未出现在 (b) 死闸段：$h"
   fi

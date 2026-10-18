@@ -91,7 +91,7 @@ while IFS= read -r -d '' src; do
 done < <(find "$SRC" -type f -print0) | sort >"$TMP"
 
 if [ "$CHECK" -eq 1 ]; then
-  [ -f "$OUT" ] || { echo "gen-manifest --check: 清单不存在：$OUT（先不带参数跑一次生成）" >&2; exit 1; }
+  [ -f "$OUT" ] || { echo "gen-manifest --check: 清单不存在：${OUT}（先不带参数跑一次生成）" >&2; exit 1; }
   # 只比正文：头四行注释不参与，清单里没有的路径与哈希变了的路径都算漂移
   DRIFT=$(diff <(grep -v '^#' "$OUT") "$TMP" | grep '^[<>]' || true)
   if [ -n "$DRIFT" ]; then
@@ -112,4 +112,4 @@ fi
 } >"$OUT"
 
 count=$(wc -l <"$TMP" | tr -d ' ')
-echo "gen-manifest: 已写入 $OUT（$count 个框架文件）"
+echo "gen-manifest: 已写入 ${OUT}（$count 个框架文件）"

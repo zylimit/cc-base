@@ -72,7 +72,7 @@ cmp_table() { # $1=core 表名  $2=写死条数  $3=本文件的成员清单（�
   if [ "$n_got" -eq "$want" ] && [ "$n_mine" -eq "$want" ] && [ "$got" = "$mine" ]; then
     pass "⑥ $tname 的 $want 条成员与本文件$src 逐条一致（表长新成员时这里会红）"
   else
-    fail "⑥ $tname 与本文件$src 对不上：core.mjs=$n_got 本文件=$n_mine 写死期望=$want。core 独有：[$(comm -23 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')] 本文件独有：[$(comm -13 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')]"
+    fail "⑥ $tname 与本文件$src 对不上：core.mjs=$n_got 本文件=$n_mine 写死期望=${want}。core 独有：[$(comm -23 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')] 本文件独有：[$(comm -13 <(printf '%s\n' "$got") <(printf '%s\n' "$mine") | tr '\n' ' ')]"
   fi
 }
 

@@ -97,7 +97,7 @@ echo "--- ① pre-commit：干净树放行 / staged 假密钥被拦 / 缺 node �
 R1="$TMP/r1"; mkrepo "$R1"; use_real_audit "$R1"
 (cd "$R1" && git add -A)
 run_hook "$R1" pre-commit
-chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "干净树放行（真扫描器）" "rc 0" "rc $RC；$(printf '%s' "$OUT" | tail -3)"
+chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "干净树放行（真扫描器）" "rc 0" "rc ${RC}；$(printf '%s' "$OUT" | tail -3)"
 
 FAKE_TOKEN="ghp_AAAABBBBCCCCDDDDEEEEFFFF0123456789"   # scan-secrets:ignore 假 token，供断言用
 printf 'const t = "%s";\n' "$FAKE_TOKEN" > "$R1/leak.js"
@@ -106,7 +106,7 @@ run_hook "$R1" pre-commit
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'BLOCK'; then
     chk 0 "staged 假密钥被拦" "rc 1 且输出含 BLOCK" "rc $RC"
 else
-    chk 1 "staged 假密钥被拦" "rc 1 且输出含 BLOCK" "rc $RC；$OUT"
+    chk 1 "staged 假密钥被拦" "rc 1 且输出含 BLOCK" "rc ${RC}；$OUT"
 fi
 rm -f "$R1/leak.js"
 (cd "$R1" && git add -A)
@@ -115,7 +115,7 @@ run_hook_nonode "$R1" pre-commit
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'SKIPPED'; then
     chk 0 "缺 node 打 SKIPPED 不阻断（放行 != 通过，输出要说清）" "rc 0 且输出含 SKIPPED" "rc $RC"
 else
-    chk 1 "缺 node 打 SKIPPED 不阻断（放行 != 通过，输出要说清）" "rc 0 且输出含 SKIPPED" "rc $RC；$OUT"
+    chk 1 "缺 node 打 SKIPPED 不阻断（放行 != 通过，输出要说清）" "rc 0 且输出含 SKIPPED" "rc ${RC}；$OUT"
 fi
 
 echo ""
@@ -126,9 +126,9 @@ stub_engine "$P1" 0 0 0 0
 push_line "$P1" progress.md docs/note.md .claude/feedback/lesson.md
 run_push "$P1"
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '纯文档推送'; then
-    chk 0 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc $RC；$OUT"
+    chk 0 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc ${RC}；$OUT"
 else
-    chk 1 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc $RC；$OUT"
+    chk 1 "纯文档推送放行" "rc 0 且输出说「纯文档推送」" "rc ${RC}；$OUT"
 fi
 printf '%s' "$OUT" | grep -q 'selftest' && r=1 || r=0
 chk "$r" "纯文档推送没跑 selftest（放行的意义就在于不跑）" "输出不含 selftest" "$(printf '%s' "$OUT" | tail -2)"
@@ -138,9 +138,9 @@ run_push "$P1"
 # 只数带标记的检查行，别拿整段输出 grep——横幅里本来就要写「全量回归归 run-all.sh」。
 LBLS=$(printf '%s\n' "$OUT" | grep -oE '\[(OK|BLOCK|SKIPPED)\][[:space:]]+[a-z-]+' | awk '{print $2}' | tr '\n' ' ')
 if [ "$RC" -eq 0 ] && [ "$LBLS" = "selftest secrets " ]; then
-    chk 0 "代码推送只跑 selftest + secrets 两项并放行" "rc 0 且检查项恰为「selftest secrets」" "rc $RC；项=[$LBLS]"
+    chk 0 "代码推送只跑 selftest + secrets 两项并放行" "rc 0 且检查项恰为「selftest secrets」" "rc ${RC}；项=[$LBLS]"
 else
-    chk 1 "代码推送只跑 selftest + secrets 两项并放行" "rc 0 且检查项恰为「selftest secrets」" "rc $RC；项=[$LBLS]；$OUT"
+    chk 1 "代码推送只跑 selftest + secrets 两项并放行" "rc 0 且检查项恰为「selftest secrets」" "rc ${RC}；项=[$LBLS]；$OUT"
 fi
 
 echo ""

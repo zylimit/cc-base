@@ -85,8 +85,8 @@ echo ""
 echo "==== test-hook-parity：PASS=$PASS FAIL=$FAIL ===="
 if [ "$FAIL" -gt 0 ]; then
     echo "test-hook-parity: failed（settings.json 与 hooks/ 目录对不上，上面点名了是哪一侧多/少）" >&2
-    echo "    注册侧（$REG_N）：$(tr '\n' ' ' < "$TMPD/reg")" >&2
-    echo "    目录侧（$DIR_N）：$(tr '\n' ' ' < "$TMPD/dir")" >&2
+    echo "    注册侧（${REG_N}）：$(tr '\n' ' ' < "$TMPD/reg")" >&2
+    echo "    目录侧（${DIR_N}）：$(tr '\n' ' ' < "$TMPD/dir")" >&2
     exit 1
 fi
 echo "test-hook-parity: passed（$REG_N 个注册 hook 与 $DIR_N 个 hooks/*.mjs 双向对得上）"

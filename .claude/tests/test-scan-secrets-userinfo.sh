@@ -15,7 +15,7 @@
 #
 # ⚠️ 本文件里**不许出现字面量形态的 user:pass@host**：tests/test-audit-scripts.sh 末尾那条自举
 #   断言会拿 scan-secrets 扫本仓 tracked 源码，url-userinfo 规则一上线，字面量就会把它干红。
-#   所以 @ 一律走运行期拼接的 $AT，样例文件用 printf 组装。
+#   所以 @ 一律走运行期拼接的 ${AT}，样例文件用 printf 组装。
 #
 # 沙箱：mktemp 出来的 git 仓，本仓只读。scan-secrets 的 tracked 模式从 `git ls-files` 取名单，
 #   所以样例文件必须 `git add`（不必 commit）。
@@ -111,7 +111,7 @@ F_RULE=$(jval 'd.findings.map(f => f.rule).join(",")')
 F_FILE=$(jval 'd.findings.map(f => f.file + ":" + f.line).join(",")')
 
 if [ "$R_RC" -eq 1 ]; then r=0; else r=1; fi
-chk "$r" "①a 有内嵌口令的 URL → rc 1" "rc=1（脚本契约：至少一条命中）" "rc=$R_RC；stderr：$(printf '%s' "$R_HUMAN" | tr '\n' '|')"
+chk "$r" "①a 有内嵌口令的 URL → rc 1" "rc=1（脚本契约：至少一条命中）" "rc=${R_RC}；stderr：$(printf '%s' "$R_HUMAN" | tr '\n' '|')"
 
 r=1; [ "$F_RULE" = "url-userinfo" ] && r=0
 chk "$r" "①b finding 的 rule 是 url-userinfo" "rule=url-userinfo" "rule=[$F_RULE]"

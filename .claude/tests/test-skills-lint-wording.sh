@@ -47,7 +47,7 @@ codes_of() {
 }
 
 # run_case <用例号> <skill 目录名> <description> —— 造沙箱 + 跑 skills-lint，
-# 结果写 $CASE_RC / $CASE_OUT（stdout 文件）/ $CASE_ERR（stderr 文件）
+# 结果写 $CASE_RC / ${CASE_OUT}（stdout 文件）/ ${CASE_ERR}（stderr 文件）
 run_case() {
     local id="$1" dir="$2" desc="$3" box
     box="$TMP/$id"

@@ -45,7 +45,7 @@ expect() { # <dir> <期望rc> <关键词> <说明>
     run_lint "$1/DEV-PLAN.md"
     if [ "$RC" -eq "$2" ] && contains "$3" "$OUT"; then r=0; else r=1; fi
     chk "$r" "$4" "rc=$2 且输出含「$3」" \
-        "rc=$RC；含=$(contains "$3" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
+        "rc=${RC}；含=$(contains "$3" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
 }
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ D=$(newdir); expect "$D" 0 '无 DEV-PLAN，跳过' "L1 无 DEV-PLAN → 打印�
 
 run_lint --bogus
 if [ "$RC" -eq 2 ] && contains '未知参数' "$OUT"; then r=0; else r=1; fi
-chk "$r" "L2 未知参数 → rc 2" "rc=2 且输出含「未知参数」" "rc=$RC；输出：$(brief "$OUT")"
+chk "$r" "L2 未知参数 → rc 2" "rc=2 且输出含「未知参数」" "rc=${RC}；输出：$(brief "$OUT")"
 
 D=$(newdir); write_spec "$D"; write_plan "$D"; expect "$D" 0 'plan-lint: 通过' "L3 合规计划 + 编号全覆盖 → rc 0（基线：底下那些红是真红，不是夹具本身坏）"
 
@@ -214,17 +214,17 @@ D=$(newdir); write_order_spec "$D"; write_order_plan "$D"
 run_lint "$D/DEV-PLAN.md" "$D/docs/prd/order.md"
 if [ "$RC" -eq 1 ] && contains '需求没人做: REQ-ORDER-002' "$OUT"; then r=0; else r=1; fi
 chk "$r" "L18 显式传第二个 Spec 路径（非默认名 docs/prd/order.md、非 DEV-PLAN 同目录）→ 覆盖检查按该文件做，未被引用的 REQ-ORDER-002 → FAIL 并点名" \
-    "rc=1 且输出含「需求没人做: REQ-ORDER-002」" "rc=$RC；输出：$(brief "$OUT")"
+    "rc=1 且输出含「需求没人做: REQ-ORDER-002」" "rc=${RC}；输出：$(brief "$OUT")"
 # 对照（现状，不计入 PASS/FAIL，本次不改脚本）：同一夹具无参跑——默认只在 DEV-PLAN.md 同目录找 Product-Spec.md，
 # 这里找不到就整段跳过覆盖检查、rc 0，REQ-ORDER-002 的缺口不会被无参调用发现，这正是 PL2 要修的问题本身
 run_lint "$D/DEV-PLAN.md"
-echo "  [NOTE] L18 对照（现状不变）：同一夹具无参跑 → rc=$RC，输出：$(brief "$OUT")"
+echo "  [NOTE] L18 对照（现状不变）：同一夹具无参跑 → rc=${RC}，输出：$(brief "$OUT")"
 
 D=$(newdir); write_order_spec "$D"; write_order_plan "$D" oos
 run_lint "$D/DEV-PLAN.md" "$D/docs/prd/order.md"
 if [ "$RC" -eq 0 ] && contains '范围外（已声明）：REQ-ORDER-002' "$OUT"; then r=0; else r=1; fi
 chk "$r" "L19 显式传第二个 Spec 路径 + REQ-ORDER-002 在「范围外（本次不计划）」声明 → 通过并 WARN" \
-    "rc=0 且输出含「范围外（已声明）：REQ-ORDER-002」" "rc=$RC；输出：$(brief "$OUT")"
+    "rc=0 且输出含「范围外（已声明）：REQ-ORDER-002」" "rc=${RC}；输出：$(brief "$OUT")"
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_empty_reason
 run_lint "$D/DEV-PLAN.md"
 if [ "$RC" -eq 1 ] && contains '范围外声明缺原因: REQ-REPORT-002' "$OUT"; then r=0; else r=1; fi
 chk "$r" "L20 「范围外」节声明原因留空（- REQ-REPORT-002：后面空着）→ FAIL（契约：声明不是豁免，每条要有原因）" \
-    "rc=1 且输出含「范围外声明缺原因: REQ-REPORT-002」" "rc=$RC；输出：$(brief "$OUT")"
+    "rc=1 且输出含「范围外声明缺原因: REQ-REPORT-002」" "rc=${RC}；输出：$(brief "$OUT")"
 
 D=$(newdir); write_spec "$D"; write_plan_oos "$D" declared_twice
 run_lint "$D/DEV-PLAN.md"
@@ -242,7 +242,7 @@ if [ "$RC" -eq 0 ] && contains '范围外（已声明）：REQ-REPORT-002——�
     && contains 'L12' "$OUT" && contains 'L13' "$OUT"; then r=0; else r=1; fi
 chk "$r" "L21 同一 REQ 在「范围外」节声明两次 → 仍以首条为准通过，但 WARN 点名两处行号（不静默取首条）" \
     "rc=0 且首条原因生效、WARN 含 L12 与 L13 两处行号" \
-    "rc=$RC；输出：$(brief "$OUT")"
+    "rc=${RC}；输出：$(brief "$OUT")"
 
 echo "  [NOTE] 未覆盖：多余位置参数 rc 2、Spec 正文提过但未声明的编号（悬空判据用的是全文提及）、非 UTF-8 文档。"
 

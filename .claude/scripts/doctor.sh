@@ -95,7 +95,7 @@ if command -v node >/dev/null 2>&1; then
   for hook in .claude/hooks/*.mjs .claude/hooks/lib/*.mjs; do
     [ -e "$hook" ] || continue
     # shellcheck disable=SC2015  # 同上：ok/bad 恒返回0，A&&B||C 是安全的 if-else 惯用写法
-    node --check "$hook" >/dev/null 2>&1 && ok "hook 语法 $hook" || bad "hook 语法错 $hook（node --check 不过）"
+    node --check "$hook" >/dev/null 2>&1 && ok "hook 语法 $hook" || bad "hook 语法错 ${hook}（node --check 不过）"
   done
 else
   note "未找到 node，跳过 hooks/*.mjs 语法校验——hook 全靠 node 跑，装上 node 再验一次"
@@ -188,7 +188,7 @@ command -v node >/dev/null 2>&1 && ok "node 可用（22 个 hook 全靠它跑）
 # 只留一句话，不判 ✗——装法千奇百怪，为一句版本号把整份自检判红不值。
 claude_ver=$(command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null | head -1)
 if [ -n "${claude_ver:-}" ]; then
-  printf -- '- %s\n' "Claude Code：$claude_ver（hook 走 exec form，需较新版本；本项只报不判）"
+  printf -- '- %s\n' "Claude Code：${claude_ver}（hook 走 exec form，需较新版本；本项只报不判）"
 else
   note "拿不到 claude --version；hook 的 exec form 需较新的 Claude Code，版本自己确认一下"
 fi

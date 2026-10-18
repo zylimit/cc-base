@@ -105,7 +105,7 @@ mark_static_fail() {
     if [ -z "$FAILED_SUITES" ]; then
         FAILED_SUITES="$1"
     else
-        FAILED_SUITES="$FAILED_SUITES、$1"
+        FAILED_SUITES="${FAILED_SUITES}、$1"
     fi
     echo "（上面这个静态测试判 FAIL）"
 }
@@ -117,13 +117,13 @@ run_test() {
     RT_NAME="$(basename "$RT_PATH")"
     if [ ! -f "$RT_PATH" ]; then
         echo "SKIPPED: $RT_NAME 不存在（尚未落地，未执行 != 通过）"
-        MISSING_NOTE="$MISSING_NOTE；$RT_NAME 缺文件 SKIPPED"
+        MISSING_NOTE="${MISSING_NOTE}；$RT_NAME 缺文件 SKIPPED"
         return 0
     fi
     RT_RISK="$(risk_of "$RT_PATH")"
     if ! level_covers "$RT_RISK"; then
         if [ "$RT_RISK" = medium ]; then SKIP_MEDIUM=$((SKIP_MEDIUM+1)); else SKIP_LOW=$((SKIP_LOW+1)); fi
-        echo "----- 跳过 $RT_NAME（risk: $RT_RISK，当前 --level $LEVEL）-----"
+        echo "----- 跳过 ${RT_NAME}（risk: ${RT_RISK}，当前 --level ${LEVEL}）-----"
         return 0
     fi
     echo "----- 运行 $RT_NAME -----"
@@ -133,7 +133,7 @@ run_test() {
     return "$RT_RC"
 }
 
-echo "########## cc-base 框架自测 · run-all（--level $LEVEL）##########"
+echo "########## cc-base 框架自测 · run-all（--level ${LEVEL}）##########"
 echo ""
 
 # ---- 第一段：脚手架自测（无依赖，必跑）----
@@ -145,7 +145,7 @@ printf '{"t":"%s","file":"selftest.sh","case":"selftest","result":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$([ "$SELF_RC" -eq 0 ] && echo PASS || echo FAIL)" >> "$LEDGER"
 if [ "$SELF_RC" -ne 0 ]; then
     echo ""
-    echo "########## 结果：selftest 失败（退出码 $SELF_RC），断言库本身不可信，停止。 ##########"
+    echo "########## 结果：selftest 失败（退出码 ${SELF_RC}），断言库本身不可信，停止。 ##########"
     exit "$SELF_RC"
 fi
 
@@ -178,7 +178,7 @@ if command -v node >/dev/null 2>&1; then
         PREDEV_RC=0
         run_test "$TESTS_DIR/$s" || PREDEV_RC=$?
         if [ "$PREDEV_RC" -eq 3 ]; then
-            AUDIT_NOTE="$AUDIT_NOTE；$s 有 SKIPPED（无浏览器引擎，未执行 != 通过）"
+            AUDIT_NOTE="${AUDIT_NOTE}；$s 有 SKIPPED（无浏览器引擎，未执行 != 通过）"
         elif [ "$PREDEV_RC" -ne 0 ]; then
             mark_static_fail "$s"
         fi
@@ -241,7 +241,7 @@ if command -v node >/dev/null 2>&1; then
     if [ "$DOD_RC" -eq 0 ]; then
         echo "dod: rc 0（每条 blocking 治理步都有结论）"
     else
-        echo "dod: rc $DOD_RC（有 blocking step 没过或引擎崩了，跑 node .claude/harness/harness.mjs dod 看是哪条）"
+        echo "dod: rc ${DOD_RC}（有 blocking step 没过或引擎崩了，跑 node .claude/harness/harness.mjs dod 看是哪条）"
         mark_static_fail "dod"
     fi
 
@@ -328,11 +328,11 @@ fi
 # 按级别跳过的要在汇总行里报数：日常 --level high 少跑的那批，看的人得知道少了多少。
 LEVEL_NOTE=""
 if [ "$SKIP_MEDIUM" -gt 0 ] || [ "$SKIP_LOW" -gt 0 ]; then
-    LEVEL_NOTE="；跳过 $SKIP_MEDIUM 套 medium / $SKIP_LOW 套 low 用例（--level $LEVEL，未执行 != 通过）"
+    LEVEL_NOTE="；跳过 $SKIP_MEDIUM 套 medium / $SKIP_LOW 套 low 用例（--level ${LEVEL}，未执行 != 通过）"
 fi
 if [ "$STATIC_RC" -ne 0 ]; then
     echo ""
-    echo "########## 结果：静态自测失败（失败套件：$FAILED_SUITES）${LEVEL_NOTE}${MISSING_NOTE}，停止。 ##########"
+    echo "########## 结果：静态自测失败（失败套件：${FAILED_SUITES}）${LEVEL_NOTE}${MISSING_NOTE}，停止。 ##########"
     exit "$STATIC_RC"
 fi
 

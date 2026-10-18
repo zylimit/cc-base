@@ -227,7 +227,7 @@ A1_BNEXT=$(printf '%s' "$REL_A1" | cut -f4)
 chk "$([ "$A1_STATUS" = "FAIL" ] && echo 0 || echo 1)" \
     "L3a① 有 catalog、有代码改动、账本里没有 gate 记录 -> gate-fresh = FAIL" \
     "checks 里有 id=gate-fresh 且 status=FAIL" \
-    "status=$A1_STATUS（ABSENT = 这个检查项还不存在）"
+    "status=${A1_STATUS}（ABSENT = 这个检查项还不存在）"
 
 chk "$([ "$A1_BLOCK" = "yes" ] && printf '%s' "$A1_BNEXT" | grep -q 'gate' && echo 0 || echo 1)" \
     "L3a② 该 FAIL 进 blockers，且下一步命令点名 gate" \
@@ -257,7 +257,7 @@ A3_STATUS=$(printf '%s' "$REL_A3" | cut -f1)
 chk "$([ "$A3_STATUS" = "PASS" ] && echo 0 || echo 1)" \
     "L3a③ 账本里有一条 gate=PASS 且 diffHash 等于当前指纹 -> gate-fresh = PASS" \
     "status=PASS" \
-    "status=$A3_STATUS（ledger 行数=$(wc -l < "$SB_A/.claude/harness/state/ledger.jsonl" 2>/dev/null || echo 0)）"
+    "status=${A3_STATUS}（ledger 行数=$(wc -l < "$SB_A/.claude/harness/state/ledger.jsonl" 2>/dev/null || echo 0)）"
 
 # 代码往前走一步：那条记录背书的已经不是这棵树了。
 echo one-more-change >> "$SB_A/core/a.txt"

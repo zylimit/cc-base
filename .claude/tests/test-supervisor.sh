@@ -43,7 +43,7 @@ CHILD_ALIVE=$(json_field "$ST" 'd["services"][0]["childAlive"]')
 if [ "$RC" -eq 0 ] && [ "$STATUS" = "running" ] && [ "$CHILD_ALIVE" = "True" ]; then
   pass "start 长驻 -> rc 0，status running + 子进程活着"
 else
-  fail "start 未长驻（rc=$RC，status=$STATUS，childAlive=$CHILD_ALIVE，start 回显：$OUT）"
+  fail "start 未长驻（rc=${RC}，status=${STATUS}，childAlive=${CHILD_ALIVE}，start 回显：${OUT}）"
 fi
 
 # ② stop -> 收敛 stopped，supervisor 与 child 全清
@@ -55,7 +55,7 @@ CHILD_ALIVE=$(json_field "$ST" 'd["services"][0]["childAlive"]')
 if [ "$RC" -eq 0 ] && [ "$STATUS" = "stopped" ] && [ "$CHILD_ALIVE" = "False" ]; then
   pass "stop -> 收敛 stopped + 进程全清"
 else
-  fail "stop 未收敛（rc=$RC，status=$STATUS，childAlive=$CHILD_ALIVE）"
+  fail "stop 未收敛（rc=${RC}，status=${STATUS}，childAlive=${CHILD_ALIVE}）"
 fi
 
 echo ""

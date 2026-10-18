@@ -128,7 +128,7 @@ expect_clean() { # <dir> <说明>
     local r
     run_json "$1"
     if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE '"ok"[[:space:]]*:[[:space:]]*true'; then r=0; else r=1; fi
-    chk "$r" "$2" "rc=0 且 --json 的 ok=true" "rc=$RC；输出：$(brief "$OUT")"
+    chk "$r" "$2" "rc=0 且 --json 的 ok=true" "rc=${RC}；输出：$(brief "$OUT")"
 }
 
 expect_code() { # <dir> <code> <说明>
@@ -136,7 +136,7 @@ expect_code() { # <dir> <code> <说明>
     run_json "$1"
     if [ "$RC" -eq 1 ] && contains "$2" "$OUT"; then r=0; else r=1; fi
     chk "$r" "$3" "rc=1 且 --json 含 $2" \
-        "rc=$RC；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
+        "rc=${RC}；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
 }
 
 expect_soft() { # <dir> <关键词> <说明>   warning 不改 rc；只看 rc 会把「报了黄字」和「一声没吭」当成一回事
@@ -144,7 +144,7 @@ expect_soft() { # <dir> <关键词> <说明>   warning 不改 rc；只看 rc 会
     run_json "$1"
     if [ "$RC" -eq 0 ] && contains "$2" "$OUT"; then r=0; else r=1; fi
     chk "$r" "$3" "rc=0 且 --json 含 $2" \
-        "rc=$RC；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
+        "rc=${RC}；含 $2=$(contains "$2" "$OUT" && echo yes || echo no)；输出：$(brief "$OUT")"
 }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ D=$(newdir); write_dfx "$D" unmeasured;   expect_code "$D" UNMEASURED           
 D=$(newdir); write_spec "$D"
 OUT=$(node "$LINT" --root "$D" --bogus 2>&1); RC=$?
 if [ "$RC" -eq 2 ]; then r=0; else r=1; fi
-chk "$r" "P23 未知参数 → rc 2" "rc=2" "rc=$RC；输出：$(brief "$OUT")"
+chk "$r" "P23 未知参数 → rc 2" "rc=2" "rc=${RC}；输出：$(brief "$OUT")"
 
 # ---------------------------------------------------------------------------
 # 两把准绳：范例必绿、模板原样必红
@@ -191,7 +191,7 @@ for pair in "product-spec-builder/templates/product-spec-template.md:Product-Spe
     D=$(newdir); cp "$src" "$D/$dst"; run_json "$D"
     if [ "$RC" -ne 1 ] || ! contains PLACEHOLDER "$OUT"; then
         BADT="$BADT $dst"
-        DETAIL="$DETAIL；[$dst] rc=$RC 含 PLACEHOLDER=$(contains PLACEHOLDER "$OUT" && echo yes || echo no)"
+        DETAIL="${DETAIL}；[$dst] rc=$RC 含 PLACEHOLDER=$(contains PLACEHOLDER "$OUT" && echo yes || echo no)"
     fi
 done
 if [ -z "$BADT" ]; then r=0; else r=1; fi
@@ -207,9 +207,9 @@ TPLL=$(lineno "$F" '^<2-3 '); EQL=$(lineno "$F" '^<=3 个>$')
 C1=$(lineno "$F" '^并发 < 100'); C2=$(lineno "$F" '^数据量 <10'); C3=$(lineno "$F" '首屏 <1s')
 run_json "$D"; PH=$(fjq "$OUT" PLACEHOLDER)
 if [ "$RC" -eq 1 ] && [ "$PH" = "$TPLL $EQL" ]; then r=0; else r=1; fi
-chk "$r" "P47 模板原句「<2-3 个真实发生过的案例…>」是没填的占位（取自$TPL_SRC），不是比较式" \
+chk "$r" "P47 模板原句「<2-3 个真实发生过的案例…>」是没填的占位（取自${TPL_SRC}），不是比较式" \
     "rc=1；PLACEHOLDER=[$TPLL $EQL]（三行比较式 $C1 / $C2 / $C3 不许报）" \
-    "rc=$RC；PLACEHOLDER=[$PH]"
+    "rc=${RC}；PLACEHOLDER=[$PH]"
 
 # ---------------------------------------------------------------------------
 # 延迟与重试预算表：算术与重试层数（本批新增）
@@ -219,12 +219,12 @@ D=$(newdir); write_dfx "$D" budget_ok;    expect_soft "$D" '"warnings": 0'      
 # P55 列头写的是 ms，「5s」「5 秒」要按 5000 求和；读成 5 就是差一千倍的假通过——所以判和值本身，不只判 code。
 D=$(newdir); write_dfx "$D" budget_unit; run_json "$D"
 if [ "$RC" -eq 1 ] && contains '10000ms 超过端到端 8000ms' "$OUT"; then r=0; else r=1; fi
-chk "$r" "P55 「5s」与「5 秒」都按 5000ms 求和" "rc=1 且消息里的和是 10000ms（不是 10ms）" "rc=$RC；输出：$(brief "$OUT")"
+chk "$r" "P55 「5s」与「5 秒」都按 5000ms 求和" "rc=1 且消息里的和是 10000ms（不是 10ms）" "rc=${RC}；输出：$(brief "$OUT")"
 # P56 老文档地板：没有这张表的 DFX-Spec 一条都不许触发——新闸不能把存量文档弄红。
 D=$(newdir); write_dfx "$D"; run_json "$D"; HIT=""
 for c in BUDGET_OVER_END_TO_END RETRY_LAYERS_OVER_ONE RETRY_NONE_UNEXPLAINED; do contains "$c" "$OUT" && HIT="$HIT $c"; done
 if [ "$RC" -eq 0 ] && [ -z "$HIT" ]; then r=0; else r=1; fi
-chk "$r" "P56 没有预算表的 DFX-Spec 不触发这三条（表按档位选填，没写就没写）" "rc=0 且三个 code 一个都不出现" "rc=$RC；出现的：${HIT:-无}"
+chk "$r" "P56 没有预算表的 DFX-Spec 不触发这三条（表按档位选填，没写就没写）" "rc=0 且三个 code 一个都不出现" "rc=${RC}；出现的：${HIT:-无}"
 
 echo "  [NOTE] 未覆盖：--out/多 root、DESIGN.md 前言的 YAML 异常形态、Brief 与 Spec 编号双向一致；"
 echo "         另有 PENDING_ROW_INCOMPLETE / PRIORITY_STACK_TOO_SHORT 两条 code 与「表头定位」的"

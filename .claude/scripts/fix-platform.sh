@@ -28,7 +28,7 @@ if [ -z "$project_root" ]; then
 fi
 
 settings="$project_root/.claude/settings.json"
-[ -f "$settings" ] || die "找不到 settings.json：$settings（请在项目根运行，或设 CLAUDE_PROJECT_DIR）"
+[ -f "$settings" ] || die "找不到 settings.json：${settings}（请在项目根运行，或设 CLAUDE_PROJECT_DIR）"
 
 hooks_dir="$project_root/.claude/hooks"
 
@@ -132,7 +132,7 @@ with open(settings_path, 'w', encoding='utf-8') as f:
 print('fix-platform: converted to exec form=%d, dropped duplicate legacy entries=%d, statusline fixed=%d' % (converted, dropped, statusline_fixed))
 PYEOF
 py_rc=$?
-[ $py_rc -eq 0 ] || die "python3 归一失败（exit $py_rc）"
+[ $py_rc -eq 0 ] || die "python3 归一失败（exit ${py_rc}）"
 
 # 删 hooks/ 下历史遗留的 *.sh / *.ps1（含 lib-*.sh / lib-*.ps1）——新版一个都不分发，留着只会让
 # doctor.sh / gate-audit.sh 照旧数它们，还容易让人以为 hook 有两套。

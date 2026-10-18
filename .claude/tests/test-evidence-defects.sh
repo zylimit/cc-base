@@ -156,7 +156,7 @@ else
     chk "$([ "$E1_LOK" != "true" ] && echo 0 || echo 1)" \
         "E1b 账本文件读不出来 -> 输出不许自称 ok:true" \
         "ok != true" \
-        "ok=$E1_LOK entries=$E1_LN（entries=0 是把「读不了」当成了「空账本」）"
+        "ok=$E1_LOK entries=${E1_LN}（entries=0 是把「读不了」当成了「空账本」）"
 
     run "$SB1" retention --apply --max-evidence 0
     E1_RRC="$RC"; E1_REMOVED=$(jval "$OUT" removed); E1_PROT=$(jval "$OUT" protectedByLedger)
@@ -209,7 +209,7 @@ run "$SB5" retention --apply --max-evidence 0
 E5_RRC="$RC"; E5_REMOVED=$(jval "$OUT" removed); E5_OK=$(jval "$OUT" ok)
 E5_LEFT=$([ -f "$SB5/$E5_EV" ] && echo YES || echo NO)
 chk "$([ "$E5_LEFT" = "YES" ] && echo 0 || echo 1)" \
-    "E5b 链已断裂（ledger rc=$E5_LRC）时 retention --apply 一个文件都不许删" \
+    "E5b 链已断裂（ledger rc=${E5_LRC}）时 retention --apply 一个文件都不许删" \
     "证据文件仍在（先验链再决定删不删）" \
     "证据文件=$E5_EV 仍在=$E5_LEFT removed=$E5_REMOVED protectedByLedger=$(jval "$OUT" protectedByLedger)"
 

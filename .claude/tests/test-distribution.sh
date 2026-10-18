@@ -51,12 +51,12 @@ RC1=0
 bash "$ROOT/setup.sh" "$T1" >"$TMP/d1.out" 2>"$TMP/d1.err" || RC1=$?
 CL1="$T1/.claude"
 
-[ "$RC1" = "0" ] || fail "D-1 脚手架：默认安装就失败（rc=$RC1，stderr：$(d_head "$TMP/d1.err")），后面五段的判别力全没了"
+[ "$RC1" = "0" ] || fail "D-1 脚手架：默认安装就失败（rc=${RC1}，stderr：$(d_head "$TMP/d1.err")），后面五段的判别力全没了"
 
 for d in tests research agent-memory; do
   ok=0; [ ! -e "$CL1/$d" ] || ok=1
   chk "$ok" "D-1 默认安装不含 .claude/$d/" \
-    "目标里不存在 .claude/$d（本机私产 / 框架自测，装进别人项目是脏数据）" \
+    "目标里不存在 .claude/${d}（本机私产 / 框架自测，装进别人项目是脏数据）" \
     "存在=$([ -e "$CL1/$d" ] && echo yes || echo no) 文件数=$(find "$CL1/$d" -type f 2>/dev/null | wc -l | tr -d ' ')"
 done
 
@@ -117,7 +117,7 @@ import sys, zipfile
 print("\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))
 PY
   entries=$(grep -c . "$TMP/zip-entries.txt" || true)
-  [ "$entries" -gt 0 ] || fail "D-5 脚手架：zip 条目列表为空（列包失败？$ZIP），后面的「不含」断言会恒绿"
+  [ "$entries" -gt 0 ] || fail "D-5 脚手架：zip 条目列表为空（列包失败？${ZIP}），后面的「不含」断言会恒绿"
 
   # 「不含」四组：按路径分量匹配，别用裸子串——progress.md 是 progress.archive.md 的子串，
   # 子串匹配红是红了，点名的却是另一份文件。
@@ -211,7 +211,7 @@ chk "$ok" "D-7g --with-harness 不顺带把 tests/ 带出去" \
 # .claude/harness/ext/rules/（随包的源）。instructions-allowlist.json 的豁免只绑
 # .claude/harness/ext/rules/harness-large-repo.md:63 这一条路径，装出来的 rules/ 那份拿不到同一条
 # 豁免——下游项目一装完、一开 githooks 就被这份「装出来的文件」自己的指令审计拦停，装坏的是
-# 别人的项目，不是这仓自己。复用 D-7 段已经装好的 $T4/$CL4，不再起第二个沙箱。
+# 别人的项目，不是这仓自己。复用 D-7 段已经装好的 $T4/${CL4}，不再起第二个沙箱。
 # 在当前实现下这段必红：rules/ 那份 rc=1 / error=1 / allowlisted=0，
 # 与 ext/rules/ 那份的 rc=0 / error=0 / allowlisted=1 对不上；D-7h3 的 sha256 一致则证明
 # 这不是内容差异，纯粹是豁免只认路径没认字节。

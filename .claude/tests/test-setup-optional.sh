@@ -101,7 +101,7 @@ WIN_ROUTED=0
 grep -q "cc-base setup (Windows/.ps1)" "$TMP/sh-install1.log" 2>/dev/null && WIN_ROUTED=1
 
 if [ "$RC1" != "0" ] || [ "$WIN_ROUTED" = "1" ]; then
-  sk "sh 臂整组：首次 --with-harness 安装 rc=$RC1 路由到ps1=$WIN_ROUTED（见 $TMP/sh-install1.log；本机预期走 .sh 直装路径，非零多半是环境问题不是本文件要锁的缺陷）"
+  sk "sh 臂整组：首次 --with-harness 安装 rc=$RC1 路由到ps1=${WIN_ROUTED}（见 $TMP/sh-install1.log；本机预期走 .sh 直装路径，非零多半是环境问题不是本文件要锁的缺陷）"
 else
   CL1="$T1/.claude"
 
@@ -215,7 +215,7 @@ T5="$TMP/target-sh-default"
 RC5=0
 bash "$SRC/setup.sh" "$T5" >"$TMP/sh-install5.log" 2>&1 || RC5=$?
 if [ "$RC5" != "0" ]; then
-  sk "R5(sh) 默认安装本身失败（rc=$RC5，见 $TMP/sh-install5.log），跳过防回归判定"
+  sk "R5(sh) 默认安装本身失败（rc=${RC5}，见 $TMP/sh-install5.log），跳过防回归判定"
 else
   ok=0; [ ! -e "$T5/.claude/harness/ext" ] || ok=1
   chk "$ok" "R5a(sh) 默认安装不含 .claude/harness/ext/" \
@@ -234,7 +234,7 @@ else
   pwsh -NoProfile -ExecutionPolicy Bypass -File "$SRC/setup.ps1" -Target "$T1P" -WithHarness \
     >"$TMP/ps-install1.log" 2>&1 || RC1P=$?
   if [ "$RC1P" != "0" ]; then
-    sk "ps1 臂整组：首次 -WithHarness 安装 rc=$RC1P（见 $TMP/ps-install1.log，多半是本机 pwsh 环境问题不是本文件要锁的缺陷）"
+    sk "ps1 臂整组：首次 -WithHarness 安装 rc=${RC1P}（见 $TMP/ps-install1.log，多半是本机 pwsh 环境问题不是本文件要锁的缺陷）"
   else
     CL1P="$T1P/.claude"
 
@@ -338,7 +338,7 @@ else
   RC5P=0
   pwsh -NoProfile -ExecutionPolicy Bypass -File "$SRC/setup.ps1" -Target "$T5P" >"$TMP/ps-install5.log" 2>&1 || RC5P=$?
   if [ "$RC5P" != "0" ]; then
-    sk "R5(ps1) 默认安装本身失败（rc=$RC5P，见 $TMP/ps-install5.log），跳过防回归判定"
+    sk "R5(ps1) 默认安装本身失败（rc=${RC5P}，见 $TMP/ps-install5.log），跳过防回归判定"
   else
     ok=0; [ ! -e "$T5P/.claude/harness/ext" ] || ok=1
     chk "$ok" "R5a(ps1) 默认安装不含 .claude/harness/ext/" \
@@ -350,7 +350,7 @@ else
 fi
 
 # ==================== R6：排除判定来自生成块，不是安装器手写死表 ====================
-# 往拷贝里的 exclusions.json 加一条新排除项，用 gen-exclusions.mjs 重新生成（只碰 $SRC，不碰
+# 往拷贝里的 exclusions.json 加一条新排除项，用 gen-exclusions.mjs 重新生成（只碰 ${SRC}，不碰
 # 本仓），装一个全新目标验证可选包立刻认得——不用改 setup.sh / setup.ps1 一行代码。
 if ! command -v node >/dev/null 2>&1; then
   sk "R6 整组：无 node，gen-exclusions.mjs 本身需要 node，这条锁不了"
@@ -378,14 +378,14 @@ else
     R6GEN_RC=0
     node "$R6_GEN" >"$TMP/r6-gen.log" 2>&1 || R6GEN_RC=$?
     if [ "$R6GEN_RC" != "0" ]; then
-      sk "R6 整组：gen-exclusions.mjs 重跑失败（rc=$R6GEN_RC，见 $TMP/r6-gen.log），无法验证生成块联动"
+      sk "R6 整组：gen-exclusions.mjs 重跑失败（rc=${R6GEN_RC}，见 $TMP/r6-gen.log），无法验证生成块联动"
     else
       : > "$SRC/.claude/harness/ext/canary.optcanary"
       T6="$TMP/target-sh-r6"
       RC6=0
       bash "$SRC/setup.sh" --with-harness "$T6" >"$TMP/sh-r6.log" 2>&1 || RC6=$?
       if [ "$RC6" != "0" ]; then
-        sk "R6(sh)：装出失败（rc=$RC6，见 $TMP/sh-r6.log）"
+        sk "R6(sh)：装出失败（rc=${RC6}，见 $TMP/sh-r6.log）"
       else
         ok=0; [ ! -e "$T6/.claude/harness/ext/canary.optcanary" ] || ok=1
         chk "$ok" "R6(sh) exclusions.json 新增一条、重新生成后，is_optional_excluded 立刻认得（不用改安装器代码）" \
@@ -401,7 +401,7 @@ else
         pwsh -NoProfile -ExecutionPolicy Bypass -File "$SRC/setup.ps1" -Target "$T6P" -WithHarness \
           >"$TMP/ps-r6.log" 2>&1 || RC6P=$?
         if [ "$RC6P" != "0" ]; then
-          sk "R6(ps1)：装出失败（rc=$RC6P，见 $TMP/ps-r6.log）"
+          sk "R6(ps1)：装出失败（rc=${RC6P}，见 $TMP/ps-r6.log）"
         else
           ok=0; [ ! -e "$T6P/.claude/harness/ext/canary.optcanary" ] || ok=1
           chk "$ok" "R6(ps1) 同一条新增排除项，重新生成后 Test-OptionalExcluded 也立刻认得" \

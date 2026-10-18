@@ -49,9 +49,9 @@ EMPTY=0
 echo "$OUT" | grep -q "完整 diff（0 行）" && EMPTY=1
 echo "$OUT" | grep -q "（无改动）" && EMPTY=1
 if [ "$ERRORED" -eq 1 ] && [ "$EMPTY" -eq 0 ]; then
-  ok "无效 BASE ref 'nonexistent-ref-xyz' 响亮报错、未产空证据包（RC=$RC）"
+  ok "无效 BASE ref 'nonexistent-ref-xyz' 响亮报错、未产空证据包（RC=${RC}）"
 else
-  bad "保护契约破裂：无效 ref 未响亮报错或仍产空证据包（RC=$RC，ERRORED=$ERRORED，EMPTY=$EMPTY）"
+  bad "保护契约破裂：无效 ref 未响亮报错或仍产空证据包（RC=${RC}，ERRORED=${ERRORED}，EMPTY=${EMPTY}）"
 fi
 
 echo "[断言2] 正常路径（防误伤）：--working 在前 + 有效 BASE → 产非空证据包"
@@ -61,9 +61,9 @@ echo "$OUT" | grep -q "改动清单" && N2=$((N2+1))               # 含「改�
 echo "$OUT" | grep -q "file.txt" && N2=$((N2+1))               # 列出了改动文件
 echo "$OUT" | grep -qE "完整 diff（[1-9][0-9]* 行）" && N2=$((N2+1))  # diff 行数 > 0
 if [ "$RC" -eq 0 ] && [ "$N2" -ge 2 ]; then
-  ok "正常路径产出非空证据包（含改动清单 + 改动文件 + diff>0，命中 $N2/3，RC=$RC）"
+  ok "正常路径产出非空证据包（含改动清单 + 改动文件 + diff>0，命中 $N2/3，RC=${RC}）"
 else
-  bad "正常路径未产出预期非空证据包（命中 $N2/3，RC=$RC）"
+  bad "正常路径未产出预期非空证据包（命中 $N2/3，RC=${RC}）"
 fi
 
 echo "[断言2b] --working 位置无关：'base-tag --working'（BASE 在前）也应产非空证据包"
@@ -73,9 +73,9 @@ echo "$OUT" | grep -q "改动清单" && N2B=$((N2B+1))
 echo "$OUT" | grep -q "file.txt" && N2B=$((N2B+1))
 echo "$OUT" | grep -qE "完整 diff（[1-9][0-9]* 行）" && N2B=$((N2B+1))
 if [ "$RC" -eq 0 ] && [ "$N2B" -ge 2 ]; then
-  ok "BASE 在前的 'base-tag --working' 等价于 '--working base-tag'，产出非空证据包（命中 $N2B/3，RC=$RC）"
+  ok "BASE 在前的 'base-tag --working' 等价于 '--working base-tag'，产出非空证据包（命中 $N2B/3，RC=${RC}）"
 else
-  bad "--working 位置相关了：'base-tag --working' 未产出预期非空证据包（命中 $N2B/3，RC=$RC）"
+  bad "--working 位置相关了：'base-tag --working' 未产出预期非空证据包（命中 $N2B/3，RC=${RC}）"
 fi
 
 echo "[断言3] 无 fatal 泄漏：任一调用 stderr 不含 fatal"

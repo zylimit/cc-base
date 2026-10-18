@@ -69,18 +69,18 @@ validate_target() {
       case "$seg" in [A-Za-z]:) continue ;; esac
     fi
     case "$seg" in
-      ..) die "target 路径不安全：段 '..' 会把文件写到目标之外（$target）" ;;
-      .) die "target 路径不合法：路径中间出现 '.' 段（$target）；相对路径只允许开头的 ./" ;;
+      ..) die "target 路径不安全：段 '..' 会把文件写到目标之外（${target}）" ;;
+      .) die "target 路径不合法：路径中间出现 '.' 段（${target}）；相对路径只允许开头的 ./" ;;
     esac
     if [ -n "$(printf '%s' "$seg" | LC_ALL=C tr -dc '\001-\037\177')" ]; then
-      die "target 路径段含控制字符（control char）：段 [$seg]（$target）"
+      die "target 路径段含控制字符（control char）：段 [$seg]（${target}）"
     fi
     i=0
     n=${#WIN_BAD_CHARS}
     while [ "$i" -lt "$n" ]; do
       ch=${WIN_BAD_CHARS:$i:1}
       case "$seg" in
-        *"$ch"*) die "target 路径段含非法字符 [$ch]（Windows 文件名不许带 $WIN_BAD_CHARS）：段 [$seg]（$target）" ;;
+        *"$ch"*) die "target 路径段含非法字符 [$ch]（Windows 文件名不许带 ${WIN_BAD_CHARS}）：段 [$seg]（${target}）" ;;
       esac
       i=$((i + 1))
     done
@@ -89,11 +89,11 @@ validate_target() {
       *" $lower "*) die "target 路径段是 Windows 保留设备名 [$seg]（con/prn/aux/nul/com1-9/lpt1-9，不分大小写）：$target" ;;
     esac
     case "$seg" in
-      *.) die "target 路径段以点结尾（trailing dot，Windows 会把它悄悄吃掉）：段 [$seg]（$target）" ;;
-      *' ') die "target 路径段以空格结尾（trailing space，同上）：段 [$seg]（$target）" ;;
+      *.) die "target 路径段以点结尾（trailing dot，Windows 会把它悄悄吃掉）：段 [$seg]（${target}）" ;;
+      *' ') die "target 路径段以空格结尾（trailing space，同上）：段 [$seg]（${target}）" ;;
     esac
     if [ "$(printf '%s' "$seg" | wc -c | tr -d ' ')" -gt "$MAX_SEG_BYTES" ]; then
-      die "target 路径单段超长：超过 $MAX_SEG_BYTES 字节（多数文件系统的单段上限）：段 [$seg]（$target）"
+      die "target 路径单段超长：超过 $MAX_SEG_BYTES 字节（多数文件系统的单段上限）：段 [$seg]（${target}）"
     fi
   done
 }

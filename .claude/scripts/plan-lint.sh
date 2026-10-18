@@ -10,7 +10,7 @@ seen=0
 for arg in "$@"; do
   case "$arg" in
     -*)
-      echo "plan-lint: 未知参数 $arg（用法：plan-lint.sh [plan] [spec]）" >&2
+      echo "plan-lint: 未知参数 ${arg}（用法：plan-lint.sh [plan] [spec]）" >&2
       exit 2
       ;;
     *)
@@ -18,7 +18,7 @@ for arg in "$@"; do
       case "$seen" in
         1) PLAN="$arg" ;;
         2) SPEC="$arg" ;;
-        *) echo "plan-lint: 多余参数 $arg（用法：plan-lint.sh [plan] [spec]）" >&2; exit 2 ;;
+        *) echo "plan-lint: 多余参数 ${arg}（用法：plan-lint.sh [plan] [spec]）" >&2; exit 2 ;;
       esac
       ;;
   esac

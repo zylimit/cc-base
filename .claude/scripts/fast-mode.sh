@@ -17,7 +17,7 @@ DEFAULT_HOURS=24
 run_tier() {
   local err rc=0
   if [ ! -f "$HARNESS" ]; then
-    echo "引擎不在（$HARNESS）：档位改不了。要强制回默认档就删掉 .claude/.runtime/tier.json；fast 档最多 8 小时自动失效。" >&2
+    echo "引擎不在（${HARNESS}）：档位改不了。要强制回默认档就删掉 .claude/.runtime/tier.json；fast 档最多 8 小时自动失效。" >&2
     return 3
   fi
   err=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$ROOT}" node "$HARNESS" "$@" 2>&1 >/dev/null) || rc=$?

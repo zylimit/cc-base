@@ -50,7 +50,7 @@ run_check "$BOX"
 r=1
 if [ "$SC_RC" -ne 0 ] && contains "bad.mjs" "$SC_OUT"; then r=0; fi
 chk "$r" "① 坏的 .mjs → rc 非 0 且点名 bad.mjs" \
-    "rc != 0 且输出含 bad.mjs" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+    "rc != 0 且输出含 bad.mjs" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 printf '%s\n' "$SC_OUT" | grep -q "bad\.mjs:[0-9]"; r=$?
 chk "$r" "① 点名到行号（bad.mjs:<行>）" \
     "输出含形如 bad.mjs:1 的位置" "匹配：[$(printf '%s\n' "$SC_OUT" | grep -o "bad\.mjs:[0-9]*" | head -3 | tr '\n' ' ')]"
@@ -63,7 +63,7 @@ run_check "$BOX"
 r=1
 if [ "$SC_RC" -eq 0 ] && contains 'node --check' "$SC_OUT"; then r=0; fi
 chk "$r" "② 三个好文件 → rc 0 且输出出现 node --check（判 rc=0 会被空绿路径冒充）" \
-    "rc=0 且输出含 'node --check'" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+    "rc=0 且输出含 'node --check'" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 
 if command -v shellcheck >/dev/null 2>&1; then
     echo "-- ③ shellcheck 范围要覆盖 .claude/**/*.sh（不再被 PRUNE 整块排掉）--"
@@ -75,7 +75,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     r=1
     if [ "$SC_RC" -ne 0 ] && contains "badcheck.sh" "$SC_OUT" && contains "shellcheck" "$SC_OUT"; then r=0; fi
     chk "$r" "③ .claude/scripts/ 下带告警的 .sh → rc 非 0 且点名 badcheck.sh（shellcheck 段落）" \
-        "rc != 0 且输出含 badcheck.sh 与 shellcheck" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+        "rc != 0 且输出含 badcheck.sh 与 shellcheck" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 else
     echo "SKIPPED ③：未装 shellcheck，该断言本身跑不了，未执行 != 通过。"
 fi
@@ -89,7 +89,7 @@ run_check "$BOX"
 r=1
 if [ "$SC_RC" -eq 0 ] && contains 'node --check' "$SC_OUT"; then r=0; fi
 chk "$r" "④ 合法 workflow 脚本（顶层 export const meta + 顶层 return）→ rc 0" \
-    "rc=0 且输出含 'node --check'" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+    "rc=0 且输出含 'node --check'" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 
 echo "-- ⑤ .claude/workflows/*.js 真语法错误仍要判红，且行号对回原文件 --"
 BOX=$(mkbox wf-bad)
@@ -100,7 +100,7 @@ run_check "$BOX"
 r=1
 if [ "$SC_RC" -ne 0 ] && contains "bad-flow.js" "$SC_OUT"; then r=0; fi
 chk "$r" "⑤ 坏的 workflow 脚本 → rc 非 0 且点名 bad-flow.js" \
-    "rc != 0 且输出含 bad-flow.js" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+    "rc != 0 且输出含 bad-flow.js" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 printf '%s\n' "$SC_OUT" | grep -q "bad-flow\.js:3$"; r=$?
 chk "$r" "⑤ 行号对回原文件第 3 行（真错误在 const b = ; 那行，不是包壳后的行号）" \
     "输出含 bad-flow.js:3" "匹配：[$(printf '%s\n' "$SC_OUT" | grep -o "bad-flow\.js:[0-9]*" | head -3 | tr '\n' ' ')]"
@@ -113,7 +113,7 @@ run_check "$BOX"
 r=1
 if [ "$SC_RC" -ne 0 ] && contains "eof-flow.js" "$SC_OUT"; then r=0; fi
 chk "$r" "⑥ 只有一行的 workflow 脚本（漏了右括号）→ rc 非 0 且点名 eof-flow.js" \
-    "rc != 0 且输出含 eof-flow.js" "rc=$SC_RC；输出：$(brief "$SC_OUT")"
+    "rc != 0 且输出含 eof-flow.js" "rc=${SC_RC}；输出：$(brief "$SC_OUT")"
 printf '%s\n' "$SC_OUT" | grep -q "eof-flow\.js:1$"; r=$?
 chk "$r" "⑥ 行号钳在原文件仅有的第 1 行（不是包壳后越界的 :3）" \
     "输出含 eof-flow.js:1" "匹配：[$(printf '%s\n' "$SC_OUT" | grep -o "eof-flow\.js:[0-9]*" | head -3 | tr '\n' ' ')]"

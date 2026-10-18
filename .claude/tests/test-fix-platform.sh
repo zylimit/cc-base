@@ -170,7 +170,7 @@ mkfixture "$PROJ"
 RC=0
 CLAUDE_PROJECT_DIR="$PROJ" bash "$FP" >"$TMP/fp-1.log" 2>&1 || RC=$?
 if [ "$RC" -ne 0 ] && ! command -v python3 >/dev/null 2>&1; then
-    skip "fix-platform.sh：本机无 python3，被测脚本自己退出 $RC（见 $TMP/fp-1.log）——未执行 != 通过"
+    skip "fix-platform.sh：本机无 python3，被测脚本自己退出 ${RC}（见 $TMP/fp-1.log）——未执行 != 通过"
 else
     chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
         "①⓪ fix-platform.sh 跑完 rc 0" "rc=0" "rc=$RC 日志尾：[$(tail -2 "$TMP/fp-1.log" | tr '\n' '~')]"

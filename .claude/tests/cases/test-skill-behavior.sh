@@ -117,7 +117,7 @@ for pair in "${ROUTE_PAIRS[@]}"; do
            || grep -q 'Failed to authenticate' "$LOG" 2>/dev/null; then
             echo ""
             echo "SKIPPED: claude 认证失败（OAuth 过期或 token 失效）—— live 路由测试无法跑。"
-            echo "  证据（探针日志 $LOG）："
+            echo "  证据（探针日志 ${LOG}）："
             grep -E '"error":"authentication_failed"|Failed to authenticate' "$LOG" \
                 | head -2 | sed 's/^/    /'
             echo "  修复：重新登录 claude（或换真 Anthropic API 环境）后重跑。"
@@ -127,7 +127,7 @@ for pair in "${ROUTE_PAIRS[@]}"; do
         if ! grep -q '"name":"Skill"' "$LOG" 2>/dev/null; then
             echo ""
             echo "SKIPPED: 当前环境 claude -p 不产 Skill 事件（use-local/LiteLLM OAuth 已知问题）。"
-            echo "  证据（探针日志 $LOG）：无 '\"name\":\"Skill\"' 事件。"
+            echo "  证据（探针日志 ${LOG}）：无 '\"name\":\"Skill\"' 事件。"
             echo "  日志末 3 行（诊断）："
             tail -3 "$LOG" | sed 's/^/    /'
             echo "  实际触发的工具（如有）："
