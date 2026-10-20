@@ -19,7 +19,7 @@
     3. **查证后再结论（铁律）**：根因、配置、外部工具的结论前先 WebSearch / 读官方文档 / 跑命令，尤其 CLI、MCP、第三方服务这类变动快的；涉及外部库、API、框架版本一律联网确认再动手。靠自觉。
     4. **远端 / 生产实况当场实查（铁律）**：对远端做删 / 改 / 重启 / 重跑之前查目标**当前**实况，不拿旧快照、时间推断、客户端状态当依据；被拒 / 中断 / 超时的远程调用一律按「可能已执行」对待，先实查再决定重发；性能根因先实测（EXPLAIN / 采样 / 计时）再荐方案。靠自觉。
     5. **存量家底保留复用（铁律）**：hooks / skills / agents / rules / CLAUDE.md 一律「保留复用 + 增量补缺」；删除、停用、重写任一现有件先给理由、由用户拍板。往家底加内容风格贴原文：缩进、标记、语气、密度同，改完读不出哪句是后加的，禁英文缩写堆砌与元叙事。闸：家底一动本轮自动升 strict 档。
-    6. **三文件同步（铁律）**：决策 / 约束 / 完成一出现就写 progress.md——决策进 Decisions（三要素：依据 / 适用范围 / 取代哪条），完成进 Done，约束进 Pinned，不许把决策埋进 Done；需求变更 Spec + CHANGELOG 成对改；存在即维护，不存在的不强造；随下一个有代码的提交入库，不为记账单独提交。闸：three-file-sync-gate，Stop 时只提醒。
+    6. **三文件同步（铁律）**：决策 / 约束 / 完成一出现就写 progress.md——决策进 Decisions（三要素：依据 / 适用范围 / 取代哪条），完成进 Done，约束进 Pinned，不许把决策埋进 Done；需求变更 Spec + CHANGELOG 成对改；存在即维护，不存在的不强造；随下一个有代码的提交入库，不为记账单独提交。闸：three-file-sync-gate，Stop 时只提醒（其中设计详述同步一项单列 design-detail-sync，strict 拦）。
     7. **用户当前指令优先**：用户明确指定范围、流程或豁免时按当前指令办，不拿框架规则压用户。安全护栏不可豁免。闸：secret-exfil-guard / dangerous-pkill-guard / release-gate，任何档都跑。
     8. **纠正当场落地**：用户给出修正时按序 ① 改当前产物与 progress.md Decisions ② 派 feedback-observer 记录 ③ 回一句「这次纠正改了 X 文件 Y 段」；纠正针对工作方法且用户说「以后都」时顺手改对应 skill / rule。收到审查意见或反馈不表演式认同：复述确认、或先问清、或有理由顶回去，行动优先于表态。收到 detect-feedback-signal 注入的提示时，处理完当前请求必须派 feedback-observer。闸：detect-feedback-signal，只提示。
     9. **静默任务先预告**：派 Sub-Agent 或长后台任务前一句话预告（静默 / 预计时长 / 完成会通知）；确认挂死迹象（CPU 0% 而时长仍涨、已定位根因却没进展）立即报告止损，不观望。工具调用被用户消息打断是 harness 信号不是否决：有新指示照办，只是提醒就解释后重发同一方案，不擅自换方案、不甩锅。闸：notify，完成侧通知。
@@ -36,7 +36,7 @@
     强度是 .claude/harness/profile.json 里的一张表：每个闸在三档下的模式（guard 类 off / advise / block，recorder 类 off / on），hook 只问 gateMode(<自己的 id>)，默认 standard。查看与切换：`node .claude/harness/harness.mjs tier status|explain <hook-id>|validate`；`tier set fast --hours N --reason "…"`，fast 必须带 reason，硬上限 8 小时自动回落；`bash .claude/scripts/fast-mode.sh` 是它的薄壳。
     - 地板（任何档都改不了）：secret-exfil-guard / dangerous-pkill-guard / release-gate / postcompact-reinject / notify。
     - 自动升档：工作树里改了 .claude/hooks|harness|skills|agents/**、.claude/CLAUDE.md、.claude/rules/**、.claude/settings.json、.github/** 任一路径，本轮自动进 strict，提交后回落；降档必须带 reason 并记进 gate-block.log。
-    - standard：stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦。strict：stop-gate 与 tdd-gate 也真拦，人当审批者。fast：guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。
+    - standard：stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦。strict：stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者。fast：guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。
     - 不等于部署或 push 授权；release 装配在 fast 生效时 tier 项直接 FAIL。项目级微调写 profile.json 的 overrides，改完 `tier validate`。
 
 [Skill 调用规则]
@@ -85,6 +85,7 @@
     - 审查收敛：一轮只 HIGH 阻断，修完由同一轮 reviewer 复核一次即收口，Medium / Low 记 progress.md 残留随后续 Task 顺手修，不派 fresh reviewer 开新一轮。
     - 每个 Phase 过四步走（Code Review → 测试完整性 → 编译验证 → 功能测试），中间有改动四步重来；收尾四态 PASS / CONCERNS / FAIL / WAIVED，WAIVED 写明理由与批准人，安全与数据丢失类不许 WAIVED。细则见 dev-builder SKILL.md [Phase 完成度判断]，Git 工作流见其 [开发规则清单]。
     - red-locks-the-bug 只给线上行为 bug 与核心解析器 / 契约缺陷：先派 tester 出红 → 主 Agent 亲见 fail → `touch .claude/.red-verified`（两小时内有效）→ implementer 修绿；边角输入、参数花样、文案类记残留不开红锁。闸：tdd-gate——派 implementer 时无有效标记，standard 提醒、strict 拦。
+    - 复杂模块的算法与业务规则写进 docs/design/<模块名>-设计.md（设计详述）：每条规则带编号、来源、合成例子、代码位置、常量与测试，`design-trace.mjs` 核对规则 ↔ 测试 ↔ 常量，代码改了设计详述没跟上 Stop 时提醒、strict 拦；写、改、核对设计详述或派单触及这类模块之前先读 .claude/rules/design-detail.md。
     - 测试按风险给预算，不做全量覆盖：用例头行标 `# risk: high|medium|low`，日常跑 high，CI 跑 all；报「绿」附运行清单；本地绿只是必要条件，推送后读 CI 自己的结论再报完成，读不到写「未知」。用例老化：`test-age` 列出跑过 20 次从未失败的退休候选，发版前过一遍删掉，但**密钥 / 危险命令 / 安装器 / 发版装配四类地板用例不退休**，退休前先对照这四类，主 Agent 验收含一次亲跑全量回归。闸靠数据留：长期全绿、从没拦过东西的闸就简化或删，`gate-audit.sh` 报的就是这个；「验证验证者」类机制不进发版链。
 
 [大仓治理与五性（可选包）]

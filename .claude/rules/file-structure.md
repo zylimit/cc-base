@@ -17,6 +17,7 @@ paths:
     ├── DESIGN.md                          # 视觉 token 与规则（可选，与 Design-Brief 配套，Google design.md 规范，代码直接读 token）
     ├── DEV-PLAN.md                        # 分阶段开发计划
     ├── domain/                            # 领域口径库（可选，副产品；一域一文件，见 .claude/rules/domain-rulings.md）
+    ├── docs/design/                       # 设计详述（可选，一个复杂模块一份 <模块名>-设计.md：规则编号 + 代码位置 + 常量 + 测试，见 .claude/rules/design-detail.md）
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
     │   ├── src/
     │   ├── package.json
@@ -25,7 +26,7 @@ paths:
     └── .claude/
         ├── CLAUDE.md                      # 主控
         ├── settings.json                  # hooks 等 Claude Code 配置
-        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings；harness-large-repo / quality-attributes 随 --with-harness 装进来）
+        ├── rules/                         # 主控下沉的细则（file-structure / workflow-orchestration / dev-workflow-details / subagent-dispatch / memory-systems / domain-rulings / design-detail；harness-large-repo / quality-attributes 随 --with-harness 装进来）
         ├── hooks/                         # 闸门钩子（stop-gate / no-direct-code-guard / tdd-gate / pre-commit-check / three-file-sync-gate / dangerous-pkill-guard / secret-exfil-guard / precompact-gate / release-gate / harness-async-verify / notify / session-rules-banner 等，全部 .mjs，node 单运行时，共用逻辑在 hooks/lib/）
         ├── harness/                       # 核心只剩 harness.mjs + lib/{core,tier}.mjs + profile.json（档位表）+ exclusions.json + audit/；大仓治理引擎在 harness/ext/（含 ext/rules/ 两份细则），目标项目默认不装、setup --with-harness 才装，module-catalog.json 放置即启用
         ├── workflows/                     # Workflow 编排脚本（code-review-fanout.js）
@@ -40,11 +41,11 @@ paths:
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / progress-archive 归档搬运 / statusline 状态行 / supervisor 进程守护）
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / progress-archive 归档搬运 / design-trace 设计详述规则 ↔ 测试 ↔ 常量核对 / statusline 状态行 / supervisor 进程守护）
         ├── tests/                         # 框架自测三十来套（selftest 引擎自测 / 安装器与跨平台 / hook 行为与注册面 / 档位 / 闸与证据层红锁 / 审计脚本 / 发布装配 / 前期文档闸与设计稿审计），每套头一行标 `# risk:`，cases/run-all.sh 统一跑（默认 high，`--level all` 跑全）——清单以目录实际内容为准，不在本文件逐个列
         └── skills/
             ├── product-spec-builder/      # 需求收集
-            ├── arch-designer/             # 架构设计（不变量 + 模块划分 + C4 + ADR + 押后决定）
+            ├── arch-designer/             # 架构设计（不变量 + 模块划分 + C4 + ADR + 押后决定；templates 含设计详述模板）
             ├── dfx-designer/              # DFX 设计（13 维质量属性定档 + 合规扫描 + 威胁表）
             ├── design-brief-builder/      # 设计规范（Design-Brief.md + DESIGN.md，references 含风格词汇表 / 质量地板 / Agent 交互模式）
             ├── design-maker/              # 设计图制作（odc 为主，点名时走 Claude Design 画布或提示词；方向样张 + 两遍法 + ui-audit 验收）

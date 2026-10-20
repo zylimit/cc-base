@@ -170,11 +170,11 @@ if command -v node >/dev/null 2>&1; then
         run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
     done
     # 前期闸这一组：predev-lint（五份文档结构 + 延迟与重试预算算术）、ui-audit（渲染审计）、
-    #   plan-lint（需求↔计划双向覆盖）、ui-slop-scan（界面通病静态扫描）。
+    #   plan-lint（需求↔计划双向覆盖）、ui-slop-scan（界面通病静态扫描）、design-trace（设计详述规则 ↔ 测试 ↔ 常量）。
     #   test-ui-audit 在没有浏览器引擎的机器上 U5 只能 SKIPPED，套件按 golden 的约定退 3——
-    #   「没跑」要在最后一行说出来，不让 CI 把它读成通过；其余三套不会退 3。
-    #   分级由各套自己头部的 `# risk:` 决定：predev-lint 是 high 天天跑，另三套 medium 进 CI。
-    for s in test-predev-lint.sh test-ui-audit.sh test-plan-lint.sh test-ui-slop-scan.sh; do
+    #   「没跑」要在最后一行说出来，不让 CI 把它读成通过；其余几套不会退 3。
+    #   分级由各套自己头部的 `# risk:` 决定：predev-lint 与 design-trace 是 high 天天跑，另三套 medium 进 CI。
+    for s in test-predev-lint.sh test-design-trace.sh test-ui-audit.sh test-plan-lint.sh test-ui-slop-scan.sh; do
         PREDEV_RC=0
         run_test "$TESTS_DIR/$s" || PREDEV_RC=$?
         if [ "$PREDEV_RC" -eq 3 ]; then

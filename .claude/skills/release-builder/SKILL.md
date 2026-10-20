@@ -31,6 +31,7 @@ argument-hint: "[版本号或部署目标（可选）]"
     - `grep` 查 `sk-ant-` / `sk-proj-` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / 明文密码
     发现任何一项立刻停，修复后重新构建。
     依赖：npm audit 无 critical，构建过程无 MODULE_NOT_FOUND。
+    设计详述：项目有 docs/design/ 时跑 `node .claude/scripts/design-trace.mjs`，rc 1 在发布报告里记 CONCERNS 并列出缺口，rc 2 / 3 是用法错或脚本自身出错，修好再跑、不当缺口记。
     大批量改造后发布：确认收口期那次重复代码扫描已做过，没做先补（见 dev-builder [Phase 完成度判断]）。
     Git：author 不暴露个人信息，.gitignore 覆盖所有数据文件（.env*、*.db、本地数据目录）。
 

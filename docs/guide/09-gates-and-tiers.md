@@ -97,6 +97,7 @@ Windows 纯 PowerShell：`Set-Content .claude/.needs-review clean`、`New-Item -
 | Notification `agent_needs_input\|agent_completed\|permission_prompt` | notify | 三类通知转 OSC 777 桌面通知 + BEL，经 `terminalSequence` 由宿主代发 | recorder（floor） | — | 通知 | — | **是** |
 | Stop | stop-gate | `.needs-review` 去空行去 `clean` 后仍有文件 → 拦或提醒；同一清单连拦 3 次第 4 次放行并醒目提示 | guard | advise / advise / block | **只提醒** | `echo clean > .claude/.needs-review` | |
 | Stop | three-file-sync-gate | 代码 / 家底脏而 progress.md 没动；Spec / CHANGELOG 只改一份 | guard | advise / advise / advise | 只提醒 | 写 progress.md / 成对改 | |
+| Stop | three-file-sync-gate（design-detail-sync） | 改了 docs/design/ 某份设计详述代码范围里的代码，设计详述没改 | guard | advise / advise / block | strict 拦 | 同步规则，或只改了测试就补测试名 | 同一个 hook 文件，单独取档 |
 | SubagentStop `implementer\|code-reviewer\|tester\|deployer` | subagent-acceptance-reminder | 注给**刚停下的子 Agent 自己**：结论锚到实际跑过的命令、证不出的写 Not verified；回执 Domain findings 有内容时多一句 | recorder | off / on / on | 注 | 每个完成事件只提醒一次（`.claude/.subagent-reminded` 去重） | |
 
 `settings.json` 还设了 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=25` 和 `permissions.ask`（`gh release` / `npm publish` / `docker push` 三条不该豁免的安全底线）、`permissions.deny`（读 `.env` 家族、`id_rsa`、`~/.ssh`、`credentials.json` 等）。
@@ -197,6 +198,7 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 |---|---|---|---|---|
 | stop-gate | guard | advise | advise | block |
 | three-file-sync-gate | guard | advise | advise | advise |
+| design-detail-sync | guard | advise | advise | block |
 | precompact-gate | guard | advise | block | block |
 | pre-commit-check | guard | advise | block | block |
 | no-direct-code-guard | guard | advise | block | block |
@@ -217,7 +219,7 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 - **raise**：`to: strict`，`paths` = `.claude/hooks/**` `.claude/harness/**` `.claude/skills/**` `.claude/agents/**` `.claude/CLAUDE.md` `.claude/rules/**` `.claude/settings.json` `.github/**`。
 - **overrides**：`{}`，项目级单闸覆盖写这里。
 
-三档的口径（`.claude/CLAUDE.md` [档位]）：**standard** = 现行流程，stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦；**strict** = stop-gate 与 tdd-gate 也真拦，人当审批者；**fast** = guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。fast 不等于部署或 push 授权，`release` 装配在 fast 生效时 `tier` 项直接 FAIL。
+三档的口径（`.claude/CLAUDE.md` [档位]）：**standard** = 现行流程，stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦；**strict** = stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者；**fast** = guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。fast 不等于部署或 push 授权，`release` 装配在 fast 生效时 `tier` 项直接 FAIL。
 
 ### 档位怎么算出来的
 

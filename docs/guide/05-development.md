@@ -364,7 +364,7 @@ CLAUDE.md 要求派发前确认已备齐完整任务上下文，这一步靠自�
 
 1. 涉及的 Spec 条目原文抄进 Business Context 了吗（含规则与例外）？
 2. progress.md Pinned / Decisions 里适用本 Task 的规则引日期抄了吗？
-3. `domain/` 存在时，按域与本 Task 会碰的技术对象匹配口径了吗？
+3. `domain/` 存在时，按域与本 Task 会碰的技术对象匹配口径了吗？`docs/design/` 存在且改动落在某份设计详述的代码范围里时，规则编号抄了吗？
 4. Scope 里的文件路径都是真路径吗？Existing Pattern 给了具体文件吗？
 5. Verification 是能跑的命令，不是「跑一下测试」？
 6. 档位写在 Goal 首行了吗？HIGH 传 `model: opus` 了吗？
@@ -376,6 +376,8 @@ CLAUDE.md 要求派发前确认已备齐完整任务上下文，这一步靠自�
 每个 Task 与 Phase 都会产生三类东西要进 progress.md：决策（选型 / 取舍 / 否决 / 撤回）进 Decisions，带依据 / 适用范围 / 取代哪条；完成项进 Done；约束进 Pinned。决策不许埋进 Done 叙述充数。Medium / Low finding 的残留清单、四态门 CONCERNS 的残留、跳过某阶段的理由，都写 progress.md。写进文件即时做，入库随下一个有代码的提交，不为记账单独提交。
 
 `three-file-sync-gate.mjs`（Stop）在任何档都只提醒不拦。
+
+复杂模块的算法规则另有一层：`docs/design/<模块名>-设计.md`（设计详述，模板在 `arch-designer/templates/design-detail-template.md`）。每条规则一个编号，写规则原文、来源、合成例子、代码位置、常量和测试名；测试里用 `# rule: 编号` 或 `// rule: 编号` 标它验的规则。`node .claude/scripts/design-trace.mjs` 报三类缺口——有编号没测试、测试标了不存在的编号、常量表与代码值对不上，rc 0 全对、1 有缺口、2 用法错、3 脚本自身出错。progress.md 的 Decision 属于某模块算法规则的，正文进设计详述、progress 只留一行指针。同一个 Stop 闸会查「改了设计详述代码范围里的代码、设计详述没改」，这一条单独一档 `design-detail-sync`：standard 提醒、strict 拦。细则见 `.claude/rules/design-detail.md`。
 
 ### 边界
 

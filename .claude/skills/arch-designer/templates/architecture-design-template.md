@@ -27,9 +27,9 @@ C4Context
 
 ## 2. 模块划分
 
-| 模块 id | 职责（一句话） | 对外契约 | dependsOn | 禁依赖 | 变化原因（SRP 检验） | riskTier |
-|---|---|---|---|---|---|---|
-| {{core}} | | | | | | low/medium/high |
+| 模块 id | 职责（一句话） | 对外契约 | dependsOn | 禁依赖 | 变化原因（SRP 检验） | riskTier | 设计详述 |
+|---|---|---|---|---|---|---|---|
+| {{core}} | | | | | | low/medium/high | {{docs/design/<模块名>-设计.md 或「无」}} |
 
 - **容器图（C4 L2，图即规则：谁可依赖谁）**：
 

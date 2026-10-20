@@ -9,6 +9,12 @@
 // 项目根解析：CLAUDE_PROJECT_DIR 优先，缺失回退 git root，再回退 pwd。
 // 子目录场景：项目只是父仓子目录时（show-prefix 非空），status 加 -- . 限定项目子树，
 //   记录路径先剥 show-prefix 前缀再分类，剥不掉的跳过；项目即仓根时前缀为空、行为不变。
+// 设计详述分支（design-detail-sync，档位单列）：项目有 docs/design/*.md 时，未提交改动里有落在某份
+//   设计详述文首「> 代码范围：」通配内的文件、而那份设计详述本身不在改动集 → 一条理由（点名文件与
+//   设计详述）。设计详述自己不算代码改动。通配写法宽容：反斜杠当 /、去开头 ./ 与末尾 /，不含 * 的
+//   条目按目录或文件前缀算。既无 progress.md 又无 docs/design/*.md 的项目一行 git 都不跑、直接放行
+//   （旧行为）。与 C1/C2 各取各的档位，两边都有理由时任一边是 block 就整体 block、理由合并，
+//   advise 档来源的理由在拦停文案里标「（仅提醒）」。
 // 档位（profile.json）：off 静默放行；advise（fast 档）照判照记账但出 systemMessage 不 block；
 //   block（standard/strict）走原逻辑。
 // fail-closed：闸自身出错（含 git status 跑不成）绝不静默放行，一律拦停——树没被看过就不能
@@ -18,12 +24,49 @@ import path from 'node:path';
 import { projectDir, git, porcelainZ, classifyChange, relToProject, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
 
+// 读设计详述文首「> 代码范围：」行里反引号括起的通配，翻成正则：** 跨目录、* 不跨目录、其余字面。
+// 先规范化：反斜杠当 /、去开头 ./ 与末尾 /；不含 * 的条目按目录或文件前缀（p 本身或 p/**）。
+function globToRe(raw) {
+  const g = raw.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  if (!g.includes('*')) return new RegExp('^' + g.replace(/[.+?^${}()|[\]\\]/g, '\\$&') + '(?:/.*)?$');
+  let re = '';
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === '*') {
+      if (g[i + 1] === '*') {
+        i++;
+        if (g[i + 1] === '/') { i++; re += '(?:.*/)?'; } else re += '.*';
+      } else re += '[^/]*';
+    } else re += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp('^' + re + '$');
+}
+
+function designDetails(root) {
+  const dir = path.join(root, 'docs', 'design');
+  let names;
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort(); } catch (_e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!fs.statSync(path.join(dir, n)).isFile()) continue;
+    const text = fs.readFileSync(path.join(dir, n), 'utf8');
+    const m = /^>\s*代码范围[:：](.*)$/m.exec(text);
+    const globs = m ? [...m[1].matchAll(/`([^`]+)`/g)].map((x) => x[1].trim()).filter((x) => x && !x.includes('{{')) : [];
+    out.push({ rel: `docs/design/${n}`, res: globs.map(globToRe) });
+  }
+  return out;
+}
+
 runFailClosed(async () => {
   const mode = await gateModeOf('three-file-sync-gate');
-  if (mode === 'off') return;
+  const ddMode = await gateModeOf('design-detail-sync');
+  if (mode === 'off' && ddMode === 'off') return;
 
   const root = projectDir();
-  if (!fs.existsSync(path.join(root, 'progress.md'))) return;
+  // 无 progress.md 时 C1/C2 不适用（原行为），设计详述分支不依赖它，照判。
+  const c12 = mode !== 'off' && fs.existsSync(path.join(root, 'progress.md'));
+  const dds = ddMode !== 'off' ? designDetails(root) : [];
+  if (!c12 && dds.length === 0) return;
 
   // 非 git 仓 → 无工作树可判，优雅放行。
   if (git(['rev-parse', '--is-inside-work-tree'], { cwd: root }).status !== 0) return;
@@ -36,12 +79,14 @@ runFailClosed(async () => {
   let specDirty = false;
   let changelogDirty = false;
   let firstCode = '';
+  const changed = new Set();
 
   // 剥掉仓根到项目目录的前缀（剥不掉的跳过不分类，-- . 限定后理论上不该有），再把 kind
   // 映射回本闸的四个标志。前缀剥法与分类表都在 io.mjs，precompact-gate 用的是同一份。
   const take = (p) => {
     const rel = relToProject(p, prefix);
     if (rel === null) return;
+    changed.add(rel);
     switch (classifyChange(rel)) {
       case 'progress': progDirty = true; break;
       case 'spec': specDirty = true; break;
@@ -67,12 +112,12 @@ runFailClosed(async () => {
 
   const reasons = [];
 
-  if (codeDirty && !progDirty) {
+  if (c12 && codeDirty && !progDirty) {
     reasons.push(`三文件同步铁律：检测到未提交的代码/家底改动（如 ${firstCode}）但 progress.md 未同步。请把本轮的决策/完成事项/进度/新任务即时写入 progress.md（doc 类主 Agent 直接写），保证随时可 Clear→recap 完整恢复，然后重试停止。`);
   }
 
   // 成对校验只在两份都存在时进行，缺一不强造、不拦停。
-  if (fs.existsSync(path.join(root, 'Product-Spec.md')) && fs.existsSync(path.join(root, 'Product-Spec-CHANGELOG.md'))) {
+  if (c12 && fs.existsSync(path.join(root, 'Product-Spec.md')) && fs.existsSync(path.join(root, 'Product-Spec-CHANGELOG.md'))) {
     if (specDirty && !changelogDirty) {
       reasons.push('Product-Spec.md 有未提交改动但 Product-Spec-CHANGELOG.md 未同步，需求变更可能漏记 CHANGELOG。请在 Product-Spec-CHANGELOG.md 补本次需求变更记录后重试停止。');
     }
@@ -81,12 +126,28 @@ runFailClosed(async () => {
     }
   }
 
-  if (reasons.length === 0) return;
+  // 设计详述分支：有 docs/design/ 才付代价。命中通配的改动文件 + 设计详述不在改动集 → 一条理由。
+  const ddReasons = [];
+  if (ddMode !== 'off') {
+    for (const d of dds) {
+      if (changed.has(d.rel)) continue;
+      const hit = [...changed].filter((f) => !f.startsWith('docs/design/') && d.res.some((re) => re.test(f)));
+      if (hit.length === 0) continue;
+      const names = hit.slice(0, 3).join('、') + (hit.length > 3 ? ` 等 ${hit.length} 个` : '');
+      ddReasons.push(`设计详述同步：改动了 ${names}（落在 ${d.rel} 的代码范围内），但 ${d.rel} 未改。请同步规则，或只改了测试就在设计详述里补测试名，然后重试停止。`);
+    }
+  }
 
-  const reason = reasons.join(' ');
-  // advise 档（本闸三档都是它）：同一段话照说、照记账，只是不拦——欠账得看得见。
-  // 前缀写 [advise] 不写 [fast]：这条闸任何档都只提醒，写死 fast 就是在报一个没人开过的档
-  if (mode === 'advise') {
+  if (reasons.length === 0 && ddReasons.length === 0) return;
+
+  // 逐边定性：C1/C2 边按 mode，设计详述边按 ddMode；任一边是 block 整体 block，理由合并。
+  const blocking = (reasons.length > 0 && mode !== 'advise') || (ddReasons.length > 0 && ddMode === 'block');
+  // 拦停文案里，来自 advise 档那一边的理由标「（仅提醒）」，别让人以为它也在拦。
+  const tag = (list, m) => (blocking && m === 'advise' ? list.map((r) => `（仅提醒）${r}`) : list);
+  const reason = [...tag(reasons, mode), ...tag(ddReasons, ddMode)].join(' ');
+  // advise 档：同一段话照说、照记账，只是不拦——欠账得看得见。
+  // 前缀写 [advise] 不写 [fast]：这条闸任何档都可能只提醒，写死 fast 就是在报一个没人开过的档
+  if (!blocking) {
     const msg = `[advise] ${reason}`;
     gateLog('three-file-sync-gate', msg);
     emit({ systemMessage: msg });

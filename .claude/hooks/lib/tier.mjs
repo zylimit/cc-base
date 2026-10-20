@@ -33,6 +33,7 @@ export const DEFAULT_PROFILE = {
   hooks: {
     'stop-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'block' },
     'three-file-sync-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'advise' },
+    'design-detail-sync': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'block' },
     'precompact-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
     'pre-commit-check': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
     'no-direct-code-guard': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
@@ -74,6 +75,7 @@ const GUARDS = new Set([
   'stop-gate',
   'tdd-gate',
   'three-file-sync-gate',
+  'design-detail-sync',
 ]);
 
 const GUARD_MODES = new Set(['off', 'advise', 'block']);

@@ -43,6 +43,9 @@ function runtimeFile(root) {
   return path.join(root, '.claude', '.runtime', 'tier.json');
 }
 
+/** 同一个 hook 文件里的子闸：自己没有 .mjs，随宿主闸注册（宿主在 settings.json 里就算它注册了）。 */
+const SUB_GATES = { 'design-detail-sync': 'three-file-sync-gate' };
+
 /**
  * Hook ids this repository actually registers, read from settings.json (`args[0]` of every
  * command entry). Derived rather than listed: a hard-coded roster is a second copy of the
@@ -72,6 +75,7 @@ function registeredHooks(root) {
       }
     }
   }
+  for (const [sub, host] of Object.entries(SUB_GATES)) if (ids.has(host)) ids.add(sub);
   return { ids: [...ids].sort(), readable: true };
 }
 
