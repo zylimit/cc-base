@@ -31,7 +31,7 @@ export const DEFAULT_PROFILE = {
   default: 'standard',
   floor: ['secret-exfil-guard', 'dangerous-pkill-guard', 'release-gate', 'postcompact-reinject', 'notify'],
   hooks: {
-    'stop-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'block' },
+    'stop-gate': { kind: 'guard', fast: 'off', standard: 'advise', strict: 'block' },
     'three-file-sync-gate': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'advise' },
     'design-detail-sync': { kind: 'guard', fast: 'advise', standard: 'advise', strict: 'block' },
     'precompact-gate': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
@@ -39,7 +39,7 @@ export const DEFAULT_PROFILE = {
     'no-direct-code-guard': { kind: 'guard', fast: 'advise', standard: 'block', strict: 'block' },
     'tdd-gate': { kind: 'guard', fast: 'off', standard: 'advise', strict: 'block' },
     'harness-async-verify': { kind: 'guard', fast: 'off', standard: 'block', strict: 'block' },
-    'mark-review-needed': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
+    'mark-review-needed': { kind: 'recorder', fast: 'on', standard: 'on', strict: 'on' },
     'record-authorship': { kind: 'recorder', fast: 'on', standard: 'on', strict: 'on' },
     'auto-push': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
     'kill-dev-ports': { kind: 'recorder', fast: 'off', standard: 'on', strict: 'on' },
@@ -158,7 +158,7 @@ export function loadProfile(root = defaultRoot()) {
  * 读运行态会话覆盖 .claude/.runtime/tier.json。
  * 缺文件 / 已过期 / 档名非法 → null（视为无覆盖，回默认档）；坏 JSON → null + quarantine 留痕。
  * 读之前先剥 \r：Windows 侧写出的 CRLF 是合法输入，不许因为行尾把整份判成坏文件（#38）。
- * @returns {{tier:string,reason?:string,by?:string,set_epoch?:number,expires_epoch?:number}|null}
+ * @returns {{tier:string,reason?:string,by?:string,set_epoch?:number,expires_epoch?:number|null,sticky?:true}|null}
  */
 export function readSession(root = defaultRoot(), now = Date.now()) {
   const fp = path.join(root, '.claude', '.runtime', 'tier.json');
@@ -182,6 +182,15 @@ export function readSession(root = defaultRoot(), now = Date.now()) {
     return null;
   }
   let exp = Number(v.expires_epoch);
+  // sticky：用户明说「到撤销为止」的 fast（tier set fast --sticky），不按 8h 夹、不按过期回落，
+  // 只认 tier set standard|strict 撤销。只认写侧那份完整形状——sticky 严格为 true、set_epoch 仍在、
+  // expires_epoch 为 null、reason 非空：手写一份半截的 sticky 不能换来无限期放水，缺哪样都按普通 fast
+  // 走下面的夹与过期（缺 set_epoch 照旧 quarantine 拒收，红蓝 High #2 的硬化不退）。
+  if (v.tier === 'fast' && v.sticky === true && v.expires_epoch === null
+      && Number.isFinite(Number(v.set_epoch)) && v.set_epoch !== null
+      && typeof v.reason === 'string' && v.reason.trim()) {
+    return v;
+  }
   if (v.tier === 'fast') {
     // 8h 硬上限在读侧也夹：写侧的截断只是礼貌，手写一份 720h 的 tier.json 不能换来 720h 的放水。
     // 夹的锚点是 set_epoch——缺了它上限就没处算，这份 fast 覆盖不认（红蓝审查 v2.0.0 High #2：
@@ -274,7 +283,7 @@ function raisedBy(root, profile) {
 
 /**
  * 当前生效档位。
- * @returns {{tier:string, source:'default'|'session'|'raise', raisedBy?:string[], expiresEpoch?:number}}
+ * @returns {{tier:string, source:'default'|'session'|'raise', raisedBy?:string[], expiresEpoch?:number, sticky?:true}}
  */
 export function effectiveTier({ projectDir = defaultRoot(), now = Date.now() } = {}) {
   // 传进来的可能是仓内某个子目录（调用方拿 cwd 当项目根）：profile / tier.json / git status 都得
@@ -289,7 +298,9 @@ export function effectiveTier({ projectDir = defaultRoot(), now = Date.now() } =
   // 和「刚把 fast 关掉」——而这两种处境下该说的话完全不同。
   const source = session && session.tier !== def ? 'session' : 'default';
   const out = { tier, source };
-  if (session && Number.isFinite(Number(session.expires_epoch))) out.expiresEpoch = Number(session.expires_epoch);
+  // sticky 对外契约：sticky:true + expiresEpoch:null（消费方按 null 判「到撤销」，别 Number(null) 算成 0）。
+  if (session && session.sticky === true) { out.sticky = true; out.expiresEpoch = null; }
+  else if (session && Number.isFinite(Number(session.expires_epoch))) out.expiresEpoch = Number(session.expires_epoch);
 
   const raise = (profile.raise || {});
   if (rank(raise.to) > rank(tier)) {

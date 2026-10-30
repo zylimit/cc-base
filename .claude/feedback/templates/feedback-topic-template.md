@@ -4,6 +4,8 @@ description: [一句话摘要——用于索引快速扫描]
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 graduated: false
+# origin 可选——下游项目名；cc-base 用 collect-feedback.sh 收下游时填，项目内自产留空
+origin:
 source_skill: [skill-name 或 N/A]
 scope: [适用范围——哪些阶段 / 角色 / 项目类型适用]
 exceptions: [例外——哪些情况不适用；没有写 none]

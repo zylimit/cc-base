@@ -205,7 +205,7 @@ project/
     ├── hooks/                            # 21 个注册闸门（.mjs）+ static-check 工具 + lib/
     ├── harness/                          # 核心 harness.mjs + lib/{core,tier}.mjs + profile.json + audit/；引擎在 harness/ext/（可选包，--with-harness 才装，放 module-catalog.json 才启用）
     ├── workflows/                        # Workflow 脚本（code-review-fanout.js）
-    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode（tier set 薄壳）/ fix-platform / gen-manifest / gate-audit / statusline 状态行 / supervisor 进程守护）
+    ├── scripts/                          # 质量脚本（doctor / plan-lint / skill-lint / fast-mode（tier set 薄壳）/ fix-platform / gen-manifest / gate-audit / collect-feedback 收下游 feedback / statusline 状态行 / supervisor 进程守护）
     ├── tests/                            # 框架自测（selftest / test-setup / test-routing / 闸回归 / test-supervisor / cases）
     ├── feedback/                         # 已固化铁律 + 索引 + templates
     └── EVOLUTION.md                      # 进化引擎

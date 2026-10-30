@@ -7,6 +7,8 @@
 // 180 秒防抖（.async-verify-last 记上次运行 epoch，异步并发场景先写后跑防风暴）；标记写不下时
 // 防抖是永久失效而非多跑一次，那一行诊断必须留下，不吞。
 // 摘要预算：只回 gate + 失败/受阻 check 前 5 条 + 属性缺口计数，不贴全量 JSON。
+// 引擎包未装的提醒每个 session 只说一次、只记一次账：.claude/.runtime/async-verify-ext-notice 记已经
+//   提醒过的 session 标识（stdin 的 session_id，没有就按天）。下游 30 天这一句记了 38 条，内容一字不差。
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir, readStdinRaw, readTextFile, say, errText, fastOff } from './lib/io.mjs';
@@ -14,6 +16,20 @@ import { gateLog } from './lib/gatelog.mjs';
 import { harnessEnabled, harnessExtInstalled, harnessExtMissingNotice, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
 
 const DEBOUNCE_SEC = 180;
+
+/** 本次事件归哪个 session：stdin 的 session_id；没有（或 stdin 不是 JSON）就按 UTC 日期，一天说一次。 */
+function sessionKey(raw) {
+  let ev = null;
+  try { ev = JSON.parse(raw); } catch (_e) { ev = null; }
+  const id = ev && typeof ev === 'object' ? String(ev.session_id || '').trim() : '';
+  return id ? `session:${id}` : `day:${new Date().toISOString().slice(0, 10)}`;
+}
+
+/** 这个 session 是不是已经说过「引擎包未装」：标记内容与本次标识一致才算；读不出一律当没说过。 */
+function extNoticeSaid(file, key) {
+  const st = readTextFile(file);
+  return Boolean(st.text) && st.text.replace(/\r/g, '').split('\n')[0] === key;
+}
 
 /** 上次跑完的 epoch；文件缺失 / 不是纯数字都当「没跑过」。 */
 function lastRun(mark) {
@@ -44,8 +60,8 @@ function summarize(stdout) {
 async function main() {
   if (await fastOff('harness-async-verify')) return;
 
-  // 消费 stdin（file_path 不用——verify 自己从 git 工作树算 changed 集）
-  readStdinRaw();
+  // 消费 stdin（file_path 不用——verify 自己从 git 工作树算 changed 集；只取 session_id 给提醒去重）
+  const raw = readStdinRaw();
 
   if (!harnessEnabled()) return;
 
@@ -67,10 +83,21 @@ async function main() {
   // catalog 在、引擎包（harness/ext）不在：verify 只会 rc 3 降级，早警一次也没跑成。不唤醒
   // （早警本就不硬拦），但这一句必须出——否则编辑期看着像「后台一直在验、都没问题」。
   // 放在防抖之后：这是每次 Edit|Write 都会走的路，摆在防抖前就是每敲一下刷一句。
+  // 一个 session 说一次就够：同一句话每过 180 秒刷一遍、记一条账，只会把它刷成没人看的噪音。
   if (!harnessExtInstalled()) {
+    const noticeMark = path.join(root, '.claude', '.runtime', 'async-verify-ext-notice');
+    const key = sessionKey(raw);
+    if (extNoticeSaid(noticeMark, key)) return;
     const notice = harnessExtMissingNotice('编辑期后台质量门（harness verify）');
     say(`[harness-async-verify] ${notice}`);
     gateLog('harness-async-verify', notice);
+    try {
+      fs.mkdirSync(path.dirname(noticeMark), { recursive: true });
+      fs.writeFileSync(noticeMark, `${key}\n`);
+    } catch (e) {
+      // 记不下 = 这个 session 每过防抖都会再说一次，退回旧行为；原因得留一行，不吞
+      say(`[harness-async-verify] 提醒去重标记写不下（${errText(e)}），本 session 会重复提醒`);
+    }
     return;
   }
 

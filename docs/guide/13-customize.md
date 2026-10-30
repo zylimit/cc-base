@@ -2,7 +2,7 @@
 
 这章解决的问题：框架装进项目之后要按自己的团队改——往 CLAUDE.md 加一条铁律、加一个 skill、加一道闸、加一个角色、调某个闸的档位、把一次纠正记成 feedback 并让它最终毕业成规则。读完你能按仓库既有的写法把这些改动做完整：每处该登记的都登记、该测的都有用例、`tier validate` / `test-routing` / `skills-lint` / `gen-manifest --check` 四道机器闸都过。
 
-改家底自动升 strict 档（`profile.json` 的 `raise.paths` 含 `.claude/hooks|harness|skills|agents/**`、`.claude/CLAUDE.md`、`.claude/rules/**`、`.claude/settings.json`、`.github/**`），提交后回落。改的时候 stop-gate 与 tdd-gate 会真拦，这是设计。
+改家底自动升 strict 档（`profile.json` 的 `raise.paths` 含 `.claude/hooks|harness|skills|agents/**`、`.claude/CLAUDE.md`、`.claude/rules/**`、`.claude/settings.json`、`.github/**`），提交后回落。改的时候 stop-gate 会真拦、tdd-gate 对含 red-lock 关键词的派单真拦，这是设计。
 
 ## 入门：改 CLAUDE.md 的风格约束
 
@@ -280,7 +280,8 @@ feedback 记 AI 工作方法的纠正，不记项目事实（那进 progress.md 
 | `source_skill` | skill 名或 `N/A` |
 | `scope` / `exceptions` / `supersedes` | 适用范围 / 例外 / 取代哪条——没有范围的规则会被用到不该用的地方 |
 | `applied_to` | 本次纠正已落到哪里（文件:段落 / progress.md Decisions 日期 / 派单包），未落地写 `pending` |
-| `scores` | 可选，仅 Skill 执行后填：accuracy / coverage / efficiency / satisfaction 1-5 + evidence |
+| `scores` | 可选，仅 Skill 执行后填：accuracy / coverage / efficiency / satisfaction 1-5 + evidence；evolution-engine 不再拿它当信号 |
+| `origin` | 可选，下游项目名；框架仓用 `collect-feedback.sh` 收下游时填（多个逗号分隔），项目内自产留空 |
 
 正文五段：问题描述（引原话）/ 触发场景 / 教训建议 / 适用范围与例外 / 本次落地。新建后同步更新 `FEEDBACK-INDEX.md`，格式 `- [标题](文件名.md) — 一句话描述`。
 
@@ -294,12 +295,12 @@ graduated: true  # 2026-09-10 毕业→CLAUDE.md [开发测试规则]「本地�
 
 ## 精通：evolution-engine 提议流程
 
-`.claude/skills/evolution-engine/SKILL.md`，`context: fork` + `agent: evolution-runner`，SessionStart 由 `check-evolution.mjs` 触发或手动 `/evolution-engine`。
+`.claude/skills/evolution-engine/SKILL.md`，`context: fork` + `agent: evolution-runner`，SessionStart 由 `check-evolution.mjs` 触发或手动 `/evolution-engine`。框架仓里扫之前先 `bash .claude/scripts/collect-feedback.sh <下游项目路径…>` 把下游收进来（见 08 章）；下游项目里只分拣不毕业——项目内的 skill 是清单管的副本。
 
 | 信号 | 判据 | 落点 |
 |---|---|---|
 | 规则毕业 | `graduated == false` 且 `skipped != true` 的每条过现状核查与实证门槛 | `source_skill` 明确 → 对应 SKILL.md；全局性 → CLAUDE.md |
-| Skill 优化 | 某 Skill 连续 3 次同一维度 ≤ 2 分；或某维度最近 5 次平均 ≤ 3 分；或未毕业 feedback 有 3 条以上指向同一环节（按主题聚类） | 修改对应 SKILL.md |
+| Skill 优化 | 某 Skill 的未毕业 feedback 有 3 条以上指向同一环节（按主题聚类）；scores 不再当信号 | 修改对应 SKILL.md |
 | 新 Skill 提议 | 同族主题跨 3 条以上 feedback 反复出现且无已有 Skill 覆盖 | 调用 skill-builder |
 
 提议格式固定「进化建议（共 N 条）」三段，每条带「确认 / 跳过」。用户逐条确认：毕业 → 写入目标文件并标 `graduated: true`；跳过 → 标 `skipped: true` 不再提。无信号返回「无进化建议」。

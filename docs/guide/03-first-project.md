@@ -148,5 +148,5 @@ Task 全部完成后过 **四步走**：Code Review 对照交付清单、测试�
 - **跳过 Spec 直接让它写代码**。它会先引导你写需求。硬要跳过，派出去的 implementer 缺 Business Context 只能猜，猜错的成本比写 Spec 高。
 - **在派单还没回来时催**。派单是后台静默的，完成有桌面通知。主 Agent 确认挂死（CPU 0% 而时长仍涨）会主动报告，不需要你盯。
 - **把「已派发」当「已完成」**。验收只认回执到手并核过证据。
-- **在 strict 档派 implementer 被 tdd-gate 拦**。你改过 `.claude/` 下的文件本轮就是 strict。非红锁任务 `touch .claude/.tdd-exempt`（两小时内有效），红锁任务先验红。
+- **在 strict 档派 implementer 被 tdd-gate 拦**。你改过 `.claude/` 下的文件本轮就是 strict。派单 prompt 不含 red-lock 关键词（bug / 修复 / 解析器 / 契约 …）的单子它不响；含关键词的红锁任务先验红，确实不该红锁的 `touch .claude/.tdd-exempt`（两小时内有效）。
 - **发布时主 Agent 说「请你敲 /release-builder」**。这是设计，不是它偷懒。

@@ -19,9 +19,9 @@ async function tierNow(root) {
   }
 }
 
-/** 距过期还剩几小时（一位小数）；没有过期时间返回 null。 */
+/** 距过期还剩几小时（一位小数）；没有过期时间返回 null（null / 空串经 Number() 会变成 0，先挡掉）。 */
 function hoursLeft(epoch) {
-  if (!Number.isFinite(Number(epoch))) return null;
+  if (epoch === null || epoch === undefined || epoch === '' || !Number.isFinite(Number(epoch))) return null;
   return Math.max(0, Math.round((Number(epoch) * 1000 - Date.now()) / 360000) / 10);
 }
 
@@ -60,8 +60,10 @@ runFailOpen(async () => {
   }
   const tier = root ? await tierNow(root) : null;
   if (tier && tier.tier === 'fast') {
-    const left = hoursLeft(tier.expiresEpoch);
-    out(`‼️ tier: fast（${left === null ? '无过期时间' : `剩 ${left} h`}${tier.reason ? `，${tier.reason}` : ''}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
+    // sticky（tier set fast --sticky）没有过期时间，是用户明说的「到撤销为止」——照实说，别算出个剩几小时
+    const left = tier.sticky === true ? null : hoursLeft(tier.expiresEpoch);
+    const span = tier.sticky === true ? '到撤销为止' : (left === null ? '无过期时间' : `剩 ${left} h`);
+    out(`‼️ tier: fast（${span}${tier.reason ? `，${tier.reason}` : ''}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
     return;
   }
   if (quiet) return;

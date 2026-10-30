@@ -153,4 +153,11 @@ grep -q "framework-new" "$TMP/setup-3.log" || fail "manifest 分层：未打印 
 [ -f "$CL/skills/my-private-skill/SKILL.md" ] || fail "私有层：私有 skill 被删"
 grep -q "# mine" "$CL/skills/my-private-skill/SKILL.md" || fail "私有层：私有 skill 内容被改"
 
+# 目标已有 FEEDBACK-INDEX.md（下游自己积累的条目）重装后必须原样保留，不许被空模板重置（#87）
+printf '%s\n' '- [下游自产条目](mine.md) — 不该被升级清掉' >>"$CL/feedback/FEEDBACK-INDEX.md"
+idx_before=$(cksum <"$CL/feedback/FEEDBACK-INDEX.md")
+bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-4.log" 2>&1 || { cat "$TMP/setup-4.log" >&2; fail "四次安装（索引保留场景）报错"; }
+[ "$idx_before" = "$(cksum <"$CL/feedback/FEEDBACK-INDEX.md")" ] || fail "目标已有 FEEDBACK-INDEX.md 重装后内容变了（被重置）"
+grep -q '下游自产条目' "$CL/feedback/FEEDBACK-INDEX.md" || fail "重装后下游索引条目丢了"
+
 echo "test-setup: manifest 分层校验通过（首装含 MANIFEST / 用户改动不覆盖落 .framework-new / 私有文件保留）"

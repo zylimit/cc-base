@@ -51,7 +51,10 @@ try {
   try {
     const { effectiveTier } = await import('../hooks/lib/tier.mjs');
     const t = effectiveTier({ projectDir: root });
-    if (t.tier === 'fast') {
+    if (t.tier === 'fast' && t.sticky === true) {
+      // sticky 的 expiresEpoch 是 null：没有剩余时长可算（Number(null) 会算成 1970 年），直说「到撤销」。
+      segs.push('\u001b[33mtier: fast（到撤销）\u001b[0m');
+    } else if (t.tier === 'fast') {
       const left = Number(t.expiresEpoch) * 1000 - Date.now();
       segs.push(`\u001b[33mtier: fast${Number.isFinite(left) ? ` ${(left / 3600000).toFixed(1)}h` : ''}\u001b[0m`);
     } else {

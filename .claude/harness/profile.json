@@ -3,7 +3,7 @@
   "default": "standard",
   "floor": ["secret-exfil-guard", "dangerous-pkill-guard", "release-gate", "postcompact-reinject", "notify"],
   "hooks": {
-    "stop-gate":               { "kind": "guard",    "fast": "advise", "standard": "advise", "strict": "block" },
+    "stop-gate":               { "kind": "guard",    "fast": "off",    "standard": "advise", "strict": "block" },
     "three-file-sync-gate":    { "kind": "guard",    "fast": "advise", "standard": "advise", "strict": "advise" },
     "design-detail-sync":      { "kind": "guard",    "fast": "advise", "standard": "advise", "strict": "block" },
     "precompact-gate":         { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
@@ -11,7 +11,7 @@
     "no-direct-code-guard":    { "kind": "guard",    "fast": "advise", "standard": "block",  "strict": "block" },
     "tdd-gate":                { "kind": "guard",    "fast": "off",    "standard": "advise", "strict": "block" },
     "harness-async-verify":    { "kind": "guard",    "fast": "off",    "standard": "block",  "strict": "block" },
-    "mark-review-needed":      { "kind": "recorder", "fast": "off",    "standard": "on",     "strict": "on" },
+    "mark-review-needed":      { "kind": "recorder", "fast": "on",     "standard": "on",     "strict": "on" },
     "record-authorship":       { "kind": "recorder", "fast": "on",     "standard": "on",     "strict": "on" },
     "auto-push":               { "kind": "recorder", "fast": "off",    "standard": "on",     "strict": "on" },
     "kill-dev-ports":          { "kind": "recorder", "fast": "off",    "standard": "on",     "strict": "on" },

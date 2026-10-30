@@ -396,5 +396,31 @@ run_pa "$A11_ROOT"
 ok=0; [ "$PA_RC" = "0" ] || ok=1; [ "$B11_1" = "$(sha "$A11_PROG")" ] || ok=1; [ "$B11_2" = "$(sha "$A11_ARCH")" ] || ok=1
 chk "$ok" "A11b 再跑一遍无事可做：真实条目已在归档，不重复处理，两份文件不再变化" "rc=0，两份文件 sha256 跑前跑后相同" \
   "rc=$PA_RC prog相等=$([ "$B11_1" = "$(sha "$A11_PROG")" ] && echo yes || echo no) arch相等=$([ "$B11_2" = "$(sha "$A11_ARCH")" ] && echo yes || echo no)"
+# ============================== A12 ==============================
+# Pinned 封顶 15 只报不搬（TODO #91 同批）：recorder 模板是四空格缩进写法，夹具就用它。
+# 打死：①只认顶层 `- ` 而缩进写法数成 0；②超线后顺手改了文件或改了退出码；③--check 下不报；
+#   ④边界算错一位（15 条也报）。
+build_pinned() {  # build_pinned <outfile> <n> —— n 条缩进写法 Pinned，其余各段没过线
+  local out="$1" n="$2" i
+  {
+    printf '# progress（测试夹具）\n\n_Last updated: 2020-01-01_\n\n## Pinned（必守）\n'
+    for i in $(seq 1 "$n"); do printf '    - 占位 Pinned %02d：192.168.0.%d:80%02d 这类环境事实\n' "$i" "$i" "$i"; done
+    printf '\n## Done\n%s\n\n## TODO\n%s\n' "$(gen_entries 3 "done" 0)" "$TODO_SMALL"
+  } > "$out"
+}
+A12_WARN='progress-archive: Pinned 16 条超封顶 15'
+A12_ROOT="$TMP/a12"; mkdir -p "$A12_ROOT"; build_pinned "$A12_ROOT/progress.md" 16
+B12=$(sha "$A12_ROOT/progress.md")
+run_pa "$A12_ROOT"; A12_RC="$PA_RC"; A12_HIT=$(grep -cF -- "$A12_WARN" "$PA_OUT" || true)
+run_pa "$A12_ROOT" --check; A12_CRC="$PA_RC"; A12_CHIT=$(grep -cF -- "$A12_WARN" "$PA_OUT" || true)
+ok=0; [ "$A12_RC" = "0" ] && [ "$A12_CRC" = "0" ] || ok=1; [ "$A12_HIT" = "1" ] && [ "$A12_CHIT" = "1" ] || ok=1
+[ "$(sha "$A12_ROOT/progress.md")" = "$B12" ] || ok=1
+chk "$ok" "A12a Pinned 16 条（四空格缩进写法）→ stdout 恰一行超封顶告警（含 --check），退出码仍 0，文件不动" \
+  "两次 rc=0；告警行各 1 次；progress.md sha256 不变" \
+  "rc=$A12_RC/check rc=$A12_CRC 告警=$A12_HIT/$A12_CHIT 文件不变=$([ "$(sha "$A12_ROOT/progress.md")" = "$B12" ] && echo yes || echo no)"
+A12B_ROOT="$TMP/a12b"; mkdir -p "$A12B_ROOT"; build_pinned "$A12B_ROOT/progress.md" 15
+run_pa "$A12B_ROOT"; A12B_HIT=$(grep -cF -- '超封顶' "$PA_OUT" "$PA_ERR" | awk -F: '{s+=$NF} END{print s+0}')
+ok=0; [ "$PA_RC" = "0" ] || ok=1; [ "$A12B_HIT" = "0" ] || ok=1
+chk "$ok" "A12b Pinned 恰 15 条 → 不报（封顶是「超过」才响）" "rc=0；stdout/stderr 无超封顶字样" "rc=$PA_RC 命中=$A12B_HIT"
 printf '==== test-progress-archive：PASS=%s FAIL=%s ====\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ] || exit 1

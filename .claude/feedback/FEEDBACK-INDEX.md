@@ -50,3 +50,27 @@
 - ✅[已毕业] [避免过度设计、过度测试、过度检视——根源是过度可信](avoid-over-design-testing-review-trust-charter.md) — 新增闸/测试/审查层/记忆层/规则前先问是否踩了四个"过度"（信提示词自律/信闸能守/信同模型复审/信决策都被正确加权，同根过度可信）；落地判据：规则点名机器闸或明标靠自觉，闸说得出挡过什么，测试说得出防的回归，记忆说得出谁会读它
 - [对照外部 skill 仓找借鉴，范围是 skill 正文，不是流程](external-skill-benchmark-scope-is-skill-content-not-workflow.md) — 用户拿外部 skill 仓问「有什么启发」时，对照的是 SKILL.md 正文与 references 的写法和内容；skill 先后与路由、谁能触发、子 Agent 接线、CLAUDE.md 调度段属流程层，没问就不进建议清单；顺带查出的实锤缺陷报一次挂 TODO，不借它带流程改造
 - [收口阶段空闲席位不是加派新任务的理由](idle-capacity-not-license-to-expand-scope.md) — 「加速/全力开动」指把已有任务并行推完，不等于填满空闲算力去找新活；收口阶段范围视为冻结，新发现的缺口记下一轮待办不当场派；同一信号连续出现两次（先问"还有这么多任务吗"、后纠正"又新增需求了"）是识别延迟的警报
+- ✅[已毕业] [决定代码落点前，先对照既有的边界与归属记录](check-existing-boundary-decisions-before-deciding-code-placement.md) — 新开一块功能、决定代码放哪之前，先把 Pinned / TODO / Decisions 里关于这块「边界与归属」的既有约定找出来对照，再派单
+- ✅[已毕业] [需求分析前先核对依据：模板是不是现行正式版、点名的产出物逐个找到、旧记录不当建模依据](check-template-version-and-named-outputs-before-requirement-analysis.md) — 对接外部系统导入格式的需求，分析前先确认手上的模板是不是现行正式版（问用户、看文件日期）；需求原文点名的产出物（表名、文件名）逐个在模板里找到，找不到当场问，不悄悄丢掉；旧记录只说明以前怎么录，不当建模依据
+- [代码改动走 worktree + 本地分支，不直接落 master](code-changes-use-worktree-and-local-branch-not-master.md) — 代码改动一律 worktree + 本地分支，不直接在 master 上 commit/push
+- ✅[已毕业] [删除范围：人工勘测成果整类保护，先列清单再问](delete-scope-protect-whole-class-of-survey-data-ask-first.md) — 凡涉及删除用户方现有数据，「除了 X 都可以删」里的 X 是举例不是完整保护清单；先把人工勘测 / 扫码得来的成果整类列出来，问一句再定删除范围
+- [文档改动不跑冒烟测试，无关的门禁失败不是阻塞](doc-changes-no-smoke-test-unrelated-failures-not-blockers.md) — 纯文档改动不跑冒烟测试；hook 自动报的门禁失败先判它和本次改了什么有没有因果关系，无关的不是阻塞
+- ✅[已毕业] [领域界面标签禁止生造术语/缩写](domain-ui-labels-no-invented-jargon.md) — 面向领域专家的界面标签不得生造术语/缩写，用领域现成说法，拿不准先问用户
+- ⏭[已跳过] [页内嵌地图默认配原地放大，不默认配跳转](embedded-map-default-zoom-in-place-not-jump-to-other-page.md) — 页内嵌的小地图默认配「本页原地放大」，不要默认配「跳去别的页面看」；属性与图例在放大后浮在图上（2026-10-30 裁定：领域口径，归项目 domain/，不进框架）
+- ⏭[已跳过] [质量看板只暴露问题，不分派责任方、不安排流程、不给整改意见](expose-issues-only-no-responsibility-assignment.md) — 质量看板只暴露问题：不分派责任方、不安排流程、也不给整改意见；每条讲清判据与事实逻辑，配能支撑判断的旁证（2026-10-30 裁定：领域口径，归项目 domain/，不进框架）
+- ✅[已毕业] [快速开发模式下不重复跑全量测试，催促时不写长对账](fast-mode-no-repeat-full-test-runs-and-no-long-reconciliation.md) — 快速开发模式下同一份代码全量测试只跑一次、测试量不超上限；用户催促时直接行动，不写长对账说明
+- ⏭[已跳过] [工程师看的可视化：红绿线自己说话，不配字不放大字](field-engineer-visuals-let-lines-speak-no-captions-no-slogans.md) — 给现场工程师看的可视化只靠红绿线本身说话，不配解释文字、不放大字统计或标语；受众是高学历工程师，不按外行设计（2026-10-30 裁定：领域口径，归项目 domain/，不进框架）
+- [入库全量保留原始地标，认不出的标「未分类」也存](ingest-keep-all-raw-placemarks-unclassified-not-dropped.md) — 外部数据入库一律全量保留原始记录，认不出的标「未分类」也存，不静默丢弃；判断「数据缺失」先查入库是否丢弃，再看别的原因
+- [问题清单要发现问题，不为压低条数自造过滤规则](issue-list-goal-is-discovery-not-lower-count-no-self-invented-filter-rules.md) — 问题清单的目标是发现问题不是压低条数；不为减条数提议改判断口径、不自造推断规则去过滤，现象如实报，必要时只补事实说明
+- ✅[已毕业] [快速档到期就续，过程别念给用户](keep-fast-tier-renewed-and-spare-user-the-review-narration.md) — 快速档到期就直接续，不用每次向用户报告；审查与各道闸的过程不要念给用户听，只说结论
+- [多源资料整合按主题去重，不按来源堆砌](multi-source-integration-dedupe-by-topic-not-stack-summaries.md) — 多源资料整合的产物是一份按主题去重的知识，不是 N 份摘要的拼接；同一判据只落一处，冲突值并列标注不擅自取舍
+- [展示页只放实际数据，推断标注不上交付物](presentation-only-actual-data-no-inference.md) — 数据展示页只放数据源里实际存在的记录，推断/推测/演绎标注一律不上交付物
+- ⏭[已跳过] [机房跳纤没数据就断，不用补全型规则猜；解释推导一次一件事](room-jumper-no-data-then-break-not-guess-and-explain-one-thing-at-a-time.md) — 机房跳纤这类链路推断，没有数据就断开进问题清单，不用补全型规则去猜；讲推导先分清表里的事实与推出来的，一次一件事一个例子（2026-10-30 裁定：领域口径，归项目 domain/，不进框架）
+- ⏭[已跳过] [扫码只和竣工比，LLD 不与扫码关联](scan-compares-only-as-built-lld-not-linked-to-scan.md) — 扫码数据只和竣工比对，LLD 是未来设计不和扫码关联；「都要暴露」指有逻辑的问题，放出任何一类前先核它的比较对象是否合已定口径（2026-10-30 裁定：领域口径，归项目 domain/，不进框架）
+- ✅[已毕业] [开工一块业务前，先弄清它干什么用、给谁看、作为什么的依据，不从任务标题倒推范围](scope-a-block-from-business-purpose-and-prior-spec-not-from-task-title.md) — 开工一块业务前先答清它干什么用、给谁看、作为什么的依据；用户自己写过的规格见到就读本体；长耗时、难重跑的步骤开跑前把以后可能用到的原始信息一次采全
+- [术语对照表的每一行要有原文定性，不能靠功能位置推等号](term-mapping-needs-source-definition-not-function-guess.md) — 建术语对照表时每一行的依据必须是原文的定性句，不能凭「功能位置相同」推等号；被纠错后要回头重核同一推法产生的其它行
+- ✅[已毕业] [视觉敏感产物全量落地前必须让用户亲眼看到小样](visual-sensitive-output-full-rollout-needs-visual-gate.md) — 视觉敏感产物（cluster 边界 / 地图渲染 / UI 布局）全量落地前置闸 = 用户亲眼看到小样，不是数据验证
+- ✅[已毕业] [新增对接方式默认与旧方式并存，不贴"过渡"标签](new-entry-default-coexists-with-old-no-transition-labels.md) — 用户说"加一种新方式/新出口"时默认新旧并存，不取代；不得自作主张给现有做法贴"过渡/临时/以后去掉"标签
+- ✅[已毕业] [选项里夹带自己的推论，复述举例又没讲清](option-side-effect-and-unclear-restate.md) — 给用户出选项时，AI 自己的推论不得塞进选项描述；复述影响时引用站点名必须说清是哪一行、哪一列怎么变
+- ✅[已毕业] [用户原话是硬约束时，推荐项不得软化](recommend-follows-literal-hard-constraint.md) — 用户原话已是硬约束时，推荐项必须贴原话字面；软化方案放第二选项并说明代价，不能把软拦当默认推荐
+- ✅[已毕业] [转写原规格时，把角色习惯措辞当成了系统约束](spec-habit-wording-not-constraint.md) — 转写原规格时，描述角色习惯的措辞（「只是修正」）不等于系统约束，不得据此派生反向指标，应在复述里单独确认

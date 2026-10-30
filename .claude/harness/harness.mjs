@@ -166,7 +166,7 @@ const SUBCOMMAND_FLAGS = {
   'release': [],
   // `explain <hook-id>` and `set <tier>` are positional; the two flags below belong to `set`
   // alone, and `set` rejects --hours for a tier that has no expiry rather than dropping it.
-  'tier': ['hours', 'reason'],
+  'tier': ['hours', 'reason', 'sticky'],
 };
 
 /**

@@ -155,6 +155,58 @@ chk "$([ "$(jq_ "$TT_E" 'String(d.source)')" = "default" ] && echo 0 || echo 1)"
     "source=default" "out=[$(show "$TT_E")]"
 
 echo ""
+echo "--- TS tier set fast --sticky：到撤销为止的 fast（TODO #91）---"
+# sticky 的全部意义就是「不看 expires」：把 set_epoch 改到 1970 年（普通 fast 按读侧 8h 夹早已过期），
+# 再把判定时刻拨到一年后，两头都仍得是 fast。少了任何一头，sticky 都只是一个更长的定时器。
+
+SB=$(newsb ts-sticky); mkprofile "$SB"
+hrun "$SB" tier set fast --sticky --reason x
+TS_SET_RC="$RC"
+TSF="$SB/.claude/.runtime/tier.json"
+node -e '
+const fs = require("node:fs"); const f = process.argv[1];
+const d = JSON.parse(fs.readFileSync(f, "utf8")); d.set_epoch = 1000;
+fs.writeFileSync(f, JSON.stringify(d) + "\n");
+' "$TSF"
+TS_FILE=$(cat "$TSF" 2>/dev/null || true)
+hrun "$SB" tier status
+TS_OUT="$OUT"; TS_ERR="$ERRT"
+TS_FUT=$(node -e '
+const path = require("node:path"); const url = require("node:url");
+import(url.pathToFileURL(path.join(process.argv[1], ".claude/hooks/lib/tier.mjs")).href).then((m) => {
+  const e = m.effectiveTier({ projectDir: process.argv[2], now: Date.now() + 365 * 86400 * 1000 });
+  process.stdout.write(e.tier + "/" + String(e.sticky === true));
+});
+' "$ROOT" "$SB" 2>&1 || true)
+chk "$([ "$TS_SET_RC" -eq 0 ] \
+      && [ "$(jq_ "$TS_FILE" 'String(d.sticky)+"/"+String(d.expires_epoch)')" = "true/null" ] \
+      && [ "$(jq_ "$TS_OUT" 'd.tier+"/"+d.sticky+"/"+d.expiresEpoch+"/"+("remainingHours" in d)')" = "fast/true/null/false" ] \
+      && [ "$TS_FUT" = "fast/true" ] && echo 0 || echo 1)" \
+    "TS-1 sticky 写 sticky:true + expires_epoch:null；set_epoch 改成 1970、判定时刻拨到一年后仍是 fast" \
+    "set rc=0；文件 true/null；status fast/true/null 且无 remainingHours；一年后 fast/true" \
+    "set rc=$TS_SET_RC 文件=[$(show "$TS_FILE")] status=[$(show "$TS_OUT")] 一年后=$TS_FUT"
+chk "$(hasq 'fast (sticky, until revoked)' "$TS_ERR" && hasq ' -- x' "$TS_ERR" && echo 0 || echo 1)" \
+    "TS-2 status 人读行写明 sticky 与理由（到撤销为止的放水，理由比时长更该被看见）" \
+    "stderr 含 'fast (sticky, until revoked)' 与 '-- x'" "stderr=[$(show "$TS_ERR")]"
+
+hrun "$SB" tier set fast --sticky --hours 2 --reason x
+TS_MX="$RC"
+hrun "$SB" tier set strict --sticky --reason x
+TS_NF="$RC"
+chk "$([ "$TS_MX" -eq 2 ] && [ "$TS_NF" -eq 2 ] && echo 0 || echo 1)" \
+    "TS-3 --sticky 与 --hours 同给 → rc 2；--sticky 给非 fast 档 → rc 2（都是 usage 错，不是静默取一个）" \
+    "两者 rc=2" "sticky+hours rc=$TS_MX，strict+sticky rc=$TS_NF"
+
+hrun "$SB" tier set standard
+hrun "$SB" tier status
+TS_REV="$OUT"; TS_REV_FILE=$(cat "$TSF" 2>/dev/null || true)
+chk "$([ "$(jq_ "$TS_REV" 'd.tier+"/"+String(d.sticky)')" = "standard/undefined" ] \
+      && [ "$(jq_ "$TS_REV_FILE" 'String(d.sticky)')" = "undefined" ] && echo 0 || echo 1)" \
+    "TS-4 tier set standard 即撤销：status 回 standard，status JSON 与 tier.json 都不再有 sticky" \
+    "status standard/undefined；文件 sticky=undefined" \
+    "status=[$(show "$TS_REV")] 文件=[$(show "$TS_REV_FILE")]"
+
+echo ""
 echo "--- TD 两张档位表逐字相等（profile.json ↔ tier.mjs 的 DEFAULT_PROFILE）---"
 # profile.json 缺席时 hook 按 tier.mjs 里那份内置表跑。两张表分叉 = 装了 profile 的项目和没装的
 # 项目对同一个闸说两套话，而这种分叉谁也看不出来——上一回是靠人眼发现的（2026-09-15）。

@@ -159,7 +159,7 @@ paths:
     | init | 草案产出（dry-run 或 --apply 写成功） | --apply 时 catalog 已存在 / 草案自检不过 catalog-lint / 写盘失败 | — | 非 git / tracked 清单空或截断 | — |
     | release | 阻断项全过（降级项照列，不改退出码） | 有阻断项（`blockers[]` 逐条带下一步命令） | — | 非 git / 八条全降级（什么都没建立） | — |
     | tier status / explain | 总是 / 已知 hook id | — | explain 未知 hook id / 缺 id | — | — |
-    | tier set | 写入成功 | 写盘失败 | 用法错（未知档名 / fast 缺 --reason / --hours 非正数或给了无过期的档） | — | — |
+    | tier set | 写入成功 | 写盘失败 | 用法错（未知档名 / fast 缺 --reason / --hours 非正数或给了无过期的档 / --sticky 给了非 fast 档或与 --hours 同给） | — | — |
     | tier validate | profile 合规 | 有违规 / profile 读不出来 | — | 无 profile.json（档位未启用） | — |
     | unknown / missing | — | — | — | 总是 | — |
     | 未知 flag（任一子命令） | — | — | 总是 | — | — |

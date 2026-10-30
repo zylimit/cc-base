@@ -3,10 +3,33 @@
 // 挂 Agent 不挂 Bash：派 Sub-Agent 走 Agent 工具，这件事永远不经过命令行——按命令文本匹配
 // implementer / dev-builder 只会误伤 `cat …implementer.md` 这类读文件的命令（账本里 19 次 strict
 // 拦停按构造全是这么来的），还顺带教会模型换个写法绕开闸。
+// 只管 red-lock 该管的单子：派单 prompt 里没有 RED_LOCK_KEYWORDS 任一词就静默放行，strict 档也不拦。
+//   由来：下游看板 UI 项目两天 23 次提醒、另一项目 30 天 113 次，按框架自己的 red-lock 口径全是误报。
+// advise 档去重：.tdd-gate-advised 记 prompt 前 PROMPT_SIG_CHARS 字的签名，同一单子一小时内重复派
+//   不再重复提醒（口径与 stop-gate 共用 lib/advise-dedup.mjs）；block 档每次都拦、不碰这个文件。
 import fs from 'node:fs';
 import path from 'node:path';
 import { readStdinJson, git, say, errText, gateModeOf, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
+import { textSig, recentlyAdvised, recordAdvised } from './lib/advise-dedup.mjs';
+
+// red-lock 该管的任务关键词，大小写不敏感。来源：.claude/CLAUDE.md [开发测试规则]
+// 「red-locks-the-bug 只给线上行为 bug 与核心解析器 / 契约缺陷」，状态机 / schema 取自本闸提醒文案
+// 列的高价值逻辑，迁移 / 鉴权取自同一文件 LOW 档判据里不许碰的路径。
+// 缺陷 / 修复 / 生产 / 崩溃 / 报错与 fix / hotfix / migration / auth / contract 是同一批意思的中英说法：
+// 派单写「修复 #123 崩溃」「hotfix auth」时原表一个词都撞不上，该提醒的单子静默放行。
+// 英文短词只认词首（WORD_START_KEYWORDS，值是词首之后还要排除的尾巴）：bug 不认 debug——「加 debug
+// 日志」不是修线上行为；fix 不认 prefix / suffix，也不认 fixture（测试夹具不是修缺陷）；auth 不认
+// author，authz / authn / authorize / authentication 照样命中。bugfix / fixes / bug-fixer 照样命中。
+const RED_LOCK_KEYWORDS = ['bug', '线上', '解析器', 'parser', '契约', '状态机', 'schema', '迁移', '鉴权',
+  '缺陷', '修复', '生产', '崩溃', '报错', 'fix', 'hotfix', 'migration', 'auth', 'contract'];
+const WORD_START_KEYWORDS = new Map([['bug', ''], ['fix', '(?!ture)'], ['auth', '(?!or(?!i[sz]))']]);
+const KEYWORD_RE = new RegExp(
+  RED_LOCK_KEYWORDS.map((k) => (WORD_START_KEYWORDS.has(k) ? `(?:^|[^a-z])${k}${WORD_START_KEYWORDS.get(k)}` : k))
+    .join('|'), 'i');
+
+// 去重签名取 prompt 前多少字：同一张派单重派时开头一致，尾部常被补一两句上下文。
+const PROMPT_SIG_CHARS = 300;
 
 // 标记的保质期。验红验的是「这一轮改动」，不是一劳永逸：本仓一枚 9 月 11 日留下的空
 // .red-verified 让闸静默放行了四天——过期标记比没有标记更坏，它看着像验过。
@@ -29,6 +52,8 @@ runFailOpen(async () => {
   const ev = readStdinJson();
   const input = ev ? (ev.tool_input || {}) : {};
   if (String(input.subagent_type || '') !== 'implementer') return;
+  const prompt = String(input.prompt || '');
+  if (!KEYWORD_RE.test(prompt)) return;
 
   const top = git(['rev-parse', '--show-toplevel']);
   const projectRoot = (top.status === 0 && top.stdout.trim()) ? top.stdout.trim() : process.cwd();
@@ -44,6 +69,12 @@ runFailOpen(async () => {
   // 就会把这道唯一守着 red-lock 的闸当成「从没拦过东西」的死闸删掉——提醒过多少次，账上得看得见。
   const block = mode === 'block';
   if (block) process.exitCode = 2;
+  if (!block) {
+    const advisedFile = path.join(claudeDir, '.tdd-gate-advised');
+    const sig = textSig(prompt.slice(0, PROMPT_SIG_CHARS));
+    if (recentlyAdvised(advisedFile, sig)) return;
+    recordAdvised(advisedFile, sig);
+  }
   say(`${block ? '[block] ' : '[advise] '}TDD 闸门：派 implementer 做 GREEN 实现前须先完成 RED。`);
   say('高价值逻辑（契约/解析器/状态机/去重/schema 校验/驱动适配层等）：先派 tester 出失败测试 → 验红 → touch .claude/.red-verified，再派 implementer 写最简实现到绿。');
   say('若本 Task 是 UI/样式/非 TDD 逻辑：touch .claude/.tdd-exempt 显式声明豁免。');

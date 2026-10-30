@@ -205,6 +205,21 @@ chk "$([ "$RC" -eq 0 ] && mentions 2 "$OUT" && mentions 3 "$OUT" && echo 0 || ec
     "CE 2 条待处理 + 1 条已毕业 → stdout 报「2 条待处理（共 3 条）」" \
     "stdout 同时出现 2 与 3" "rc=$RC out=[$(show "$OUT")]"
 
+SB=$(newsb ce-skip)
+mkdir -p "$SB/.claude/feedback"
+cat > "$SB/.claude/feedback/FEEDBACK-INDEX.md" <<'IDX'
+# Feedback Index
+
+- [甲](a.md) — 描述
+- ✅[已毕业] [丙](c.md) — 描述
+- ⏭[已跳过] [丁](d.md) — 描述
+- ⏭[已跳过] [戊](e.md) — 描述
+IDX
+run_hook check-evolution "$SB" ''
+chk "$([ "$RC" -eq 0 ] && mentions 1 "$OUT" && mentions 4 "$OUT" && echo 0 || echo 1)" \
+    "CE-2 ⏭[已跳过] 行不计入待处理但计入总数 → 1 条待处理 + 1 已毕业 + 2 已跳过报「1 条待处理（共 4 条）」" \
+    "stdout 同时出现 1 与 4" "rc=$RC out=[$(show "$OUT")]"
+
 SB=$(newsb df-hit)
 run_hook detect-feedback-signal "$SB" '{"prompt":"你搞错了，不是这样"}'
 chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'typeof d.additionalContext')" = "string" ] && echo 0 || echo 1)" \
@@ -216,6 +231,21 @@ run_hook harness-async-verify "$SB" '{"tool_input":{"file_path":"src/a.ts"}}'
 chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "AV 无 catalog（大仓治理默认关）→ rc 0、零输出、零行为变化" \
     "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+# 引擎包未装的提醒一个 session 只说一次：两次之间删掉防抖标记，确保第二次真的走到提醒那一支
+# （不删的话 180 秒防抖先返回，用例就成了测防抖的假绿）；换一个 session_id 必须再说一次作对照。
+SB=$(newsb av-once)
+printf '{"version":1,"modules":[]}\n' > "$SB/.claude/harness/module-catalog.json"
+avlog() { grep -c 'harness-async-verify' "$SB/.claude/evidence/gate-block.log" 2>/dev/null || true; }
+run_hook harness-async-verify "$SB" '{"session_id":"s-1","tool_input":{"file_path":"src/a.ts"}}'; AVE1="$ERRT"; AVN1=$(avlog)
+rm -f "$SB/.claude/.async-verify-last"
+run_hook harness-async-verify "$SB" '{"session_id":"s-1","tool_input":{"file_path":"src/a.ts"}}'; AVE2="$ERRT"; AVN2=$(avlog)
+rm -f "$SB/.claude/.async-verify-last"
+run_hook harness-async-verify "$SB" '{"session_id":"s-2","tool_input":{"file_path":"src/a.ts"}}'; AVN3=$(avlog)
+chk "$([ "$RC" -eq 0 ] && hasq '引擎包未装' "$AVE1" && [ -z "$AVE2" ] && [ "$AVN1" = 1 ] && [ "$AVN2" = 1 ] && [ "$AVN3" = 2 ] && echo 0 || echo 1)" \
+    "AV-2 catalog 在、引擎包未装 → 同一 session 第二次 Edit 不再出声、不再写账本；换 session 再说一次" \
+    "第一次 stderr 含「引擎包未装」、账本 1 条；同 session 第二次 stderr 空、账本仍 1 条；新 session 账本 2 条" \
+    "rc=$RC 账本=$AVN1/$AVN2/$AVN3 err1=[$(show "$AVE1")] err2=[$(show "$AVE2")]"
 
 SB=$(newsb kd-plain)
 run_hook kill-dev-ports "$SB" '{"tool_input":{"command":"ls"}}'
@@ -313,6 +343,15 @@ SB=$(newsb sb-normal)
 run_hook session-rules-banner "$SB" '{"source":"startup"}'
 chk "$([ "$RC" -eq 0 ] && hasq '铁律' "$OUT" && hasq '6.' "$OUT" && echo 0 || echo 1)" \
     "SB 正常启动 → 输出六条核心铁律横幅" "stdout 含「铁律」与第 6 条" "rc=$RC out=[$(show "$OUT")]"
+
+# sticky fast（tier set fast --sticky 的写侧形状）：没有过期时间，横幅照实说「到撤销为止」，不许算出 NaN / 剩 0 h
+SB=$(newsb sb-sticky); mkdir -p "$SB/.claude/.runtime"
+printf '{"tier":"fast","reason":"脚手架冲刺","by":"t","set_epoch":%s,"expires_epoch":null,"sticky":true}\n' "$(date +%s)" \
+    > "$SB/.claude/.runtime/tier.json"
+run_hook session-rules-banner "$SB" '{"source":"startup"}'
+chk "$([ "$RC" -eq 0 ] && hasq 'tier: fast' "$OUT" && hasq '撤销' "$OUT" && ! hasq 'NaN' "$OUT" && ! hasq '剩 0 h' "$OUT" && echo 0 || echo 1)" \
+    "SB-2 sticky fast → 横幅报 fast 且说「到撤销为止」，不含 NaN、不报剩 0 h" \
+    "stdout 含「tier: fast」与「撤销」，无 NaN / 剩 0 h" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb sc-good)
 mkdir -p "$SB/work"; printf 'export const a = 1;\n' > "$SB/work/ok.mjs"
@@ -480,8 +519,9 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hoo
     "rc=0、hookEventName=SubagentStop、additionalContext 点名角色且含收工取证正文，不出现 Domain findings、「领域发现」（跨两版措辞的追加句标记）、两个新标记与催补报的话" \
     "rc=$RC 提Domain=$SADF 追加领域句=$SADOM 证据分类=$SACLS 只报不判=$SANOJ 催补话=$SANAG 泄漏句=[$([ "$SADOM" = 有 ] && show "领域发现${SAAC##*领域发现}" || echo 空)]"
 
+TDKW='{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修线上 bug：解析器漏判空行"}}'
 SB=$(newsb td-impl)
-run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修线上 bug：解析器漏判空行"}}'
 chk "$([ "$RC" -eq 0 ] && hasq 'TDD 闸门' "$ERRT" && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "TD-1 派 implementer 且无红锁标记 → standard 档出提醒走 stderr、exit 0（advise 不硬拦）" \
     "rc=0 且 stderr 含「TDD 闸门」、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
@@ -498,24 +538,56 @@ chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
     "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
 SB=$(newsb td-stale); : > "$SB/.claude/.red-verified"; age_file "$SB/.claude/.red-verified" 10800
-run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修线上 bug：解析器漏判空行"}}'
 chk "$([ "$RC" -eq 0 ] && hasq 'TDD 闸门' "$ERRT" && [ ! -e "$SB/.claude/.red-verified" ] && echo 0 || echo 1)" \
     "TD-3 .red-verified 的 mtime 在 3 小时前 → 视同没有标记照样提醒，且标记当场清掉（过期标记看着像验过，比没有更坏）" \
     "rc=0、stderr 含「TDD 闸门」、标记文件已删" \
     "rc=$RC 标记还在=$([ -e "$SB/.claude/.red-verified" ] && echo Y || echo N) err=[$(show "$ERRT")]"
 
 SB=$(newsb td-fresh); : > "$SB/.claude/.red-verified"
-run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修线上 bug：解析器漏判空行"}}'
 chk "$([ "$RC" -eq 0 ] && silent && [ -e "$SB/.claude/.red-verified" ] && echo 0 || echo 1)" \
     "TD-4 新鲜的 .red-verified → rc 0 零输出且标记留着（刚验过红就该放行）" \
     "rc=0 无输出、标记还在" \
     "rc=$RC 标记还在=$([ -e "$SB/.claude/.red-verified" ] && echo Y || echo N) out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
 SB=$(newsb td-strict); set_tier "$SB" strict
-run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"x"}}'
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修线上 bug：解析器漏判空行"}}'
 chk "$([ "$RC" -eq 2 ] && hasq 'TDD 闸门' "$ERRT" && [ -z "$OUT" ] && echo 0 || echo 1)" \
     "TD-5 strict 档同一件事 → exit 2 真拦（那一档人是审批者）" \
     "rc=2 且 stderr 含「TDD 闸门」、stdout 空" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+# 只管 red-lock 该管的单子：派单里没有 bug / 线上 / 解析器 / 契约 … 这类词就不吭声，strict 也不拦
+TDUI='{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"看板 UI：卡片加阴影、加 debug 日志"}}'
+SB=$(newsb td-ui-std); run_hook tdd-gate "$SB" "$TDUI"; TDR1=$RC; TDS1=$(silent && echo Y || echo N)
+SB=$(newsb td-ui-strict); set_tier "$SB" strict; run_hook tdd-gate "$SB" "$TDUI"
+chk "$([ "$TDR1" -eq 0 ] && [ "$TDS1" = Y ] && [ "$RC" -eq 0 ] && silent && [ ! -e "$SB/.claude/evidence/gate-block.log" ] && echo 0 || echo 1)" \
+    "TD-6 派单无 red-lock 关键词（UI 卡片，debug 不算 bug）→ standard 与 strict 都 rc 0 零输出、不记账" \
+    "两档都 rc=0 无输出、无账本" "standard rc=$TDR1 静默=$TDS1；strict rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+SB=$(newsb td-dedup)
+run_hook tdd-gate "$SB" "$TDKW"; TDE1="$ERRT"; TDR1=$RC
+TDN1=$(grep -c 'tdd-gate' "$SB/.claude/evidence/gate-block.log" 2>/dev/null || true)
+chk "$([ "$TDR1" -eq 0 ] && hasq 'TDD 闸门' "$TDE1" && [ "$TDN1" = 1 ] && [ -f "$SB/.claude/.tdd-gate-advised" ] && echo 0 || echo 1)" \
+    "TD-7 含关键词、无红锁标记、头一回派 → advise 提醒并记账，留下去重标记" \
+    "rc=0、stderr 含「TDD 闸门」、账本 1 条、.tdd-gate-advised 在" "rc=$TDR1 账本=$TDN1 err=[$(show "$TDE1")]"
+run_hook tdd-gate "$SB" "$TDKW"
+TDN2=$(grep -c 'tdd-gate' "$SB/.claude/evidence/gate-block.log" 2>/dev/null || true)
+chk "$([ "$RC" -eq 0 ] && silent && [ "$TDN2" = 1 ] && echo 0 || echo 1)" \
+    "TD-8 同一张单子第二次派 → 静默放行、账本不加行" \
+    "rc=0 无输出、账本仍 1 条" "rc=$RC 账本=$TDN2 out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+# 中文同义词与英文短词词首：「修复 #123 崩溃」该提醒；prefix / author 里的 fix / auth 不是词首，静默
+SB=$(newsb td-zh)
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"修复 #123 崩溃"}}'
+chk "$([ "$RC" -eq 0 ] && hasq 'TDD 闸门' "$ERRT" && echo 0 || echo 1)" \
+    "TD-9 派单「修复 #123 崩溃」→ standard 档出提醒（中文同义词进了关键词表）" \
+    "rc=0 且 stderr 含「TDD 闸门」" "rc=$RC err=[$(show "$ERRT")]"
+SB=$(newsb td-prefix)
+run_hook tdd-gate "$SB" '{"tool_name":"Agent","tool_input":{"subagent_type":"implementer","prompt":"prefix 与 author 字段"}}'
+chk "$([ "$RC" -eq 0 ] && silent && echo 0 || echo 1)" \
+    "TD-10 派单「prefix 与 author 字段」→ 静默（fix / auth 只认词首）" \
+    "rc=0 无输出" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
 
 SB=$(newsb tf-dirty progress git)
 printf 'echo more\n' >> "$SB/src/app.sh"

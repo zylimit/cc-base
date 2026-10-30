@@ -593,9 +593,13 @@ main() {
       plan_pair "$source_dir/.claude/FRAMEWORK-MANIFEST.txt" "$target/.claude/FRAMEWORK-MANIFEST.txt" \
         ".claude/FRAMEWORK-MANIFEST.txt"
     fi
+    # 索引只在目标没有时才创建，已有的一律报 skip（真装时保留不动，见下方同款注释）
     if [ -f "$source_dir/.claude/feedback/templates/feedback-index-template.md" ]; then
-      plan_pair "$source_dir/.claude/feedback/templates/feedback-index-template.md" \
-        "$target/.claude/feedback/FEEDBACK-INDEX.md" ".claude/feedback/FEEDBACK-INDEX.md"
+      if [ -e "$target/.claude/feedback/FEEDBACK-INDEX.md" ]; then
+        plan_note skip ".claude/feedback/FEEDBACK-INDEX.md"
+      else
+        plan_note create ".claude/feedback/FEEDBACK-INDEX.md"
+      fi
     fi
     printf 'dry-run: create=%s update=%s conflict=%s skip=%s（conflict 真装时会落 <文件>.framework-new）\n' \
       "$PLAN_CREATE" "$PLAN_UPDATE" "$PLAN_CONFLICT" "$PLAN_SKIP"
@@ -617,9 +621,13 @@ main() {
     printf '%s' "$FRAMEWORK_NEW_LIST" | sed 's/^/setup:   - .claude\//' >&2
   fi
 
-  # feedback 顶层经验已在 copy_claude_tree 跳过；把 INDEX 重置为干净模板（与 make-release.sh 同源）
+  # feedback 顶层经验已在 copy_claude_tree 跳过；INDEX 只在目标没有时才从模板创建（与 make-release.sh 同源）。
+  # 已有的保留不动：下游项目的索引是它自己积累的条目清单，每次升级都用空模板覆盖，
+  # 条目就全丢了，进化引擎扫索引找不到任何经验——升级不该是一次静默清空。
   local fb_tpl="$source_dir/.claude/feedback/templates/feedback-index-template.md"
-  [ -f "$fb_tpl" ] && copy_file "$fb_tpl" "$target/.claude/feedback/FEEDBACK-INDEX.md"
+  if [ -f "$fb_tpl" ] && [ ! -e "$target/.claude/feedback/FEEDBACK-INDEX.md" ]; then
+    copy_file "$fb_tpl" "$target/.claude/feedback/FEEDBACK-INDEX.md"
+  fi
 
   hooks_count=$(find "$source_dir/.claude/hooks" -maxdepth 1 -type f -name '*.mjs' 2>/dev/null | wc -l | tr -d ' ')
   skills_count=$(find "$source_dir/.claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ')

@@ -15,6 +15,7 @@
 //   放行，本质是提醒；2026-09-03 一天拦 38 次、单小时 12 次，纯空转。
 // advise 档去重：.stop-gate-advised（sig= / ts= 两行）记上次提醒的清单签名与时间，同一清单且未满
 //   ADVISE_REPEAT_MS 就静默放行（不出 systemMessage、不写账本）；清单变了、清空后重现、满时限都再提醒一次。
+//   读写与常量在 lib/advise-dedup.mjs，与 three-file-sync-gate / tdd-gate 共用一份。
 //   读写失败一律当没记过（宁可多提醒，不许状态文件坏了就永久静默）；block 档不碰这个文件。
 // fail-closed：闸自身出错（含状态文件清理失败）绝不静默放行，一律拦停。不读 stdin。
 import fs from 'node:fs';
@@ -22,10 +23,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { projectDir, readTextFile, pendingReviewLines, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
+import { recentlyAdvised, recordAdvised, clearAdvised } from './lib/advise-dedup.mjs';
 import { harnessEnabled, harnessExtInstalled, harnessExtMissingNotice, harnessRun, rcInContract, errHead } from './lib/harness.mjs';
-
-/** advise 去重的重提间隔：同一份清单静默这么久后再提醒一次，欠账不因去重永远沉底。 */
-const ADVISE_REPEAT_MS = 60 * 60 * 1000;
 
 /** 读连拦计数：只认与本次 sig 相同的记录，sig 一变即从 0 重计；文件损坏当无状态。 */
 function readStrikes(file, sig) {
@@ -41,31 +40,6 @@ function readStrikes(file, sig) {
 function writeStrikes(file, sig, n) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `sig=${sig}\ncount=${n}\n`);
-}
-
-/** 同一清单是否刚提醒过：sig 相同且距上次未满 ADVISE_REPEAT_MS 才算；文件缺失 / 损坏 / 时间戳异常一律 false。 */
-function recentlyAdvised(file, sig) {
-  const st = readTextFile(file);
-  if (!st.text) return false;
-  const lines = st.text.replace(/\r/g, '').split('\n');
-  const oldSig = (lines.find((l) => l.startsWith('sig=')) || '').slice(4);
-  const ts = (lines.find((l) => l.startsWith('ts=')) || '').slice(3);
-  if (oldSig !== sig || !/^\d+$/.test(ts)) return false;
-  const age = Date.now() - Number(ts);
-  return age >= 0 && age < ADVISE_REPEAT_MS;
-}
-
-/** 记下本次提醒；写失败只代表下次多提醒一次，不能让闸出错。 */
-function writeAdvised(file, sig) {
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `sig=${sig}\nts=${Date.now()}\n`);
-  } catch { /* 记不下来 = 下次再提醒，宁可多说不可静默 */ }
-}
-
-/** 清去重状态：只在 advise 档调；删不掉最多少提醒一次，不该让闸拦停（与 strikes 那个 fail-closed 删除不同）。 */
-function clearAdvised(file) {
-  try { fs.rmSync(file, { force: true }); } catch { /* 清不掉 = 下次同清单多提醒一次，不拦停 */ }
 }
 
 /** 拦停：账本 + decision JSON 一起走（gate-audit 靠账本统计哪些闸真拦下过东西）。 */
@@ -172,7 +146,7 @@ runFailClosed(async () => {
   if (!advise) writeStrikes(strikeFile, sig, strikes + 1);
   if (advise) {
     if (recentlyAdvised(advisedFile, sig)) return;
-    writeAdvised(advisedFile, sig);
+    recordAdvised(advisedFile, sig);
   }
   decide(`代码已修改但未 code review（${count} 个待审文件：${inline}）。请派发 code-reviewer sub-agent 审一轮（Stage 0 → 1 → 2）；通过后执行 echo clean > .claude/.needs-review 放行。`);
 }, 'stop-gate 自检失败，fail-closed 拦停——请修复闸/状态文件后重试停止。');

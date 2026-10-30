@@ -233,9 +233,11 @@ observer 用 `feedback-writer` skill，按 5 个观察维度判有没有信号�
 
 `.claude/rules/memory-systems.md` 的原话：scope / exceptions / supersedes 是一条 feedback 能不能被正确使用的前提——没有范围的规则会被用到不该用的地方，没有取代关系的新规则会和旧规则并存打架。
 
-**毕业（graduated）是什么意思**：这条 feedback 的内容已经写进了 CLAUDE.md / rules / 某个 SKILL.md / agents，规则本体已经承载它，feedback 文件留作细则参照。索引里毕业条目带 `✅[已毕业]` 前缀，frontmatter 的 `graduated: true` 后面通常跟一句注释说明毕业到了哪。本仓 44 个 feedback 文件，索引里 42 条已毕业、2 条待处理。
+**毕业（graduated）是什么意思**：这条 feedback 的内容已经写进了 CLAUDE.md / rules / 某个 SKILL.md / agents，规则本体已经承载它，feedback 文件留作细则参照。索引里毕业条目带 `✅[已毕业]` 前缀、被 evolution-engine 裁定跳过的（领域口径等不进框架）带 `⏭[已跳过]` 前缀，两者都不算待处理；frontmatter 的 `graduated: true` / `skipped: true` 后面跟一句注释说明毕业到了哪或为什么跳过。本仓 70 个 feedback 文件（含 2026-10-30 从三个下游收进的 24 条），索引里 55 条已毕业、5 条跳过、10 条待处理。
 
-`check-evolution.mjs`（SessionStart）数的就是索引里不带该前缀的行。有待处理的，开场你会看到一句：`📋 项目有 N 条待处理 feedback（共 M 条）。建议派发 evolution-runner 检查是否有进化建议。`
+`check-evolution.mjs`（SessionStart）数的就是索引里两种前缀都不带的行。有待处理的，开场你会看到一句：`📋 项目有 N 条待处理 feedback（共 M 条）。建议派发 evolution-runner 检查是否有进化建议。`
+
+**下游项目的 feedback 怎么回到框架**：项目里的 skills / CLAUDE.md 是清单管的框架副本，往里毕业下次 `setup.sh` 就报 conflict，所以下游的方法类教训只在项目里记、不在项目里毕业。框架仓跑 `bash .claude/scripts/collect-feedback.sh <项目路径…>` 把它们收进来——同名同内容跳过（只补 `origin`）、同名不同内容落 `<名>.from-<项目>.md`、frontmatter 写 `origin: <项目>`、索引自动追加，`--dry-run` 只算不写——再派 evolution-runner 毕业到本仓的 skill。三个下游项目 35 份 feedback 三个月 0 毕业（2026-10-30 实数）就是这条链断着的样子；`setup.sh` 从此只在目标没有 `FEEDBACK-INDEX.md` 时才建，不再每次升级重置成空模板（#87）。
 
 ### evolution-runner：什么时候跑、看三类信号
 
@@ -244,7 +246,7 @@ observer 用 `feedback-writer` skill，按 5 个观察维度判有没有信号�
 | 信号 | 判据 | 产出 |
 |---|---|---|
 | 规则毕业 | 筛 `graduated == false` 且 `skipped != true`；**不按出现次数**（计数字段 2026-09-12 已删——43 条里 39 条恒为 1，从没人加）。每条先**现状核查**：去 CLAUDE.md / rules / SKILL.md / agents 真 grep，已成文的以既成事实毕业并给行号；部分成文点名缺的半；压根没有才进落地提案。**实证门槛**：正文里有真事故（返工、空转、重复争议）才提，只有「用户当场纠正」没代价记录的判「暂不成文」写进 frontmatter，下次不重裁 | 建议写入哪个文件哪一段 |
-| Skill 优化 | 按 `source_skill` 聚合 scores：某维度连续 3 次 ≤ 2；最近 5 次平均 ≤ 3；未毕业 feedback 有 3 条以上指向同一环节（按主题聚类） | 改哪个 SKILL.md |
+| Skill 优化 | 按 `source_skill` 聚合未毕业 feedback，3 条以上指向同一环节（按主题聚类）；scores 不再当信号——下游 35 份没有一份填过 | 改哪个 SKILL.md |
 | 新 Skill 提议 | 同族主题跨 3 条以上 feedback 反复出现，且不属于任何已有 Skill | 调 skill-builder 创建 |
 
 runner **只提建议不执行**。主 Agent 把提议展示给你逐条确认 / 跳过：确认 → 写入目标文件、标 `graduated: true`；跳过 → 标 `skipped: true` 不再提。四层进化路径（经验积累 → 规则毕业 → Skill 优化 → Skill 自动生成）写在 `.claude/EVOLUTION.md`。

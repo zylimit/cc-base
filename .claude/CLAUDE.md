@@ -33,10 +33,10 @@
     模糊落档按高一档；用户当前指令可显式豁免单次，安全护栏除外。
 
 [档位——fast / standard / strict]
-    强度是 .claude/harness/profile.json 里的一张表：每个闸在三档下的模式（guard 类 off / advise / block，recorder 类 off / on），hook 只问 gateMode(<自己的 id>)，默认 standard。查看与切换：`node .claude/harness/harness.mjs tier status|explain <hook-id>|validate`；`tier set fast --hours N --reason "…"`，fast 必须带 reason，硬上限 8 小时自动回落；`bash .claude/scripts/fast-mode.sh` 是它的薄壳。
+    强度是 .claude/harness/profile.json 里的一张表：每个闸在三档下的模式（guard 类 off / advise / block，recorder 类 off / on），hook 只问 gateMode(<自己的 id>)，默认 standard。查看与切换：`node .claude/harness/harness.mjs tier status|explain <hook-id>|validate`；`tier set fast --hours N --reason "…"`，fast 必须带 reason，硬上限 8 小时自动回落；连续开发期 `tier set fast --sticky --reason "…"` 到撤销为止（`tier set standard` 撤），不再每 8 小时续一次；`bash .claude/scripts/fast-mode.sh` 是它的薄壳。
     - 地板（任何档都改不了）：secret-exfil-guard / dangerous-pkill-guard / release-gate / postcompact-reinject / notify。
     - 自动升档：工作树里改了 .claude/hooks|harness|skills|agents/**、.claude/CLAUDE.md、.claude/rules/**、.claude/settings.json、.github/** 任一路径，本轮自动进 strict，提交后回落；降档必须带 reason 并记进 gate-block.log。
-    - standard：stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦。strict：stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者。fast：guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。
+    - standard：stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦。strict：stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者。fast：guard 类只提醒并记债（stop-gate 直接 off——不派 reviewer 就没有「未审查」可提醒；mark-review-needed 照记，撤销时 stop-gate 才有账可提），流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。
     - 不等于部署或 push 授权；release 装配在 fast 生效时 tier 项直接 FAIL。项目级微调写 profile.json 的 overrides，改完 `tier validate`。
 
 [Skill 调用规则]
@@ -72,7 +72,7 @@
     | tester | .claude/agents/tester.md | test-builder | sonnet | 写 / 跑测试（与实现者不同实例）+ 运行证据 |
     | deployer | .claude/agents/deployer.md | release-builder | opus | 打包 / 部署 + 结果 |
     | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | sonnet | 记录用户反馈，fork 派发 |
-    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | sonnet | 扫 feedback 出进化建议 |
+    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | sonnet | 扫 feedback 出进化建议；框架仓先跑 scripts/collect-feedback.sh 收下游 |
     | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | sonnet | 维护 progress.md，fork 派发 |
     | domain-recorder | .claude/agents/domain-recorder.md | 无 | sonnet | 收录领域口径到 domain/ |
     三层不混写：agents / skills 是稳定角色源码；Spec / DEV-PLAN / 派单是项目绑定；档位会话记录、review marker、evidence 等运行态只进 git 忽略的文件。派发前确认派单包七字段齐全，Sub-Agent 不继承 session 历史，缺上下文它只能猜。
@@ -84,7 +84,7 @@
     - 每个 Task 先定档再派：LOW（< 50 行，不碰契约 / 解析器 / 鉴权 / 迁移 / 支付 / hooks，不引新依赖）只派 implementer，主 Agent 对 diff 与运行器输出验收；MEDIUM 加一轮 code-reviewer 只跑 Stage 0 + 1；HIGH（> 300 行、碰两类以上上述路径、线上 bug / 迁移 / 安全）implementer 用 opus、reviewer 全三 Stage、tester 补关键逻辑测试。判据与链见 .claude/rules/dev-workflow-details.md [项目开发阶段]。
     - 审查收敛：一轮只 HIGH 阻断，修完由同一轮 reviewer 复核一次即收口，Medium / Low 记 progress.md 残留随后续 Task 顺手修，不派 fresh reviewer 开新一轮。
     - 每个 Phase 过四步走（Code Review → 测试完整性 → 编译验证 → 功能测试），中间有改动四步重来；收尾四态 PASS / CONCERNS / FAIL / WAIVED，WAIVED 写明理由与批准人，安全与数据丢失类不许 WAIVED。细则见 dev-builder SKILL.md [Phase 完成度判断]，Git 工作流见其 [开发规则清单]。
-    - red-locks-the-bug 只给线上行为 bug 与核心解析器 / 契约缺陷：先派 tester 出红 → 主 Agent 亲见 fail → `touch .claude/.red-verified`（两小时内有效）→ implementer 修绿；边角输入、参数花样、文案类记残留不开红锁。闸：tdd-gate——派 implementer 时无有效标记，standard 提醒、strict 拦。
+    - red-locks-the-bug 只给线上行为 bug 与核心解析器 / 契约缺陷：先派 tester 出红 → 主 Agent 亲见 fail → `touch .claude/.red-verified`（两小时内有效）→ implementer 修绿；边角输入、参数花样、文案类记残留不开红锁。闸：tdd-gate——派单 prompt 含 red-lock 字样（bug / 修复 / 线上 / 解析器 / 契约 / 迁移 / 鉴权 等，全表在 tdd-gate.mjs 头部）且无有效标记时，standard 提醒、strict 拦；其它单子静默，不用 touch .tdd-exempt。
     - 复杂模块的算法与业务规则写进 docs/design/<模块名>-设计.md（设计详述）：每条规则带编号、来源、合成例子、代码位置、常量与测试，`design-trace.mjs` 核对规则 ↔ 测试 ↔ 常量，代码改了设计详述没跟上 Stop 时提醒、strict 拦；写、改、核对设计详述或派单触及这类模块之前先读 .claude/rules/design-detail.md。
     - 测试按风险给预算，不做全量覆盖：用例头行标 `# risk: high|medium|low`，日常跑 high，CI 跑 all；报「绿」附运行清单；本地绿只是必要条件，推送后读 CI 自己的结论再报完成，读不到写「未知」。用例老化：`test-age` 列出跑过 20 次从未失败的退休候选，发版前过一遍删掉，但**密钥 / 危险命令 / 安装器 / 发版装配四类地板用例不退休**，退休前先对照这四类，主 Agent 验收含一次亲跑全量回归。闸靠数据留：长期全绿、从没拦过东西的闸就简化或删，`gate-audit.sh` 报的就是这个；「验证验证者」类机制不进发版链。
 

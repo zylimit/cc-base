@@ -137,6 +137,29 @@ chk "$([ "$(jq_ "$OUT" 'String((d.hooks||{})["tdd-gate"])')" = "off" ] && echo 0
     "PF-4 对照：overrides 压在非地板闸 tdd-gate 上真的生效（=off），证明 PF-1..3 判的是地板" \
     "模式表 tdd-gate=off" "out=[$(show "$OUT")]"
 
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PK sticky 不绕开读侧硬化（TODO #91）---"
+# 非 sticky 的 fast 照旧必过期（test-tier.sh TT-1 锁着）；sticky 单列：它不看 expires，
+# 所以「缺 set_epoch 不认」得在 sticky 形状上再锁一次——红蓝 High #2 当年就是靠缺 set_epoch
+# 换来 642713 小时的 fast，sticky 若成了绕过它的新门，等于把那条修复白送回去。
+
+SB=$(newsb pk-nose); mkprofile "$SB" ''
+printf '{"tier":"fast","reason":"t","by":"user","sticky":true,"expires_epoch":null}\n' \
+    > "$SB/.claude/.runtime/tier.json"
+hrun "$SB" tier status
+chk "$([ "$(jq_ "$OUT" 'String(d.tier)+"/"+String(d.sticky)')" = "standard/undefined" ] && echo 0 || echo 1)" \
+    "PK-1 sticky:true + expires_epoch:null 但缺 set_epoch → 不认，回默认档 standard、不报 sticky" \
+    "standard/undefined" "out=[$(show "$OUT")]"
+
+# 对照组：同一份记录补上 set_epoch 就被认作 sticky fast——缺了它，PK-1 等价于「sticky 全不认」。
+printf '{"tier":"fast","reason":"t","by":"user","set_epoch":1000,"sticky":true,"expires_epoch":null}\n' \
+    > "$SB/.claude/.runtime/tier.json"
+hrun "$SB" tier status
+chk "$([ "$(jq_ "$OUT" 'String(d.tier)+"/"+String(d.sticky)')" = "fast/true" ] && echo 0 || echo 1)" \
+    "PK-2 对照：补上 set_epoch（哪怕是 1970 年）→ 认作 sticky fast，证明 PK-1 判的是缺 set_epoch" \
+    "fast/true" "out=[$(show "$OUT")]"
+
 echo ""
 echo "==== test-tier-hardening：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]

@@ -39,8 +39,8 @@ node .claude/harness/harness.mjs tier explain stop-gate
 你会看到：
 
 ```
-stop-gate: advise now (guard, source default) -- fast=advise, standard=advise, strict=block
-{"hook":"stop-gate","kind":"guard","floor":false,"tiers":{"fast":"advise","standard":"advise","strict":"block"},"effective":"advise","tier":"standard","source":"default"}
+stop-gate: advise now (guard, source default) -- fast=off, standard=advise, strict=block
+{"hook":"stop-gate","kind":"guard","floor":false,"tiers":{"fast":"off","standard":"advise","strict":"block"},"effective":"advise","tier":"standard","source":"default"}
 ```
 
 换成地板闸：
@@ -87,16 +87,16 @@ Windows 纯 PowerShell：`Set-Content .claude/.needs-review clean`、`New-Item -
 | PreToolUse `Bash` | dangerous-pkill-guard | 拦 `pkill -f` 宽泛匹配（锚定命令起始 / 分隔符，`echo "pkill -f"` 不算） | guard | block / block / block | exit 2 | 先 `pgrep` 拿 PID 再 `kill <PID>` | **是** |
 | PreToolUse `Bash` | secret-exfil-guard | 拦四类：直读密钥文件（cat/head/grep… + `.env` 家族 / `id_rsa` / `*.pem` / `credentials`）、拷贝搬运（cp/scp/rsync/mv）、`env\|printenv\|set` 管进 curl/wget/nc、curl/wget/nc 携带密钥文件；先剥 sudo/nohup/timeout/`bash -c` 壳再判 | guard | block / block / block | exit 2 | `.env.example/.sample/.template/.dist` 合法；要个别变量按名取 `printf '%s' "$VAR"` | **是** |
 | PreToolUse `Edit\|Write` | no-direct-code-guard | 主 Agent 写业务源码路径 → exit 2；事件带 `agent_id`（子 Agent 内）一律放行 | guard | advise / block / block | 拦 | 路径豁免正则见下；派 implementer | |
-| PreToolUse `Agent` | tdd-gate | `tool_input.subagent_type === 'implementer'` 且 `.claude/.red-verified` / `.tdd-exempt` 都不在（或已过 2 小时）→ 提醒或拦 | guard | off / advise / block | 只提醒（stderr，exit 0） | `touch` 两个标记之一，2 小时内有效 | |
+| PreToolUse `Agent` | tdd-gate | `tool_input.subagent_type === 'implementer'`、prompt 含 red-lock 关键词（bug / 修复 / 线上 / 解析器 / 契约 / 迁移 / 鉴权 等中英说法，全表在文件头 `RED_LOCK_KEYWORDS`）且 `.claude/.red-verified` / `.tdd-exempt` 都不在（或已过 2 小时）→ 提醒或拦；不含关键词静默；advise 档同一单子一小时内只提醒一次（`.tdd-gate-advised`） | guard | off / advise / block | 只提醒（stderr，exit 0） | `touch` 两个标记之一，2 小时内有效 | |
 | PostToolUse `Bash` | auto-push | 命令是 `git commit`（允许夹 `-c` / `-C` 全局选项）且本地领先上游 → 自动 push | recorder | off / on / on | 推 | 没配上游不推 | |
-| PostToolUse `Edit\|Write` | mark-review-needed | 业务文件被改 → 登记进 `.claude/.needs-review`（每行一个相对路径，加锁串行写） | recorder | off / on / on | 记 | 根级 `tools/` 与 `.claude/` 豁免；路径归一后出根的不登记 | |
+| PostToolUse `Edit\|Write` | mark-review-needed | 业务文件被改 → 登记进 `.claude/.needs-review`（每行一个相对路径，加锁串行写） | recorder | on / on / on | 记 | 根级 `tools/` 与 `.claude/` 豁免；路径归一后出根的不登记 | |
 | PostToolUse `Edit\|Write` | harness-async-verify | 大仓启用时后台跑 `harness verify`，FAIL/BLOCKED exit 2 唤醒主 Agent；180 秒防抖；`asyncRewake`，timeout 300 | guard | off / block / block | 无 catalog 立即退出 | 只在大仓启用时有意义 | |
 | PostToolUse `Edit\|Write\|NotebookEdit` | record-authorship | 把「谁（`agent_type` / `agent_id` / main）写了哪个文件」喂给 `harness authorship record` | recorder | on / on / on | 无 catalog 立即退出 | 只在大仓启用时有意义；三档全 on | |
 | PreCompact | precompact-gate | 待审未清或代码脏而 progress.md 没动 → `decision: block` 一次，10 分钟冷却 | guard | advise / block / block | 拦一次 | `/record` 后重试 | |
 | PostCompact | postcompact-reinject | 从文件重新派生 Pinned + 待审 + 档位（装了 ext 走 `harness invariants`）注回 | guard（floor） | — | 注回 | — | **是** |
 | Notification `agent_needs_input\|agent_completed\|permission_prompt` | notify | 三类通知转 OSC 777 桌面通知 + BEL，经 `terminalSequence` 由宿主代发 | recorder（floor） | — | 通知 | — | **是** |
-| Stop | stop-gate | `.needs-review` 去空行去 `clean` 后仍有文件 → 拦或提醒；同一清单连拦 3 次第 4 次放行并醒目提示 | guard | advise / advise / block | **只提醒** | `echo clean > .claude/.needs-review` | |
-| Stop | three-file-sync-gate | 代码 / 家底脏而 progress.md 没动；Spec / CHANGELOG 只改一份 | guard | advise / advise / advise | 只提醒 | 写 progress.md / 成对改 | |
+| Stop | stop-gate | `.needs-review` 去空行去 `clean` 后仍有文件 → 拦或提醒；同一清单连拦 3 次第 4 次放行并醒目提示 | guard | off / advise / block | **只提醒** | `echo clean > .claude/.needs-review` | |
+| Stop | three-file-sync-gate | 代码 / 家底脏而 progress.md 没动；Spec / CHANGELOG 只改一份；同一份脏清单一小时内只提醒一次（`.three-file-sync-advised`） | guard | advise / advise / advise | 只提醒 | 写 progress.md / 成对改 | |
 | Stop | three-file-sync-gate（design-detail-sync） | 改了 docs/design/ 某份设计详述代码范围里的代码，设计详述没改 | guard | advise / advise / block | strict 拦 | 同步规则，或只改了测试就补测试名 | 同一个 hook 文件，单独取档 |
 | SubagentStop `implementer\|code-reviewer\|tester\|deployer` | subagent-acceptance-reminder | 注给**刚停下的子 Agent 自己**：结论锚到实际跑过的命令、证不出的写 Not verified；回执 Domain findings 有内容时多一句 | recorder | off / on / on | 注 | 每个完成事件只提醒一次（`.claude/.subagent-reminded` 去重） | |
 
@@ -196,7 +196,7 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 
 | hook | kind | fast | standard | strict |
 |---|---|---|---|---|
-| stop-gate | guard | advise | advise | block |
+| stop-gate | guard | off | advise | block |
 | three-file-sync-gate | guard | advise | advise | advise |
 | design-detail-sync | guard | advise | advise | block |
 | precompact-gate | guard | advise | block | block |
@@ -204,7 +204,7 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 | no-direct-code-guard | guard | advise | block | block |
 | tdd-gate | guard | off | advise | block |
 | harness-async-verify | guard | off | block | block |
-| mark-review-needed | recorder | off | on | on |
+| mark-review-needed | recorder | on | on | on |
 | record-authorship | recorder | on | on | on |
 | auto-push | recorder | off | on | on |
 | kill-dev-ports | recorder | off | on | on |
@@ -219,7 +219,7 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 - **raise**：`to: strict`，`paths` = `.claude/hooks/**` `.claude/harness/**` `.claude/skills/**` `.claude/agents/**` `.claude/CLAUDE.md` `.claude/rules/**` `.claude/settings.json` `.github/**`。
 - **overrides**：`{}`，项目级单闸覆盖写这里。
 
-三档的口径（`.claude/CLAUDE.md` [档位]）：**standard** = 现行流程，stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦；**strict** = stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者；**fast** = guard 类只提醒并记债，流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。fast 不等于部署或 push 授权，`release` 装配在 fast 生效时 `tier` 项直接 FAIL。
+三档的口径（`.claude/CLAUDE.md` [档位]）：**standard** = 现行流程，stop-gate / three-file-sync-gate / tdd-gate 只提醒，no-direct-code-guard / pre-commit-check / precompact-gate 真拦；**strict** = stop-gate、tdd-gate 与 design-detail-sync 也真拦，人当审批者；**fast** = guard 类只提醒并记债（stop-gate 直接 off、mark-review-needed 照记——不派 reviewer 就没有「未审查」可提醒，但债得记下，撤销 fast 时 stop-gate 才有账可提），流程侧不自动派 tester / reviewer、不受四步走约束，静态检查照跑。fast 不等于部署或 push 授权，`release` 装配在 fast 生效时 `tier` 项直接 FAIL。
 
 ### 档位怎么算出来的
 
@@ -230,17 +230,18 @@ settings 里的 hook 在子 Agent 内同样跑，事件多带 `agent_id` / `agen
 | 输入 | 来源 | 细节 |
 |---|---|---|
 | ① profile.default | `profile.json` | 缺文件或坏 JSON → 用内置 `DEFAULT_PROFILE`（与分发的 profile.json 逐项相同），坏文件记进 `.claude/harness/state/quarantine.jsonl` |
-| ② 会话覆盖 | `.claude/.runtime/tier.json` | **只有 `tier set` 写**，hook 只读；未过期才算数；与默认同档的记录不算覆盖（`source` 仍报 `default`，否则分不出「钉住了」和「刚关掉 fast」） |
+| ② 会话覆盖 | `.claude/.runtime/tier.json` | **只有 `tier set` 写**，hook 只读；未过期才算数（`sticky: true` 且 `expires_epoch: null` 的记录不看过期，到 `tier set standard` 为止）；与默认同档的记录不算覆盖（`source` 仍报 `default`，否则分不出「钉住了」和「刚关掉 fast」） |
 | ③ 治理面自动升档 | `git status --porcelain -z -uall` 里命中 `raise.paths` 的路径 | 运行态目录（`.claude/.runtime/` `.claude/evidence/` `.claude/harness/state/` 等）与 `.needs-review` 不算——否则跑一次闸落一行账本就把档位钉死在 strict |
 
 `gateMode(id)` 的优先级：floor → overrides → 档位表。未登记的 id 按该种类最严值跑并 stderr 警告一句——漏登记不静默。hook 侧调 `gateModeOf(id)` 是动态 import；判定库缺失时退到 `io.mjs` 的 FALLBACK：guard 里 `stop-gate / tdd-gate / three-file-sync-gate` 回 `advise`、其余 guard 回 `block`、recorder 回 `on`——正好是 standard 那一列。
 
 **三张表必须一致**：`profile.json`、`hooks/lib/tier.mjs` 的 `DEFAULT_PROFILE`、`hooks/lib/io.mjs` 的 `FALLBACK_GUARDS / FALLBACK_ADVISE`。改任何一张都要对另外两张；`tier validate` 只校前一张的内部一致性，不校三张互相对齐（本仓 2026-09-15 逐项核对过，三张一致）。
 
-### fast：必带 reason，8 小时硬上限
+### fast：必带 reason，8 小时硬上限；连续开发期 --sticky
 
 ```bash
 node .claude/harness/harness.mjs tier set fast --hours 2 --reason "脚手架期批量改文案"
+node .claude/harness/harness.mjs tier set fast --sticky --reason "脚手架期连续开发"   # 到撤销为止；与 --hours 互斥；tier set standard 撤
 # 薄壳（hours 默认 24，引擎会截到 8 并说明）
 bash .claude/scripts/fast-mode.sh on 2
 bash .claude/scripts/fast-mode.sh off        # = tier set standard --reason "fast-mode.sh off"
@@ -248,13 +249,14 @@ bash .claude/scripts/fast-mode.sh off        # = tier set standard --reason "fas
 
 Windows：`pwsh .claude/scripts/fast-mode.ps1 on 2 | off | status`。
 
-`tier set` 的拒绝面比接受面大（`harness/lib/tier.mjs` `cmdTierSet`）：未知档 rc 2；`fast` 不带 `--reason` rc 2；`--hours` 给非 fast 档 rc 2；hours 非正数 rc 2；超 8 截到 8 并 stderr 说明。写下的文件：
+`tier set` 的拒绝面比接受面大（`harness/lib/tier.mjs` `cmdTierSet`）：未知档 rc 2；`fast` 不带 `--reason` rc 2；`--hours` 给非 fast 档 rc 2；hours 非正数 rc 2；`--sticky` 与 `--hours` 同给 rc 2、`--sticky` 给非 fast 档 rc 2；超 8 截到 8 并 stderr 说明。写下的文件：
 
 ```json
 {"tier":"fast","reason":"…","by":"user","set_epoch":<now>,"expires_epoch":<now+hours*3600>}
+{"tier":"fast","reason":"…","by":"user","set_epoch":<now>,"expires_epoch":null,"sticky":true}
 ```
 
-读侧再夹一次：fast 记录缺 `set_epoch` / `expires_epoch` 不认（红蓝审查曾靠缺 `set_epoch` 换来 642713 小时的 fast）；锚点取 `min(set_epoch, now)` 防写到未来平移窗口；到期返回 null 自动回默认档，不靠人记得关。本仓 `.claude/.runtime/tier.json` 此刻就躺着一份 2026-09-06 的 fast 记录，`tier status` 照样报 `standard / default`——过期即无效，文件留着不碍事。
+读侧再夹一次：fast 记录缺 `set_epoch` / `expires_epoch` 不认（红蓝审查曾靠缺 `set_epoch` 换来 642713 小时的 fast）——sticky 记录要 `sticky: true`、`expires_epoch: null`、`set_epoch` 在、reason 非空四样齐全才认：缺 `set_epoch` 照旧按坏记录隔离，其余缺一样按普通 fast 处理（要么被夹回 8 小时、要么判已过期静默回默认档），拿不到无限期；锚点取 `min(set_epoch, now)` 防写到未来平移窗口；到期返回 null 自动回默认档，不靠人记得关。sticky 是这条的例外，也是有代价换来的：两个下游项目把「开工先切快速档并持续续期」写进 Pinned、两天续了 4 次，每次过期回 standard 那一刻 tdd-gate / stop-gate 立刻开响，一个月 113 + 326 条账本多数来自这个缝（#91）；换成到撤销为止后，statusline 与 session-rules-banner 改显示「到撤销」提醒你它还开着。本仓 `.claude/.runtime/tier.json` 此刻就躺着一份 2026-09-06 的 fast 记录，`tier status` 照样报 `standard / default`——过期即无效，文件留着不碍事。
 
 每次 `tier set` 记一行账本：`tier	set fast (2026-09-06T…Z) -- <reason>`。降档必须留理由，事后 `gate-audit` 能统计 fast 期跳过了哪些闸。
 

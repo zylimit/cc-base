@@ -34,7 +34,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 - `harness/` —— 核心只剩 `harness.mjs` + `lib/{core,tier}.mjs` + `profile.json`（档位表）+ `exclusions.json` + `audit/`。大仓治理引擎在 `harness/ext/`，**默认不装**：`setup.sh --with-harness` / `setup.ps1 -WithHarness` 才装，装后放 `module-catalog.json` 才启用——见下方「大仓能力」
 - `skills/` —— 18 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
-- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / statusline 状态行）
+- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / collect-feedback 收下游 feedback / statusline 状态行）
 - `tests/` —— 框架自测（selftest / test-setup / test-routing / 闸回归 / cases，`run-all.sh` 统一跑）
 - `workflows/` —— Workflow 编排脚本（code-review-fanout.js，opt-in 多维审查）
 - `feedback/` —— 经验教训库 + 索引
@@ -99,6 +99,7 @@ target/
 ```bash
 node .claude/harness/harness.mjs tier status              # 当前档、来源（default / session / raise）、每闸模式
 node .claude/harness/harness.mjs tier set fast --hours 4 --reason "原型期赶进度"   # 上限 8 小时，到期自动回默认
+node .claude/harness/harness.mjs tier set fast --sticky --reason "连续开发期"      # 到撤销为止，tier set standard 撤
 node .claude/harness/harness.mjs tier explain stop-gate   # 这个闸三档各是什么、现在是什么、为什么
 node .claude/harness/harness.mjs tier validate            # 改过 profile.json 后校验三档单调
 bash .claude/scripts/fast-mode.sh on 4                    # 老入口还在，只是 tier set fast 的薄壳

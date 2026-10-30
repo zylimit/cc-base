@@ -424,7 +424,10 @@ Write-OptionalManifest
 # rewritten hook by hook so an existing one always counts as an update, the other two are plain copies.
 if ($DryRun) {
   foreach ($rel in @('settings.json', 'FRAMEWORK-MANIFEST.txt', 'feedback/FEEDBACK-INDEX.md')) {
-    if (Test-Path (Join-Path $targetClaude $rel)) { Add-Plan 'update' $rel } else { Add-Plan 'create' $rel }
+    if (Test-Path (Join-Path $targetClaude $rel)) {
+      # FEEDBACK-INDEX.md is created only when missing and never touched afterwards, so it plans as skip.
+      if ($rel -eq 'feedback/FEEDBACK-INDEX.md') { Add-Plan 'skip' $rel } else { Add-Plan 'update' $rel }
+    } else { Add-Plan 'create' $rel }
   }
   Write-Output ('dry-run: create={0} update={1} conflict={2} skip={3} (conflict would land <file>.framework-new)' -f `
       $script:plan['create'], $script:plan['update'], $script:plan['conflict'], $script:plan['skip'])
@@ -546,10 +549,14 @@ if ((Test-Path $targetSettings) -and -not $Force) {
   Register-Write 'settings.json'
 }
 
-# Reset feedback INDEX to a clean template (same source as make-release.sh; private entries were skipped above)
+# Create the feedback INDEX from the clean template only when the target has none (same source as
+# make-release.sh; private entries were skipped above). An existing index is left alone: it is the
+# project's own accumulated entry list, and resetting it to the empty template on every upgrade
+# wipes it, so the evolution engine finds no feedback to scan.
 $fbTpl = Join-Path $srcClaude 'feedback/templates/feedback-index-template.md'
-if (Test-Path $fbTpl) {
-  Copy-WithBackup $fbTpl (Join-Path $targetClaude 'feedback/FEEDBACK-INDEX.md')
+$fbIndex = Join-Path $targetClaude 'feedback/FEEDBACK-INDEX.md'
+if ((Test-Path $fbTpl) -and -not (Test-Path $fbIndex)) {
+  Copy-WithBackup $fbTpl $fbIndex
   Register-Write 'feedback/FEEDBACK-INDEX.md'
 }
 

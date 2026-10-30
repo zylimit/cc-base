@@ -17,12 +17,18 @@
 //   advise 档来源的理由在拦停文案里标「（仅提醒）」。
 // 档位（profile.json）：off 静默放行；advise（fast 档）照判照记账但出 systemMessage 不 block；
 //   block（standard/strict）走原逻辑。
+// advise 档去重（只管 C1/C2 这一边，设计详述分支不去重）：.three-file-sync-advised 记上次提醒的签名
+//   与时间，签名 = 判进 C1/C2 的脏文件清单（代码家底 + Spec + CHANGELOG）排序后哈希。同一签名一小时内
+//   再 Stop 静默（不出 systemMessage、不写账本）；清单变了、progress.md 动了（C1/C2 无理由即清掉记录）、
+//   满时限都再提醒一次。由来：下游两天 86 次提醒、同一文件例子 62 次，没一次被理会。整体要拦停时不去重，
+//   拦停文案原样。口径与 stop-gate 共用 lib/advise-dedup.mjs。
 // fail-closed：闸自身出错（含 git status 跑不成）绝不静默放行，一律拦停——树没被看过就不能
 //   当成「树是干净的」。不读 stdin：判定只来自工作树，喂什么都不影响结论。
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectDir, git, porcelainZ, classifyChange, relToProject, emit, gateModeOf, runFailClosed } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
+import { listSig, recentlyAdvised, recordAdvised, clearAdvised } from './lib/advise-dedup.mjs';
 
 // 读设计详述文首「> 代码范围：」行里反引号括起的通配，翻成正则：** 跨目录、* 不跨目录、其余字面。
 // 先规范化：反斜杠当 /、去开头 ./ 与末尾 /；不含 * 的条目按目录或文件前缀（p 本身或 p/**）。
@@ -80,6 +86,8 @@ runFailClosed(async () => {
   let changelogDirty = false;
   let firstCode = '';
   const changed = new Set();
+  // 判进 C1/C2 的脏文件（代码家底 + Spec + CHANGELOG）：advise 去重的签名就从它算
+  const c12Files = [];
 
   // 剥掉仓根到项目目录的前缀（剥不掉的跳过不分类，-- . 限定后理论上不该有），再把 kind
   // 映射回本闸的四个标志。前缀剥法与分类表都在 io.mjs，precompact-gate 用的是同一份。
@@ -89,10 +97,11 @@ runFailClosed(async () => {
     changed.add(rel);
     switch (classifyChange(rel)) {
       case 'progress': progDirty = true; break;
-      case 'spec': specDirty = true; break;
-      case 'changelog': changelogDirty = true; break;
+      case 'spec': specDirty = true; c12Files.push(rel); break;
+      case 'changelog': changelogDirty = true; c12Files.push(rel); break;
       case 'code':
         codeDirty = true;
+        c12Files.push(rel);
         if (!firstCode) firstCode = rel;
         break;
       default: break;
@@ -138,10 +147,20 @@ runFailClosed(async () => {
     }
   }
 
-  if (reasons.length === 0 && ddReasons.length === 0) return;
-
   // 逐边定性：C1/C2 边按 mode，设计详述边按 ddMode；任一边是 block 整体 block，理由合并。
   const blocking = (reasons.length > 0 && mode !== 'advise') || (ddReasons.length > 0 && ddMode === 'block');
+
+  // advise 去重：C1/C2 没理由了（progress 跟上了 / 树干净了）就清记录，下一轮同一清单重现照样提醒；
+  // 有理由且整体只是提醒时，同一签名一小时内只说一次。
+  const advisedFile = path.join(root, '.claude', '.three-file-sync-advised');
+  if (mode === 'advise' && reasons.length === 0) clearAdvised(advisedFile);
+  if (mode === 'advise' && reasons.length > 0 && !blocking) {
+    const sig = listSig(c12Files);
+    if (recentlyAdvised(advisedFile, sig)) reasons.length = 0;
+    else recordAdvised(advisedFile, sig);
+  }
+
+  if (reasons.length === 0 && ddReasons.length === 0) return;
   // 拦停文案里，来自 advise 档那一边的理由标「（仅提醒）」，别让人以为它也在拦。
   const tag = (list, m) => (blocking && m === 'advise' ? list.map((r) => `（仅提醒）${r}`) : list);
   const reason = [...tag(reasons, mode), ...tag(ddReasons, ddMode)].join(' ');

@@ -18,7 +18,15 @@
 //   explain <unknown>   2   the id is not a hook this repository registers
 //   set                 0, or 2 for a usage error (unknown tier, fast without a reason,
 //                             --hours that is not a positive number or is given for a tier
-//                             that has no expiry)
+//                             that has no expiry, --sticky on a tier other than fast, or
+//                             --sticky together with --hours)
+//
+// Runtime record (.claude/.runtime/tier.json, data model docs/v3-work-packs.md A.1) gains one
+// field beside the A.1 set: `sticky: true` on a fast record written by `tier set fast --sticky`,
+// written with `expires_epoch: null`. The hook-side reader honours it only in that exact shape
+// (sticky === true, expires_epoch === null, non-empty reason); `tier status` reports it as
+// `sticky: true, expiresEpoch: null`. Any later `tier set standard|strict` overwrites the record
+// and is the revocation -- there is no separate "unstick".
 //   validate            0 compliant / 1 violations / 3 no profile.json (the built-in table is
 //                             in force and there is nothing to validate -- not a pass)
 import fs from 'node:fs';
@@ -32,6 +40,14 @@ import { die, emit, projectRoot, repoRelative } from './core.mjs';
 // A fast window is capped rather than trusted: the switch it replaces defaulted to 24 hours
 // and was routinely found still open days later. Eight hours is one working day, and a window
 // that has to be renewed is a window somebody is still deciding to keep open.
+//
+// 为什么又加了 --sticky（到撤销为止的 fast，progress.md TODO #91，用户 2026-10-30 拍板）：
+// 上限在连续开发里成了仪式——两个下游项目把「开工先切快速档并持续续期」写进 progress Pinned，
+// 两天续了 4 次，一个项目干脆把续期命令写进 settings.local 白名单，续期没人再「决定」什么。
+// 更要紧的是过期回落到 standard 那一刻 tdd-gate / stop-gate 立刻开响，账本里一个月 113 + 326
+// 条提醒多数出自这个缝：提醒响在没人改主意的时候，等于噪声。sticky 不放宽上限本身：不带
+// --sticky 的 fast 照旧 8 小时；sticky 必须带 reason、只对 fast 合法、与 --hours 互斥，
+// 由 tier set standard|strict 撤销；家底一动自动升 strict 照旧只抬不降，release 侧照旧对 fast FAIL。
 const MAX_FAST_HOURS = 8;
 const GUARD_MODES = ['off', 'advise', 'block'];
 const RECORDER_MODES = ['off', 'on'];
@@ -247,11 +263,16 @@ function governancePaths(root = projectRoot()) {
 /** The live dial, in the shape every other section of the engine reads it. */
 function tierState(root = projectRoot()) {
   const eff = effectiveTier({ projectDir: root });
-  const expires = Number(eff.expiresEpoch);
+  // sticky 时 eff.expiresEpoch 是 null，Number(null) 是 0——不先挡住就会报成「1970 年到期、剩 0h」。
+  const expires = eff.sticky === true || eff.expiresEpoch === null ? NaN : Number(eff.expiresEpoch);
+  // sticky 窗口没有剩余小时可报，人读那行要带上当初为什么开着它——到撤销为止的放水，理由比时长更该被看见。
+  const session = eff.sticky === true ? readSession(root) : null;
   return {
+    reason: session && typeof session.reason === 'string' ? session.reason : null,
     tier: eff.tier,
     source: eff.source,
     fast: eff.tier === 'fast',
+    sticky: eff.sticky === true,
     raisedBy: eff.raisedBy || null,
     expiresEpoch: Number.isFinite(expires) ? expires : null,
     remainingHours: Number.isFinite(expires)
@@ -268,13 +289,15 @@ function modeTable(root, profile) {
 }
 
 function humanState(state) {
-  const bits = [state.tier, 'source=' + state.source];
+  // sticky 只在它真在起作用时说（有效档位就是 fast）；被家底改动抬成 strict 时报的是 strict。
+  const bits = [state.sticky && state.tier === 'fast' ? 'fast (sticky, until revoked)' : state.tier,
+    'source=' + state.source];
   if (state.remainingHours !== null) bits.push(state.remainingHours + 'h left');
   if (state.raisedBy && state.raisedBy.length) {
     bits.push('raised by ' + state.raisedBy.slice(0, 3).join(', ')
       + (state.raisedBy.length > 3 ? ' and ' + (state.raisedBy.length - 3) + ' more' : ''));
   }
-  return 'tier: ' + bits.join(', ');
+  return 'tier: ' + bits.join(', ') + (state.sticky && state.reason ? ' -- ' + state.reason : '');
 }
 
 function cmdTierStatus(root) {
@@ -286,6 +309,7 @@ function cmdTierStatus(root) {
     tier: state.tier,
     source: state.source,
     ...(state.raisedBy && state.raisedBy.length ? { raisedBy: state.raisedBy } : {}),
+    ...(state.sticky ? { sticky: true, expiresEpoch: null } : {}),
     ...(state.expiresEpoch === null ? {} : { expiresEpoch: state.expiresEpoch, remainingHours: state.remainingHours }),
     default: present && rank(profile.default) >= 0 ? profile.default : DEFAULT_PROFILE.default,
     profilePresent: present,
@@ -335,7 +359,7 @@ function cmdTierExplain(root, id) {
  * lowered gate with no reason recorded beside it, an expiry the caller thinks they set.
  */
 function cmdTierSet(root, target, flags) {
-  const usage = 'usage: tier set <' + TIERS.join('|') + '> [--hours N] [--reason "why"]\n';
+  const usage = 'usage: tier set <' + TIERS.join('|') + '> [--hours N | --sticky] [--reason "why"]\n';
   if (!target) return die('missing tier\n' + usage, 2);
   if (rank(target) < 0) {
     return die('unknown tier: ' + target + '\n' + usage
@@ -351,6 +375,15 @@ function cmdTierSet(root, target, flags) {
   if (hoursGiven && target !== 'fast') {
     return die('--hours applies to fast only\n' + usage
       + 'standard and strict do not expire, so an hour count here would be silently dropped\n', 2);
+  }
+  const sticky = Object.prototype.hasOwnProperty.call(flags, 'sticky');
+  if (sticky && target !== 'fast') {
+    return die('--sticky applies to fast only\n' + usage
+      + 'standard and strict never expire, so there is nothing for sticky to hold open\n', 2);
+  }
+  if (sticky && hoursGiven) {
+    return die('--sticky and --hours are mutually exclusive\n' + usage
+      + 'a window that lasts N hours and one that lasts until revoked cannot both be what was meant\n', 2);
   }
   let hours = MAX_FAST_HOURS;
   let clamped = false;
@@ -369,7 +402,8 @@ function cmdTierSet(root, target, flags) {
     reason,
     by: 'user',
     set_epoch: now,
-    ...(target === 'fast' ? { expires_epoch: now + Math.round(hours * 3600) } : {}),
+    ...(target === 'fast' && sticky ? { sticky: true, expires_epoch: null } : {}),
+    ...(target === 'fast' && !sticky ? { expires_epoch: now + Math.round(hours * 3600) } : {}),
   };
   const file = runtimeFile(root);
   try {
@@ -381,19 +415,22 @@ function cmdTierSet(root, target, flags) {
     return die('could not write ' + repoRelative(file) + ': ' + String((e && e.message) || e) + '\n', 1);
   }
 
-  const until = record.expires_epoch ? new Date(record.expires_epoch * 1000).toISOString() : 'no expiry';
+  const until = record.expires_epoch ? new Date(record.expires_epoch * 1000).toISOString()
+    : (sticky ? 'sticky, until revoked' : 'no expiry');
   gateLog('tier', 'set ' + target + ' (' + until + ')' + (reason ? ' -- ' + reason : ''), root);
   if (clamped) {
     process.stderr.write('--hours ' + flags.hours + ' capped at ' + MAX_FAST_HOURS + 'h: the window is '
       + 'a working day at most, and one that outlives the work it was opened for is the whole failure mode\n');
   }
   process.stderr.write('tier: ' + target + (record.expires_epoch ? ' until ' + until : '')
+    + (sticky ? ' (sticky, until revoked; tier set standard to revoke)' : '')
     + (reason ? ' -- ' + reason : '') + '\n');
   return emit({
     tier: target,
     path: repoRelative(file),
     expiresEpoch: record.expires_epoch === undefined ? null : record.expires_epoch,
-    hours: target === 'fast' ? hours : null,
+    ...(sticky ? { sticky: true } : {}),
+    hours: target === 'fast' && !sticky ? hours : null,
     clamped,
     effective: tierState(root).tier,
   }, 0);
@@ -463,7 +500,7 @@ function cmdTier(flags, positional) {
     case 'validate': return cmdTierValidate(root);
     default:
       return die((sub ? 'unknown tier sub-command: ' + sub + '\n' : 'missing tier sub-command\n')
-        + 'usage: tier status | set <' + TIERS.join('|') + '> [--hours N] [--reason "why"] | '
+        + 'usage: tier status | set <' + TIERS.join('|') + '> [--hours N | --sticky] [--reason "why"] | '
         + 'explain <hook-id> | validate\n', 2);
   }
 }

@@ -8,6 +8,8 @@ signals.jsonl
 .red-verified
 .stop-gate-strikes
 .stop-gate-advised
+.three-file-sync-advised
+.tdd-gate-advised
 .precompact-block-epoch
 .async-verify-last
 

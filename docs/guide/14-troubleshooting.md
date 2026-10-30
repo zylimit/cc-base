@@ -38,7 +38,7 @@ ls -la .claude/.red-verified .claude/.tdd-exempt
 grep tdd-gate .claude/evidence/gate-block.log | tail -3
 ```
 
-**原因**（`.claude/hooks/tdd-gate.mjs`）：它挂在 PreToolUse(Agent)，只看 `tool_input.subagent_type === 'implementer'`；strict 档 block、standard advise、fast off；放行靠 `.claude/.red-verified` 或 `.claude/.tdd-exempt`，且标记有两小时保质期（`MARK_TTL_MS`），过期的当场删掉——本仓一枚 9 月 11 日留下的空标记让闸静默放行了四天。改家底自动升 strict，所以正在改 hooks / skills 时派单必被拦。
+**原因**（`.claude/hooks/tdd-gate.mjs`）：它挂在 PreToolUse(Agent)，看 `tool_input.subagent_type === 'implementer'` 和 prompt 里有没有 red-lock 关键词（没有就静默放行）；strict 档 block、standard advise、fast off；放行靠 `.claude/.red-verified` 或 `.claude/.tdd-exempt`，且标记有两小时保质期（`MARK_TTL_MS`），过期的当场删掉——本仓一枚 9 月 11 日留下的空标记让闸静默放行了四天。改家底自动升 strict，所以正在改 hooks / skills 时含 red-lock 关键词的派单必被拦（不含关键词的单子静默放行，见 05 章）。
 
 **处置**：高价值逻辑（契约 / 解析器 / 状态机 / schema 校验）先派 tester 出红、亲见 fail、`touch .claude/.red-verified` 再派；UI / 样式 / 非 TDD 逻辑 `touch .claude/.tdd-exempt`。旧版本按 Bash 命令文本匹配 `implementer` 字样会误伤 `cat …implementer.md`，2026-09-15 起改挂 Agent 事件，命令文本不再触发。
 

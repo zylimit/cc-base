@@ -22,6 +22,9 @@ const TRIGGER_DECISIONS = 30;
 const RETAIN_DECISIONS = 24;
 const TRIGGER_TODO_CLOSED = 20;   // 已关闭（DONE / 完成）条数
 const RETAIN_TODO_CLOSED = 10;    // 留编号最大的 N 条
+// Pinned 封顶：progress-recorder SKILL 里写着 15 条却没有机器查，下游实数到过 51 条，多数是地址 / 端口 /
+// docker 细节这类环境事实。这里只数、只报一行，不自动搬——哪条是硬约束、哪条该挪走得人判。
+const PINNED_CAP = 15;
 
 const DATE_RE = /^- \d{4}-\d{2}-\d{2}/;
 const TODO_RE = /^-\s\[P\d+\]\[([^\]]*)\]\[#([^\]]+)\]/;
@@ -30,6 +33,8 @@ const POINTER_PREFIX = '（归档指针：';
 const LABEL = { done: 'Done', notes: 'Notes', decisions: 'Decisions', todo: 'TODO' };
 const SRC_TABLE = [['Done', 'done'], ['Notes', 'notes'], ['Decisions', 'decisions'], ['TODO', 'todo']];
 const ARCH_TABLE = [['Archived Done', 'done'], ['Archived Notes', 'notes'], ['Archived Decisions', 'decisions'], ['Archived TODO', 'todo']];
+const PIN_TOP_RE = /^- /;          // 顶层写法
+const PIN_INDENT_RE = /^ {4}- /;   // recorder 模板的四空格缩进写法
 const RETAIN = { done: RETAIN_DONE, notes: RETAIN_NOTES, decisions: RETAIN_DECISIONS, todo: RETAIN_TODO_CLOSED };
 
 function usageError(msg) {
@@ -121,6 +126,23 @@ if (!existsSync(progPath)) {
 const progRaw = readFileSync(progPath, 'utf8');
 const progEol = progRaw.includes('\r\n') ? '\r\n' : '\n';
 const progLines = progRaw.split(/\r?\n/);
+
+// Pinned 条目数：文件里有顶层 `- ` 就只数顶层（这时四空格那几行是它们的子项，不该另算一条）；
+// 一条顶层都没有才数四空格缩进写法。两种写法都认，但不在同一份文件里叠加计数。
+function countPinned(lines) {
+  const s = findSections(lines, [['Pinned', 'pinned']]).pinned;
+  if (!s) return 0;
+  const body = lines.slice(s.bodyStart, s.bodyEnd);
+  const top = body.filter((l) => PIN_TOP_RE.test(l)).length;
+  return top > 0 ? top : body.filter((l) => PIN_INDENT_RE.test(l)).length;
+}
+const pinnedCount = countPinned(progLines);
+const pinnedOver = pinnedCount > PINNED_CAP;
+if (pinnedOver) {
+  const warn = `progress-archive: Pinned ${pinnedCount} 条超封顶 ${PINNED_CAP}——环境事实（地址 / 端口 / 路径 / 基准数据）挪 Context Index，弱约束降 Decision；本脚本不自动搬`;
+  // --json 的 stdout 只许一份 JSON（契约），告警行改走 stderr，JSON 里另带 pinned 字段；人读模式照报在 stdout。
+  if (json) console.error(warn); else console.log(warn);
+}
 const srcSections = findSections(progLines, SRC_TABLE);
 const entriesOf = (kind, re) => { const s = srcSections[kind]; return s ? parseEntries(progLines, s.bodyStart, s.bodyEnd, re) : []; };
 
@@ -183,6 +205,7 @@ function report() {
   const out = { command: 'progress-archive', ok: true, root, moved: {}, alreadyArchived: {}, nothingDue: movedTotal === 0, maxArchivedTodoId };
   for (const g of groups) { out.moved[g.kind] = g.toArchive.length; out.alreadyArchived[g.kind] = g.already.length; }
   if (check) out.check = true;
+  out.pinned = { count: pinnedCount, cap: PINNED_CAP, overCap: pinnedOver };
   return out;
 }
 function printHuman() {

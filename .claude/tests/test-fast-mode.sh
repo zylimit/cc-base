@@ -57,6 +57,14 @@ else
   fail "on 仍写了 .claude/.fast-mode（内容：$(cat "$LEGACY" 2>/dev/null)）"
 fi
 
+# ② on --sticky → 原样转发 tier set fast --sticky（TODO #91）：sticky:true、expires_epoch:null
+$FM on --sticky >/dev/null 2>&1 || true
+if [ "$(jf "$TIERF" 'd.tier+"/"+d.sticky+"/"+d.expires_epoch')" = "fast/true/null" ]; then
+  pass "on --sticky → tier.json 为 fast/sticky:true/expires_epoch:null（薄壳透传，不自己算过期）"
+else
+  fail "on --sticky 未透传成 sticky（实得：$(jf "$TIERF" 'JSON.stringify(d)')）"
+fi
+
 echo ""
 echo "结果：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

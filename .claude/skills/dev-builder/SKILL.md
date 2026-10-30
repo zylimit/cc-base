@@ -39,6 +39,8 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         - 新页面继承相邻同类页面的语义、交互、危险操作规则，不一页单造一套
         - 复用对齐不止看组件名，要打开邻居基准页面实际对比渲染效果
         - 改完 UI 主动自检渲染边界，不等用户指出：按钮 / 文字不超容器、窄面板不挤爆（多按钮一行先估宽度，挤就拆行或图标化）、危险操作从主操作行分离并按 Brief 加确认
+        - 视觉敏感产物（地图边界 / 渲染 / 版式）全量落地前先出一份小样给用户亲眼看过——数据校验过不算过，这一步是视觉闸，不是可选
+        - 面向领域专家的界面标签用领域现成说法，不生造术语或缩写，拿不准先问用户
 
     [质量门槛]
         - 每个功能要有：正常流程、错误提示、加载态、空状态、基本输入校验，且无敏感信息硬编码
@@ -72,6 +74,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     编码由主 Agent 派 implementer fresh 实例执行，每 Task 一单、跨 Task 默认串行，派单包七字段见 rules/subagent-dispatch.md；主 Agent 只写单 + 验收，不亲手写码。
     Plan（读 DEV-PLAN 该 Phase 与 Spec 相关章节的原文，探索现有代码，写出 Task 拆分，每个页面 / 组件 / 功能一个 Task）→ 每个 Task：读派单包 Business Context（为什么做、谁受益、相关规则与例外；Spec 没写的分支按规则与例外推，推不出来的记为「业务假设」进回执，不静默选一个）→ 读该 Task 的交付清单、Spec 功能描述、设计参照的原文 → 编码 → 自检（代码实际值对设计数值、行为对 Spec、业务含义对 Business Context）→ 按 Task 档位走 rules/dev-workflow-details.md [项目开发阶段] 的三条链：LOW 不派 reviewer、主 Agent 对 diff 与运行器输出验收；MEDIUM 派 code-reviewer 一轮 Stage 0 + 1；HIGH 全三 Stage + tester → 只 HIGH 阻断，修完由同一轮复核一次即收口，Medium / Low 记残留不追 → `echo clean > .claude/.needs-review` → commit → 下一个 Task。
     用户强调某个环节是追加要求，不替换基础流程，review 闭环照常走。
+    fast 档（`tier status` 报 fast）走短链：不自动派 reviewer / tester、不进四步走；同一份代码全量测试只跑一次，之后修阻断项只补直接对应的用例、复核只看修的那一处；审查与各道闸的过程不念给用户，只报结论与证据句柄；连续开发期用 `tier set fast --sticky --reason "…"` 到撤销为止，不每 8 小时续一次、不每次向用户报告。standard / strict 不受这段影响。
     反例回流：代码对得上 Spec、Spec 对不上业务规则或例外（那次例外会走错）→ 回执报「需求存疑」+ 反例，不自行改需求。
     领域事实回流：编码中撞见的领域事实（字段的真实格式、真库的实际状态、外部系统的实际行为）带依据写进回执的 Domain findings 栏，没有现场依据的不写。
 

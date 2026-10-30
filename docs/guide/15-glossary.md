@@ -19,7 +19,7 @@
 ## D
 
 - **大仓包（ext）**：`.claude/harness/ext/` 下的引擎实现，十四个分节加两份细则，目标项目默认不装，`setup.sh --with-harness` 才装；没装时 ext 子命令 rc 3 + `not installed`。（11）
-- **档位（fast / standard / strict）**：`.claude/harness/profile.json` 里每个闸在三档下的模式表，guard 类 off / advise / block、recorder 类 off / on；默认 standard，`tier set fast` 必带 reason 且 8 小时硬上限。（09）
+- **档位（fast / standard / strict）**：`.claude/harness/profile.json` 里每个闸在三档下的模式表，guard 类 off / advise / block、recorder 类 off / on；默认 standard，`tier set fast` 必带 reason，`--hours` 8 小时硬上限、`--sticky` 到撤销为止。（09）
 - **地板闸**：`profile.floor` 里的五个——secret-exfil-guard / dangerous-pkill-guard / release-gate / postcompact-reinject / notify，任何档位改不了，它们自己不读档位表。（09、14）
 
 ## F

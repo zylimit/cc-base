@@ -65,6 +65,50 @@ else
   fail ".claude/evidence/ 改动被判成家底改动了（期望零输出，实得：[${out}]）"
 fi
 
+# ---- advise 档去重：同一份脏清单一小时内只提醒一次（下游两天 86 次、同一文件例子 62 次）----
+# 去重标记 .claude/.three-file-sync-advised 在框架里由 .claude/.gitignore 挡住；临时仓没装那份，
+# 用 info/exclude 等价挡掉——否则标记本身成了未跟踪的家底改动，签名每轮都变，测的就不是去重。
+LOGF=".claude/evidence/gate-block.log"
+tflog() { grep -c 'three-file-sync-gate' "$1/$LOGF" 2>/dev/null || true; }
+dedup_repo() {
+  fresh_repo "$1"
+  mkdir -p "$1/.git/info"; printf '.claude/.three-file-sync-advised\n.claude/.runtime/\n' >> "$1/.git/info/exclude"
+}
+
+echo "── 去重 TS1：同一脏清单第二次 Stop → 静默且不写账本 ──"
+t="$TMP/ts1"; dedup_repo "$t"
+printf 'changed\n' >> "$t/src/app.sh"
+o1=$(run_gate "$t"); n1=$(tflog "$t")
+o2=$(run_gate "$t"); n2=$(tflog "$t")
+if advised "$o1" && [ -z "$o2" ] && [ "$n1" = 1 ] && [ "$n2" = 1 ]; then
+  pass "TS1 第一次提醒且账本 1 条；同一清单第二次零输出、账本仍 1 条"
+else
+  fail "TS1 同一清单第二次应静默不记账（o1=[${o1}] o2=[${o2}] 账本=${n1}/${n2}）"
+fi
+
+echo "── 去重 TS2：清单变了 → 再提醒 ──"
+printf 'echo two\n' > "$t/src/two.sh"
+o3=$(run_gate "$t"); n3=$(tflog "$t")
+if advised "$o3" && [ "$n3" = 2 ]; then pass "TS2 多了 src/two.sh → 再提醒、账本 2 条"
+else fail "TS2 清单变了应再提醒（实得：[${o3}] 账本=${n3}）"; fi
+
+echo "── 去重 TS3：标记 ts 改老（超 60 分钟）→ 同一清单再提醒 ──"
+sed -i 's/^ts=.*/ts=1000/' "$t/.claude/.three-file-sync-advised"
+o4=$(run_gate "$t"); n4=$(tflog "$t")
+if advised "$o4" && [ "$n4" = 3 ]; then pass "TS3 去重记录过时 → 同一清单再提醒、账本 3 条"
+else fail "TS3 时限到了应再提醒（实得：[${o4}] 账本=${n4}）"; fi
+
+echo "── 去重 TS4：progress.md 动了 → 清记录；再提交 progress、同一清单重现 → 再提醒 ──"
+printf 'note\n' >> "$t/progress.md"
+o5=$(run_gate "$t"); kept=$([ -e "$t/.claude/.three-file-sync-advised" ] && echo Y || echo N)
+git -C "$t" add progress.md >/dev/null 2>&1; git -C "$t" -c commit.gpgsign=false commit -qm prog >/dev/null 2>&1
+o6=$(run_gate "$t")
+if [ -z "$o5" ] && [ "$kept" = N ] && advised "$o6"; then
+  pass "TS4 progress 跟上时零输出且去重记录清掉；之后同一清单重现照样提醒"
+else
+  fail "TS4（o5=[${o5}] 记录还在=${kept} o6=[${o6}]）"
+fi
+
 # ---- 设计详述同步分支（design-detail-sync，档位单列：fast/standard advise、strict block）----
 # 契约（.claude/rules/design-detail.md [接进流程] Stop 闸）：未提交改动里有文件落在某份设计详述文首
 #   「> 代码范围：」通配内、而那份设计详述不在改动集 → 出一条理由；设计详述一并改了、或改的文件不在范围内

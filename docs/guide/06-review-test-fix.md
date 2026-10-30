@@ -212,7 +212,7 @@ Windows：`red-blue-review.sh` 不是 hook，不会被 `setup.ps1` 转 `.ps1`，
 
 `.claude/.needs-review` 是审查状态的机器载体，两个 hook 一写一读：
 
-**写：`mark-review-needed.mjs`**（PostToolUse on Edit|Write，recorder 类，standard / strict 档 on，fast 档 off）
+**写：`mark-review-needed.mjs`**（PostToolUse on Edit|Write，recorder 类，三档都 on——fast 下也记，债留到撤销时由 stop-gate 提）
 
 - 项目业务代码被编辑 / 创建后，把文件相对项目根的路径登记一行；按文件登记，不是全局布尔。
 - 豁免基于相对项目根路径并顶层锚定：仅根级 `tools/` 与 `.claude/` 框架自身豁免，不会误伤 `src/tools/`、`packages/x/tools/`。

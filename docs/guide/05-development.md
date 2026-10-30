@@ -124,7 +124,7 @@ Windows：这是 bash 脚本，内部调 `python3`，在 Git Bash 里跑。
 - `stop-gate.mjs`（Stop）读这个文件：去掉空行与 `clean` 行后仍有文件 = 有欠账；只剩 `clean` / 全空 / 不存在 = 放行并清理。
 - 所以 Task 验收通过后写一行 `clean` 覆盖它，就是告诉闸「这批改动审过了」。
 
-默认档（standard）stop-gate 是 advise：照判、照记账，出 `systemMessage` 提醒而不拦；strict 档才 `decision: block`，且同一清单连拦 3 次后第 4 次放行并醒目提示欠账仍在。细节见 [06 审查、测试、修复](06-review-test-fix.md#待审清单与-stop-gate)。
+fast 档 stop-gate 直接 off——不自动派 reviewer 就没有「未审查」可提醒；默认档（standard）是 advise：照判、照记账，出 `systemMessage` 提醒而不拦；strict 档才 `decision: block`，且同一清单连拦 3 次后第 4 次放行并醒目提示欠账仍在。细节见 [06 审查、测试、修复](06-review-test-fix.md#待审清单与-stop-gate)。
 
 ### Phase 四步走与四态门
 
@@ -255,7 +255,7 @@ CLAUDE.md 的验收铁律：子 Agent 的回复只反映它跑完了，不等于
 
 不是每个 Task 都先写测试。red-lock 只给两类：线上行为的 bug、核心解析器 / 契约的缺陷。流程：先派 tester 补一条锁定该缺陷的失败测试（红）→ 主 Agent 验红（亲见 fail、失败因功能缺失非笔误）→ `touch .claude/.red-verified` → 派 implementer 修绿。审查发现的边角输入、参数花样、文案类记进 progress.md 残留，不开红锁。
 
-守这条的是 `tdd-gate.mjs`，挂在 PreToolUse(Agent)，只在 `subagent_type` 为 `implementer` 时起作用：
+守这条的是 `tdd-gate.mjs`，挂在 PreToolUse(Agent)，只在 `subagent_type` 为 `implementer` **且派单 prompt 含 red-lock 关键词**（bug / 修复 / 缺陷 / 线上 / 生产 / 解析器 / 契约 / 状态机 / schema / 迁移 / 鉴权 等中英说法，全表在文件头 `RED_LOCK_KEYWORDS`）时起作用——UI、文案、配置类的单子静默放行，不用再 `touch .tdd-exempt`；advise 档同一单子一小时内只提醒一次（`.claude/.tdd-gate-advised`）。一个下游看板项目两天里它响了 23 次、全是误报（2026-10-30 账本），关键词门就是为这个加的：
 
 | 档 | 行为 |
 |---|---|
@@ -385,7 +385,7 @@ CLAUDE.md 要求派发前确认已备齐完整任务上下文，这一步靠自�
 - Sub-Agent 不 commit，commit 由主 Agent 验收后执行；也不 push（auto-push 挂在主 Agent 的 Bash 上）。
 - Task 拆分归 dev-builder 的 Plan Mode，不归 dev-planner（它不定函数签名、不定测试用例、不定分支策略）。
 - 用户强调某个环节（「这次一定要测」）是追加要求，不替换基础流程，review 闭环照常走。
-- fast 档（用户明示、硬上限 8 小时）下不自动派 tester / code-reviewer、不进 per-Task 闭环、不受四步走与 red-locks 约束，implementer 直接交付「变更清单 + 实际执行结果 + 已知顾虑」；static-check 之类廉价闸不在跳过范围。
+- fast 档（用户明示；`--hours` 硬上限 8 小时，连续开发期 `--sticky` 到撤销为止）下不自动派 tester / code-reviewer、不进 per-Task 闭环、不受四步走与 red-locks 约束，stop-gate 直接 off；implementer 直接交付「变更清单 + 实际执行结果 + 已知顾虑」；同一份代码全量测试只跑一次，闸与审查的过程不念给用户只报结论；static-check 之类廉价闸不在跳过范围。
 
 Windows 差异：`plan-lint.sh` 在 Git Bash 跑；hook 全是 `node` 跑的 `.mjs`，`setup.ps1` 装出来的与 bash 侧逐字节同一份，只要 `node.exe` 在 PATH 上；`pre-commit-check` 的 Python 探测已处理 Store stub；`touch .claude/.red-verified` 在 PowerShell 用 `New-Item -ItemType File -Force .claude/.red-verified`。
 
