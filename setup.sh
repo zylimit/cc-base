@@ -392,6 +392,7 @@ copy_claude_tree() {
       .fast-mode) continue ;;  # 运行态标记
       .subagent-reminded) continue ;;  # 运行态标记
       .three-file-sync-advised) continue ;;  # 运行态标记
+      .tdd-gate-advised) continue ;;  # 运行态标记
       .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
       .stop-gate-advised) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
       .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
