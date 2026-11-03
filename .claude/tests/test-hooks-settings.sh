@@ -94,9 +94,9 @@ chk "$([ "$BAD_ARG" = "无" ] && echo 0 || echo 1)" \
     "零个指空的 hook 路径" "指空：$BAD_ARG"
 
 TD_WIRE=$(sq 'entries.filter(e => nameOf(e.h) === "tdd-gate").map(e => e.ev + "/" + (e.matcher || "<空>")).sort().join(" ") || "没注册"')
-chk "$([ "$TD_WIRE" = "PreToolUse/Agent" ] && echo 0 || echo 1)" \
-    "HS-4 tdd-gate 恰好挂在 PreToolUse 的 Agent 组、不在 Bash 组（派 implementer 走 Agent 工具，永远不经过命令行）" \
-    "恰好一条 PreToolUse/Agent" "实际：$TD_WIRE"
+chk "$([ "$TD_WIRE" = "PreToolUse/Agent|Task" ] && echo 0 || echo 1)" \
+    "HS-4 tdd-gate 恰好挂在 PreToolUse 的 Agent|Task 组、不在 Bash 组（派 implementer 走子代理工具，Claude Code 叫 Agent、Cursor 叫 Task，永远不经过命令行）" \
+    "恰好一条 PreToolUse/Agent|Task" "实际：$TD_WIRE"
 
 # ---------------------------------------------------------------------------
 echo ""

@@ -1,27 +1,27 @@
-- [cc-base 是框架仓，审的是 .claude/ 配置本身](project_cc-base-is-a-framework-repo.md) — 交付物是 hooks/skills/agents/引擎，不是业务代码；仓里自带可跑的闸
-- [高发缺陷：闸脚本"覆盖缺口不进机器判据"](pattern_gate-scripts-false-green-in-machine-channel.md) — findings 里记了，rc 和 ok 字段仍报绿；⑩ 拆可选包后旧开关变假绿开关
-- [高发缺陷：压制标记 / 自指悖论的处置](pattern_suppression-markers-need-honesty-audit.md) — 每次新增标记都要逐条验"没标记会不会真的响"
-- [审查本仓的踩坑：secret-exfil-guard 会拦住造 .env 样例](gotcha_secret-exfil-guard-blocks-env-fixtures.md) — 临时仓造密钥样例别用 .env 文件名
-- [审 golden/基线尺子的四条固定攻法](pattern_golden-baseline-rulers.md) — 矩阵不进判据 / selftest 撑绿 / 环境字段入库 / 正则只测一支；playground 突变法
-- [审正则扫描器要出两个数字](pattern_regex-scanner-fp-fn-budget.md) — 真语料量误报 + 真凭据格式表量漏报，只给正向样例等于只测一半
-- [手搓 YAML/语法子集校验器必须对拍](pattern_handrolled-parser-needs-differential.md) — 4 条 fixture 不算对齐；30 条新样例才照出 5 条假阴
-- [审哈希链账本/证据落盘/硬闸的七条攻法](pattern_evidence-ledger-attacks.md) — 读不出=报绿 / 并发写死链 / 写而不读的 sha / 闸范围可伪造
-- [「同一张表抄成 N 份」的审法](../../../docs/agent-notes/code-reviewer/pattern_duplicated-rule-tables.md) — 注释写几份不算数，逐份删除突变；字面 grep 对照会给部分臂发免检
-- [审「stdout 路径一律仓库相对」契约的五条攻法](pattern_path-naming-contract.md) — 软链降级 / 相对入参方向搞反 / 断言同义反复 / 命名修了读取没修
-- [审「按段落划免检区」的文档闸](../../../docs/agent-notes/code-reviewer/pattern_exempt-zone-and-section-scoping.md) — includes 诱饵 / 末段吞尾 / 两份实现宽窄不一 / 段名对着夹具取；先拿 templates+examples dogfood
-- [判跨平台覆盖看 CI step 的 if:，不看测试放哪](pattern_cross-platform-coverage-claims.md) — selftest 无 if 双 OS 跑 / run-all Windows 不跑 / golden POSIX-only；win32 语义在 Linux 上可直接实跑
-- [审安装器 / 自检工具的八条攻法](pattern_installer-and-selfcheck-attacks.md) — 分母缩水 / 锁并发实测 / trap 标记 / 可选包绕过三层保护 / 字节签名怕 CRLF
-- [审 .sh/.ps1 → .mjs 单运行时移植的六条攻法](pattern_shell-to-node-hook-port.md) — 红锁钉得住退出码，漏的在并发锁 / 降级量级 / 夹具真杀宿主进程
-- [占位闸先对表模板槽语法，再数退出路径](../../../docs/agent-notes/code-reviewer/pattern_gate-vocabulary-vs-artifact-templates.md) — 闸只认 `<>`、三份模板用 `{{}}`/`[x]` → 原封不动的模板 ok=true；口径要逐个 exit 点问
-- [审优先级链判定 + 用户可改配置的四条攻法](pattern_priority-chain-and-config-single-point.md) — 突变全绿常因兜底答案与被删分支撞车；顶层 JSON.parse 是整台引擎的单点故障
-- [审前期文档闸（CSS 通病 / 表格算术 / 需求覆盖）的八条攻法](pattern_predev-doc-gates.md) — 作用域连坐 / 一警一哑 / 覆盖判据宽于失败消息 / 从属校验漏判（空原因不拦）/ 基线对拍验零行为变化
-- [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；可选包分支绕 manifest；造装完后的目标树跑自带审计
-- [审「先写归档→重读核对→再删正文」搬迁脚本的七条攻法](../../../docs/agent-notes/code-reviewer/pattern_archive-move-scripts.md) — 前缀认区块被诱饵劫走；判重口径≠核对口径=永久卡死；零丢失核对别用 grep
-- [审「参数里有没有密钥路径」切词判据闸的固定攻法](pattern_secret-path-arg-matcher.md) — 放行子命令连带危险flag（log -p）/ 管道分段洗白密钥路径 / grep 不认裸 -- / stripWrappers 吃穿收尾双引号
-- [linter 清零只对本机版本成立](pattern_linter-version-drift.md) — SC2329 在 0.9 叫 SC2317；拉旧版二进制对拍，分「默认装」与「仅框架仓」两个文件集报
-- [审跨模型 skill 内容合成（来源表 K/C/合并）的固定攻法](pattern_cross-model-skill-synthesis.md) — 数章节数对表 / diff 声称搬入的文件 / 标"K"但无对应单一小节要打折 / 姊妹例文件漏加免责声明 / grep 目标仓没有的脚本与第三方编排概念
-- [审规则↔测试↔常量追溯脚本与范围通配闸](pattern_traceability-scanner-and-scope-globs.md) — 解析不到=0 缺口 rc 0；源码注释标签冒充测试；目录路径范围永久静默
-- [bash+awk 改 frontmatter 的四种必攻输入](pattern_frontmatter-shell-rewriters.md) — CRLF 双 frontmatter / 模板行内注释当值 / 名字带空格永远 conflict / 同 basename 静默覆盖
-- [审提醒去重状态文件 / 包壳再 node --check](pattern_dedup-state-and-wrapper-check.md) — clean 后同轮重登记被吞 / 提前 return 不清状态 / 壳内残留 import 整份放行 / TMPDIR 软链回写失配
-- [审 hook 输出形态迁移的对拍法](pattern_output-shape-migration-differential.md) — git show HEAD 落 scratch 新旧对拍；载荷 sha；finally 出口插 throw 突变；静默场景常没锁
-- [审 hook 注册面双形态 + 合并去重](pattern_registration-form-dual-support.md) — 升级时造「新增 hook」测形态保持；名字去重跨事件吞带参用户条目；新测试先过 SC2016
+- [cc-base 是框架仓，审的是 .claude/ 配置本身](project_cc-base-is-a-framework-repo.md) — 交付物是 hooks/skills/agents/引擎
+- [高发缺陷：闸脚本"覆盖缺口不进机器判据"](../../../docs/agent-notes/code-reviewer/pattern_gate-scripts-false-green-in-machine-channel.md) — findings 记了，rc / ok 仍报绿
+- [高发缺陷：压制标记 / 自指悖论的处置](pattern_suppression-markers-need-honesty-audit.md) — 逐条验"没标记会不会真的响"
+- [踩坑：secret-exfil-guard 会拦住造 .env 样例](gotcha_secret-exfil-guard-blocks-env-fixtures.md) — 密钥样例别用 .env 文件名
+- [审 golden/基线尺子的四条攻法](../../../docs/agent-notes/code-reviewer/pattern_golden-baseline-rulers.md) — 矩阵不进判据 / selftest 撑绿；playground 突变法
+- [审正则扫描器要出两个数字](pattern_regex-scanner-fp-fn-budget.md) — 误报量 + 漏报量，只测正向样例等于只测一半
+- [手搓 YAML/语法子集校验器必须对拍](pattern_handrolled-parser-needs-differential.md) — 4 条 fixture 不算对齐
+- [审哈希链账本/证据落盘/硬闸](pattern_evidence-ledger-attacks.md) — 读不出=报绿 / 并发写死链 / 闸范围可伪造
+- [「同一张表抄成 N 份」的审法](../../../docs/agent-notes/code-reviewer/pattern_duplicated-rule-tables.md) — 逐份删除突变，字面 grep 会放过
+- [审「stdout 路径一律仓库相对」契约](../../../docs/agent-notes/code-reviewer/pattern_path-naming-contract.md) — 软链降级 / 相对入参方向搞反
+- [审「按段落划免检区」的文档闸](../../../docs/agent-notes/code-reviewer/pattern_exempt-zone-and-section-scoping.md) — includes 诱饵 / 末段吞尾；拿 templates dogfood
+- [判跨平台覆盖看 CI step 的 if:](pattern_cross-platform-coverage-claims.md) — 不看测试放哪；win32 语义 Linux 可实跑
+- [审安装器 / 自检工具的八条攻法](../../../docs/agent-notes/code-reviewer/pattern_installer-and-selfcheck-attacks.md) — 分母缩水 / 锁并发 / 可选包绕保护
+- [审 .sh/.ps1 → .mjs 移植的六条攻法](../../../docs/agent-notes/code-reviewer/pattern_shell-to-node-hook-port.md) — 漏在并发锁 / 降级量级 / 夹具杀宿主
+- [占位闸先对表模板槽语法](../../../docs/agent-notes/code-reviewer/pattern_gate-vocabulary-vs-artifact-templates.md) — 闸认 `<>`、模板用 `{{}}` → 原样 ok=true
+- [审优先级链 + 用户可改配置](pattern_priority-chain-and-config-single-point.md) — 兜底撞车致突变全绿；顶层 JSON.parse 单点
+- [审前期文档闸的八条攻法](pattern_predev-doc-gates.md) — 一警一哑 / 空原因不拦 / 基线对拍验零行为变化
+- [审查热点：安装器与按路径键的审计](../../../docs/agent-notes/code-reviewer/review-hotspots-installers.md) — 拷两处必对四表；造装完目标树跑审计
+- [审「归档→重读核对→删正文」搬迁脚本](../../../docs/agent-notes/code-reviewer/pattern_archive-move-scripts.md) — 前缀被诱饵劫走；判重≠核对=卡死
+- [审「参数里有没有密钥路径」切词闸](../../../docs/agent-notes/code-reviewer/pattern_secret-path-arg-matcher.md) — log -p / 管道分段洗白 / 裸 --
+- [linter 清零只对本机版本成立](pattern_linter-version-drift.md) — SC2329 旧版叫 SC2317，拉旧版对拍
+- [审跨模型 skill 内容合成](pattern_cross-model-skill-synthesis.md) — 数章节对表 / diff 声称搬入的文件
+- [审规则↔测试↔常量追溯与范围通配](pattern_traceability-scanner-and-scope-globs.md) — 解析不到=0 缺口 rc 0
+- [bash+awk 改 frontmatter 的四种必攻输入](pattern_frontmatter-shell-rewriters.md) — CRLF / 行内注释当值 / 同 basename 覆盖
+- [审提醒去重状态 / 包壳 node --check](pattern_dedup-state-and-wrapper-check.md) — clean 后重登记被吞 / 壳内 import 放行
+- [审 hook 输出形态迁移的对拍法](pattern_output-shape-migration-differential.md) — git show HEAD 新旧对拍；静默场景常没锁
+- [审 hook 注册面双形态 + 合并去重](pattern_registration-form-dual-support.md) — 升级造「新增 hook」；显式参数打对向目标
