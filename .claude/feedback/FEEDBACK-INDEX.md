@@ -76,3 +76,6 @@
 - ✅[已毕业] [转写原规格时，把角色习惯措辞当成了系统约束](spec-habit-wording-not-constraint.md) — 转写原规格时，描述角色习惯的措辞（「只是修正」）不等于系统约束，不得据此派生反向指标，应在复述里单独确认
 - [入站连通性排障：先说清测试方向，根因查出直接给修法](inbound-connectivity-debug-state-direction-first.md) — 用户说别的机器连不上本机时，借第三方机器测试前先一句话说明「我借 X 当客户端连回本机」；查出根因（如 authorized_keys 不认对端公钥）直接给修法，不反问用户在哪台设备连
 - [「只有本机不行」的根因必须是本机独有，先用对照机排除共性](single-host-failure-root-cause-must-be-host-unique-use-control-machines.md) — 用户说「只有 X 不行」时根因须是 X 独有属性，先拿同条件对照机（mac/rog）排除共有环节；测到 MTU 先查本机网卡 MTU 与 DHCP option 来源；找到绕过办法（MSS 钳制）后接着追真因，推断标明是推断；开排前可先问清网络拓扑
+- [改文件走编辑工具，不走 shell 写法](edit-files-through-edit-tool-not-shell-writes.md) — 写文件类的闸只认编辑工具这条路；sed -i / python 写文件 / printf > 要么绕过闸、要么让基线哈希对不上、之后误拦合法改动；批量替换在任务开始前做（自 cursor-base 迁入，含 2026-11-04 绕过 no-direct-code-guard 的实测）
+- [配置类缺陷修一处不算完，同族实例要全搜](config-defects-recur-across-sibling-instances.md) — 超时、阈值、解释器路径、包装写法这类配置缺陷，声称修好前先找同事件族、同取值、同模板的全部实例，回执列出查过的清单（自 cursor-base 迁入）
+- [重启风暴意味着故障不是瞬时的，要显式失败并留证据](restart-storms-mean-the-fault-is-not-transient.md) — 崩溃重启带退避但在时间窗内封顶，超限就停、标崩溃、留日志，下一步是诊断不是再试；活着但健康探针不过是同一种故障（自 cursor-base 迁入）

@@ -82,9 +82,17 @@ export function emit(obj) {
   fs.writeSync(1, JSON.stringify(obj) + '\n');
 }
 
-/** 裸文本到 stdout（SessionStart 横幅这类直接进 context 的形态）。 */
+/** 裸文本到 stdout（给人看的报告类输出；要进 context 的注入用 context()）。 */
 export function out(text) {
   fs.writeSync(1, String(text) + '\n');
+}
+
+/**
+ * 注入上下文：嵌套 JSON 形态。Claude Code 纯文本 stdout 与嵌套 JSON 都收，Cursor 只认嵌套形态、
+ * 纯文本直接丢弃，所以 SessionStart 这类要进 context 的输出走这里，别再用 out()。
+ */
+export function context(hookEventName, text) {
+  emit({ hookSpecificOutput: { hookEventName, additionalContext: String(text) } });
 }
 
 /** 一行诊断到 stderr。 */

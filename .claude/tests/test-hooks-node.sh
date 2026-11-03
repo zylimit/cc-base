@@ -113,6 +113,8 @@ synced() {
 blocked()  { printf '%s' "$1" | grep -q '"decision":"block"'; }
 hasq()     { printf '%s' "$2" | grep -qF "$1"; }
 mentions() { printf '%s' "$2" | grep -qE "(^|[^0-9])$1([^0-9]|\$)"; }
+# SessionStart 注入契约：stdout 恰好一行嵌套 JSON，取 additionalContext 文本（不满足输出 <bad-shape>）
+ctxof()    { [ "$(printf '%s\n' "$1" | wc -l)" -eq 1 ] && jq_ "$1" 'String(d.hookSpecificOutput.hookEventName) === "SessionStart" ? d.hookSpecificOutput.additionalContext : "<bad-event>"' || printf '<bad-shape>'; }
 silent()   { [ -z "$OUT" ] && [ -z "$ERRT" ]; }
 show()     { printf '%s' "${1:-空}" | tr '\n' '~' | cut -c1-260; }
 
@@ -201,9 +203,10 @@ cat > "$SB/.claude/feedback/FEEDBACK-INDEX.md" <<'IDX'
 - ✅[已毕业] [丙](c.md) — 描述
 IDX
 run_hook check-evolution "$SB" ''
-chk "$([ "$RC" -eq 0 ] && mentions 2 "$OUT" && mentions 3 "$OUT" && echo 0 || echo 1)" \
-    "CE 2 条待处理 + 1 条已毕业 → stdout 报「2 条待处理（共 3 条）」" \
-    "stdout 同时出现 2 与 3" "rc=$RC out=[$(show "$OUT")]"
+CTX=$(ctxof "$OUT")
+chk "$([ "$RC" -eq 0 ] && mentions 2 "$CTX" && mentions 3 "$CTX" && echo 0 || echo 1)" \
+    "CE 2 条待处理 + 1 条已毕业 → stdout 单行 JSON，additionalContext 报「2 条待处理（共 3 条）」" \
+    "additionalContext 同时出现 2 与 3" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb ce-skip)
 mkdir -p "$SB/.claude/feedback"
@@ -216,9 +219,10 @@ cat > "$SB/.claude/feedback/FEEDBACK-INDEX.md" <<'IDX'
 - ⏭[已跳过] [戊](e.md) — 描述
 IDX
 run_hook check-evolution "$SB" ''
-chk "$([ "$RC" -eq 0 ] && mentions 1 "$OUT" && mentions 4 "$OUT" && echo 0 || echo 1)" \
+CTX=$(ctxof "$OUT")
+chk "$([ "$RC" -eq 0 ] && mentions 1 "$CTX" && mentions 4 "$CTX" && echo 0 || echo 1)" \
     "CE-2 ⏭[已跳过] 行不计入待处理但计入总数 → 1 条待处理 + 1 已毕业 + 2 已跳过报「1 条待处理（共 4 条）」" \
-    "stdout 同时出现 1 与 4" "rc=$RC out=[$(show "$OUT")]"
+    "additionalContext 同时出现 1 与 4" "rc=$RC out=[$(show "$OUT")]"
 
 SB=$(newsb df-hit)
 run_hook detect-feedback-signal "$SB" '{"prompt":"你搞错了，不是这样"}'
@@ -341,15 +345,17 @@ chk "$([ "$RC" -eq 0 ] && [ "$(jq_ "$OUT" 'String((d.hookSpecificOutput||{}).hoo
 
 SB=$(newsb sb-normal)
 run_hook session-rules-banner "$SB" '{"source":"startup"}'
-chk "$([ "$RC" -eq 0 ] && hasq '铁律' "$OUT" && hasq '6.' "$OUT" && echo 0 || echo 1)" \
-    "SB 正常启动 → 输出六条核心铁律横幅" "stdout 含「铁律」与第 6 条" "rc=$RC out=[$(show "$OUT")]"
+CTX=$(ctxof "$OUT")
+chk "$([ "$RC" -eq 0 ] && hasq '铁律' "$CTX" && hasq '6.' "$CTX" && echo 0 || echo 1)" \
+    "SB 正常启动 → stdout 单行 JSON，additionalContext 含六条核心铁律横幅" "additionalContext 含「铁律」与第 6 条" "rc=$RC out=[$(show "$OUT")]"
 
 # sticky fast（tier set fast --sticky 的写侧形状）：没有过期时间，横幅照实说「到撤销为止」，不许算出 NaN / 剩 0 h
 SB=$(newsb sb-sticky); mkdir -p "$SB/.claude/.runtime"
 printf '{"tier":"fast","reason":"脚手架冲刺","by":"t","set_epoch":%s,"expires_epoch":null,"sticky":true}\n' "$(date +%s)" \
     > "$SB/.claude/.runtime/tier.json"
 run_hook session-rules-banner "$SB" '{"source":"startup"}'
-chk "$([ "$RC" -eq 0 ] && hasq 'tier: fast' "$OUT" && hasq '撤销' "$OUT" && ! hasq 'NaN' "$OUT" && ! hasq '剩 0 h' "$OUT" && echo 0 || echo 1)" \
+CTX=$(ctxof "$OUT")
+chk "$([ "$RC" -eq 0 ] && hasq 'tier: fast' "$CTX" && hasq '撤销' "$CTX" && ! hasq 'NaN' "$CTX" && ! hasq '剩 0 h' "$CTX" && echo 0 || echo 1)" \
     "SB-2 sticky fast → 横幅报 fast 且说「到撤销为止」，不含 NaN、不报剩 0 h" \
     "stdout 含「tier: fast」与「撤销」，无 NaN / 剩 0 h" "rc=$RC out=[$(show "$OUT")]"
 

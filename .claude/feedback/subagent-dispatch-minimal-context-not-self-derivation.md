@@ -2,7 +2,7 @@
 type: feedback
 description: sub-agent 派单包过重(读几百行底本自推导+自做突变/对拍/指纹复核+写长回执)导致 4 行夹具修正滚到 60 轮；派单须给"文件:行+改成什么+一条验证命令"且≤6次工具调用，复核收拢主 Agent 一次做，≤5行机械改动主 Agent 直接改不起实例，reviewer 一次一个问题
 created: 2026-09-06
-updated: 2026-09-12
+updated: 2026-11-04
 graduated: true  # 2026-09-12 毕业→CLAUDE.md [Sub-Agent 调度规则] 与 rules/subagent-dispatch.md 派单包「每单 ≤ 6 次工具调用」；本文原写 ≤8 与用户原话「6轮我都嫌多」及落地规则都不符，同日改正为 ≤6
 source_skill: dev-builder
 ---
@@ -18,6 +18,8 @@ source_skill: dev-builder
 **触发场景**：
 
 派发 implementer / code-reviewer / tester 等 Sub-Agent 去做**范围明确、改动量小**的任务时（修一处已知问题、调一个已知参数、补一条已知断言）。派单包六字段齐全不等于内容精简——字段齐全但每个字段都写成"自己去研究"，照样让 fresh 实例从零推导。
+
+另一次发生（来自 cursor-base，2026-09-06）：同一天 cursor-base 的 2.0 自审，对一处改动做结构化自检，连跑六轮，每一轮都只是关掉同一缺陷的下一个分支；用户同样追问「为什么这么多轮」。那边的收法是把缺陷类整体收拢（改成由一个解析遍历统一归类一条命令），不开第七轮；并在 review verdict 里加了三轮升级。出处：cursor-base progress.md Decisions 2026-09-06「One walker classifies a parsed command」。cursor-base 原文写的预算是约 8 次工具调用，与本文 ≤6 不符，以本文为准，不并入。
 
 **教训/建议**：
 

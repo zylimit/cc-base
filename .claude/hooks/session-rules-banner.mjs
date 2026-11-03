@@ -1,8 +1,9 @@
 // SessionStart：输出 CC 框架核心铁律横幅（source=compact/resume 时静默）。
+// 各行攒进 lines，出口统一合成一条嵌套 JSON 的 additionalContext（Cursor 只收这种形态）。
 // 档位（profile.json）：三档全 on——它是唯一反向用法的闸，fast 档下别的闸都静默，就它必须喊。
 import path from 'node:path';
 import fs from 'node:fs';
-import { readStdinJson, out, runFailOpen } from './lib/io.mjs';
+import { readStdinJson, context, runFailOpen } from './lib/io.mjs';
 
 // 判定走共享库，动态 import——库缺失时按「什么都没开」处理（不播报档位，只出正常横幅）：
 // 与本 hook 反向用法一致，其余 hook 静默、本横幅必须喊出来，缺库也不能因此崩掉开场。
@@ -36,12 +37,21 @@ const BANNER = [
 ].join('\n');
 
 runFailOpen(async () => {
+  const lines = [];
+  try {
+    await banner(lines);
+  } finally {
+    if (lines.length) context('SessionStart', lines.join('\n'));
+  }
+});
+
+async function banner(lines) {
   const root = process.env.CLAUDE_PROJECT_DIR || '';
 
   // 上次 setup 挂在半路会留下 .claude/.runtime/install.marker——在半装的框架上开工全是坑，
   // 先把它顶到脸上（正常装完这文件不存在，不会天天吓人）。
   if (root && fs.existsSync(path.join(root, '.claude', '.runtime', 'install.marker'))) {
-    out('⚠️ 上次安装未完成（.claude/.runtime/install.marker）：重跑 setup.sh 补装完再干活。');
+    lines.push('⚠️ 上次安装未完成（.claude/.runtime/install.marker）：重跑 setup.sh 补装完再干活。');
   }
 
   // compact/resume 不重复播报——档位那行跟着同一条纪律走，唯一例外是 fast：
@@ -63,17 +73,17 @@ runFailOpen(async () => {
     // sticky（tier set fast --sticky）没有过期时间，是用户明说的「到撤销为止」——照实说，别算出个剩几小时
     const left = tier.sticky === true ? null : hoursLeft(tier.expiresEpoch);
     const span = tier.sticky === true ? '到撤销为止' : (left === null ? '无过期时间' : `剩 ${left} h`);
-    out(`‼️ tier: fast（${span}${tier.reason ? `，${tier.reason}` : ''}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
+    lines.push(`‼️ tier: fast（${span}${tier.reason ? `，${tier.reason}` : ''}）：治理闸只提醒不拦，欠账照记（.claude/.runtime/tier.json）。修完跑 bash .claude/scripts/fast-mode.sh off 恢复严格模式（Windows 纯 PowerShell 环境跑 pwsh .claude/scripts/fast-mode.ps1 off）。`);
     return;
   }
   if (quiet) return;
 
   if (tier) {
     const hits = (tier.raisedBy || []).slice(0, 3).join('、');
-    out(tier.source === 'raise'
+    lines.push(tier.source === 'raise'
       ? `tier: ${tier.tier}（来源 raise：工作树改了 ${hits}${(tier.raisedBy || []).length > 3 ? ' 等' : ''}）——治理面改动自动升档，本轮闸按最严跑。`
       : `tier: ${tier.tier}（来源 ${tier.source}）`);
   }
 
-  out(BANNER);
-});
+  lines.push(BANNER);
+}
