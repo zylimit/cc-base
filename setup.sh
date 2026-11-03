@@ -5,6 +5,9 @@
 #   settings.json 合并（有 jq 自动 merge；无 jq 降级：新 target 直接复制，已有
 #   settings 备份 .bak + 打印手工合并指引，不静默覆盖）→ 备份 .bak → 清标记与锁。
 # --dry-run：一个字节都不写，只把 create / update / conflict / skip 四类计划打到 stdout。
+# --hook-form exec|string：settings.json 里框架 hook 的注册形态。不传时沿用目标已有的形态（目标没有 settings
+#   或读不出就是 exec：不经 shell、三平台逐字相同）；显式传了以它为准。
+#   string 是给 Cursor 的（它不认 args 键）：装完 merge + fix-platform 之后跑 hook-form.mjs --to string。
 set -u
 
 die() {
@@ -17,8 +20,8 @@ die() {
 # 报清楚合法选项、退 2（和 die 的 1 分开，让调用方分得出「参数用错」和「装到一半失败」）。
 usage_die() {
   printf 'setup: %s\n' "$1" >&2
-  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [--with-tests] [--with-harness] [target_dir]\n' >&2
-  printf '合法选项：-win  -mac  -ubt  --dry-run  --with-tests  --with-harness\n' >&2
+  printf '用法：setup.sh [-win|-mac|-ubt] [--dry-run] [--with-tests] [--with-harness] [--hook-form exec|string] [target_dir]\n' >&2
+  printf '合法选项：-win  -mac  -ubt  --dry-run  --with-tests  --with-harness  --hook-form exec|string\n' >&2
   exit 2
 }
 
@@ -105,6 +108,7 @@ validate_target() {
 #   文件清单（重装要知道上次写到哪）。doctor.sh 和 SessionStart 横幅都看这个文件。
 # 两者都住在 .claude/.runtime/（排除表已挡，不入装），装完连空目录一起清掉。
 DRY_RUN=0
+HOOK_FORM=""
 WITH_TESTS=0
 WITH_HARNESS=0
 TARGET_ROOT=""
@@ -387,6 +391,7 @@ copy_claude_tree() {
       .degraded-review) continue ;;  # 闸门运行时标记
       .fast-mode) continue ;;  # 运行态标记
       .subagent-reminded) continue ;;  # 运行态标记
+      .three-file-sync-advised) continue ;;  # 运行态标记
       .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
       .stop-gate-advised) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
       .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
@@ -490,8 +495,12 @@ merge_settings() {
   # target 尚无的 exec form command，不动用户其他配置。老安装升级上来后旧形态不再残留报错。
   # 判定「历史残留」只认框架形态：command 或 args 任一项指向 .claude/hooks/<name>.sh|.ps1——
   # 只认这条路径，不误伤用户自定义 command。
-  # 去重键是 command + args 整体：exec form 下每条 hook 的 command 都是字面 node，只比 command 会把
-  # 21 条全判成「已存在」，一条都合不进去。
+  # 去重键：只有逐字命中两种框架模板之一的条目才按 hook 名（口径同 hook-form.mjs 的 classify）——exec form
+  # 是 command 为 node、args 恰好一个元素且等于 ${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.mjs，string form 是
+  # 无 args 键、command 等于 node .claude/hooks/<name>.mjs。两种形态指同一个文件就算同一条，升级一个已是
+  # string form 的目标才不会再合进一份 exec form 的重复。其余条目按 command + args 整体：exec form 下 command
+  # 都是字面 node，只比 command 会把它们全判成「已存在」；用户自己写的「同一脚本 + 额外参数」也落在这里，
+  # 不会被记成框架那条而吃掉框架条目。
   tmp=$(mktemp) || die "无法创建临时文件"
   jq -s '
     def is_legacy_hook:
@@ -501,7 +510,16 @@ merge_settings() {
       if .hooks then
         .hooks |= with_entries(.value |= map(.hooks |= map(select(is_legacy_hook | not))))
       else . end;
-    def hook_id: (.command // "") + " " + (((.args // []) | map(tostring)) | join(" "));
+    def hook_name:
+      (if .command == "node" and ((.args // null) | type) == "array" and (.args | length) == 1 then
+        (.args[0] | tostring | capture("^\\$\\{CLAUDE_PROJECT_DIR\\}/\\.claude/hooks/(?<n>[A-Za-z0-9_-]+)\\.mjs$") | .n)
+      elif (has("args") | not) and ((.command // null) | type) == "string" then
+        (.command | capture("^node \\.claude/hooks/(?<n>[A-Za-z0-9_-]+)\\.mjs$") | .n)
+      else null end) // null;
+    def hook_id:
+      hook_name as $n
+      | if $n then "hook:" + $n
+        else (.command // "") + " " + (((.args // []) | map(tostring)) | join(" ")) end;
     def commands: [.. | objects | select((.command? // "") != "") | hook_id] | unique;
     .[0] as $tgt0
     | .[1] as $source
@@ -537,6 +555,13 @@ main() {
       --dry-run) DRY_RUN=1 ;;
       --with-tests) WITH_TESTS=1 ;;
       --with-harness) WITH_HARNESS=1 ;;
+      --hook-form)
+        [ $# -ge 2 ] || usage_die "--hook-form 后面缺值（exec 或 string）"
+        case "$2" in
+          exec|string) HOOK_FORM=$2 ;;
+          *) usage_die "--hook-form 只认 exec 或 string，收到：$2" ;;
+        esac
+        shift ;;
       -*) usage_die "未知选项：$1" ;;
       *) target="$1" ;;
     esac
@@ -558,11 +583,12 @@ main() {
     else
       die "Windows 平台需 pwsh 或 powershell.exe；请在 Windows 跑 setup.sh -win，或本机装 pwsh"
     fi
-    # --dry-run 转交时要跟着过去，否则 Windows 侧会真装（开关名不同：ps1 侧是 -DryRun）
+    # --dry-run 转交时要跟着过去，否则 Windows 侧会真装（开关名不同：ps1 侧是 -DryRun）；
+    # --hook-form 同理，ps1 侧是 -HookForm
     if [ "$DRY_RUN" = "1" ]; then
-      exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target" -DryRun
+      exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target" -DryRun ${HOOK_FORM:+-HookForm "$HOOK_FORM"}
     fi
-    exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target"
+    exec "$ps" -NoProfile -ExecutionPolicy Bypass -File "$sd/setup.ps1" -Target "$target" ${HOOK_FORM:+-HookForm "$HOOK_FORM"}
   fi
   # jq 可选：有则 settings.json 自动合并；无则降级（新 target 直接复制，已有 settings 备份 .bak + 手工合并指引）
   command -v jq >/dev/null 2>&1 || printf 'setup: 未检测到 jq，settings.json 走无 jq 降级路径。\n' >&2
@@ -606,6 +632,25 @@ main() {
     return 0
   fi
 
+  # 没显式给 --hook-form 时沿用目标现有的形态：merge 之后新合进来的条目一律是 exec form，不先探就会把一个
+  # string form 的 Cursor 项目升成 mixed，新 hook 在 Cursor 下不跑。必须在 merge 之前查（merge 后再查一定是
+  # mixed）。mixed 按 string：装完统一成一种形态，比留着混着强。读不出形态当 exec（默认形态），不静默吞：说一句。
+  if [ -z "$HOOK_FORM" ]; then
+    HOOK_FORM="exec"
+    if [ -f "$target/.claude/settings.json" ] && command -v node >/dev/null 2>&1; then
+      local found
+      found=$(node "$target/.claude/scripts/hook-form.mjs" --check --file "$target/.claude/settings.json" 2>/dev/null) || true
+      case "$found" in
+        string) HOOK_FORM="string" ;;
+        mixed)
+          HOOK_FORM="string"
+          printf 'setup: 目标 settings.json 的 hook 形态是 mixed（exec 与 string 混着），装完统一转成 string。\n' >&2 ;;
+        exec|none) ;;
+        *) printf 'setup: 读不出目标 settings.json 的 hook 形态，按默认 exec 处理。\n' >&2 ;;
+      esac
+    fi
+  fi
+
   merge_settings "$source_dir/.claude/settings.json" "$target/.claude/settings.json"
 
   # 装完把新 MANIFEST 复制进目标（下次升级据此区分「框架旧版可覆盖」vs「用户改过不可覆盖」）
@@ -636,6 +681,15 @@ main() {
   if [ -f "$target/.claude/scripts/fix-platform.sh" ] && command -v python3 >/dev/null 2>&1; then
     printf 'setup: 跑 fix-platform.sh 清理历史 .sh/.ps1 残留 + 归一 statusLine...\n' >&2
     ( cd "$target" && CLAUDE_PROJECT_DIR="$target" bash "$target/.claude/scripts/fix-platform.sh" ) >&2 || true
+  fi
+  # 装完全文件同一形态 = HOOK_FORM（显式传的或探测出来的）：merge 与 fix-platform 按 exec form 产新条目，
+  # 最后统一转一遍；目标已是该形态时 converted=0，是空操作。转不成就停下报错，不留半 exec 半 string 的 settings。
+  # 没 node：string 是硬错；exec 本来就是 merge 与 fix-platform 的产出形态，跳过、保持原行为。
+  if command -v node >/dev/null 2>&1; then
+    node "$target/.claude/scripts/hook-form.mjs" --to "$HOOK_FORM" --file "$target/.claude/settings.json" >&2 \
+      || die "hook-form.mjs --to $HOOK_FORM 失败，settings.json 形态未转换：$target/.claude/settings.json"
+  elif [ "$HOOK_FORM" = "string" ]; then
+    die "--hook-form string 需要 node 跑 hook-form.mjs，本机没有 node"
   fi
   finish_install
   printf 'installed: hooks=%s skills=%s target=%s\n' "$hooks_count" "$skills_count" "$target"

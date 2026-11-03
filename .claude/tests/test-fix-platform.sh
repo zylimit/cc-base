@@ -9,6 +9,9 @@
 #   .mjs 并存。这形态最要命的地方在于「删了文件却没改 settings」——每次事件报一次 hook error，
 #   所以「残留清空」与「settings 切 exec form」必须一起断言，缺一条都读不出这个洞。
 # 覆盖：① fix-platform.sh（Linux/Mac 路径）② fix-platform.ps1（Windows 对称路径）。
+#   各带一组 string form 夹具（①s / ②s）：.mjs 条目已是 `node .claude/hooks/<name>.mjs`（给 Cursor 用）的
+#   目标再挂着历史 .sh/.ps1，归一出来的得跟着走 string form，原有的 string form 条目逐字不动——
+#   改写成 exec form 的话全文件就混挂了，Cursor 那侧新改写的几条又是光杆 node。
 #   ② 那组在装了 pwsh 的机器上是真跑的（账本里 23 次全 PASS，不是 SKIP），且它测的是**另一份
 #   实现**、不是同一份的第二种写法——`②⑦ 备份不许被覆盖` 更是全套里唯一真正执行到的那条
 #   （.sh 侧不写 .bak，①⑦ 从来没有对象）。所以它不按老化退休，留着。
@@ -91,6 +94,45 @@ fs.writeFileSync(process.argv[1], JSON.stringify(data, null, 2) + "\n");
 ' "$cl/settings.json"
 }
 
+# mkfixture_string <项目根> —— 同上的残留布局，settings 换成 string form 目标：pre-commit-check 已是
+#   string form 的 .mjs 条目（带 timeout，看其余键留没留），旁边挂着 tdd-gate.sh 与 notify.ps1 两条历史条目，
+#   另有一条用户自定义命令（不许被碰）。
+mkfixture_string() {
+  local proj="$1" cl="$1/.claude"
+  mkfixture "$proj"
+  printf 'process.exitCode = 0;\n' > "$cl/hooks/notify.mjs"
+  # shellcheck disable=SC2016  # 单引号内是 JS 源码，$CLAUDE_PROJECT_DIR 是夹具里的字面量
+  node -e '
+const fs = require("node:fs");
+const data = {
+  hooks: {
+    PreToolUse: [{ matcher: "Bash", hooks: [
+      { type: "command", command: "node .claude/hooks/pre-commit-check.mjs", timeout: 30 },
+      { type: "command", command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/tdd-gate.sh", timeout: 5 }
+    ]}],
+    Stop: [{ hooks: [
+      { type: "command", command: "pwsh -NoProfile -File .claude/hooks/notify.ps1", timeout: 10, asyncRewake: true },
+      { type: "command", command: "echo user-own-hook" }
+    ]}]
+  }
+};
+fs.writeFileSync(process.argv[1], JSON.stringify(data, null, 2) + "\n");
+' "$cl/settings.json"
+}
+
+# assert_string_kept <标签> <项目根> —— string form 夹具专属两条：原有 string 条目逐字不变、用户条目不动。
+assert_string_kept() {
+  local tag="$1" cl="$2/.claude"
+  local pc; pc=$(sq "$cl/settings.json" 'JSON.stringify(entries.find(h => /pre-commit-check/.test(String(h.command))) || null)')
+  chk "$([ "$pc" = '{"type":"command","command":"node .claude/hooks/pre-commit-check.mjs","timeout":30}' ] && echo 0 || echo 1)" \
+      "$tag ⑧ 原有 string form 条目逐字不变（已是 .mjs 的不管哪种形态都不改写）" \
+      '{"type":"command","command":"node .claude/hooks/pre-commit-check.mjs","timeout":30}' "$pc"
+  local nt; nt=$(sq "$cl/settings.json" 'JSON.stringify(entries.find(h => /notify/.test(String(h.command))) || null)')
+  chk "$([ "$nt" = '{"type":"command","command":"node .claude/hooks/notify.mjs","timeout":10,"asyncRewake":true}' ] && echo 0 || echo 1)" \
+      "$tag ⑨ 历史 .ps1 条目改写成 string form，timeout / asyncRewake 原样留、键序 type, command, 其余" \
+      '{"type":"command","command":"node .claude/hooks/notify.mjs","timeout":10,"asyncRewake":true}' "$nt"
+}
+
 # sq <settings 路径> <js 表达式> —— 在 settings.json 上求值。作用域里可用 s / entries / fs。
 sq() {
   node -e '
@@ -138,9 +180,9 @@ assert_idempotent() {
   fi
 }
 
-# assert_normalized <标签> <项目根> —— 归一后应成立的三件事，逐条断言。
+# assert_normalized <标签> <项目根> [exec|string] —— 归一后应成立的三件事，逐条断言。③ 按夹具形态判，默认 exec。
 assert_normalized() {
-  local tag="$1" proj="$2" cl="$2/.claude"
+  local tag="$1" proj="$2" cl="$2/.claude" form="${3:-exec}"
 
   local left; left=$(residue "$cl/hooks")
   chk "$([ -z "$left" ] && echo 0 || echo 1)" \
@@ -154,7 +196,16 @@ assert_normalized() {
       "三个 .mjs 都在" \
       "tdd-gate.mjs=$([ -f "$cl/hooks/tdd-gate.mjs" ] && echo Y || echo N) pre-commit-check.mjs=$([ -f "$cl/hooks/pre-commit-check.mjs" ] && echo Y || echo N) lib/fastmode.mjs=$([ -f "$cl/hooks/lib/fastmode.mjs" ] && echo Y || echo N)"
 
-  local bad; bad=$(sq "$cl/settings.json" 'entries.filter(h => h.command !== "node" || !Array.isArray(h.args) || !/\.claude\/hooks\/[A-Za-z0-9_-]+\.mjs$/.test(String(h.args[0] || ""))).map(h => JSON.stringify(h.command)).join(" ") || "无"')
+  local bad
+  if [ "$form" = "string" ]; then
+    # 用户自定义命令（不指 .claude/hooks/）不在判定范围
+    bad=$(sq "$cl/settings.json" 'entries.filter(h => /\.claude[\/\\]hooks[\/\\]/.test(String(h.command) + " " + (h.args || []).join(" "))).filter(h => "args" in h || !/^node \.claude\/hooks\/[A-Za-z0-9_-]+\.mjs$/.test(String(h.command))).map(h => JSON.stringify(h.command)).join(" ") || "无"')
+    chk "$([ "$bad" = "无" ] && echo 0 || echo 1)" \
+        "$tag ③ settings 里每条框架 hook 都成了 string form（command=node .claude/hooks/<name>.mjs，没有 args）" \
+        "零条不是 string form" "违例：$bad"
+    return
+  fi
+  bad=$(sq "$cl/settings.json" 'entries.filter(h => h.command !== "node" || !Array.isArray(h.args) || !/\.claude\/hooks\/[A-Za-z0-9_-]+\.mjs$/.test(String(h.args[0] || ""))).map(h => JSON.stringify(h.command)).join(" ") || "无"')
   chk "$([ "$bad" = "无" ] && echo 0 || echo 1)" \
       "$tag ③ settings 里每条 hook 都成了 exec form（command=node + args[0] 指 .mjs）" \
       "零条不是 exec form" "违例：$bad"
@@ -177,6 +228,19 @@ else
     assert_normalized "①" "$PROJ"
 
     assert_idempotent "①" "$PROJ" env CLAUDE_PROJECT_DIR="$PROJ" bash "$FP"
+
+    echo "--- ①s fix-platform.sh：string form 目标 → 历史条目跟着成 string form ---"
+    PROJS="$TMP/proj-sh-string"
+    mkfixture_string "$PROJS"
+    RC=0
+    CLAUDE_PROJECT_DIR="$PROJS" bash "$FP" >"$TMP/fps-1.log" 2>&1 || RC=$?
+    chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
+        "①s⓪ fix-platform.sh 跑完 rc 0" "rc=0" "rc=$RC 日志尾：[$(tail -2 "$TMP/fps-1.log" | tr '\n' '~')]"
+    assert_normalized "①s" "$PROJS" string
+    assert_string_kept "①s" "$PROJS"
+    usr=$(sq "$PROJS/.claude/settings.json" 'entries.filter(h => h.command === "echo user-own-hook" && !("args" in h)).length')
+    chk "$([ "$usr" = "1" ] && echo 0 || echo 1)" "①s⑩ 用户自定义命令原样留着" "1 条 echo user-own-hook" "$usr 条"
+    assert_idempotent "①s" "$PROJS" env CLAUDE_PROJECT_DIR="$PROJS" bash "$FP"
 fi
 
 # ---- ② fix-platform.ps1（对称路径）----
@@ -195,6 +259,16 @@ else
     assert_normalized "②" "$PROJ2"
 
     assert_idempotent "②" "$PROJ2" env CLAUDE_PROJECT_DIR="$PROJ2" pwsh -NoProfile -File "$FPPS1"
+
+    echo "--- ②s fix-platform.ps1：string form 目标 → 历史条目跟着成 string form ---"
+    PROJ2S="$TMP/proj-ps1-string"
+    mkfixture_string "$PROJ2S"
+    RC=0
+    CLAUDE_PROJECT_DIR="$PROJ2S" pwsh -NoProfile -File "$FPPS1" >"$TMP/fpps-1.log" 2>&1 || RC=$?
+    chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
+        "②s⓪ fix-platform.ps1 跑完 rc 0" "rc=0" "rc=$RC 日志尾：[$(tail -2 "$TMP/fpps-1.log" | tr '\n' '~')]"
+    assert_normalized "②s" "$PROJ2S" string
+    assert_string_kept "②s" "$PROJ2S"
 fi
 
 echo ""

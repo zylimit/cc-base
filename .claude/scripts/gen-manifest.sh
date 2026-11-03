@@ -57,6 +57,7 @@ while IFS= read -r -d '' src; do
     .degraded-review) continue ;;  # 闸门运行时标记
     .fast-mode) continue ;;  # 运行态标记
     .subagent-reminded) continue ;;  # 运行态标记
+    .three-file-sync-advised) continue ;;  # 运行态标记
     .stop-gate-strikes) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     .stop-gate-advised) continue ;;  # 闸门计数 / 纪元 / 异步校验游标
     .precompact-block-epoch) continue ;;  # 闸门计数 / 纪元 / 异步校验游标

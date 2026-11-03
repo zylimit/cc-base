@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # risk: low
-# test-hooks-settings.sh — 注册面回归：settings.json 的 hook 必须是 exec form 的
-#   `node <项目根>/.claude/hooks/<name>.mjs`，且 args[0] 指到的文件真实存在。
+# test-hooks-settings.sh — 注册面回归：settings.json 的 hook 必须是两种合法形态之一、全文件同一形态，
+#   且指到的文件真实存在。exec form = command "node" + args[0] `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.mjs`
+#   （框架默认）；string form = command `node .claude/hooks/<name>.mjs`、没有 args 键（Cursor 不认 args，
+#   setup --hook-form string 才生成）。两种混着挂说明转换半路断了，一样判红。
 #
 # 分级取舍（2026-09-10 测试预算表）：注册面判错的代价是「每次事件报一次 hook error」，
-#   吵但不致命，所以只留两条主判据——形态（exec form）与落地（文件在）。
+#   吵但不致命，所以只留两条主判据——形态（两种之一且全文件统一）与落地（文件在）。
 #   timeout/matcher 逐条对拍、statusLine、零 .sh/.ps1 残留、node --check 那批穷举不再养；
 #   两侧集合对拍归 test-hook-parity.sh。唯一留下的 matcher 断言是 tdd-gate 挂在哪个事件组：
 #   它挂错组不是吵一声，是闸整条失效——挂 Bash 那版只能靠猜命令文本，猜不到派 Sub-Agent 这件事。
@@ -38,7 +40,7 @@ chk() {
 }
 
 # sq <js 表达式> —— 在 settings.json 上求值，打印结果。作用域里可用：s（整份 settings）、
-# entries（[{ev, matcher, h}] 展平的 hook 条目）、ROOT、fs / path、nameOf、resolveArg。
+# entries（[{ev, matcher, h}] 展平的 hook 条目）、ROOT、fs / path、nameOf、formOf、hookPath。
 sq() {
     # shellcheck disable=SC2016  # 单引号内是要喂给 node -e 的 JS 源码，故意不让 shell 展开其中的 $ 记号
     node -e '
@@ -57,7 +59,17 @@ const nameOf = (h) => {
   const m = a.match(/hooks[\/\\]([A-Za-z0-9_-]+)\.(mjs|sh|ps1)$/);
   return m ? m[1] : "?";
 };
-const resolveArg = (a) => String(a).split("${CLAUDE_PROJECT_DIR}").join(ROOT);
+// formOf：exec / string / bad。与 hook-form.mjs 同口径，只认两个逐字模板。
+const formOf = (h) => {
+  if (h.command === "node" && Array.isArray(h.args) && h.args.length === 1 &&
+      /^\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/[A-Za-z0-9_-]+\.mjs$/.test(String(h.args[0]))) return "exec";
+  if (!("args" in h) && /^node \.claude\/hooks\/[A-Za-z0-9_-]+\.mjs$/.test(String(h.command || ""))) return "string";
+  return "bad";
+};
+// hookPath：exec form 取 args[0] 换掉占位符，string form 取 node 后面那段按项目根拼。
+const hookPath = (h) => formOf(h) === "string"
+  ? path.join(ROOT, String(h.command).slice(5))
+  : String((h.args || [])[0] || "").split("${CLAUDE_PROJECT_DIR}").join(ROOT);
 process.stdout.write(String(eval(process.argv[3])));
 ' "$ROOT" "$SETTINGS" "$1"
 }
@@ -70,15 +82,16 @@ chk "$([ "${N:-0}" -gt 0 ] && echo 0 || echo 1)" \
     "HS-1 settings.json 是合法 JSON 且能展平出 hook 条目（展不出 = 下面两条空转全绿）" \
     "至少 1 条 hook 条目" "$N 条"
 
-BAD_CMD=$(sq 'entries.filter(e => String(e.h.command) !== "node" || !Array.isArray(e.h.args) || !e.h.args.length).map(e => e.ev + ":" + nameOf(e.h)).join(" ") || "无"')
-chk "$([ "$BAD_CMD" = "无" ] && echo 0 || echo 1)" \
-    "HS-2 每条 hook 都是 exec form：command 逐字 \"node\" + 非空 args（有 args 才不经 shell，两平台相同）" \
-    "零条非 exec form" "违规：$BAD_CMD"
+BAD_CMD=$(sq 'entries.filter(e => formOf(e.h) === "bad").map(e => e.ev + ":" + nameOf(e.h)).join(" ") || "无"')
+FORMS=$(sq '[...new Set(entries.map(e => formOf(e.h)).filter(f => f !== "bad"))].sort().join("+") || "无"')
+chk "$([ "$BAD_CMD" = "无" ] && { [ "$FORMS" = "exec" ] || [ "$FORMS" = "string" ]; } && echo 0 || echo 1)" \
+    "HS-2 每条 hook 都是 exec form 或 string form、全文件同一形态，零条 .sh/.ps1（混挂 = 转换半路断了）" \
+    "零条不合法形态，形态恰好一种（exec 或 string）" "形态：$FORMS；违规：$BAD_CMD"
 
-BAD_ARG=$(sq 'entries.filter(e => Array.isArray(e.h.args) && e.h.args.length && !fs.existsSync(resolveArg(e.h.args[0]))).map(e => nameOf(e.h) + "<-" + e.h.args[0]).join(" ") || "无"')
+BAD_ARG=$(sq 'entries.filter(e => formOf(e.h) !== "bad" && !fs.existsSync(hookPath(e.h))).map(e => nameOf(e.h) + "<-" + hookPath(e.h)).join(" ") || "无"')
 chk "$([ "$BAD_ARG" = "无" ] && echo 0 || echo 1)" \
-    "HS-3 每条 args[0] 指向的文件真实存在（注册了但没装 = 每次事件都报 hook error）" \
-    "零个指空的 args[0]" "指空：$BAD_ARG"
+    "HS-3 每条 hook 指向的文件真实存在（exec form 看 args[0]，string form 看 command；注册了但没装 = 每次事件都报 hook error）" \
+    "零个指空的 hook 路径" "指空：$BAD_ARG"
 
 TD_WIRE=$(sq 'entries.filter(e => nameOf(e.h) === "tdd-gate").map(e => e.ev + "/" + (e.matcher || "<空>")).sort().join(" ") || "没注册"')
 chk "$([ "$TD_WIRE" = "PreToolUse/Agent" ] && echo 0 || echo 1)" \
@@ -92,4 +105,4 @@ if [ "$FAIL" -gt 0 ]; then
     echo "test-hooks-settings: failed（settings 的 hook 注册形态或落地文件对不上）" >&2
     exit 1
 fi
-echo "test-hooks-settings: passed（$N 条 hook 全 exec form 且 args[0] 都装着）"
+echo "test-hooks-settings: passed（$N 条 hook 全 $FORMS form 且指向的文件都装着）"

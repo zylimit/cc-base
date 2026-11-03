@@ -111,6 +111,15 @@
       }
     },
     {
+      "pattern": ".three-file-sync-advised",
+      "keep": false,
+      "note": "运行态标记",
+      "ps1": {
+        "kind": "skip",
+        "token": ".three-file-sync-advised"
+      }
+    },
+    {
       "pattern": ".stop-gate-strikes",
       "keep": false,
       "note": "闸门计数 / 纪元 / 异步校验游标",

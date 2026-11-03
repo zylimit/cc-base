@@ -122,8 +122,10 @@ else
   bad ".claude/settings.json 缺失"
 fi
 
-# settings.json 里每条 hook 的 args[0] 指向的文件真的在——注册了却没装，是每次事件报一次 hook error，
+# settings.json 里每条 hook 指向的文件真的在——注册了却没装，是每次事件报一次 hook error，
 # 而那行小字滚过去谁也不会读。用 node 解析（hook 本来就靠 node 跑，它不在的话下面也验不了语法）。
+# 两种形态都要解析出路径：exec form 取 args[0]，string form（`node .claude/hooks/<name>.mjs`，没有 args）
+# 取 command 里 node 后面那段、按项目根解析。
 if [ -f .claude/settings.json ] && command -v node >/dev/null 2>&1; then
   # shellcheck disable=SC2016  # node -e 的单引号 JS 源码块，故意不让 shell 展开其中的 ${...}，那是 JS 里的字面量/表达式
   hook_miss=$(node -e '
@@ -134,18 +136,23 @@ const miss = [];
 for (const groups of Object.values(s.hooks || {})) {
   for (const g of (groups || [])) {
     for (const h of ((g && g.hooks) || [])) {
-      const a = Array.isArray(h.args) && h.args.length ? String(h.args[0]) : "";
+      let a = Array.isArray(h.args) && h.args.length ? String(h.args[0]) : "";
+      if (!a && !("args" in h)) {
+        const m = String(h.command || "").match(/^node (\.claude\/hooks\/[A-Za-z0-9_-]+\.mjs)$/);
+        if (m) a = m[1];
+      }
       if (!a) continue;
-      if (!fs.existsSync(a.split("${CLAUDE_PROJECT_DIR}").join(root))) miss.push(a);
+      const p = a.split("${CLAUDE_PROJECT_DIR}").join(root);
+      if (!fs.existsSync(p.startsWith(".claude/") ? root + "/" + p : p)) miss.push(a);
     }
   }
 }
 process.stdout.write(miss.join(" "));
 ' 2>/dev/null) || hook_miss="PARSE_ERROR"
   if [ "$hook_miss" = "PARSE_ERROR" ]; then
-    note "settings.json 的 hook 条目解析不了，跳过 args[0] 存在性检查"
+    note "settings.json 的 hook 条目解析不了，跳过 hook 路径存在性检查"
   elif [ -z "$hook_miss" ]; then
-    ok "settings.json 每条 hook 的 args[0] 都指向真实存在的文件"
+    ok "settings.json 每条 hook 都指向真实存在的文件（exec form 看 args[0]，string form 看 command）"
   else
     bad "settings.json 有 hook 指向不存在的文件：$hook_miss"
   fi

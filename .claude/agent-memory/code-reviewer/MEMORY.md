@@ -24,3 +24,4 @@
 - [bash+awk 改 frontmatter 的四种必攻输入](pattern_frontmatter-shell-rewriters.md) — CRLF 双 frontmatter / 模板行内注释当值 / 名字带空格永远 conflict / 同 basename 静默覆盖
 - [审提醒去重状态文件 / 包壳再 node --check](pattern_dedup-state-and-wrapper-check.md) — clean 后同轮重登记被吞 / 提前 return 不清状态 / 壳内残留 import 整份放行 / TMPDIR 软链回写失配
 - [审 hook 输出形态迁移的对拍法](pattern_output-shape-migration-differential.md) — git show HEAD 落 scratch 新旧对拍；载荷 sha；finally 出口插 throw 突变；静默场景常没锁
+- [审 hook 注册面双形态 + 合并去重](pattern_registration-form-dual-support.md) — 升级时造「新增 hook」测形态保持；名字去重跨事件吞带参用户条目；新测试先过 SC2016

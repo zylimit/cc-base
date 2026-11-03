@@ -161,3 +161,70 @@ bash "$ROOT/setup.sh" "$TARGET" >"$TMP/setup-4.log" 2>&1 || { cat "$TMP/setup-4.
 grep -q '下游自产条目' "$CL/feedback/FEEDBACK-INDEX.md" || fail "重装后下游索引条目丢了"
 
 echo "test-setup: manifest 分层校验通过（首装含 MANIFEST / 用户改动不覆盖落 .framework-new / 私有文件保留）"
+
+# ---- ⑤ string form 目标升级：按 hook 名去重，不合出 exec form 重复，形态保持 string ----
+# 合并的去重键以前是 command + args 整体：目标已是 string form（Cursor 用）时，同一个 hook 的 exec form
+# 键不同，升级一次就把 21 条全合进来一份——全文件混挂，Cursor 那侧又是光杆 node。jq 合并才有这条路径，
+# 无 jq 降级不自动合并、Windows 走 setup.ps1，都不在这里判。
+if command -v jq >/dev/null 2>&1 && ! grep -q "cc-base setup (Windows/.ps1)" "$TMP/setup-1.log"; then
+  STARGET="$TMP/project-string"
+  bash "$ROOT/setup.sh" "$STARGET" --hook-form string >"$TMP/setup-s1.log" 2>&1 || { cat "$TMP/setup-s1.log" >&2; fail "--hook-form string 首装失败"; }
+  SSET="$STARGET/.claude/settings.json"
+  form=$(node "$ROOT/.claude/scripts/hook-form.mjs" --check --file "$SSET" || true)
+  [ "$form" = "string" ] || fail "--hook-form string 首装后形态应为 string，实得 $form"
+  # shellcheck disable=SC2016  # 单引号内是 JS 源码
+  count_js='const s = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+const n = []; for (const gs of Object.values(s.hooks || {})) for (const g of gs) for (const h of (g.hooks || [])) n.push(String(h.command) + " " + (h.args || []).join(" "));
+process.stdout.write(n.length + " " + (n.length - new Set(n).size));'
+  c1=$(node -e "$count_js" "$SSET")
+  # 不带 --hook-form 升级：只靠合并去重，新条目一条都不该合进来
+  bash "$ROOT/setup.sh" "$STARGET" >"$TMP/setup-s2.log" 2>&1 || { cat "$TMP/setup-s2.log" >&2; fail "string form 目标升级失败"; }
+  c2=$(node -e "$count_js" "$SSET")
+  form=$(node "$ROOT/.claude/scripts/hook-form.mjs" --check --file "$SSET" || true)
+  [ "$form" = "string" ] || fail "string form 目标升级后形态变成 ${form}（合进了 exec form 条目）"
+  [ "$c1" = "$c2" ] || fail "string form 目标升级后条目数/重复数变了：升级前 [$c1] 升级后 [$c2]（格式：总数 重复数）"
+  [ "${c2#* }" = "0" ] || fail "string form 目标升级后有重复条目：$c2"
+  echo "test-setup: string form 升级校验通过（条目 ${c2% *} 条，零重复，形态保持 string）"
+
+  # (a) 上面那组升级前后是同一套 hook，「合进新条目」的分支没走到——补一个少一条框架 hook 的 string form 目标：
+  # 不传 --hook-form 升级，缺的那条要合进来、且是 string form（沿用目标形态），不能留成 mixed。
+  # shellcheck disable=SC2016  # 单引号内是 JS 源码
+  node -e 'const fs = require("node:fs"); const f = process.argv[1]; const s = JSON.parse(fs.readFileSync(f, "utf8"));
+for (const gs of Object.values(s.hooks)) for (const g of gs) g.hooks = g.hooks.filter((h) => !String(h.command).includes("notify.mjs"));
+fs.writeFileSync(f, JSON.stringify(s, null, 2) + "\n");' "$SSET"
+  ! grep -q 'notify.mjs' "$SSET" || fail "夹具 a：删 notify 条目没删干净"
+  bash "$ROOT/setup.sh" "$STARGET" >"$TMP/setup-s3.log" 2>&1 || { cat "$TMP/setup-s3.log" >&2; fail "夹具 a：少一条 hook 的 string form 目标升级失败"; }
+  form=$(node "$ROOT/.claude/scripts/hook-form.mjs" --check --file "$SSET" || true)
+  [ "$form" = "string" ] || fail "夹具 a：升级后形态应为 string，实得 ${form}（新合进来的条目没跟着目标形态）"
+  [ "$(grep -c 'notify.mjs' "$SSET")" = "1" ] || fail "夹具 a：升级后 notify.mjs 应合进 1 条，实得 $(grep -c 'notify.mjs' "$SSET")"
+  grep -q '"command": "node .claude/hooks/notify.mjs"' "$SSET" || fail "夹具 a：合进来的 notify 条目不是 string form"
+  c3=$(node -e "$count_js" "$SSET")
+  [ "${c3#* }" = "0" ] || fail "夹具 a：升级后有重复条目：$c3"
+
+  # (b) 用户自己写的「同一脚本 + 额外参数」条目不是框架模板，不能被记成 hook:notify 而把框架那条吃掉：
+  # 升级后用户那条原样在，框架那条也合进来，notify.mjs 共两处。
+  UTARGET="$TMP/project-userhook"
+  bash "$ROOT/setup.sh" "$UTARGET" >"$TMP/setup-u1.log" 2>&1 || { cat "$TMP/setup-u1.log" >&2; fail "夹具 b：首装失败"; }
+  # shellcheck disable=SC2016  # JSON 里的 ${CLAUDE_PROJECT_DIR} 是字面量，不让 shell 展开
+  printf '%s\n' '{"hooks":{"Notification":[{"hooks":[{"type":"command","command":"node","args":["${CLAUDE_PROJECT_DIR}/.claude/hooks/notify.mjs","--quiet"]}]}]}}' >"$UTARGET/.claude/settings.json"
+  bash "$ROOT/setup.sh" "$UTARGET" >"$TMP/setup-u2.log" 2>&1 || { cat "$TMP/setup-u2.log" >&2; fail "夹具 b：用户自定义 hook 目标升级失败"; }
+  [ "$(grep -c 'notify.mjs' "$UTARGET/.claude/settings.json")" = "2" ] || fail "夹具 b：升级后 notify.mjs 应出现 2 次（用户那条 + 框架那条），实得 $(grep -c 'notify.mjs' "$UTARGET/.claude/settings.json")"
+  grep -q '"--quiet"' "$UTARGET/.claude/settings.json" || fail "夹具 b：用户自定义条目的 --quiet 参数丢了"
+  # (c) string form 目标显式 --hook-form exec 升级：装完全文件必须是 exec（老条目转过去），不能是 mixed。
+  ETARGET="$TMP/project-string-to-exec"
+  bash "$ROOT/setup.sh" "$ETARGET" --hook-form string >"$TMP/setup-e1.log" 2>&1 || { cat "$TMP/setup-e1.log" >&2; fail "夹具 c：string 首装失败"; }
+  ESET="$ETARGET/.claude/settings.json"
+  # shellcheck disable=SC2016  # 单引号内是 JS 源码
+  node -e 'const fs = require("node:fs"); const f = process.argv[1]; const s = JSON.parse(fs.readFileSync(f, "utf8"));
+for (const gs of Object.values(s.hooks)) for (const g of gs) g.hooks = g.hooks.filter((h) => !String(h.command).includes("notify.mjs"));
+fs.writeFileSync(f, JSON.stringify(s, null, 2) + "\n");' "$ESET"
+  bash "$ROOT/setup.sh" "$ETARGET" --hook-form exec >"$TMP/setup-e2.log" 2>&1 || { cat "$TMP/setup-e2.log" >&2; fail "夹具 c：--hook-form exec 升级失败"; }
+  form=$(node "$ROOT/.claude/scripts/hook-form.mjs" --check --file "$ESET" || true)
+  [ "$form" = "exec" ] || fail "夹具 c：EXPECT exec，GOT ${form}（string 目标显式传 exec 升级后不是全文件 exec）"
+  c4=$(node -e "$count_js" "$ESET")
+  [ "${c4#* }" = "0" ] || fail "夹具 c：升级后有重复条目：$c4"
+  [ "$(grep -c '"args"' "$ESET")" = "${c4% *}" ] || fail "夹具 c：EXPECT args 条数 ${c4% *}，GOT $(grep -c '"args"' "$ESET")"
+  echo "test-setup: 沿用目标形态 + 去重键只认框架模板校验通过（夹具 a / b / c）"
+else
+  echo "test-setup: [SKIP] ⑤ string form 升级——无 jq 或走 setup.ps1，合并去重这条路径不在本机（未执行 != 通过）"
+fi
