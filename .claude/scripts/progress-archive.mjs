@@ -152,13 +152,31 @@ const decisionsEntries = entriesOf('decisions', DATE_RE);
 const todoAll = entriesOf('todo', TODO_RE).map((e) => Object.assign(e, parseTodoMeta(progLines[e.startIdx])));
 const closedTodo = todoAll.filter((e) => e.status === 'DONE' || e.status === '完成');
 
+// 方向：搬走的永远是最旧的、留下的永远是最新的 N 条。progress-recorder 模板写「Decisions（按时间顺序追加）」
+// 「Done（最近完成的放前面）」，两种写法下游都真有——lutetia 2026-11-07 实测 Decisions / Notes 最旧在上，
+// 一律留前 N 条把 15 条现行决策搬进了归档。所以每段按首条与末条日期各判各的；首末同日判断不出就不猜，
+// 记下段名，后面在任何写盘之前整次拒绝。只判会搬的段：没过线的段（下游 Notes 常只有一条）不判。
+const undecidable = [];
+function oldestOf(kind, entries, retain) {
+  const first = progLines[entries[0].startIdx].slice(2, 12);
+  const last = progLines[entries[entries.length - 1].startIdx].slice(2, 12);
+  if (first < last) return entries.slice(0, entries.length - retain);   // 升序：最旧在上
+  if (first > last) return entries.slice(retain);                       // 降序：最新在上
+  undecidable.push(LABEL[kind]);
+  return [];
+}
 let doneToArchive = [], notesToArchive = [];
 if (doneEntries.length + notesEntries.length > TRIGGER_DONE_NOTES) {
-  if (doneEntries.length > RETAIN_DONE) doneToArchive = doneEntries.slice(RETAIN_DONE);
-  if (notesEntries.length > RETAIN_NOTES) notesToArchive = notesEntries.slice(RETAIN_NOTES);
+  if (doneEntries.length > RETAIN_DONE) doneToArchive = oldestOf('done', doneEntries, RETAIN_DONE);
+  if (notesEntries.length > RETAIN_NOTES) notesToArchive = oldestOf('notes', notesEntries, RETAIN_NOTES);
 }
 let decisionsToArchive = [];
-if (decisionsEntries.length > TRIGGER_DECISIONS) decisionsToArchive = decisionsEntries.slice(RETAIN_DECISIONS);
+if (decisionsEntries.length > TRIGGER_DECISIONS) decisionsToArchive = oldestOf('decisions', decisionsEntries, RETAIN_DECISIONS);
+// 判断不出方向时不做「能搬的先搬」：部分搬迁后人更难看清哪段动过，两份文件一个字节不动、--check 同样拒绝。
+if (undecidable.length) {
+  console.error(`progress-archive: ${undecidable.join(' / ')} 首条与末条同日，判断不出排列方向（最旧在上还是最新在上），不搬；请人工核对该段顺序后重跑`);
+  process.exit(1);
+}
 let todoToArchive = [];
 if (closedTodo.length > TRIGGER_TODO_CLOSED) {
   const sorted = [...closedTodo].sort((a, b) => b.idInt - a.idInt || (a.idSuffix < b.idSuffix ? 1 : a.idSuffix > b.idSuffix ? -1 : 0));

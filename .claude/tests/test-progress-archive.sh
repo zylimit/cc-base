@@ -44,11 +44,11 @@ jf() {  # jf <jsonfile> <点号路径> —— 本仓测试既有的 node -e 单�
 #   "## TODO" 与 "## TODO 归档说明" 不相干；测试工具本身也不能再用前缀，否则 A10 先坑自己）。
 extract_block() { awk -v h="$2" '$0==h{inb=1;next} inb&&/^## /{exit} inb{print}' "$1"; }
 norm() { awk 'NF'; }  # 去空行，契约没定空行格式，比较正文不纠结这个
-# gen_entries <count> <label> <cont_idx> —— count 条 Done/Notes/Decisions 风格条目，位置1(最新)..count(最旧)；cont_idx>0 时该条带两行缩进续行（0=不加）
+# gen_entries <count> <label> <cont_idx> —— count 条 Done/Notes/Decisions 风格条目，位置1(最新)..count(最旧)，日期随位置递减、逐条不同；cont_idx>0 时该条带两行缩进续行（0=不加）
 gen_entries() {
-  local count="$1" label="$2" cont_idx="$3" i d m y
+  local count="$1" label="$2" cont_idx="$3" i k d m y
   for i in $(seq 1 "$count"); do
-    d=$(( (i % 28) + 1 )); m=$(( ((i / 28) % 12) + 1 )); y=$(( 2020 + i / 336 ))
+    k=$(( 1000 - i )); d=$(( (k % 28) + 1 )); m=$(( ((k / 28) % 12) + 1 )); y=$(( 2020 + k / 336 ))
     printf -- '- %04d-%02d-%02d %s-entry-%03d 占位描述文本\n' "$y" "$m" "$d" "$label" "$i"
     if [ "$i" -eq "$cont_idx" ]; then
       printf '  续行第一行：补充说明 %s-entry-%03d\n  续行第二行：再补充一句 %s-entry-%03d\n' "$label" "$i" "$label" "$i"
