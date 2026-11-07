@@ -101,6 +101,18 @@
 //   `parallel 'cat .env'` 这种「密钥只出现在被引号包住的单一参数里」的形态两张表都够不着。契约：
 //   parallel 补进 SINGLE_CARRIER_VERBS（同 xargs 早就两头都占一样），走引号参数递归重扫；H2 那条
 //   判据不动，两条规则各管各的形态。
+// 八轮扩（下游 lutetia 2026-11-06 账本各 16 次拦截，README 标准步骤 `cp .env.example .env` 被拦；
+//   主 Agent 2026-11-08 裁定来源不含密钥即放行、--env-file 维持拦截，SE-106…SE-115）：复制样例到
+//   密钥路径不读任何密钥，拦它只是噪音。契约是白名单形状，缺一条整段照旧全判：cp / mv（剥壳后）的
+//   简单命令段，旗标只认无值短旗标（整个 token 匹配 ^-[rRfnvpaiuLP]+$），操作数恰好两个，第一个
+//   （来源）整个是样例名（可带不含引号与元字符的目录前缀）且自身不命中任何密钥判据（挡
+//   .env.example/../.env），段内不含 <、>、反斜杠、$、反引号——全满足才只跳过第二个操作数（目标
+//   位），动词位与来源位照判。reviewer 2026-11-08 对「最后一个操作数是目标」的旧写法攻出三类绕过：
+//   长选项缩写（--target / --t 吞掉目标，密钥落到最后一位）、转义（\-t 与 $'-t' 在 shell 里就是
+//   -t）、重定向（< .env 把密钥喂进 stdin）；白名单形状下这三类都回全判。样例名剔除因此改成换占位词而不是删空：删空后
+//   `cp .env.example .env` 变成 `cp  .env`，来源位消失，.env 会被误当成唯一操作数。这条只动 cp / mv
+//   这一段自己的判定，同一命令其它段（&& / ; / 管道 / 命令替换 / 载体）照旧各判各的；
+//   docker compose --env-file .env 是把密钥交给别的程序读，不属于复制移动，照拦。
 // 边界：只对命令行里**字面出现**的密钥路径负责。把路径在代码里拼出来的读法（chr() 拼、变量拼接、
 //   $(printf …) 现生成）hook 层原理上拦不住——那一层的防线在人不在闸，别以为这里绿了就没漏。
 // wrapper 剥壳：剥 sudo/nohup/nice/timeout/env 前缀与 bash -c 引号壳再判——套壳绕闸是已知逃逸
@@ -231,9 +243,36 @@ const TWO_LEVEL_CARRIER_SUBS = {
 // grep 一族：第一个非选项参数是匹配模式，不是路径（TODO #79）。
 const GREP_VERBS = new Set(['grep', 'egrep', 'fgrep', 'rg']);
 
-// 剔除合法样例文件名，再做密钥判定（.env.example 等不当密钥算）
+// 剔除合法样例文件名，再做密钥判定（.env.example 等不当密钥算）。换成占位词而不是删空（八轮扩）：
+// cp / mv 按操作数位置判来源与目标，删空会让来源位整个消失、目标位被误认成唯一操作数。占位词不含
+// 点、斜杠、冒号、= 与 glob 元字符，任何判据都不会把它当密钥路径。
+const EXAMPLE_PLACEHOLDER = 'SAMPLEFILE';
 function stripExamples(s) {
-  return s.replace(/\.env\.(example|sample|template|dist)[A-Za-z0-9_.-]*/g, '');
+  return s.replace(/\.env\.(example|sample|template|dist)[A-Za-z0-9_.-]*/g, EXAMPLE_PLACEHOLDER);
+}
+
+// 复制 / 移动动词（八轮扩）：只有「样例 → 目标」这一个白名单形状才不判目标位。
+const COPY_MOVE_VERBS = new Set(['cp', 'mv']);
+const COPY_MOVE_FLAG = /^-[rRfnvpaiuLP]+$/;
+const COPY_MOVE_SAMPLE_SRC = new RegExp(`^([^\\s"'<>|;&$\`\\\\]*/)?${EXAMPLE_PLACEHOLDER}$`);
+const COPY_MOVE_SEG_META = /[<>\\$`]/;
+
+// cp / mv 段是否落在白名单形状里：是则返回目标位下标，否则 -1（调用方全判）。形状见头部八轮扩：
+// 旗标只认无值短旗标、操作数恰好两个、来源整个是样例名且不命中密钥判据、段内无 < > \ $ `。
+function copyMoveSampleTargetIndex(seg, tokens, vi) {
+  if (COPY_MOVE_SEG_META.test(seg)) return -1;
+  const operands = [];
+  for (let i = vi + 1; i < tokens.length; i += 1) {
+    if (tokens[i].startsWith('-')) {
+      if (!COPY_MOVE_FLAG.test(tokens[i])) return -1;
+      continue;
+    }
+    operands.push(i);
+  }
+  if (operands.length !== 2) return -1;
+  const src = tokens[operands[0]];
+  if (!COPY_MOVE_SAMPLE_SRC.test(src) || tokenHits(src, false)) return -1;
+  return operands[1];
 }
 
 // wrapper 剥壳：迭代剥 sudo/nohup/nice/timeout/env 前缀（上限 5 层）。sh -c 引号壳单独处理，
@@ -449,9 +488,9 @@ function colonSuffixHits(bare) {
 // cp id_rsa*）；scanNested 为真时再多判一层——token 里嵌着一层引号、被引的子串整个是密钥路径
 // （python3 -c "print(open('.env').read())"），只对解释器/求值类动词打开这层（TODO #78：其余
 // 动词的嵌套引号只是自然语言，不该被当代码字面量扫）。重定向符号不属于路径，先剥掉——
-// `node app.js < .env` 里那个路径同样算参数。
+// `node app.js < .env` 里那个路径同样算参数；带文件描述符号的 `0<.env` 同理（SE-123）。
 function tokenHits(raw, scanNested) {
-  const t = raw.replace(/^<{1,3}/, '');
+  const t = raw.replace(/^[0-9]*<{1,3}/, '');
   const bare = t.replace(/["']/g, '');
   if (SECRET_PATH.test(bare) || globHits(bare) || colonSuffixHits(bare)) return true;
   const eq = bare.indexOf('=');
@@ -581,9 +620,14 @@ function checkSimple(seg) {
   const verb = tokens[vi].replace(/["']/g, '').replace(/^.*\//, '');
   if (isAllowedVerb(verb, tokens, vi)) return false;
   const scanNested = isNestedQuoteVerb(verb, tokens, vi);
-  const checkTokens = GREP_VERBS.has(verb)
-    ? tokens.slice(0, vi + 1).concat(grepTokensToCheck(tokens, vi))
-    : tokens;
+  let checkTokens = tokens;
+  if (GREP_VERBS.has(verb)) {
+    checkTokens = tokens.slice(0, vi + 1).concat(grepTokensToCheck(tokens, vi));
+  } else if (COPY_MOVE_VERBS.has(verb)) {
+    // 八轮扩：白名单形状才跳过目标位，来源位、赋值、动词位照判（cp .env /tmp/x 仍拦）
+    const ti = copyMoveSampleTargetIndex(seg, tokens, vi);
+    if (ti !== -1) checkTokens = tokens.filter((_, i) => i !== ti);
+  }
   return checkTokens.some((t) => tokenHits(t, scanNested));
 }
 

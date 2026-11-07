@@ -71,7 +71,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     提交前对照 design-brief-builder/references/ui-quality-floor.md 的 MUST 项自查：对比度 ≥ 4.5:1、焦点可见、触控目标够大、Brief 里该页的必需状态都做了。
 
 [Phase 执行流程]
-    编码由主 Agent 派 implementer fresh 实例执行，每 Task 一单、跨 Task 默认串行，派单包七字段见 rules/subagent-dispatch.md；主 Agent 只写单 + 验收，不亲手写码。
+    编码由主 Agent 派 implementer fresh 实例执行，每 Task 一单、跨 Task 默认串行，派单包七字段见 rules/subagent-dispatch.md；主 Agent 只写单 + 验收，不亲手写码。派单前先过一遍把握：Task 依赖 Spec 里的 `[默认]` 判断、且做错要返工或写坏数据（导入规则、拒收、存不存）时，把握不到九成先把问题合并成一次提问再派；文案、显示类可先做，回执里说明。
     Plan（读 DEV-PLAN 该 Phase 与 Spec 相关章节的原文，探索现有代码，写出 Task 拆分，每个页面 / 组件 / 功能一个 Task）→ 每个 Task：读派单包 Business Context（为什么做、谁受益、相关规则与例外；Spec 没写的分支按规则与例外推，推不出来的记为「业务假设」进回执，不静默选一个）→ 读该 Task 的交付清单、Spec 功能描述、设计参照的原文 → 编码 → 自检（代码实际值对设计数值、行为对 Spec、业务含义对 Business Context）→ 按 Task 档位走 rules/dev-workflow-details.md [项目开发阶段] 的三条链：LOW 不派 reviewer、主 Agent 对 diff 与运行器输出验收；MEDIUM 派 code-reviewer 一轮 Stage 0 + 1；HIGH 全三 Stage + tester → 只 HIGH 阻断，修完由同一轮复核一次即收口，Medium / Low 记残留不追 → `echo clean > .claude/.needs-review` → commit → 下一个 Task。
     用户强调某个环节是追加要求，不替换基础流程，review 闭环照常走。
     fast 档（`tier status` 报 fast）走短链：不自动派 reviewer / tester、不进四步走；同一份代码全量测试只跑一次，之后修阻断项只补直接对应的用例、复核只看修的那一处；审查与各道闸的过程不念给用户，只报结论与证据句柄；连续开发期用 `tier set fast --sticky --reason "…"` 到撤销为止，不每 8 小时续一次、不每次向用户报告。standard / strict 不受这段影响。

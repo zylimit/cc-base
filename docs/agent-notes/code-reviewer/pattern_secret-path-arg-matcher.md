@@ -18,3 +18,5 @@ metadata:
 - 管道分段独立判定给"放行的回显动词"开新口子：`git ls-files .env | xargs cat` 密钥路径字面出现在被放行的第一段，真正读内容的第二段（`xargs cat`）里没有路径 token——echo/printf/find 类推同款风险，凡"会把参数原样回显"又被放行的动词都用这条攻一遍（实测 BEFORE 本轮改动 rc=2、AFTER rc=0，是本轮"git 不放行→ls-files 放行"新开的口子）。
 - grep 位置参数判定不认裸 `--`：`startsWith('-')` 把 `--` 自己和它后面本该是"第一个位置参数=模式"的 token（如 `-x`）都当选项跳过，真正的文件参数反被误当"跳过的模式"放行——`grep -- -x .env` 实测 BEFORE rc=2、AFTER rc=0，本轮引入的真回归。
 - `stripWrappers` 若用 `/["']$/` 裸剥"结尾单个引号"当兜底，token 以 `'SECRET'"` 收尾时会连剥两层收尾引号，破坏嵌套引号探测所需的配对——这条经对拍是改动前就有的老窟窿，但扫描收窄到"只对特定动词做嵌套引号判定"后容易被误当"新契约生效了该拦"，先拿改动前版本对拍同一用例再定性。
+- 「按操作数位置放行某一位」（cp/mv 目标位不判）必攻三类：① 长选项缩写 + 空格带值（`cp --target DIR KEY`、`--target-dir`、`--t`，getopt 认前缀，字面正则只认全名）；② 选项不以字面 `-` 开头（`-\t`、`$'-t'`，shell 展开后才是选项）；③ 重定向 token 被当操作数（`cp /dev/stdin X < KEY` 让密钥落在"最后一位"）。2026-11-08 三类全在活 hook 上把假私钥复制出去；对拍法：git archive HEAD 的 hooks 目录到 scratchpad 当旧版，新旧同喂。
+- 白名单形状收窄后仍要攻「动词是不是真的那个动词」：同命令前段定义函数 `cp(){ cat "$2"; }; cp 样例 密钥`、`/tmp/evil/cp`、`PATH=/x cp`、`BASH_ENV=`——动词按 basename 判、段内元字符只查本段；先对拍放行表里老动词（ls）同形是否早就 rc 0，再定是新口子还是同类老窟窿。「偶发一次 rc 0」先查 stdin JSON 坏 / 空：readStdinJson 返回 null 是静默 rc 0、没有「内部异常」字样。

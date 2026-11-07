@@ -828,6 +828,70 @@ chk "$([ "$RC" -ne 124 ] && [ "$MS" -lt 500 ] && ! crashmsg "$ERRT" && echo 0 ||
 「内部异常」" \
     "RC≠124 且 <500ms 且无崩溃诊断" "rc=$RC 耗时=${MS}ms err=[$(show "$ERRT")]"
 
+# --- SE-106…SE-116：复制/移动的来源位全是样例名时，目标位是密钥路径不算外传 ---
+# 误拦：lutetia README 的标准本地开发步骤 `cp .env.example .env` 被地板闸拦（下游账本各 16 次）。
+#   契约：cp / mv 这类复制移动动词，**来源位**全是合法样例名（.example/.sample/.template/.dist）或
+#   非密钥路径、只有**目标位**是密钥路径 → 放行（复制样例到密钥路径不读任何密钥）。放行只许收窄到
+#   「来源不含密钥」这一种形态：来源位含密钥路径、或同一命令另有段读密钥（&& / ; 分段），照拦。
+# 维持拦截（主 Agent 2026-11-08 裁定）：`docker compose --env-file .env up -d` 是把密钥交给别的程序读，
+#   不属于复制移动，不因本契约放行。
+# 契约歧义按「来源不含密钥即放行」处理：目标位是非标准名（如 /tmp/x.env）不单独断言。
+# risk: high
+se_pass se106-cp-ex "cp $DOTENV.example $DOTENV" \
+    "SE-106 cp 样例到 .env：来源是样例名、目标位才是密钥路径 → 放行（lutetia README 标准步骤）"
+se_pass se107-mv-ex "mv $DOTENV.example $DOTENV" \
+    "SE-107 mv 同族动词同理 → 放行"
+se_pass se108-cp-sample "cp ./config/$DOTENV.sample ./config/$DOTENV" \
+    "SE-108 带目录前缀的 .sample → 放行"
+se_pass se109-cp-tpl "cp $DOTENV.template $DOTENV.local" \
+    "SE-109 目标位带后缀（.env.local）仍是密钥路径，来源是 .template 样例 → 放行"
+se_pass se110-sudo "sudo cp $DOTENV.example $DOTENV" \
+    "SE-110 wrapper 剥壳后与 SE-106 同形 → 放行"
+se_block se111-src-key "cp $DOTENV /tmp/x" \
+    "SE-111 来源位是密钥：真外传，必须守住 → exit 2"
+se_block se112-src-key2 "cp $DOTENV $DOTENV.bak" \
+    "SE-112 来源是密钥、目标也在密钥族：备份副本同样是搬运密钥 → exit 2"
+se_block se113-and-cat "cp $DOTENV.example $DOTENV && cat $DOTENV" \
+    "SE-113 放行不能传染：&& 后第二段读密钥照拦 → exit 2"
+se_block se114-semi-tac "cp $DOTENV.example $DOTENV; tac $DOTENV" \
+    "SE-114 分号分段同理 → exit 2"
+se_block se115-compose "docker compose --env-file $DOTENV up -d" \
+    "SE-115 把密钥交给别的程序读，主 Agent 2026-11-08 裁定维持拦截（不属于复制移动）→ exit 2"
+# --- SE-117…SE-126：SE-106 放行的绕过收紧（red-lock 第二轮）---
+# reviewer 2026-11-08 用 `git archive HEAD` 新旧对拍抓出的回归：第一版按「最后一个操作数是目标」跳过判定，
+#   三类形态把密钥推到最后一位，reviewer 在实验目录里真把 24 字节假私钥复制了出去：
+#   (一) 选项吞操作数：`--target` / `--target-dir` / `--t` 是 GNU 长选项缩写，`\-t` / `$'-t'` 是 shell 转义后的 -t，
+#       放行逻辑只认 --target-directory 全拼，把 -t 的值误当目标、密钥当来源之外的东西；
+#   (二) 重定向喂密钥：`cp /dev/stdin /tmp/x < .env`，`<` 既不是选项也不是目标，密钥从 stdin 流进去；
+#   (三) 来源不是样例名 / 带值长选项：`cp a .env`、`cp --suffix .bak .env.example .env` 靠「最后一位是目标」蒙混。
+# 收紧后的契约一句话：恰好两个操作数、来源含样例名、选项只认无值短旗标 -r -R -f -n -v -p -a -i -u -L -P 及其组合；
+#   段内出现 `--`、`<`、`>`、反斜杠、`$`、反引号任一即回全判（宁可错拦，地板闸）。
+# 每条的 hook 收到的 command 都是字面串：用单引号拼接 "$DOTENV"，不让 shell 提前吃掉 `\` 与 `$'`。
+# risk: high
+se_block se117-target-abbr 'cp --target /tmp/out '"$DOTENV" \
+    "SE-117 --target 是 --target-directory 的缩写，吞掉 /tmp/out，密钥是来源 → exit 2"
+se_block se118-target-dir 'mv --target-dir /tmp/out '"$DOTENV" \
+    "SE-118 mv --target-dir 同理 → exit 2"
+se_block se119-t-abbr 'cp --t /tmp/out '"$DOTENV" \
+    "SE-119 --t 是最短缩写 → exit 2"
+se_block se120-bs-t 'cp \-t /tmp/out '"$DOTENV" \
+    "SE-120 反斜杠转义的 \-t 真 shell 里就是 -t，密钥是来源 → exit 2"
+se_block se121-ansic-t 'cp $'"'-t'"' /tmp/out '"$DOTENV" \
+    "SE-121 ANSI-C 引号 \$'-t' 真 shell 里就是 -t → exit 2"
+se_block se122-stdin-redir 'cp /dev/stdin /tmp/x < '"$DOTENV" \
+    "SE-122 重定向 < 把密钥喂进 stdin，<后的文件既非选项也非目标 → exit 2"
+se_block se123-fd-redir 'cp /dev/stdin /tmp/x 0<'"$DOTENV" \
+    "SE-123 0< 形态的重定向同理 → exit 2"
+se_block se124-nonsample-src "cp a $DOTENV" \
+    "SE-124 来源不是样例名：只放行来源含样例名的形态，非样例来源全判 → exit 2"
+se_block se125-suffix-long "cp --suffix .bak $DOTENV.example $DOTENV" \
+    "SE-125 任何 -- 长选项（带值）回到全判 → exit 2"
+se_pass se126-flags-ok "cp -r $DOTENV.example $DOTENV" \
+    "SE-126 无值短旗标组合仍放行，守住 SE-106 那一侧 → 放行"
+# SE-116（先 skip，需求存疑）：`cp -r ~/.ssh /tmp/k` 当前 rc 0，且与既有 SE-38「目录本身不是密钥文件」同一判据，
+#   不是本契约引入的；派单要求拦，与 SE-38 矛盾，待主 Agent 裁定后再开：
+# se_block se116-ssh-dir "cp -r ~/.ssh /tmp/k" "SE-116 来源是私钥目录 → exit 2"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "==== test-hooks-floor：PASS=$PASS FAIL=$FAIL ===="

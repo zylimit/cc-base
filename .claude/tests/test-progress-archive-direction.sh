@@ -35,6 +35,7 @@ extract_block() { awk -v h="$2" '$0==h{inb=1;next} inb&&/^## /{exit} inb{print}'
 norm() { awk 'NF'; }
 # gen_dated <count> <label> <asc|desc> —— 日期逐条不同（2024-01-01 起每条 +1 天）；asc 位置1最旧，desc 位置1最新
 gen_dated() {
+  # shellcheck disable=SC2016  # 单引号是有意的：$ 留给 node 的模板字符串，不是 shell 展开
   node -e '
     const [n, label, dir] = [parseInt(process.argv[1], 10), process.argv[2], process.argv[3]];
     for (let i = 1; i <= n; i++) {
@@ -58,7 +59,7 @@ rng() { printf '%s\n' "$1" | sed -n "$2p"; }  # rng <多行文本> <起,止>
 # 打死：一律 slice 文件里前 N 条（留前24搬后16）的实现；只翻转搬运但把保留区顺序也翻了。
 DA_ROOT="$TMP/da"; mkdir -p "$DA_ROOT"
 DA_ALL=$(gen_dated 40 dec asc)
-build_progress "$DA_ROOT/progress.md" "$(gen_dated 5 done desc)" "$(gen_dated 5 notes desc)" "$DA_ALL"
+build_progress "$DA_ROOT/progress.md" "$(gen_dated 5 "done" desc)" "$(gen_dated 5 notes desc)" "$DA_ALL"
 run_pa "$DA_ROOT"
 DA_KEPT=$(extract_block "$DA_ROOT/progress.md" '## Decisions' | grep -v '^（归档指针：' | norm)
 DA_ARCH=$(extract_block "$DA_ROOT/progress.archive.md" '## Archived Decisions' | norm)
@@ -78,7 +79,7 @@ chk "$ok" "D-asc-d 正文 Decisions 段末有「（归档指针：累计搬出 1
 # Decisions 40 条降序（最新在上）：留前24、搬第25-40条。守住既有行为，打死「修方向时把降序搞反」。
 DD_ROOT="$TMP/dd"; mkdir -p "$DD_ROOT"
 DD_ALL=$(gen_dated 40 dec desc)
-build_progress "$DD_ROOT/progress.md" "$(gen_dated 5 done desc)" "$(gen_dated 5 notes desc)" "$DD_ALL"
+build_progress "$DD_ROOT/progress.md" "$(gen_dated 5 "done" desc)" "$(gen_dated 5 notes desc)" "$DD_ALL"
 run_pa "$DD_ROOT"
 DD_KEPT=$(extract_block "$DD_ROOT/progress.md" '## Decisions' | grep -v '^（归档指针：' | norm)
 DD_ARCH=$(extract_block "$DD_ROOT/progress.archive.md" '## Archived Decisions' | norm)
@@ -90,7 +91,7 @@ chk "$ok" "D-desc Decisions 40 条降序：留原第1-24条、搬第25-40条" "r
 # Notes 60 条升序 + Done 50 条降序（合计 110 过线）：同一次运行两段方向不同各判各的。
 # 打死：全文件只判一次方向（或写死一种方向）；两段共用同一个方向变量。
 MX_ROOT="$TMP/mx"; mkdir -p "$MX_ROOT"
-MX_N=$(gen_dated 60 notes asc); MX_D=$(gen_dated 50 done desc)
+MX_N=$(gen_dated 60 notes asc); MX_D=$(gen_dated 50 "done" desc)
 build_progress "$MX_ROOT/progress.md" "$MX_D" "$MX_N" "$(gen_dated 5 dec desc)"
 run_pa "$MX_ROOT"
 MX_NK=$(extract_block "$MX_ROOT/progress.md" '## Notes' | grep -v '^（归档指针：' | norm)
@@ -111,11 +112,11 @@ chk "$ok" "Mixed-Done 降序 50 条：搬原第36-50条、留第1-35条（同次
 sameday_run() {  # sameday_run <名> <是否预置归档 1/0> [参数...]
   local name="$1" witharch="$2"; shift 2
   local r="$TMP/sd-$name"; mkdir -p "$r"
-  build_progress "$r/progress.md" "$(gen_dated 5 done desc)" "$(gen_dated 5 notes desc)" "$(gen_sameday 35 dec)"
+  build_progress "$r/progress.md" "$(gen_dated 5 "done" desc)" "$(gen_dated 5 notes desc)" "$(gen_sameday 35 dec)"
   [ "$witharch" = "1" ] && printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n' > "$r/progress.archive.md"
   local b1 b2; b1=$(sha "$r/progress.md"); b2=$(sha "$r/progress.archive.md")
   run_pa "$r" "$@"
-  SD_ROOT="$r"; SD_SAME=1
+  SD_SAME=1
   { [ "$(sha "$r/progress.md")" = "$b1" ] && [ "$(sha "$r/progress.archive.md")" = "$b2" ]; } || SD_SAME=0
   SD_MSG=$(cat "$PA_OUT" "$PA_ERR")
   SD_KEY=$(printf '%s\n' "$SD_MSG" | grep -c '方向' || true)
@@ -134,7 +135,7 @@ chk "$ok" "Same-day-c --check 同样 rc 非 0、文件不动（归档文件本�
 # 契约保守取舍：Notes 升序 60 + Done 降序 50 都能判断，但 Decisions 35 条同日判断不出 → 整次拒绝，
 #   不做「能搬的先搬」。打死：按段独立容错（跳过判断不出的段、其余照搬）。
 MR_ROOT="$TMP/mr"; mkdir -p "$MR_ROOT"
-build_progress "$MR_ROOT/progress.md" "$(gen_dated 50 done desc)" "$(gen_dated 60 notes asc)" "$(gen_sameday 35 dec)"
+build_progress "$MR_ROOT/progress.md" "$(gen_dated 50 "done" desc)" "$(gen_dated 60 notes asc)" "$(gen_sameday 35 dec)"
 printf '# Archive（测试夹具）\n\n_Last updated: 2020-01-01_\n' > "$MR_ROOT/progress.archive.md"
 M1=$(sha "$MR_ROOT/progress.md"); M2=$(sha "$MR_ROOT/progress.archive.md")
 run_pa "$MR_ROOT"
