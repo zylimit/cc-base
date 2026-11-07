@@ -21,6 +21,7 @@ _Last updated: 2026-11-08_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-11-08: **第三批三条闸线并行（用户「继续」裁定 #116 #117 #118 #121）**——① secret-exfil-guard 九轮扩：命令替换藏密钥路径（#117）、冒名 cp / mv（#118）、坏 stdin 打一行 stderr（#116）。red-lock：tester SE-127～144（修前 FAIL=14）→ implementer（opus）→ reviewer 第三轮攻出 H1（替换扫描 O(n²)，N=10000 耗 7.8 秒超 5 秒 timeout，超时按第三方 issue 84656 实测 fail-open）→ tester SE-145 / 146（修前 SE-145 rc 124）→ implementer 线性化 + MAX_CMD_BYTES 16KB / MAX_SUBSTITUTIONS 500 兜底 → 同一 reviewer 复核收口（N=14000 42ms，174 条新旧对拍无回归）；SE-13 期望按 #116 改口径。② three-file-sync-gate advise 去重签名改按原因类型集合（#121）：tester TS5～8（修前 TS5 红）→ implementer → TS2 / TS3 期望改到新契约 → fresh reviewer 轻核无 HIGH，六个变异体五个被抓。③ 主 Agent 亲跑 floor 160/160、three-file-sync 28/28、hooks-node、tier-hardening、`run-all --level all` rc 0，两份探针文件全按契约；清单重生成。残留见 TODO #117 / #118 / #123 / #124。（evidence：`.claude/hooks/secret-exfil-guard.mjs`、`.claude/hooks/three-file-sync-gate.mjs`、`.claude/tests/test-hooks-floor.sh` SE-127～146、`.claude/tests/test-three-file-sync-gate.sh` TS5～8）
 - 2026-11-08: **进化批次**：collect-feedback 收 digifiber 两仓 / OFR-ARIANE / lutetia（新 13 更新 6）与 pre-survey-map / optical-power-toolkit（新 3）；evolution-runner 出 8 条建议，用户「按你的建议全采纳」。① 五处成文：CLAUDE.md [角色] 补「推断不进交付物」三句；rules/subagent-dispatch「并行」条补「问时间不当加速授权」、[派单包七字段] 补「受保护路径走编辑工具」；skills/test-builder 补测试不超过有效代码 1/2；skills/dev-builder 补派单前九成把握。② feedback 毕业 13（含既成事实 6）、跳过 3，本机四个下游副本同步标记（cursor-base 两条未动）。③ secret-exfil-guard 放行「样例复制到密钥路径」，走两轮 red-lock：tester SE-106～115 → implementer → reviewer 攻出 3 HIGH（长选项缩写 / 转义 -t / 重定向喂密钥）→ tester SE-117～126 → implementer 改成白名单形状 → 同一 reviewer 复核无 HIGH，55 条攻击未破。④ 主 Agent 亲跑：floor 140/140、hooks-node、tier-hardening、`run-all --level all` rc 0，24 条探针全按契约。⑤ gate-audit 对三文件同步闸出判断（见 Notes）；扫 ~/code 与 /mnt/d/Code 全部仓（见 Notes）。残留见 TODO #116 至 #122。（evidence：`.claude/hooks/secret-exfil-guard.mjs`、`.claude/tests/test-hooks-floor.sh` SE-106～126、`.claude/feedback/FEEDBACK-INDEX.md`）
 - 2026-11-07: **修 `progress-archive.mjs` 归档方向 bug（fra 主机上 lutetia 会话送来的修单）**——现象：Decisions / Notes 最旧在上时，脚本一律留前 N 条，把 15 条现行决策搬进了归档。走 red-lock：tester 出红用例 `test-progress-archive-direction.sh`（11 条，主 Agent 亲见 PASS=4 FAIL=7）→ implementer（opus）修 `progress-archive.mjs`（按段首末条日期判排列方向、只判过线的段、判断不出整次拒绝 rc 1 两份文件一字节不动），并把 `test-progress-archive.sh` 的 gen_entries 日期翻成随位置递减（注释本就写位置 1 最新）→ code-reviewer 一轮轻核无 HIGH，四个变异体全被新用例抓住 → 主 Agent 亲跑：新用例 11/11、既有 29/29、`run-all --level all` rc 0、40 条升序夹具修后搬走第 1–16 条（最旧）。progress-recorder SKILL [快照归档] 补三段排列方向约定与脚本判法；清单重生成。随本轮提交入库。残留见 Notes 同日条与 TODO #115。（evidence：`.claude/scripts/progress-archive.mjs`、`.claude/tests/test-progress-archive-direction.sh`、`.claude/tests/test-progress-archive.sh`）
 - 2026-11-04: **cursor-base 重建完成并推送（b80ba52，598 文件）**：cc-base 基线 38627aa；适配层 `sync-from-cc-base.sh` / `setup-cursor.sh` / `gen-agents.mjs` / `test-adapter.sh`（22 条）。最终验收 `cursor-agent -p` 五项全过（人设 / 8 角色 / 写 src 被拦 / 启动注入铁律 / `model: inherit` 的 tester 子代理真起来）；提交后 `run-all --level all` rc 0、doctor rc 0。审查 Stage 0 + 1 无 HIGH，4 Medium 2 Low 记在 cursor-base 的 progress.md #5，B2 小修进行中（见 In Progress）。（#106；evidence：cursor-base commit b80ba52）
@@ -62,6 +63,9 @@ _Last updated: 2026-11-08_
 （归档指针：累计搬出 44 条，最近一次 2026-11-04 搬 27 条；原文见 progress.archive.md「Archived Done」）
 
 ## Decisions
+- 2026-11-08: **three-file-sync-gate advise 去重签名 = 命中的原因类型集合 {C1, C2a, C2b}，不含脏文件清单；设计详述分支不去重不变**——依据：gate-audit 2026-11-08 五仓噪音第一名，lutetia 一天 16 次 11 种内容（签名随每多碰一个文件而变）。适用范围：`three-file-sync-gate.mjs` 与 test-three-file-sync-gate TS2～TS8。取代：此前「签名 = 脏文件清单」的写法（代码头注释已改，progress.md 内无对应旧条）。
+- 2026-11-08: **secret-exfil-guard cp / mv 白名单只认裸动词，整条命令出现函数定义 / alias / `PATH=` `BASH_ENV=` `ENV=` `LD_*` `DYLD_*` 赋值即回全判；坏 stdin（null / 空 / 无 tool_input）放行但 stderr 恰一行含 stdin**——依据：reviewer M1（2026-11-08 第二轮）；一次不可复现的 rc 0 无法归因。适用范围：`secret-exfil-guard.mjs`，SE-134～144 与 SE-13。取代：SE-13 旧口径「坏 stdin 零输出」（2026-09 定，测试期望，progress.md 内无对应旧条）。
+- 2026-11-08: **secret-exfil-guard 对非放行动词参数里的 `$(…)` / 反引号替换：替换文本含密钥路径即命中并递归重扫（深度 3）；命令超 16KB（MAX_CMD_BYTES）或替换超 500 个（MAX_SUBSTITUTIONS）直接拦（fail-closed），不进扫描**——依据：reviewer 实证 `cat "$(echo .env)"` 在 HEAD 上放行；H1 平方耗时撞 5 秒 timeout 等于放行（timeout 后工具照常执行，见 Notes 同日条）。适用范围：`secret-exfil-guard.mjs`、SE-127～133、SE-145 / 146。取代：无。
 - 2026-11-08: **审查收敛照旧：reviewer 的 Medium / Low 记残留、不开新一轮——本轮 M1 冒名 cp（函数定义 / 带路径 / `PATH=` `BASH_ENV=` 赋值）与既有放行表动词同类老窟窿，不是新增能力**——依据：reviewer 对比旧版 `ls(){…}; ls .env` 本就放行。适用范围：本轮 secret-exfil-guard 改动。取代：无（沿用 CLAUDE.md [开发测试规则]「审查收敛」）。
 - 2026-11-08: **进化毕业以「框架里已成文 grep 命中」为既成事实毕业、没成文看有无具体代价实证；项目业务口径一律跳过归 domain/；姊妹框架仓（ccb-base）与迁移前的 Windows 旧副本的 feedback 不整批收，只挑方法类逐条核**——依据：ccb-base 28 条全是 2026-08-01 CCB 机制经验且 15 条与本仓同名冲突；Windows 侧 6 个老项目 28 条冲突全是同名旧版。适用范围：collect-feedback / evolution-runner 以后每轮。取代：无（细化 2026-10-30「下游 feedback 回流只在框架仓做」，不推翻）。
 - 2026-11-08: **secret-exfil-guard 对 cp / mv 只放行白名单形状（旗标仅无值短旗标 `^-[rRfnvpaiuLP]+$`、操作数恰好两个、来源整个是样例名且不命中密钥判据、段内无 `<` `>` `\` `$` `` ` ``），其余回全判；`--env-file` 维持拦截**——依据：lutetia 两份账本各 16 次误拦 README 标准步骤；reviewer 用「最后一个操作数是目标」的旧写法真把假私钥复制出去。适用范围：`secret-exfil-guard.mjs` 与 test-hooks-floor SE-106～126。取代：无。
@@ -99,9 +103,11 @@ _Last updated: 2026-11-08_
 - 审查轴：对抗式 QA + 三阶段（Stage 0 静态闸/Stage 1 规格/Stage 2 质量）+ CoVe 证据锚定，比温和 QA 强，但**同模型**——「第二个脑子挑盲区」补不了，是 CCB 唯一硬优势。
 - 换来：轻、跨平台、无 CCB 运维脆弱（绑定/pkill/通知失效/daemon）。单用户 Windows 场景划算。
 
-## 当前断点（2026-11-08，进化批次已验收、随本轮提交推送；此前 2026-11-07 归档方向修复、2026-11-04 cursor-base 已重建推送）
+## 当前断点（2026-11-08，第三批已验收、随本轮提交推送；此前同日进化批次、2026-11-07 归档方向修复、2026-11-04 cursor-base 已重建推送）
 
-**状态（2026-11-08）**：2026-11-08 进化批次已验收（见 Done 同日条），随本轮提交推送，fra 升级在提交后做。待用户裁两件：三文件同步闸 advise 签名（#121）、D:\Code\cc-base 旧检出要不要重置（Notes 同日条）。
+**状态（2026-11-08 第三批）**：2026-11-08 第三批已验收（见 Done 同日第一条），随本轮提交推送；之后 fra 与本地五仓（OFR-ARIANE / digifiber 两仓 / lutetia / pre-survey-map）升级，用户已把开发搬回本地。仍待用户裁：D:\Code\cc-base 旧检出要不要重置（Notes 同日条）。
+
+**状态（2026-11-08 进化批次）**：进化批次已验收（见 Done 同日条）。当时待裁的三文件同步闸 advise 签名（#121）已在第三批落地。
 
 **状态（2026-11-07）**：归档方向修复已验收（见 Done 同日条），待提交推送后到 fra 升级 lutetia 的脚手架。
 
@@ -116,13 +122,15 @@ _Last updated: 2026-11-08_
 **剩余账（明确未做）**：核心测试比例 5463 / 10726 = 0.509，用户 2026-09-15 裁定范围合理、不再压；ext 那一对 3031 / 11352 = 0.27 低于 1/3，ext 是可选包，暂不补。CI 未按路径拆 harness 格（selftest 8 秒不值得）。Done / Notes / TODO 未归档（没到阈值）。
 
 ## TODO
+- [P3][OPEN][#124] **secret-exfil-guard 16KB 上限会拦超长 `git commit -m`**（2026-11-08，reviewer Low；有 stderr 提示，改用 -F 文件可绕开）。Context：Decisions 2026-11-08 命令替换条。
+- [P3][OPEN][#123] **three-file-sync-gate 的 C2a→C2b 转换没有单独用例；`test-three-file-sync-gate.sh:117` 注释过时**（2026-11-08，reviewer Low）。
 - [P3][OPEN][#122] **no-direct-code-guard 对 shell 写法（`>`、tee、`sed -i`）覆盖面待实测**（2026-11-08，evolution 提议 6 的闸侧缺口）。Context：与 #108（Cursor 下重定向绕过）同族，Claude Code 侧未实测。
-- [P3][OPEN][#121] **three-file-sync-gate advise 签名改按原因类型 C1 / C2，一小时最多一次**（2026-11-08，待用户裁；依据见 Notes 同日 gate-audit 条）。
+- [P3][DONE][#121] **three-file-sync-gate advise 签名改按原因类型 C1 / C2，一小时最多一次**（2026-11-08，待用户裁；依据见 Notes 同日 gate-audit 条）。**已完成（2026-11-08）**：用户「继续」裁定；签名改为原因类型集合 {C1, C2a, C2b}，证据见 Done 同日第三批条与 Decisions 同日条。残留 #123。
 - [P3][OPEN][#120] **secret-exfil-guard Low：`cp ".env.example" ".env"`、`cp -- …`、`cp -fT …`、`cp ~/.ssh/.env.example /tmp/x` 多拦**（2026-11-08，reviewer）。
 - [P3][OPEN][#119] **secret-exfil-guard SE-116：`cp -r ~/.ssh /tmp/k` 目录本身不在密钥名表里，当前放行**（2026-11-08，既有缺口，用例注释保留）。
-- [P2][OPEN][#118] **secret-exfil-guard M1：白名单只认裸动词 cp / mv，带路径 / 函数定义 / `PATH=` `BASH_ENV=` 赋值回全判**（2026-11-08，reviewer）。
-- [P2][OPEN][#117] **secret-exfil-guard：`cat "$(echo .env)"`、``cp `echo .env` /tmp/x`` 命令替换里藏密钥路径当前放行**（2026-11-08，implementer 实测 HEAD 上就放行，与 #76 嵌套引号那条同族）。
-- [P2][OPEN][#116] **secret-exfil-guard：坏 stdin / 空 stdin / 字面 null 静默放行时打一行 stderr，与正常放行分开**（2026-11-08，reviewer；`io.mjs` readStdinJson 返回 null → 主流程直接 return，不经 runFailOpen，属既有设计）。
+- [P2][部分完成][#118] **secret-exfil-guard M1：白名单只认裸动词 cp / mv，带路径 / 函数定义 / `PATH=` `BASH_ENV=` 赋值回全判**（2026-11-08，reviewer）。**已完成（2026-11-08）**：裸动词 + 函数定义 / alias / 环境赋值回全判（SE-134～144）。**残留**：B1 冒名正则漏「引号开头」形态（`eval 'cp(){…}; cp …'`、`xargs sh -c '…'`）；B2 未覆盖 `. rc` / `source` / `hash -p` / `PATH+=`——改动前同样放行。
+- [P2][部分完成][#117] **secret-exfil-guard：`cat "$(echo .env)"`、``cp `echo .env` /tmp/x`` 命令替换里藏密钥路径当前放行**（2026-11-08，implementer 实测 HEAD 上就放行，与 #76 嵌套引号那条同族）。**已完成（2026-11-08）**：替换文本含密钥路径即命中并递归重扫，16KB / 500 兜底（SE-127～133、145 / 146）。**残留**：A1 `$( )` 扫描不处理反斜杠（`\)` 提前收口，`\"` 开出不闭合引号后整函数提前退出）；A2 反引号里转义反引号不递归——reviewer 在活 hook 上用假私钥实证，改动前同样放行。
+- [P2][DONE][#116] **secret-exfil-guard：坏 stdin / 空 stdin / 字面 null 静默放行时打一行 stderr，与正常放行分开**（2026-11-08，reviewer；`io.mjs` readStdinJson 返回 null → 主流程直接 return，不经 runFailOpen，属既有设计）。**已完成（2026-11-08）**：放行不变，stderr 恰一行含 stdin；SE-13 期望改口径。
 - [P3][OPEN][#115] **`progress-archive.mjs` 判方向只看首末日期，段内顺序与整段相反时会整块切错**（2026-11-07，reviewer M1）：例如最新在上的段被人把一条新条目追加到末尾。修法方向：判方向时顺带查单调性，不单调即拒绝；随后续归档相关 Task 顺手修。Context：Notes 同日条。
 - [P1][DONE][#105] **A2 implementer：`hook-form.mjs` 转换器 + 双形态兼容**（2026-11-04）。**已完成（2026-11-04）**：commit fae05c3，证据见 Done 同日条。残留 #109 / #110 / #111。
 - [P3][OPEN][#107] **tdd-gate 关键词表对派单正文误伤两次**（2026-11-04）：文件名 `fix-platform` 里的 fix、Business Context 里「实测报错」的报错；strict 档下硬拦。考虑：文件名 `fix-` 后接连字符排除、或只扫 Goal 段；不本轮改。Context：`.claude/hooks/tdd-gate.mjs` 文件头关键词表。
@@ -136,7 +144,7 @@ _Last updated: 2026-11-08_
 - [P3][OPEN][#98] **hooks/lib/tier.mjs 读侧 sticky 分支 `Number()` 强转**（2026-10-30）：`set_epoch: ""` / `true` 也算有限数（只手写 tier.json 才碰到）；被抬到 strict 时 status JSON 仍带 sticky:true。
 - [P3][OPEN][#99] **advise-dedup.mjs 两个空 catch 不打日志**（2026-10-30）：从 stop-gate 原样搬来。
 - [P3][OPEN][#100] **下游 `.claude/.gitignore` 走 framework-new 冲突时，两个新 `-advised` 标记进签名多提醒一次**（2026-10-30）。
-- [P2][OPEN][#101] **下游三个项目的 feedback 副本未标毕业（12 条）、digifiber 5 条领域口径该收进项目 domain/**（2026-10-30）：下次进下游时做。
+- [P2][部分完成][#101] **下游三个项目的 feedback 副本未标毕业（12 条）、digifiber 5 条领域口径该收进项目 domain/**（2026-10-30）：下次进下游时做。**已完成（2026-11-08）**：本机四个下游副本已标毕业。**残留**：cursor-base 两条未动；digifiber 领域口径收 domain/ 未做。
 - [P3][OPEN][#102] **7 条留裁 feedback 待 evolution-runner**（2026-10-30）：issue-list / presentation-only / ingest-keep-all / multi-source / term-mapping / worktree / doc-smoke。
 - [P3][OPEN][#103] **tdd-gate 只认关键词表里的说法**（2026-10-30）：完全不含表里词的红锁派单会静默——派单 Goal 要写清是 bug / 契约。靠自觉，无机器兜底。
 - [P3][OPEN][#95] **`test-audit-scripts` 的 workflows/bad.js 行号提取在 macOS 上失配**（2026-10-19）：脚本拿到的是 `/private/var/.../bad.js:4`，期望 `workflows/bad.js:N`（macOS 的 /var 软链到 /private/var，与 #93 ② TMPDIR 软链是同一类）。改动前被 unbound 崩溃盖住，修变量展开后才露出来。
@@ -190,6 +198,8 @@ _Last updated: 2026-11-08_
 - **自建 agent benchmark**（参照 OpenHands SWEBench 77.6）：成本极高，现阶段不做，记「将来事」。
 
 ## Notes
+- 2026-11-08: hook 超时语义：官方 hooks 文档未写；第三方 issue 84656（2.1.223）实测超时后工具照常执行，即 fail-open。本仓 secret-exfil-guard 以 16KB / 500 兜底，不靠 5 秒 timeout。
+- 2026-11-08: reviewer 前两轮探针没隔离 `CLAUDE_PROJECT_DIR`，往本仓 `.claude/evidence/gate-block.log`（git 忽略）写了一批拦截记录；gate-audit 统计本仓时会虚高，读数前先留意。
 - 2026-11-08: 一次不可复现的放行：主 Agent 第一次探针 `cp --target /tmp/out .env` rc 0，此后连跑 6 次与 20 进程并发都拦；reviewer 定位到坏 JSON / 空 stdin / 字面 null 都会静默 rc 0 且不打 stderr（io.mjs readStdinJson 返回 null → 主流程直接 return，不经 runFailOpen），属既有设计，已挂 TODO #116。
 - 2026-11-08: 扫描结果：本机装 cc-base 的仓 6 个（pre-survey-map 8 月停更）；/mnt/d/Code 下 cc-base 旧检出停在 f40948e（7 月）且家底文件本地有改动未提交；optical-power-toolkit 清单 95 条是老版本；Windows 侧 chrome-auto / datalink / odn-design-toolkit / digifiber-conflation 的 feedback 全是 6–7 月迁移前旧副本。Needs-Confirmation：D:\Code\cc-base 要不要重置，待用户裁。
 - 2026-11-08: gate-audit 判断：three-file-sync-gate 是五个仓噪音第一名（fra lutetia 17/52、OFR 172/305、conflation 260/1170，全 advise）；advise 去重按脏文件清单签名，开发中每多碰一个文件就是新签名，lutetia 一天 16 次 11 种内容、16 点那小时 6 次。候选修法：advise 签名只按原因类型 C1 / C2 不按文件清单，一小时最多一次。待用户裁，已挂 TODO #121。

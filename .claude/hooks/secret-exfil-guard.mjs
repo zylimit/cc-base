@@ -113,14 +113,40 @@
 //   `cp .env.example .env` 变成 `cp  .env`，来源位消失，.env 会被误当成唯一操作数。这条只动 cp / mv
 //   这一段自己的判定，同一命令其它段（&& / ; / 管道 / 命令替换 / 载体）照旧各判各的；
 //   docker compose --env-file .env 是把密钥交给别的程序读，不属于复制移动，照拦。
+// 九轮扩（reviewer / implementer 2026-11-08，TODO #116 #117 #118，SE-127…SE-144）：
+//   #117 命令替换作参数藏密钥路径：`cat "$(echo .env)"` 引号里的替换 splitSimple 切不开，裸替换
+//   `cat $(echo .env)` 切开后 cat 只剩自己、echo .env 又是放行动词——两头都看不见「cat 读的就是
+//   .env」。契约：$( … ) / 反引号替换坐在**非放行动词**的参数位（含被双引号包住）时，替换文本里任一
+//   token 命中密钥判据（SECRET_PATH / 冒号后缀 / glob 照用）即整段拦；替换文本另当一条命令递归重扫
+//   （引号里的 `$(cat .env)` 原先整个被当字面量跳过）。替换文本没有密钥路径（`cat "$(cat list.txt)"`）
+//   运行时结果不可知，放行——已知边界，不是漏报；放行动词参数里的替换照旧放行；替换坐动词位归 SE-40。
+//   单引号里的 $( 不展开，不算替换。性能契约（reviewer 第三轮 H1，主 Agent 2026-11-08 定）：替换
+//   扫描线性，前缀增量切词不整段重切（原实现 `ls $(x)…×10000` 7.8 秒、超 5 秒 timeout 即放行）；另设
+//   兜底上限，命令超 16KB 或替换超 500 个不判直接拦（MAX_CMD_BYTES / MAX_SUBSTITUTIONS，SE-145 / 146）。
+//   #118 冒名 cp / mv：八轮扩的白名单形状按 basename 认动词，`/tmp/evil/cp`、`./cp` 也当 cp 放过；
+//   函数（cp() / function cp）、别名（alias cp=）、能改命令解析或加载的环境变量（PATH / BASH_ENV /
+//   ENV / LD_* / DYLD_*）都能让「cp」不是那个 cp。契约：动词 token 去引号后必须恰为 cp / mv，且整条
+//   命令（不只本段，env 剥壳会吃掉 env PATH=… 前缀，所以按整条看）不含上述定义与赋值，才套白名单；
+//   否则回全判。FOO=1 这类无害赋值前缀照旧放行（SE-141）。
+//   #116 坏 stdin 不再静默：截断 JSON / 空输入 / 字面 null 仍放行（rc 0、stdout 空），但 stderr 恰
+//   一行带「stdin」，与正常放行分得开——一次不可复现的 rc 0 不至于无从归因。只在本闸入口加，不动
+//   lib/io.mjs（所有 hook 共用）。
 // 边界：只对命令行里**字面出现**的密钥路径负责。把路径在代码里拼出来的读法（chr() 拼、变量拼接、
 //   $(printf …) 现生成）hook 层原理上拦不住——那一层的防线在人不在闸，别以为这里绿了就没漏。
 // wrapper 剥壳：剥 sudo/nohup/nice/timeout/env 前缀与 bash -c 引号壳再判——套壳绕闸是已知逃逸
 //   路径（借鉴 codex-base v3），剥出新形态就按新形态重切一遍。
 // 本闸属安全护栏，是地板闸（profile.floor）：任何档位都放行不了（放水不放安全），所以这里根本不问档位。
-// 输入解析不出命令时降级放行（与 dangerous-pkill-guard 同一取舍——无解析能力时不误伤正常命令）。
+// 输入解析不出命令时降级放行（与 dangerous-pkill-guard 同一取舍——无解析能力时不误伤正常命令），
+//   但坏 stdin 在 stderr 留一行（九轮扩 #116）。
 import { readStdinJson, say, runFailOpen } from './lib/io.mjs';
 import { gateLog } from './lib/gatelog.mjs';
+
+// 兜底上限（fail-closed，reviewer 第三轮 H1）：settings.json 给本闸 5 秒 timeout，超时按 harness 的实测行为
+// 等于放行，所以「判得慢」就是「漏判」。下游真实命令最长不到 4KB、替换个数两位数；平方实现下要 40KB
+// 左右才能拖到 5 秒。上限取 16KB / 500 个：比真实用量高一个数量级不误伤，又远低于能拖垮判定的量级——
+// 超了不判，直接拦。线性扫描是主防线，上限防的是下一处没发现的超线性路径。
+const MAX_CMD_BYTES = 16 * 1024;
+const MAX_SUBSTITUTIONS = 500;
 
 // 密钥文件名集合（.pem/.ppk 任意路径命中；.env 尾界防误伤 .env2/.envoy 之类）
 const SECRET_NAMES = "\\.env(\\.[A-Za-z0-9_-]+)?|id_rsa[A-Za-z0-9_.-]*|id_ed25519[A-Za-z0-9_.-]*|\\S*\\.(pem|ppk)|credentials\\.json|\\.aws/credentials|\\.ssh/\\S+";
@@ -274,6 +300,12 @@ function copyMoveSampleTargetIndex(seg, tokens, vi) {
   if (!COPY_MOVE_SAMPLE_SRC.test(src) || tokenHits(src, false)) return -1;
   return operands[1];
 }
+
+// 冒名 cp / mv（九轮扩 #118）：函数定义、别名、能改命令解析或加载的环境变量赋值，任一出现在整条
+// 命令里，「cp」就可能不是 /bin/cp。按整条命令判而不是按段：定义常在前一段（cp(){…}; cp …），
+// env 剥壳又会把 env PATH=… 前缀吃掉，段内看不见。由 checkOne 每次判定前按当前命令设好。
+const COPY_MOVE_IMPERSONATION = /(^|[\s;&|(`{])((function\s+)?(cp|mv)\s*\(\s*\)|function\s+(cp|mv)([\s{(]|$)|alias\s+(-\S+\s+)*(cp|mv)=|(PATH|BASH_ENV|ENV|LD_[A-Za-z0-9_]+|DYLD_[A-Za-z0-9_]+)=)/;
+let cmdImpersonatesCopyMove = false;
 
 // wrapper 剥壳：迭代剥 sudo/nohup/nice/timeout/env 前缀（上限 5 层）。sh -c 引号壳单独处理，
 // 见下面的 SHELL_C_PREFIX（H4）。
@@ -623,8 +655,10 @@ function checkSimple(seg) {
   let checkTokens = tokens;
   if (GREP_VERBS.has(verb)) {
     checkTokens = tokens.slice(0, vi + 1).concat(grepTokensToCheck(tokens, vi));
-  } else if (COPY_MOVE_VERBS.has(verb)) {
-    // 八轮扩：白名单形状才跳过目标位，来源位、赋值、动词位照判（cp .env /tmp/x 仍拦）
+  } else if (COPY_MOVE_VERBS.has(verb) && tokens[vi].replace(/["']/g, '') === verb && !cmdImpersonatesCopyMove) {
+    // 八轮扩：白名单形状才跳过目标位，来源位、赋值、动词位照判（cp .env /tmp/x 仍拦）。
+    // 九轮扩 #118：动词 token 必须恰为裸 cp / mv（/tmp/evil/cp、./cp 不算），整条命令也不许有冒名
+    // 定义或改解析的赋值（cmdImpersonatesCopyMove），否则不进白名单、全判。
     const ti = copyMoveSampleTargetIndex(seg, tokens, vi);
     if (ti !== -1) checkTokens = tokens.filter((_, i) => i !== ti);
   }
@@ -752,12 +786,101 @@ function pipelineForwardHits(cmd) {
   return false;
 }
 
+// 从 start（指向 `$(` 的 `(` 之后，或开头反引号之后）找替换的结尾，返回结尾字符下标，找不到返回 -1。
+// $( 按括号深度配对、跳过内部引号；反引号找下一个未转义的反引号。
+function substitutionEnd(cmd, start, backtick) {
+  if (backtick) {
+    for (let i = start; i < cmd.length; i += 1) {
+      if (cmd[i] === '\\') { i += 1; continue; }
+      if (cmd[i] === '`') return i;
+    }
+    return -1;
+  }
+  let depth = 1;
+  let q = null;
+  for (let i = start; i < cmd.length; i += 1) {
+    const ch = cmd[i];
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === '"' || ch === "'") q = ch;
+    else if (ch === '(') depth += 1;
+    else if (ch === ')') { depth -= 1; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+// 命令替换作参数（九轮扩 #117）：逐字符走一遍，单引号内不展开、双引号内与裸露处的 $( / 反引号都算
+// 替换。每遇到一个替换：① 替换文本当一条命令递归重扫（引号里的替换 splitSimple 切不开，不重扫就
+// 整个当字面量漏过）；② 往回取到本段开头（最近一个未加引号的分隔符）的文本当「所在命令的前缀」，
+// 前缀里有动词（不只是赋值）且动词不在放行表时，替换文本里任一 token 命中密钥判据就算命中。前缀
+// 没有动词说明替换坐在动词位，归 checkSimple 的动词位判据（SE-40）管。替换之后的参数仍属同一段，
+// 所以段起点只在真分隔符处重置，跳过替换时不重置。
+// 性能契约（reviewer 第三轮 H1）：前缀切词必须增量——每段维护一份已切好的 token 表，每遇到替换只把
+// 「上次切到的位置 → 本替换开头」这一小截切词追加进去，替换本身记一个占位 token，不再对越来越长的
+// 前缀整段重切（那样耗时随替换个数平方增长，`ls $(x)…×10000` 实测 7.8 秒、超过 hook 的 5 秒
+// timeout）。小截里的引号直接去掉再切：引号状态由本函数自己的扫描维护，小截可能从引号中间起头，
+// 交给 splitTokens 会把整截误当成一个引号串。
+const SUBST_PLACEHOLDER = '$(SUBST)';
+function prefixVerbIndex(tokens) {
+  let vi = 0;
+  for (let guard = 0; guard < 8; guard += 1) {
+    while (vi < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[vi])) vi += 1;
+    const w = tokens[vi];
+    // wrapper 前缀与 stripWrappers 同一张表的 token 版：sudo / nohup / env 直接跳，nice -n N、
+    // timeout [选项] 时长 连同参数一起跳，sh -c / bash -lc 跳过动词与 -c，判 -c 后面的真动词。
+    if (w === 'sudo' || w === 'nohup' || w === 'env') { vi += 1; continue; }
+    if (w === 'nice') { vi += tokens[vi + 1] === '-n' ? 3 : 1; continue; }
+    if (w === 'timeout') {
+      vi += 1;
+      while (vi < tokens.length && tokens[vi].startsWith('-')) vi += 1;
+      vi += 1;
+      continue;
+    }
+    if (w !== undefined && /^(ba|z|da)?sh$/.test(w) && /^-l?c$/.test(tokens[vi + 1] || '')) { vi += 2; continue; }
+    break;
+  }
+  return vi;
+}
+function substitutionArgHits(cmd, depth) {
+  let tokens = [];
+  let scanned = 0;
+  let q = null;
+  for (let i = 0; i < cmd.length; i += 1) {
+    const ch = cmd[i];
+    if (q === "'") { if (ch === "'") q = null; continue; }
+    const isDollar = ch === '$' && cmd[i + 1] === '(';
+    if (isDollar || ch === '`') {
+      const innerStart = i + (isDollar ? 2 : 1);
+      const end = substitutionEnd(cmd, innerStart, !isDollar);
+      if (end === -1) return false;
+      const inner = cmd.slice(innerStart, end);
+      if (depth < 3 && scanSegments(inner, depth + 1)) return true;
+      for (const t of splitTokens(cmd.slice(scanned, i).replace(/["']/g, ''))) {
+        if (t.replace(/@/g, '') !== '') tokens.push(t);
+      }
+      const vi = prefixVerbIndex(tokens);
+      if (vi < tokens.length) {
+        const verb = tokens[vi].replace(/^.*\//, '');
+        if (!isAllowedVerb(verb, tokens, vi) && splitTokens(inner).some((t) => tokenHits(t, false))) return true;
+      }
+      tokens.push(SUBST_PLACEHOLDER);
+      i = end;
+      scanned = end + 1;
+      continue;
+    }
+    if (q === '"') { if (ch === '"') q = null; continue; }
+    if (ch === '"' || ch === "'") { q = ch; continue; }
+    if (/[;&|\n()]/.test(ch)) { tokens = []; scanned = i + 1; }
+  }
+  return false;
+}
+
 // 切分与剥壳互为下一轮的输入：`bash -c "tac .env; cat x"` 剥完壳里面还是一串带分隔符的命令，
 // 剥出新形态就重切一遍（上限 3 层，免得畸形输入把递归拖垮）。管道洗白检测（H2）与命令载体重扫
 // （H5）都挂在这层：前者对整条 cmd 判一次（含递归下沉后的子命令，嵌在载体引号里的管道也照得到），
 // 后者对每个已经落到「没有壳可剥」的简单命令段再判一次。
 function scanSegments(cmd, depth) {
   if (pipelineForwardHits(cmd)) return true;
+  if (substitutionArgHits(cmd, depth)) return true;
   for (const seg of splitSimple(cmd)) {
     const bare = stripWrappers(seg);
     if (bare !== seg && depth < 3) {
@@ -773,6 +896,7 @@ function scanSegments(cmd, depth) {
 /** 命中则返回理由，没命中返回 null。 */
 function checkOne(cmd) {
   const c = stripExamples(cmd);
+  cmdImpersonatesCopyMove = COPY_MOVE_IMPERSONATION.test(c);
   for (const r of RULES) {
     if (r.re.test(c)) return r.reason;
   }
@@ -781,8 +905,24 @@ function checkOne(cmd) {
 
 runFailOpen(() => {
   const ev = readStdinJson();
-  const cmd = ev ? String((ev.tool_input || {}).command || '') : '';
+  // 九轮扩 #116：解析失败（null）或连 tool_input 都没有（空输入经 readStdinJson 得 {}）都不是一条
+  // PreToolUse(Bash) 事件——仍放行，但 stderr 留恰好一行，免得这次 rc 0 与「判过、没命中」混成一件。
+  if (!ev || typeof ev.tool_input !== 'object' || ev.tool_input === null) {
+    say('[secret-exfil-guard] stdin 不是可解析的 PreToolUse 事件（截断 / 空 / null），本次未判定、降级放行。');
+    return;
+  }
+  const cmd = String(ev.tool_input.command || '');
   if (!cmd) return;
+
+  // 兜底上限：替换个数按 $( 个数加成对反引号数估，不看引号（宁多算不少算）
+  const substCount = (cmd.match(/\$\(/g) || []).length + Math.ceil((cmd.match(/`/g) || []).length / 2);
+  if (Buffer.byteLength(cmd, 'utf8') > MAX_CMD_BYTES || substCount > MAX_SUBSTITUTIONS) {
+    const why = `命令过长 / 替换过多（${Buffer.byteLength(cmd, 'utf8')} 字节、${substCount} 个替换，上限 ${MAX_CMD_BYTES} 字节 / ${MAX_SUBSTITUTIONS} 个），闸不判直接拦`;
+    process.exitCode = 2;
+    say(`⛔ [secret-exfil-guard] ${why}，已拦截。`);
+    gateLog('secret-exfil-guard', why);
+    return;
+  }
 
   const stripped = stripWrappers(cmd);
   const reason = checkOne(cmd) || (stripped !== cmd ? checkOne(stripped) : null);
