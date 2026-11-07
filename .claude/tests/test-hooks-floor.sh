@@ -219,11 +219,12 @@ chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
 
 SB=$(newsb se-junk)
 run_hook secret-exfil-guard "$SB" '{{{not json'
-# 2026-11-08 按 #116 改口径：仍降级放行（不误伤正常命令），但 stderr 恰一行含 stdin，与正常放行分得开（同 SE-142 契约 C）。
+# 2026-11-08 按 #116 改口径、第五轮（P1）再收窄：非空但解析不出的 stdin 是真外传口子（截断 JSON 一路降级放行），拦 rc 2，
+#   stderr 恰一行含 stdin；空输入 / 字面 null 才降级放行（见 SE-143/144）。
 SE13_N=$(printf '%s' "$ERRT" | grep -c '' || true)
-chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ "$SE13_N" -eq 1 ] && printf '%s' "$ERRT" | grep -q 'stdin' && echo 0 || echo 1)" \
-    "SE-13 损坏输入 → 降级放行 rc 0，stderr 恰一行提示 stdin（2026-11-08 按 #116 改口径，原为零输出）" \
-    "rc=0、stdout 空、stderr 恰 1 行且含 stdin" "rc=$RC out=[$(show "$OUT")] 行数=$SE13_N err=[$(show "$ERRT")]"
+chk "$([ "$RC" -eq 2 ] && [ -z "$OUT" ] && [ "$SE13_N" -eq 1 ] && printf '%s' "$ERRT" | grep -q 'stdin' && echo 0 || echo 1)" \
+    "SE-13 损坏输入（非空但解析不出）→ 拦 rc 2，stderr 恰一行提示 stdin（2026-11-08 #116 改口径、第五轮 P1 再收窄）" \
+    "rc=2、stdout 空、stderr 恰 1 行且含 stdin" "rc=$RC out=[$(show "$OUT")] 行数=$SE13_N err=[$(show "$ERRT")]"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -945,7 +946,15 @@ badstdin_warn() {
     chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ "$n" -eq 1 ] && printf '%s' "$ERRT" | grep -q 'stdin' && echo 0 || echo 1)" \
         "$1" "rc=0、stdout 空、stderr 恰 1 行且含 stdin" "rc=$RC out=[$(show "$OUT")] 行数=$n err=[$(show "$ERRT")]"
 }
-badstdin_warn "SE-142 截断的 JSON：不拦但 stderr 恰一行提示 stdin" '{"tool_input":{"command":"cat .e'
+# badstdin_block <标题> <原始字节> —— 同 badstdin_warn，但期望 rc 2（非空解析不出的 stdin，第五轮 P1）。
+badstdin_block() {
+    SB=$(newsb "badstdin-blk")
+    run_hook secret-exfil-guard "$SB" "$2"
+    local n; n=$(printf '%s' "$ERRT" | grep -c '' || true)
+    chk "$([ "$RC" -eq 2 ] && [ -z "$OUT" ] && [ "$n" -eq 1 ] && printf '%s' "$ERRT" | grep -q 'stdin' && echo 0 || echo 1)" \
+        "$1" "rc=2、stdout 空、stderr 恰 1 行且含 stdin" "rc=$RC out=[$(show "$OUT")] 行数=$n err=[$(show "$ERRT")]"
+}
+badstdin_block "SE-142 截断的 JSON（非空但解析不出）：2026-11-08 第五轮 P1 改为拦 rc 2，stderr 恰一行提示 stdin" '{"tool_input":{"command":"cat .e'
 badstdin_warn "SE-143 空输入：不拦但 stderr 恰一行提示 stdin" ''
 badstdin_warn "SE-144 字面量 null：不拦但 stderr 恰一行提示 stdin" 'null'
 
@@ -983,6 +992,128 @@ OUT=$(cat "$TMP/.o" 2>/dev/null || true); ERRT=$(cat "$TMP/.e" 2>/dev/null || tr
 chk "$([ "$RC" -eq 0 ] && [ "$MS" -lt 2000 ] && echo 0 || echo 1)" \
     "SE-146 150 个 \$(x) 且无密钥：合法长命令 rc 0 且 2 秒内（上限不得误伤）" \
     "rc=0 且 <2000ms" "rc=$RC 耗时=${MS}ms out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+
+# --- SE-147…SE-162：red-lock 第四轮（替换扫描认转义 / 冒名定义出现在引号开头 / 环境改写 / 字节上限）---
+# 出处：reviewer 2026-11-08 第三轮在活 hook 上用假私钥实证的四条「改动前就放行」的老洞，加第四轮 Low #124。
+# 契约（主 Agent 2026-11-08 定）：
+#   A1 $( ) 扫描认反斜杠：`\)` 不收口、`\"` 不切换引号态、`\\` 吞掉下一个字符；替换没闭合时不再整函数提前
+#      退出，而是把剩余文本当替换体照扫（宁多判不少判）。打死：扫描器无视转义，被一个 `\)` 提前收口后把后面的
+#      读密钥段当成替换体外的普通词放过；或遇未闭合直接 return。
+#   A2 反引号里的转义反引号是嵌套替换，要递归。打死：反引号体按字面一层切完就停。
+#   B1 冒名定义（cp() / function cp）出现在引号开头也算——eval / xargs sh -c / 整条被引号包住时，定义前面没有空白
+#      或分隔符，按「前面是词边界」找定义会漏。
+#   B2 整条命令出现 source、段首「. 」、hash -p、PATH+=、PATH= 任一即不套 SE-106 白名单。打死：只防函数/别名/
+#      PATH= 前缀，漏了 source 带进来的函数与 hash 表改写。
+#   守住：反斜杠本身不是密钥；单引号里的 source 只是字面，仍放行（业务假设：整条命令级判定只看真正的 shell
+#      词，不因为单引号字面里出现 source 这个单词就误拦 echo 之类的普通命令）。
+#   #124 字节上限只在替换个数 >= 1 时生效：17KB 的纯 git commit -m 长文本（无替换）不得被误伤；17KB 且含 600 个
+#      $(x) 撞替换上限 → 拦。
+# 写法：命令里的密钥路径用占位 @E@，sx_block/sx_pass 替换成 $DOTENV，免得转义层层叠加；反斜杠原样送进 hook。
+# risk: high
+sx_block() { se_block "$1" "${2//@E@/$DOTENV}" "$3"; }
+sx_pass()  { se_pass  "$1" "${2//@E@/$DOTENV}" "$3"; }
+sx_block se147-a1-rparen 'ls "$(echo \) ; cat @E@)"' \
+    "SE-147 A1 转义的 \\) 不收口，后面读密钥的一段仍在替换体内 → exit 2"
+sx_block se148-a1-dq 'ls $(echo \") $(cat @E@)' \
+    "SE-148 A1 转义的 \\\" 不切换引号态 → exit 2"
+sx_block se149-a1-dq2 'cat "$(echo \"@E@\")"' \
+    "SE-149 A1 引号内替换里的转义引号包着密钥路径 → exit 2"
+sx_block se150-a1-open 'ls $(echo "( ; cat @E@' \
+    "SE-150 A1 替换没闭合：剩余文本当替换体照扫 → exit 2"
+sx_block se151-a2-bq 'ls `echo \`cat @E@\``' \
+    "SE-151 A2 反引号里的转义反引号是嵌套替换，递归扫 → exit 2"
+sx_block se152-b1-eval "eval 'cp(){ cat \"\$2\"; }; cp @E@.example @E@'" \
+    "SE-152 B1 eval 单引号开头的 cp() 冒名定义 → exit 2"
+sx_block se153-b1-xargs "xargs sh -c 'cp(){ cat \"\$2\"; }; cp @E@.example @E@'" \
+    "SE-153 B1 xargs sh -c 单引号开头的冒名定义 → exit 2"
+sx_block se154-b1-func "\"function cp { cat \$2; }; cp @E@.example @E@\"" \
+    "SE-154 B1 整条被双引号包住、function cp 在引号开头 → exit 2"
+sx_block se155-b2-dot '. /tmp/evil/rc; cp @E@.example @E@' \
+    "SE-155 B2 段首「. 」点空格 source 外部脚本 → 不套白名单 exit 2"
+sx_block se156-b2-source 'source /tmp/evil/rc && cp @E@.example @E@' \
+    "SE-156 B2 source 外部脚本 → exit 2"
+sx_block se157-b2-hash 'hash -p /tmp/evil/cp cp; cp @E@.example @E@' \
+    "SE-157 B2 hash -p 改写命令表 → exit 2"
+sx_block se158-b2-pathplus 'PATH+=:/tmp/evil; cp @E@.example @E@' \
+    "SE-158 B2 PATH+= 追加搜索路径 → exit 2"
+sx_pass se159-a1-ok 'ls "$(echo \) x)"' \
+    "SE-159 守住：反斜杠本身不是密钥，ls 的转义替换照旧放行"
+sx_pass se160-b2-lit "echo 'source x'" \
+    "SE-160 守住：单引号里的 source 只是字面 → 放行（业务假设见段首）"
+
+# big_cmd_run <沙箱名> <命令 JSON 文件> —— 同 SE-145 的喂法：timeout 3 + 文件喂 stdin，设 RC/OUT/ERRT/MS。
+big_cmd_run() {
+    local sb; sb=$(newsb "$1")
+    local t0 t1; t0=$(date +%s%N)
+    RC=0; ( cd "$sb" && CLAUDE_PROJECT_DIR="$sb" timeout 3 node "$HOOKS/secret-exfil-guard.mjs" ) \
+        <"$2" >"$TMP/.o" 2>"$TMP/.e" || RC=$?
+    t1=$(date +%s%N); MS=$(( (t1 - t0) / 1000000 ))
+    OUT=$(cat "$TMP/.o" 2>/dev/null || true); ERRT=$(cat "$TMP/.e" 2>/dev/null || true)
+}
+LONGTXT=$(printf '%*s' 17000 '' | tr ' ' a)
+printf '{"tool_input":{"command":"git commit -m \\"%s\\""}}' "$LONGTXT" >"$TMP/.big1.json"
+big_cmd_run se161-bigplain "$TMP/.big1.json"
+chk "$([ "$RC" -eq 0 ] && [ -z "$OUT" ] && echo 0 || echo 1)" \
+    "SE-161 #124 17KB 纯 git commit -m 长文本、无任何替换 → 字节上限不生效，rc 0 放行" \
+    "rc=0 stdout 空" "rc=$RC 耗时=${MS}ms out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+SUBS=""; for ((i = 0; i < 600; i++)); do SUBS+=' $(x)'; done
+printf '{"tool_input":{"command":"ls%s %s"}}' "$SUBS" "$(printf '%*s' 13500 '' | tr ' ' a)" >"$TMP/.big2.json"
+big_cmd_run se162-bigsubst "$TMP/.big2.json"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "SE-162 #124 17KB 且含 600 个 \$(x)：撞替换上限 → rc 2" \
+    "rc=2" "rc=$RC 耗时=${MS}ms err=[$(show "$ERRT")]"
+
+# --- SE-163…SE-173：red-lock 第五轮（stdin 截断=真外传 / 反斜杠转义的密钥名 / 冒名清单补三种）---
+# 出处：reviewer 2026-11-08 第四轮发现、改动前就有的三件事；主 Agent 同日裁定收口。
+# P1 契约 C 收窄：**非空但解析不出**的 stdin（截断 JSON、乱码）→ 拦 rc 2，stderr 一行含 stdin；空输入 / 字面
+#   null / `{}` 无 tool_input 仍 rc 0 + stderr 一行（降级放行）。所以 SE-13、SE-142 的期望已在原位改成 rc 2
+#   （2026-11-08 第五轮），SE-143、SE-144 不变。SE-163/164 锁住真根因：大事件经管道分块到达，同步读到截断的
+#   管道，把读不完当成「损坏输入」降级放行——300KB 的命令末尾带读密钥的一段，rc 0 就是真外传。打死：读取不
+#   等 EOF；以及修读取后误伤正常长命令（SE-164 守住）。喂法用 node 异步 spawn + stdin.end(buffer)，跟 bash
+#   的 `< file`（文件 stdin 一次读完）不同，才复现管道分块。
+# P2 契约：判密钥路径前先去一层反斜杠（单引号内除外）。打死：`cat \<点>env` 这类 shell 眼里等于密钥名、
+#   正则却认不出的写法；尾界不误伤（`\<点>envoy` 不是密钥）。
+# M1 契约：冒名清单补 builtin source / command . / trap '. …' DEBUG——都是把外部脚本带进当前 shell 改写 cp。
+# risk: high
+# big_async_run <沙箱名> <命令 JSON 文件> —— node 异步 spawn hook，stdin.end(buffer) 喂入，等 close 取退出码。
+big_async_run() {
+    local sb; sb=$(newsb "$1")
+    RC=0
+    timeout 20 node -e '
+const {spawn}=require("child_process"),fs=require("fs");
+const buf=fs.readFileSync(process.argv[1]);
+const c=spawn("node",[process.argv[2]],{cwd:process.argv[3],env:{...process.env,CLAUDE_PROJECT_DIR:process.argv[3]},stdio:["pipe","pipe","pipe"]});
+let e="";c.stderr.on("data",d=>e+=d);c.stdout.resume();c.stdin.on("error",()=>{});c.stdin.end(buf);
+c.on("close",code=>{process.stderr.write(e);process.exit(code===null?124:code)});
+' "$2" "$HOOKS/secret-exfil-guard.mjs" "$sb" >"$TMP/.o" 2>"$TMP/.e" || RC=$?
+    OUT=$(cat "$TMP/.o" 2>/dev/null || true); ERRT=$(cat "$TMP/.e" 2>/dev/null || true)
+}
+BIGX=$(printf '%*s' 300000 '' | tr ' ' x)
+printf '{"tool_input":{"command":"echo %s && cat %s"}}' "$BIGX" "$DOTENV" >"$TMP/.p1big.json"
+big_async_run se163-big300k "$TMP/.p1big.json"
+chk "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" \
+    "SE-163 P1 300KB 事件（echo + 30 万个 x + 读密钥的一段）经管道分块喂入 → 读全后判出 exit 2" \
+    "rc=2" "rc=$RC err=[$(show "$ERRT")]"
+BIGX=$(printf '%*s' 100000 '' | tr ' ' x)
+printf '{"tool_input":{"command":"echo %s"}}' "$BIGX" >"$TMP/.p1ok.json"
+big_async_run se164-big100k "$TMP/.p1ok.json"
+chk "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" \
+    "SE-164 P1 100KB 无密钥的合法长命令同样喂法 → rc 0（守住读取修复不误伤）" \
+    "rc=0" "rc=$RC out=[$(show "$OUT")] err=[$(show "$ERRT")]"
+sx_block se165-p2-bs1 'cat \@E@' \
+    "SE-165 P2 反斜杠转义的密钥名（点前一个反斜杠）→ exit 2"
+se_block se166-p2-bs2 "cat .\\${DOTENV#.}" \
+    "SE-166 P2 反斜杠夹在密钥名中间 → exit 2"
+sx_block se167-p2-subst 'ls "$(cat \@E@)"' \
+    "SE-167 P2 替换体内的反斜杠转义密钥名 → exit 2"
+sx_pass se168-p2-tail 'cat \@E@oy' \
+    "SE-168 P2 守住：尾界不误伤，转义后是别的文件名 → 放行"
+sx_block se169-m1-builtin 'builtin source ./rc; cp @E@.example @E@' \
+    "SE-169 M1 builtin source 带入外部脚本 → 不套白名单 exit 2"
+sx_block se170-m1-command 'command . ./rc; cp @E@.example @E@' \
+    "SE-170 M1 command . 带入外部脚本 → exit 2"
+sx_block se171-m1-trap "trap '. ./rc' DEBUG; cp @E@.example @E@" \
+    "SE-171 M1 trap DEBUG 里 source 外部脚本 → exit 2"
 # SE-116（先 skip，需求存疑）：`cp -r ~/.ssh /tmp/k` 当前 rc 0，且与既有 SE-38「目录本身不是密钥文件」同一判据，
 #   不是本契约引入的；派单要求拦，与 SE-38 矛盾，待主 Agent 裁定后再开：
 # se_block se116-ssh-dir "cp -r ~/.ssh /tmp/k" "SE-116 来源是私钥目录 → exit 2"

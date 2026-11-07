@@ -110,11 +110,12 @@ else
   fail "TS4（o5=[${o5}] 记录还在=${kept} o6=[${o6}]）"
 fi
 
-# ---- advise 去重新契约 TS5-TS8（TODO #121，2026-11-08）：签名只按「原因类型集合」，不按脏文件清单 ----
+# ---- advise 去重新契约 TS5-TS9（TODO #121，2026-11-08）：签名只按「原因类型集合」，不按脏文件清单 ----
 # 原因类型 = C1 代码家底未同步 progress / C2a Spec 改了 CHANGELOG 没改 / C2b 反之。
 # 打死的错误实现：(a) 签名仍含脏文件清单——开发中每多碰一个文件就再响一次（下游 lutetia 一天 16 次）；
 #   (b) 签名改成常量——原因类型多了 C2 也一声不吭、欠账沉底；(c) 去重记录只进不清，progress 跟上后同类问题重现被吞；
-#   (d) 满一小时不重提。注意：旧 TS2「清单变了→再提醒」与本契约冲突，未动，交主 Agent 裁。
+#   (d) 满一小时不重提；(e) C2a / C2b 记成同一种码——{C1,C2a} 换成 {C1,C2b} 被当成没变（TS9）。
+#   旧 TS2/TS3 的「清单变了→再提醒」口径已按本契约改写（TS2 现为静默，见 TS5）。
 ts_repo() {
   dedup_repo "$1"
   printf '# spec\n' > "$1/Product-Spec.md"; printf '# cl\n' > "$1/Product-Spec-CHANGELOG.md"
@@ -168,6 +169,18 @@ if advised "$o1" && [ -z "$o2" ] && advised "$o3" && [ "$n3" = 2 ]; then
   pass "TS8 一小时内静默、ts 改成 2 小时前后同一原因集合再提醒、账本 2 条"
 else
   fail "TS8 满一小时应重提（o1=[${o1}] o2=[${o2}] o3=[${o3}] 账本=${n3}）"
+fi
+
+echo "── 去重 TS9：原因类型从 {C1,C2a} 换成 {C1,C2b}（Spec 还原、CHANGELOG 改脏）→ 再提醒 ──"
+t="$TMP/ts9"; ts_repo "$t"
+printf 'changed\n' >> "$t/src/app.sh"; printf 'more\n' >> "$t/Product-Spec.md"
+o1=$(run_gate "$t"); n1=$(tflog "$t")
+git -C "$t" checkout -q -- Product-Spec.md; printf 'entry\n' >> "$t/Product-Spec-CHANGELOG.md"
+o2=$(run_gate "$t"); n2=$(tflog "$t")
+if advised "$o1" && advised "$o2" && has "$o2" 'Product-Spec.md 未同步' && [ "$n2" = $((n1 + 1)) ]; then
+  pass "TS9 {C1,C2a}→{C1,C2b}（同一小时内）→ 再提醒且出 C2b 文案、账本 +1 条"
+else
+  fail "TS9 C2a 与 C2b 是两种原因，换了应再提醒（o1=[${o1}] o2=[${o2}] 账本=${n1}/${n2}）"
 fi
 
 # ---- 设计详述同步分支（design-detail-sync，档位单列：fast/standard advise、strict block）----
