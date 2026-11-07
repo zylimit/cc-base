@@ -48,8 +48,8 @@
 - ✅[已毕业] [分类体系跟着领域本身走，不套用当前项目结构](knowledge-base-taxonomy-follows-domain-not-project.md) — 知识库的分类维度要取自被描述的领域本身，不能套用当前项目的模块结构，会把跟项目关系很远但值得留的条目误判出库
 - ✅[已毕业] [新建文件用 git diff 验证不出改动](git-diff-empty-output-ambiguous-for-new-files.md) — 对本 session 新建、尚未 git add 的文件跑 git diff，空输出+rc 0 与「文件没被改」完全无法区分；改用 wc -l + 内容锚点 + git status 认 ?? 核验
 - ✅[已毕业] [避免过度设计、过度测试、过度检视——根源是过度可信](avoid-over-design-testing-review-trust-charter.md) — 新增闸/测试/审查层/记忆层/规则前先问是否踩了四个"过度"（信提示词自律/信闸能守/信同模型复审/信决策都被正确加权，同根过度可信）；落地判据：规则点名机器闸或明标靠自觉，闸说得出挡过什么，测试说得出防的回归，记忆说得出谁会读它
-- [对照外部 skill 仓找借鉴，范围是 skill 正文，不是流程](external-skill-benchmark-scope-is-skill-content-not-workflow.md) — 用户拿外部 skill 仓问「有什么启发」时，对照的是 SKILL.md 正文与 references 的写法和内容；skill 先后与路由、谁能触发、子 Agent 接线、CLAUDE.md 调度段属流程层，没问就不进建议清单；顺带查出的实锤缺陷报一次挂 TODO，不借它带流程改造
-- [收口阶段空闲席位不是加派新任务的理由](idle-capacity-not-license-to-expand-scope.md) — 「加速/全力开动」指把已有任务并行推完，不等于填满空闲算力去找新活；收口阶段范围视为冻结，新发现的缺口记下一轮待办不当场派；同一信号连续出现两次（先问"还有这么多任务吗"、后纠正"又新增需求了"）是识别延迟的警报
+- [对照外部 skill 仓找借鉴，范围是 skill 正文，不是流程](external-skill-benchmark-scope-is-skill-content-not-workflow.md) — 用户拿外部 skill 仓问「有什么启发」时，对照的是 SKILL.md 正文与 references 的写法和内容；skill 先后与路由、谁能触发、子 Agent 接线、CLAUDE.md 调度段属流程层，没问就不进建议清单；顺带查出的实锤缺陷报一次挂 TODO，不借它带流程改造 [2026-10-29 暂不成文：铁律 7 已覆盖、无实际代价]
+- [收口阶段空闲席位不是加派新任务的理由](idle-capacity-not-license-to-expand-scope.md) — 「加速/全力开动」指把已有任务并行推完，不等于填满空闲算力去找新活；收口阶段范围视为冻结，新发现的缺口记下一轮待办不当场派；同一信号连续出现两次（先问"还有这么多任务吗"、后纠正"又新增需求了"）是识别延迟的警报 [2026-10-29 暂不成文：subagent-dispatch.md 第 18 行已覆盖前半、后半无实证]
 - ✅[已毕业] [决定代码落点前，先对照既有的边界与归属记录](check-existing-boundary-decisions-before-deciding-code-placement.md) — 新开一块功能、决定代码放哪之前，先把 Pinned / TODO / Decisions 里关于这块「边界与归属」的既有约定找出来对照，再派单
 - ✅[已毕业] [需求分析前先核对依据：模板是不是现行正式版、点名的产出物逐个找到、旧记录不当建模依据](check-template-version-and-named-outputs-before-requirement-analysis.md) — 对接外部系统导入格式的需求，分析前先确认手上的模板是不是现行正式版（问用户、看文件日期）；需求原文点名的产出物（表名、文件名）逐个在模板里找到，找不到当场问，不悄悄丢掉；旧记录只说明以前怎么录，不当建模依据
 - [代码改动走 worktree + 本地分支，不直接落 master](code-changes-use-worktree-and-local-branch-not-master.md) — 代码改动一律 worktree + 本地分支，不直接在 master 上 commit/push
