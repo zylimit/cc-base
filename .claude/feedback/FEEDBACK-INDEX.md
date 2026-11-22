@@ -101,4 +101,4 @@
 - ⏸[暂不成文] [机器所在地不从时区、用户名推；合规判断用到所在地先问](2026-11-08-no-location-guess-from-timezone.md) — 机器或人的所在地、所属法域不从时区、用户名、公司、网络配置推；数据驻留、合规判断用到所在地时，没确认过就先问或标明「推断」，不写进事实陈述和决策选项（本机在法国，时区设的是新加坡）
 - [免确认模式下后台子 Agent 卡在 rm 确认框上，没人知道](bash-var-rm-prompts-stall-background-agents.md) — 免确认模式下后台子 Agent 的 Bash 里带 shell 变量路径的 rm 仍弹确认，子 Agent 停下等人点，复核被拖 6 小时；用户「不都是危险模式了，还弹框」
 - [检查器结果只看结尾就下结论，少报了 19 条](read-full-checker-output-before-count.md) — 汇报 plan-lint 结果只看了输出结尾就说「两条」，实际 21 条；报任何检查器结果前要读完整输出并先数条数
-- [让用户敲 /release-builder 之前先自检](2026-11-08-self-check-before-asking-release.md) — 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲
+- ✅[已毕业] [让用户敲 /release-builder 之前先自检](2026-11-08-self-check-before-asking-release.md) — 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲

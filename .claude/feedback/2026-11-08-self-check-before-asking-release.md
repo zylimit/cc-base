@@ -3,13 +3,13 @@ type: feedback
 description: 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲
 created: 2026-11-08
 updated: 2026-11-08
-graduated: false
+graduated: true  # 2026-11-22 毕业→.claude/rules/dev-workflow-details.md [发布阶段]「回指之前」一句（用户 2026-11-22「毕业进框架」）
 origin: lutetia
 source_skill: release-builder
 scope: 所有需要用户亲敲 /release-builder 的发版（release-builder 设了 disable-model-invocation，只能用户敲）；主 Agent 每次说「请你敲 /release-builder」之前
 exceptions: none
 supersedes: none
-applied_to: pending
+applied_to: 2026-11-22 .claude/rules/dev-workflow-details.md [发布阶段]「回指之前：主 Agent 先核三项并把结果写进回复」；mac-ts 的 lutetia 此前已在本地副本的同一处加过这句
 ---
 
 # 让用户敲 /release-builder 之前先自检

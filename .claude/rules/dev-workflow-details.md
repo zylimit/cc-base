@@ -126,6 +126,7 @@ paths:
 
     [发布阶段]
         触发：用户调用 /release-builder（skill 设 disable-model-invocation，主 Agent 不代触发，回指该命令请用户亲自敲）
+        回指之前：主 Agent 先核三项并把结果写进回复——`.claude/.needs-review` 为 clean（审查闭环真走完才写）、`git status --short` 为空、远端分支等于本地 HEAD；任一不满足先补齐，不让用户敲了再被 release-gate 拦（用户 2026-11-08「你能不能每次检查一下」，见 feedback/2026-11-08-self-check-before-asking-release.md）
         执行：release-gate 先查待审清单与测试卡点，未过不许打包；打包 / 构建 / 部署派 deployer Sub-Agent 执行。
         验收：主 Agent 独立核查三件套（镜像 tag + 容器创建时间戳、健康检查端点响应、live 冒烟验证新功能产物），deployer 的自报状态不作判据；通过后展示发布结果。
 
