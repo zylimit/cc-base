@@ -51,7 +51,8 @@ const indexForm = (x) => ({
 const byName = (form) => (a, b) => cmp(a.name ?? '', b.name ?? '') || cmp(canonical(form(a)), canonical(form(b)));
 
 // 改动备注（契约 B 节「建表之后的改动」）按出现顺序原样带上；不进表的规范形——它讲的是改动的来由，不是现行结构。
-const changeForm = (x) => ({ line: x.line, comment: x.comment, addedColumns: [...x.addedColumns] });
+// file 是那条 ALTER 所在的文件，不一定是建表的那份。
+const changeForm = (x) => ({ file: x.file ?? null, line: x.line, comment: x.comment, addedColumns: [...x.addedColumns] });
 
 // 取事实器合并完的表（任意可迭代的 {name,file,line,comment,columns,constraints,indexes,changes?}）→ 按名字排好、盖好锚点与指纹的实体。
 // 表级约束的 name 只是源码里写了的名字，没写的为 null（补出来的内部名不进这里，契约 B 节）；没有改动备注的表 changes 为空数组。

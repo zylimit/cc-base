@@ -1,26 +1,44 @@
 // layout.mjs —— 各类文档共用的版式件：页面骨架与内联样式、出处标记、表格、文档集首页、关系图的排布与 SVG
 // （架构稿 docs/readable-spec/Architecture-Design.md §2 render、§5「渲染器按文档种类分文件，共用版式件」）。
-// 只产字符串、不碰磁盘：落盘（临时目录 + 整目录替换）在入口做。每页自成一体——样式内联、不引外部文件、不联网；
+// 只产字符串、不碰磁盘：落盘（临时目录 + 整目录替换）在同目录的 publish.mjs。每页自成一体——样式内联、不引外部文件、不联网；
 // 页面里不写生成时间、机器名、绝对路径，同样的模型两次出的字节相同（契约 docs/readable-spec/phase1-db-contract.md C 节）。
-// 版式从朴素出发：系统无衬线字体、宽行距、细线分行、只用一种强调色；宽表格在自己的框里横向滚，页面本身不出横向滚动条；能打印。
+// 版式从朴素出发：系统无衬线字体、宽行距、细线分行、只用一种强调色；字段表这类宽表定列宽、长内容折行，1280 宽下不出横向滚动条，
+// 窄屏才在自己的框里横向滚，页面本身不出横向滚动条；打印时定宽表不保底宽度、长内容一律折行，不被纸边裁掉。
 import { cmp } from '../model.mjs';
 
 const ENT = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ENT[c]);
 export const code = (s) => `<code>${esc(s)}</code>`;
+// 名字与表达式：下划线后面给一个折行点（<wbr> 不改文字），定宽的窄格子里折在词缝上，不从一个词中间断开。
+export const codeBreak = (s) => `<code>${esc(s).replace(/_/g, '_<wbr>')}</code>`;
 // 来源里的原文（注释、视图定义）保留换行，长行在格子里折。
 export const multi = (s) => `<span class="pre">${esc(s)}</span>`;
 export const at = (file, line) => `${esc(file)} 第 ${esc(line)} 行`;
 
-// 出处标记（契约 C 节）：第一期三种。标签用这三个现成说法，不另起名字。
-const ORIGINS = { fact: '取自来源', comment: '来源里的注释', note: '说明' };
-export const origin = (kind) => `<span class="o o-${kind}">${ORIGINS[kind]}</span>`;
+// 出处标记（契约 C 节）：第一期三种，谁写谁读从代码里查出来的也是「取自来源」，括号里点明是代码里的 SQL（契约 F 节）。
+// 标签用这几个现成说法，不另起名字。
+const ORIGINS = { fact: '取自来源', code: '取自来源（代码里的 SQL）', comment: '来源里的注释', note: '说明' };
+export const origin = (kind) => `<span class="o o-${kind === 'code' ? 'fact' : kind}">${ORIGINS[kind]}</span>`;
+// 项目判断（docs/readable-src/map.json，人和 AI 编辑）补的东西不是从来源里查出来的，标明是谁的判断（契约 F 节）。
+// 按前缀机械分出来的组档位是 default，不标——那不是谁的判断。
+const JUDGED = { proposed: '项目判断 · AI 提议', confirmed: '项目判断 · 人已确认' };
+export const judged = (status) => (JUDGED[status] ? `<span class="o o-judged">${JUDGED[status]}</span>` : '');
 
 // 文件名由名字推出，同一个名字永远落在同一个地址：只留 ASCII 字母、数字、下划线、连字符，其余写成「~码点」，
 // 免得带引号的表名里的斜杠、空格或中文在别的系统上解压出乱码或断链。
 export const fileSlug = (name) => String(name).replace(/[^A-Za-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
 
-export const table = (head, rows) => `<div class="scroll"><table>\n<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>\n<tbody>\n${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('\n')}\n</tbody></table></div>`;
+// 属性按给的顺序写出，值转义。核对器靠 data-anchor / data-k / data-note 从页面上把显示的东西读回来（契约 C 节「机器读得回来」）。
+export const attrs = (o) => (o ? Object.entries(o).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '');
+// 格子是 HTML 字符串，或 {attrs, html}；行是格子数组，或 {attrs, cells}。
+const td = (c) => (c && typeof c === 'object' ? `<td${attrs(c.attrs)}>${c.html}</td>` : `<td>${c}</td>`);
+const tr = (r) => (Array.isArray(r) ? `<tr>${r.map(td).join('')}</tr>` : `<tr${attrs(r.attrs)}>${r.cells.map(td).join('')}</tr>`);
+// widths 给了就定列宽（null 的列分剩下的宽度）：列宽不随内容撑开，长内容在格子里折行，表格不比外框宽——
+// 第一版按内容撑宽，15 个字段的表在 1280 宽下把注释一栏挤出了可见区。窄屏表格保底一个宽度，在自己的框里横向滚。
+export const table = (head, rows, widths) => {
+  const cg = widths ? `<colgroup>${widths.map((w) => (w ? `<col style="width:${w}">` : '<col>')).join('')}</colgroup>\n` : '';
+  return `<div class="scroll"><table${widths ? ' class="fixed"' : ''}>\n${cg}<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>\n<tbody>\n${rows.map(tr).join('\n')}\n</tbody></table></div>`;
+};
 
 const CSS = `
 :root{--fg:#1f2328;--muted:#59636e;--line:#d8dee4;--bg:#fff;--soft:#f6f8fa;--accent:#0b5cad;--warn:#fff8e1;--warn-line:#d4a72c}
@@ -30,7 +48,7 @@ const CSS = `
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;overflow-wrap:break-word}
 main{max-width:1100px;margin:0 auto;padding:20px 16px 64px}
-a{color:var(--accent)}
+a{color:var(--accent);text-underline-position:under}
 a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .crumbs{font-size:14px;color:var(--muted)}
 h1{font-size:28px;line-height:1.3;margin:12px 0 4px}
@@ -43,11 +61,18 @@ p{margin:8px 0}
 .o{display:inline-block;font-size:12px;font-weight:400;line-height:1.6;padding:0 6px;margin-left:8px;border:1px solid var(--line);border-radius:3px;color:var(--muted);vertical-align:middle;white-space:nowrap}
 .o-comment{border-style:dashed}
 .o-note{border-color:var(--accent);color:var(--accent)}
+.o-judged{border-style:dotted;border-color:var(--fg);color:var(--fg)}
+details.more{margin:8px 0}
+details.more summary{cursor:pointer;color:var(--accent)}
+.print-only{display:none}
 .scroll{overflow-x:auto;max-width:100%;margin:8px 0}
 table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55}
 th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
 th{font-weight:600;color:var(--muted);white-space:nowrap}
 td:first-child{white-space:nowrap}
+table.fixed{table-layout:fixed;min-width:860px}
+table.fixed th,table.fixed td:first-child{white-space:normal}
+table.fixed td{overflow-wrap:anywhere}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:13px}
 td code{white-space:pre-wrap}
 .pre{white-space:pre-wrap}
@@ -61,26 +86,29 @@ svg.er{display:block}
 svg.er text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:12px;fill:var(--fg)}
 svg.er text.tt{font-size:13px;font-weight:700;fill:var(--accent)}
 svg.er rect{fill:var(--bg);stroke:var(--muted);stroke-width:1}
+svg.er rect.f{stroke:var(--accent);stroke-width:2.5}
 svg.er line{stroke:var(--line)}
 svg.er path.e{fill:none;stroke:var(--muted);stroke-width:1.2}
 svg.er path.ah{fill:var(--muted)}
-@media print{main{max-width:none;padding:0}.scroll{overflow:visible}svg.er{max-width:100%;height:auto}a{text-decoration:none}h2{break-after:avoid}tr{break-inside:avoid}}
+@media print{main{max-width:none;padding:0}.scroll{overflow:visible}table.fixed{min-width:0}td{overflow-wrap:anywhere}.nw{white-space:normal}pre{white-space:pre-wrap}svg.er{max-width:100%;height:auto}a{text-decoration:none}h2{break-after:avoid}tr{break-inside:avoid}details.more{display:none}.print-only{display:block}}
 `.trim();
 
 // 页面骨架。crumbs 的地址都相对文档集根目录写，这里按页所在深度补 ../。
-export function page({ title, depth = 0, crumbs = [], body }) {
+// main 是 <main> 上的属性（表页的 data-anchor）。
+export function page({ title, depth = 0, crumbs = [], body, main }) {
   const up = '../'.repeat(depth);
   const nav = crumbs.length
     ? `<nav class="crumbs">${crumbs.map(([t, h]) => (h ? `<a href="${esc(up + h)}">${esc(t)}</a>` : `<span>${esc(t)}</span>`)).join(' › ')}</nav>\n`
     : '';
-  return `<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${esc(title)}</title>\n<style>\n${CSS}\n</style>\n</head>\n<body>\n<main>\n${nav}${body}\n</main>\n</body>\n</html>\n`;
+  return `<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${esc(title)}</title>\n<style>\n${CSS}\n</style>\n</head>\n<body>\n<main${attrs(main)}>\n${nav}${body}\n</main>\n</body>\n</html>\n`;
 }
 
 export const LEGEND = `<h2>页面上的标记</h2>
 <dl class="legend">
-<dt>${origin('fact')}</dt><dd>结构直接取自项目的来源文件（建表定义等），由命令机械生成。</dd>
+<dt>${origin('fact')}</dt><dd>结构直接取自项目的来源文件（建表定义等），由命令机械生成；谁写谁读查的是代码里的 SQL，标「取自来源（代码里的 SQL）」。</dd>
 <dt>${origin('comment')}</dt><dd>来源文件里作者写的注释（<code>--</code> 与 <code>COMMENT ON</code>），原样照录；来源里没写的地方留空。</dd>
 <dt>${origin('note')}</dt><dd>AI 写的解释，不是来源本身；还没写的地方标「说明：未写」。</dd>
+<dt>${judged('proposed')} ${judged('confirmed')}</dt><dd>项目判断：人和 AI 补的判断（<code>docs/readable-src/map.json</code>），比如表怎么分组、运行时拼的表名归到哪张表，不是从来源里查出来的。「AI 提议」还没有人确认过。</dd>
 </dl>`;
 
 // 文档集首页（契约 C 节 index.html）：列出已经生成的各份文档。docs：[{href,label,summary}]
@@ -92,6 +120,7 @@ export function renderHome(title, docs) {
 
 // ---- 关系图（契约 C 节）----
 // 一张表一个方框，写表名与 lines（主键、外键列）；parents 是组内被它引用的表，画成连线，箭头指向被引用的一方。
+// focus 的方框框线加粗、用强调色：表页的小关系图里那是这一页讲的表。
 // 简单分层：被引用的在上、引用别人的在下，层号 = 沿组内外键往上走的最长步数，遇环截断；层内按上一层父表的平均位置排、同位按名字。
 // 组内没有任何连线的表单独放最后一层。一层放不下就折行，每行不超过 ROW_W，桌面宽度内放得下；窄屏在外框里横向滚。
 // 隔行的连线不从中间那行的方框背后穿（2026-11-23 小样里看出来，穿过去像是中间那张表在引用）：先进行间空隙，走左边的竖道，再进目标行的空隙。
@@ -136,22 +165,29 @@ export function diagram(nodes, label) {
     const w = Math.ceil(Math.max(120, textW(n.name, FONT + 1), ...n.lines.map((l) => textW(l, FONT))) + PAD * 2);
     return [n.name, { n, w, h: TITLE_H + (n.lines.length ? n.lines.length * LINE_H + PAD : 4) }];
   }));
-  const rows = [];
-  for (const L of layers(nodes)) {
-    let row = [], w = 0;
-    for (const n of L) {
-      const b = box.get(n.name);
-      if (row.length && w + GAP_X + b.w > ROW_W) { rows.push(row); row = []; w = 0; }
-      w += (row.length ? GAP_X : 0) + b.w;
-      row.push(b);
+  const pack = (budget) => {
+    const rows = [];
+    for (const L of layers(nodes)) {
+      let row = [], w = 0;
+      for (const n of L) {
+        const b = box.get(n.name);
+        if (row.length && w + GAP_X + b.w > budget) { rows.push(row); row = []; w = 0; }
+        w += (row.length ? GAP_X : 0) + b.w;
+        row.push(b);
+      }
+      rows.push(row);
     }
-    rows.push(row);
-  }
-  rows.forEach((r, ri) => r.forEach((b) => { b.row = ri; }));
+    rows.forEach((r, ri) => r.forEach((b) => { b.row = ri; }));
+    return rows;
+  };
   const named = [...box.values()].sort((p, q) => cmp(p.n.name, q.n.name));
   const pairs = named.flatMap((b) => b.n.parents.map((pn) => [b, box.get(pn)]));
-  const left = pairs.some(([c, p]) => Math.abs(c.row - p.row) > 1) ? pairs.filter(([c, p]) => Math.abs(c.row - p.row) > 1).length * LANE + 12 : 0;
+  const lanes = () => { const k = pairs.filter(([c, p]) => Math.abs(c.row - p.row) > 1).length; return k ? k * LANE + 12 : 0; };
   const rowW = (r) => r.reduce((s, b) => s + b.w, 0) + GAP_X * (r.length - 1);
+  // 隔行连线的竖道占左边一条宽度：行宽加竖道超了 ROW_W 就把竖道让出来重新折行，最多试几遍（表页小关系图里引用它的表一多就会这样，
+  // 2026-11-23 真数据上一张被 30 张表引用的表，图比正文宽、右边的方框被框裁掉）。实在让不出来的，仍在外框里横向滚。
+  let rows = pack(ROW_W), left = lanes();
+  for (let k = 0; k < 3 && Math.max(...rows.map(rowW)) + left > ROW_W; k++) { rows = pack(ROW_W - left); left = lanes(); }
   const W = Math.max(...rows.map(rowW)) + M * 2 + left, top = [], bot = [];
   let y = M;
   rows.forEach((r, ri) => {
@@ -189,7 +225,7 @@ export function diagram(nodes, label) {
   const boxes = named.map(({ n, x, y: by, w, h }) => {
     const lines = n.lines.map((l, i) => `<text x="${x + PAD}" y="${by + TITLE_H + PAD - 2 + LINE_H * i + 10}">${esc(l)}</text>`).join('');
     const sep = n.lines.length ? `<line x1="${x}" y1="${by + TITLE_H}" x2="${x + w}" y2="${by + TITLE_H}"/>` : '';
-    return `<a href="${esc(n.href)}"><rect x="${x}" y="${by}" width="${w}" height="${h}" rx="3"/><text class="tt" x="${x + PAD}" y="${by + 17}">${esc(n.name)}</text>${sep}${lines}</a>`;
+    return `<a href="${esc(n.href)}"><rect${n.focus ? ' class="f"' : ''} x="${x}" y="${by}" width="${w}" height="${h}" rx="3"/><text class="tt" x="${x + PAD}" y="${by + 17}">${esc(n.name)}</text>${sep}${lines}</a>`;
   });
   return `<svg class="er" width="${W}" height="${r1(H)}" viewBox="0 0 ${W} ${r1(H)}" role="img" aria-label="${esc(label)}">\n<title>${esc(label)}</title>\n<defs><marker id="ah" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="ah" d="M0 0L8 4L0 8z"/></marker></defs>\n${paths.join('\n')}\n${boxes.join('\n')}\n</svg>`;
 }

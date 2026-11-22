@@ -11,16 +11,17 @@
 //   --json   init 的结果也只出一份 JSON（标准输出只有它）
 // 退出码：0 成功；1 有不一致（check 用，本期没有）；2 用法或配置错；3 脚本自身出错（含尚未实现的子命令、页面落盘失败）
 // 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）。
-// 配置的读写暂放这里：架构稿把 docs/readable-src/ 的读写归 notes，notes.mjs 由 Task 1.4 新建，届时搬过去。
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, renameSync, rmSync } from 'node:fs';
+// 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；init 起草配置仍在这里。
+import { existsSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
 import { cmp } from './readable/model.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
+import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
+import { CONFIG, ConfigError, loadConfig, loadMap } from './readable/notes.mjs';
+import { link } from './readable/links.mjs';
 import { renderDb } from './readable/render/db.mjs';
 import { renderHome } from './readable/render/layout.mjs';
-
-const CONFIG = 'docs/readable-src/config.json';
-const OUT = 'docs/readable';
+import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put|confirm> [--root <目录>] [--json]';
 const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**'];
 const CODE_EXT = /\.(py|ts|tsx)$/;
@@ -68,8 +69,8 @@ function globRe(g) {
 }
 
 // 项目里的文件（相对路径、/ 分隔、按名字定序）。点开头的目录不进：.git、.venv、.claude 里的不是项目的来源
-// （cc-base 自己的 .claude/tests 里就有 SQL 夹具）。符号链接不跟，免得绕圈。
-function walk(root, ignore) {
+// （cc-base 自己的 .claude/tests 里就有 SQL 夹具）。符号链接不跟，免得绕圈。sub 给了就只走那个子目录，路径仍相对 root。
+function walk(root, ignore, sub = '') {
   const res = ignore.map(globRe), skip = (rel) => res.some((r) => r.test(rel)), out = [];
   const visit = (dir, rel) => {
     for (const d of readdirSync(dir, { withFileTypes: true }).sort((a, b) => cmp(a.name, b.name))) {
@@ -79,9 +80,13 @@ function walk(root, ignore) {
       else if (d.isFile() && !skip(r)) out.push(r);
     }
   };
-  visit(root, '');
+  const start = sub.replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '');
+  visit(start ? join(root, start) : root, start);
   return out;
 }
+
+// 扫谁写谁读的文件（契约 F 节）：codeRoots 下的 .py 与 JS 一族，去掉 ignore 命中的；几个 codeRoots 重叠的只扫一次。
+const codeFiles = (root, cfg) => [...new Set(cfg.codeRoots.flatMap((d) => walk(root, cfg.ignore, d)).filter(isCodeFile))].sort(cmp);
 
 // codeRoots：含 .py / .ts / .tsx 最多的两个顶层目录（契约 A 节），同数按名字。
 function topCodeDirs(files) {
@@ -118,71 +123,23 @@ function cmdInit(o) {
   notes.forEach((t) => console.log(`  提示：${t}`));
 }
 
-// 配置有错一律退出码 2 并点名是哪一条（契约 A 节）。
-function loadConfig(root) {
-  const p = join(root, CONFIG);
-  if (!existsSync(p)) die(2, `配置不存在：${CONFIG}（先跑 init）`);
-  let cfg;
-  try { cfg = JSON.parse(readFileSync(p, 'utf8')); }
-  catch (e) { if (e instanceof SyntaxError) die(2, `配置不是合法 JSON：${CONFIG}：${e.message}`); throw e; }
-  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) die(2, `配置的顶层该是对象：${CONFIG}`);
-  if (cfg.version !== 1) die(2, `配置的 version 只认 1，现在是 ${JSON.stringify(cfg.version)}`);
-  const list = (key, required) => {
-    const v = cfg[key];
-    if (v === undefined && !required) return [];
-    if (!Array.isArray(v) || v.some((s) => typeof s !== 'string' || !s)) die(2, `配置的 ${key} 该是非空字符串的数组`);
-    return v;
-  };
-  const ddl = list('ddl', true), codeRoots = list('codeRoots', false);
-  list('ignore', false);
-  if (cfg.spec != null && (typeof cfg.spec !== 'string' || !cfg.spec)) die(2, '配置的 spec 该是字符串或 null');
-  const must = (label, rel, kind) => {
-    const abs = join(root, rel);
-    if (!existsSync(abs)) die(2, `配置里的路径不存在：${label} = ${rel}`);
-    if (kind === 'file' ? !statSync(abs).isFile() : !statSync(abs).isDirectory()) die(2, `配置里的 ${label} = ${rel} 该是${kind === 'file' ? '文件' : '目录'}`);
-  };
-  ddl.forEach((f, i) => must(`ddl[${i}]`, f, 'file'));
-  codeRoots.forEach((d, i) => must(`codeRoots[${i}]`, d, 'dir'));
-  if (cfg.spec != null) must('spec', cfg.spec, 'file');
-  return { ...cfg, ddl, codeRoots };
-}
-
-// 原子落盘（契约 C 节）：先写到与 docs/readable/ 同级的临时目录，写完从磁盘逐个核对字节数，再整目录换上；
-// 任何一步失败，临时目录删掉、原有的 docs/readable/ 一个字节不动，错误往上抛成退出码 3。
-// 换上那一步是两次改名：旧目录先挪开，新目录改名进位，进位失败就把旧目录挪回来。
-function publish(root, files) {
-  const out = join(root, OUT), parent = dirname(out);
-  const tmp = join(parent, `.readable-tmp-${process.pid}`), old = join(parent, `.readable-old-${process.pid}`);
-  const failAt = process.env.READABLE_FAIL_AT === 'render' ? Math.floor(files.length / 2) : -1;
-  mkdirSync(parent, { recursive: true });
-  try {
-    files.forEach((f, i) => {
-      if (i === failAt) throw new Error(`READABLE_FAIL_AT=render：写完 ${i} / ${files.length} 个页面时按要求模拟失败`);
-      const p = join(tmp, f.path);
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, f.html);
-    });
-    for (const f of files) {
-      if (statSync(join(tmp, f.path)).size !== Buffer.byteLength(f.html)) throw new Error(`落盘核对不过：${f.path} 的字节数与生成的不同`);
-    }
-    const had = existsSync(out);
-    if (had) renameSync(out, old);
-    try { renameSync(tmp, out); } catch (e) { if (had) renameSync(old, out); throw e; }
-    if (had) {
-      // 新目录已经换上，旧目录删不掉不算失败，但要让人看见那个残留。
-      try { rmSync(old, { recursive: true, force: true }); } catch (e) { console.error(`readable-docs: 新页面已换上，旧目录没删掉，请手动删：${join(OUT, '..', basename(old))}：${e.message}`); }
-    }
-  } catch (e) {
-    rmSync(tmp, { recursive: true, force: true });
-    throw e;
-  }
+// 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来。
+function collect(root, cfg, skipped) {
+  const ddl = extractDdl(cfg, root, skipped);
+  const map = loadMap(root, ddl.tables.map((t) => t.name));
+  const scan = extractCode(cfg, root, codeFiles(root, cfg), [...ddl.tables, ...ddl.views].map((x) => x.name));
+  const linked = link(ddl, scan, map, cfg.ddl);
+  const unscanned = scan.unscanned.sort((a, b) => cmp(a.file, b.file));
+  return { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
 }
 
 function cmdBuild(o) {
   const cfg = loadConfig(o.root), skipped = {};
-  const facts = extractDdl(cfg, o.root, skipped);
+  const facts = collect(o.root, cfg, skipped);
   const cols = facts.tables.reduce((s, t) => s + t.columns.length, 0);
-  const tally = `表 ${facts.tables.length} 张、列 ${cols} 个；未合并的动态定义 ${facts.unfolded.length}、未解析的语句 ${facts.unparsed.length}、定义冲突 ${facts.conflicts.length}、改了不存在的表 ${facts.orphanAlters.length}`;
+  const uses = Object.values(facts.usage).reduce((s, u) => [s[0] + u.writes.length, s[1] + u.reads.length], [0, 0]);
+  const tally = `表 ${facts.tables.length} 张、列 ${cols} 个；未合并的动态定义 ${facts.unfolded.length}、未解析的语句 ${facts.unparsed.length}、定义冲突 ${facts.conflicts.length}、改了不存在的表 ${facts.orphanAlters.length}`
+    + `；分 ${facts.groups.length} 组；代码里写 ${uses[0]} 处、读 ${uses[1]} 处，表名运行时拼的 ${facts.dynamic.length}、代码里建的表 ${facts.codeTables.length}、没扫成的文件 ${facts.unscanned.length}、项目判断里对不上的 ${facts.mapProblems.length}`;
   const sk = Object.entries(skipped).sort((a, b) => cmp(a[0], b[0]));
   if (o.factsJson) {
     // 不用 process.exit：大块输出写进管道时提前退出会截断，只设退出码让事件循环自己排空。
@@ -198,7 +155,7 @@ function cmdBuild(o) {
   publish(o.root, files);
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
   console.log(`已生成 ${OUT}/：${files.length} 个页面、${bytes} 字节`);
-  console.log(`  数据库设计：${tally}；分 ${db.stats.groups} 组、${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
+  console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
   if (sk.length) console.log(`  略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
 }
 
@@ -217,6 +174,7 @@ try {
   const o = parseArgs(process.argv.slice(2));
   COMMANDS[o.sub](o);
 } catch (e) {
-  console.error(`readable-docs: 脚本自身出错：${e?.stack || e}`);
-  process.exitCode = 3;
+  // 配置错与 map.json 不是合法 JSON 由 notes 抛 ConfigError：是用法错，退出码 2；别的都是本脚本的错。
+  if (e instanceof ConfigError) { console.error(`readable-docs: ${e.message}`); process.exitCode = 2; }
+  else { console.error(`readable-docs: 脚本自身出错：${e?.stack || e}`); process.exitCode = 3; }
 }

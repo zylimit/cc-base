@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { emptyFacts, excerpt, finalizeTables, finalizeViews, finalizeFunctions } from '../model.mjs';
 import { ParseFail, fail, lex, statements, fold, Cur, splitTop, skipExpr, unquote } from './sql-lex.mjs';
 import { nullsDistinct, refs, tableConstraint, checkIdents, nameInline, nameConstraint, checkText, dropConstraint } from './sql-constraints.mjs';
+import { isCodeFile, ddlSegments } from './code-scan.mjs';
 
 // ---- 注释归属（契约 B 节「注释从哪来」）----
 function lowerBound(cs, off) { let lo = 0, hi = cs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (cs[m].s < off) lo = m + 1; else hi = m; } return lo; }
@@ -43,7 +44,8 @@ const columnNames = (cols) => cols.map((o) => o.name);
 // run 是上一条语句留下的那条备注（只有上一条也是 ALTER 本表时才有），返回本条语句归入的备注，没有为 null。
 function changeNote(st, ctx, t, run) {
   const first = ctx.toks[st.a], lead = above(ctx, st.gap, first.s, first.line), comment = joinText(lead);
-  if (comment) { const note = { line: first.line - lead.length, comment, addedColumns: [] }; t.changes.push(note); return note; }
+  // 带 file：建表文件不止一份时，改它的语句可以写在靠后的文件里，光有行号找不到出处（契约 B 节键名清单）。
+  if (comment) { const note = { file: ctx.file, line: first.line - lead.length, comment, addedColumns: [] }; t.changes.push(note); return note; }
   if (lead.length || !run || run.table !== t || /\n[ \t\r]*\n/.test(ctx.src.slice(st.gap, first.s))) return null;
   return run.note;
 }
@@ -376,7 +378,17 @@ export function parseSources(sources, stats = {}) {
 }
 
 // 架构稿 §2 的 extract(配置) → 实体：按 config.ddl 的顺序读文件；路径是否存在由入口先查过。
+// ddl 里列的代码文件（契约 F 节）排在所有 .sql 之后、按 ddl 里的顺序：它里面含 CREATE TABLE / ALTER TABLE / CREATE INDEX 的字符串字面量
+// 逐段当建表定义读，行号对回那个代码文件（切字面量在 code-scan.mjs）；切不动的整个文件记一条「未解析的语句」，不出半截。
 export function extract(config, root, stats = {}) {
-  const sources = config.ddl.map((f) => ({ file: f.replace(/\\/g, '/'), text: readFileSync(join(root, f), 'utf8') }));
-  return parseSources(sources, stats);
+  const files = config.ddl.map((f) => f.replace(/\\/g, '/')), read = (f) => readFileSync(join(root, f), 'utf8');
+  const sources = files.filter((f) => !isCodeFile(f)).map((f) => ({ file: f, text: read(f) })), cut = [];
+  for (const f of files.filter(isCodeFile)) {
+    const { segments, error } = ddlSegments(f, read(f));
+    sources.push(...segments);
+    if (error) cut.push({ file: f, line: error.line, table: null, text: error.text, reason: error.reason });
+  }
+  const facts = parseSources(sources, stats);
+  facts.unparsed.push(...cut);
+  return facts;
 }
