@@ -42,8 +42,8 @@ const PINNED_CAP = 15;
 const CEILING = { done: 16384, notes: 16384, decisions: 32768, todo: 8192 };   // todo 只算已关闭的
 const FLOOR = { done: 10, notes: 10, decisions: 12, todo: 5 };
 
-// 条目形状允许前导缩进（P-1）：digifiber-conflation 623KB 的条目全是四空格（照 recorder 模板的排版缩进抄的），
-// 旧正则只认第 0 列，--check 各段报「现有 0 条」，从没归档过。第 1 组是缩进，日期 / 状态 / 编号在后面几组。
+// 条目形状允许前导缩进（P-1）：digifiber-conflation 608KB 的条目全是四空格（照 recorder 模板的排版缩进抄的），
+// 旧正则只认第 0 列，--check 各段报「现有 0 条」——那个项目是在本地把这份脚本改了才搬得动，补丁没回流。第 1 组是缩进，日期 / 状态 / 编号在后面几组。
 const DATE_RE = /^([ \t]*)- (\d{4}-\d{2}-\d{2})/;
 const TODO_RE = /^([ \t]*)-\s\[P\d+\]\[([^\]]*)\]\[#([^\]]+)\]/;
 const INDENT_RE = /^[ \t]*/;

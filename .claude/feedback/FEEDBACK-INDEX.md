@@ -99,3 +99,6 @@
 - ✅[已毕业] [规则连续打补丁，要先追根源止损](rule-patching-stop-and-fix-root.md) — 一条规则连续修订、不断冒出新边角状态时，先停下追根源（哪个设计让状态含义分叉），给止损方案并用一条不变量统一约束；不逐条补丁，也不是用户怎么说就怎么加规则
 - ✅[已毕业] [Sub-Agent 单项核查卡住：同一项最多试 5 轮，跳过并写 Not verified](subagent-stuck-item-cap-5-rounds.md) — 审查员为一项渲染截图核查耗满 60 轮上限、没交报告；用户「审查员跑满了 60 轮上限，什么玩意，3轮就要跳过」，随即改口「最多5轮」。Sub-Agent 单项核查卡住，同一项最多试 5 轮工具调用，没结果就跳过，记入回执 Not verified
 - ⏸[暂不成文] [机器所在地不从时区、用户名推；合规判断用到所在地先问](2026-11-08-no-location-guess-from-timezone.md) — 机器或人的所在地、所属法域不从时区、用户名、公司、网络配置推；数据驻留、合规判断用到所在地时，没确认过就先问或标明「推断」，不写进事实陈述和决策选项（本机在法国，时区设的是新加坡）
+- [免确认模式下后台子 Agent 卡在 rm 确认框上，没人知道](bash-var-rm-prompts-stall-background-agents.md) — 免确认模式下后台子 Agent 的 Bash 里带 shell 变量路径的 rm 仍弹确认，子 Agent 停下等人点，复核被拖 6 小时；用户「不都是危险模式了，还弹框」
+- [检查器结果只看结尾就下结论，少报了 19 条](read-full-checker-output-before-count.md) — 汇报 plan-lint 结果只看了输出结尾就说「两条」，实际 21 条；报任何检查器结果前要读完整输出并先数条数
+- [让用户敲 /release-builder 之前先自检](2026-11-08-self-check-before-asking-release.md) — 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲
