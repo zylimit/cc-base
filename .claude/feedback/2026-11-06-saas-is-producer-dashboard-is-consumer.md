@@ -3,7 +3,7 @@ type: feedback
 description: 用户说的「SaaS」指服务端角色（生产者），不是多租户商业形态；看板是消费者应用。听到产品形态词先问指角色还是商业模式；拆不拆项目先摆代价让用户选
 created: 2026-11-06
 updated: 2026-11-06
-graduated: false
+graduated: false  # 2026-11-22 裁定暂不成文（非未处理）：三次来回澄清、没有返工；「SaaS 是角色词」是这位用户的措辞习惯，product-spec-builder [复述理解] 已有复述机制。再撞一次且有代价再议
 origin: lutetia
 source_skill: product-spec-builder
 scope: 需求迭代阶段；主 Agent 接到带产品形态词（SaaS、平台、应用、看板、服务器）的指令时；任何「单开项目 / 拆仓 / 新建脚手架」这类结构性提议之前

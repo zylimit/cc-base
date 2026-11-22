@@ -4,6 +4,7 @@ description: 交 DigiFiber 导入文件时，每份文件的同一行写明在 D
 created: 2026-11-04
 updated: 2026-11-04
 graduated: false
+skipped: true  # 2026-11-22 裁定：数字光纤项目的产品操作口径，归项目 domain/，不进框架
 source_skill: N/A
 scope: 传统段还原所有 DigiFiber 导入文件的交付（汇报、提示词）与页面上写导入顺序的文字（progress.md Decisions 2026-11-04 条所定范围）
 exceptions: 未说明

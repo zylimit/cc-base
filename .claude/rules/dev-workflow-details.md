@@ -121,7 +121,7 @@ paths:
           · **MEDIUM**（50 到 300 行，或碰上述路径之一，或引新依赖）：implementer → code-reviewer 一轮只跑 Stage 0 + Stage 1（做对了没有）→ 只 HIGH 阻断，修完由同一轮复核一次即收口 → commit。
           · **HIGH**（> 300 行，或碰两类以上上述路径，或线上 bug / 数据迁移 / 安全相关）：implementer（派单传 `model: opus`）→ code-reviewer 全三 Stage → 有 HIGH 派修 + 同一轮复核 → tester 补关键逻辑测试（写测 ≠ 作者）→ commit。
         任何档的 Medium / Low finding 记进 progress.md 残留随后续 Task 顺手修，不开新一轮；回执带反例或报告含「❓ 需求存疑」则调 product-spec-builder 迭代模式（反例进 Spec 的规则与例外，签字后回流本链）。同一套流水线一律套全档是 2026-09-15 前的写法，被这张表取代：审一个小 diff 便宜，贵的是仪式。
-        所有 Task 完成 → Phase 四步走验证（dev-builder SKILL.md [Phase 完成度判断]；第 2 步「测试完整性」派 tester，重点看跨 Task 的导入关系、文件依赖、命名一致性；发现问题派 bug-fixer 修、`fix:` 提交、四步重来）→ 四态门收尾（PASS / CONCERNS / FAIL / WAIVED）→ 用户确认 Phase 完成 → 进入下一个 Phase，或提示可调用 /release-builder。
+        所有 Task 完成 → Phase 四步走验证（dev-builder SKILL.md [Phase 完成度判断]；第 2 步「测试完整性」派 tester，重点看跨 Task 的导入关系、文件依赖、命名一致性；发现问题派 bug-fixer 修、`fix:` 提交、四步重来）→ 四态门收尾（PASS / CONCERNS / FAIL / WAIVED，结论写回 DEV-PLAN 该 Phase 标题行）→ 交给用户三行加几步怎么点 → 用户确认 Phase 完成 → 进入下一个 Phase，或提示可调用 /release-builder。
         手动入口：用户调 /code-review → 派 code-reviewer 审一轮 → 报告给用户，由用户定修复范围；用户调 /bug-fixer 或报 bug → bug-fixer skill 修复 → 修完建议 /code-review 验证。用户可随时介入切手动模式。
 
     [发布阶段]
@@ -135,7 +135,7 @@ paths:
         输出："🚀 **项目已启动！** **访问地址**：http://localhost:[端口号] [根据 Product Spec 生成简要使用说明]"
 
     [内容修订]
-        当用户提出修改意见：调 product-spec-builder 迭代模式按其 [交互深度分档] 判档，确认档以上先问三件事（为什么改、原来哪条判断错了、影响哪些已确认条目）→ 成对更新 Product-Spec.md（标记与来源、澄清记录）与 Product-Spec-CHANGELOG.md（为什么改、原判断哪里错、影响）→ **用户签字闸**：复述改后那次会怎么发生，用户挑不出错即批准，直推档复述一句即过；没过复述不更新开发计划。
+        当用户提出修改意见：调 product-spec-builder 迭代模式按其 [交互深度分档] 判档，确认档以上先问三件事（为什么改、原来哪条判断错了、影响哪些已确认条目）→ 成对更新 Product-Spec.md（条目改成现行写法、标记与来源、澄清记录）与 Product-Spec-CHANGELOG.md（为什么改、原判断哪里错、影响、被换掉的旧文与用户原话）→ **用户签字闸**：复述改后那次会怎么发生，用户挑不出错即批准，直推档复述一句即过；没过复述不更新开发计划。
         签字后：调 dev-planner 迭代模式更新 DEV-PLAN.md（不存在则创建）并点明影响哪些 Phase / Task → 派 implementer 改码 → 走 [项目开发阶段] 同一条 review → fix 链 → 四步走验证 → 用户确认完成；之前已打包发布过的，提醒重新 /release-builder。
 
 [各 Skill 执行方式]
@@ -254,7 +254,7 @@ paths:
     [progress-recorder]
         **自动调用**：出现决策/约束/完成/新任务语言时立即触发（条件见 [项目记忆规则]）
         **手动调用**：/record /archive /recap-project，三条各有同名 skill 作入口；不带斜杠的 recap 仍可用，带斜杠的 /recap 是 Claude Code 自带命令、到不了框架
-        执行方式：record 派 progress-recorder sub-agent 执行，archive 主 Agent 跑 progress-archive.mjs（脚本不在才派 sub-agent 手工搬），recap-project 主 Agent 直接读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
+        执行方式：record 派 progress-recorder sub-agent 执行，回来后跑一次 `progress-archive.mjs --check`、过线接着搬；archive 主 Agent 跑 progress-archive.mjs 与 plan-archive.mjs（脚本不在才派 sub-agent 手工搬 progress）；recap-project 主 Agent 先跑 project-status.mjs（报了待归档先归档），再读 progress.md + Product-Spec.md + Product-Spec-CHANGELOG.md（只读 progress.md 不算恢复完成；三份存在即读，不存在的跳过不报错）
 
 [项目进度检测显示格式]
     显示格式：
@@ -264,6 +264,7 @@ paths:
         - Design Brief：[已生成/未生成/未创建]
         - DEV-PLAN：[已生成/未生成]
         - 项目代码：[已创建/未创建]
+        - 现在到哪：[`project-status.mjs` 的第一行原样；还没有 Spec 与 DEV-PLAN 时省略这一行]
         
         **当前阶段**：[阶段名称]
         **下一步**：[具体指令或操作]"

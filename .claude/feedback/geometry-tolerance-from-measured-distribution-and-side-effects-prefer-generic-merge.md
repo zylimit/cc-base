@@ -4,6 +4,7 @@ description: 给人画的图纸（竣工 / 设计 KMZ）定几何容差前先量
 created: 2026-11-03
 updated: 2026-11-03
 graduated: false
+skipped: true  # 2026-11-22 裁定：数字光纤项目的领域口径，归项目 domain/，不进框架；通用的「定数前先量分布」已由 CLAUDE.md 铁律 4「先实测」覆盖
 source_skill: N/A
 scope: 传统段还原引擎（人画竣工 / 设计 KMZ → 还原光缆网、出导入表）里一切靠距离、长度判断「接上 / 落在 / 重复 / 并入」的规则与常量：线头接线（END_ON_LINE_M）、盒子落线、重复线判定、站点出来的线头；给 implementer 派单时带门槛数字同样按这条
 exceptions: 用户与主 Agent 均未给例外（未说明）。下列三点是观察员的推断，未经用户确认：① 用户或规范直接给定数值的，按给定值办，不再自行量；② 本条只管「数据在、只是画得不准」的几何归并，「数据本来就没有」的补全（机房跳纤、OSU、盒子成端等）仍按 room-jumper-no-data-then-break-not-guess-and-explain-one-thing-at-a-time.md，没有数据就断，不借本条外推；③ 正文里的 5 米是 5 个机房量出来的结果，不是通用常量，换一批图纸要重量

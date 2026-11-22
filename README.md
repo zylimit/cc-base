@@ -34,7 +34,7 @@ pwsh cc-base/setup.ps1 -Target C:\path\to\project  # Windows
 - `harness/` —— 核心只剩 `harness.mjs` + `lib/{core,tier}.mjs` + `profile.json`（档位表）+ `exclusions.json` + `audit/`。大仓治理引擎在 `harness/ext/`，**默认不装**：`setup.sh --with-harness` / `setup.ps1 -WithHarness` 才装，装后放 `module-catalog.json` 才启用——见下方「大仓能力」
 - `skills/` —— 18 个工作流 Skill（product-spec / **arch-designer 架构设计** / **dfx-designer DFX 设计** / dev-planner / dev-builder / code-review / test-builder / bug-fixer / release-builder / red-blue-review / branch-finisher …）
 - `agents/` —— Sub-Agent 定义（implementer / code-reviewer / tester / deployer …）
-- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / collect-feedback 收下游 feedback / statusline 状态行）
+- `scripts/` —— 质量脚本（doctor 自检 / plan-lint / skill-lint / fast-mode 开关 / fix-platform / gen-manifest / gate-audit / collect-feedback 收下游 feedback / progress-archive 与 plan-archive 归档搬运 / project-status 现在到哪与活文档体积 / statusline 状态行）
 - `tests/` —— 框架自测（selftest / test-setup / test-routing / 闸回归 / cases，`run-all.sh` 统一跑）
 - `workflows/` —— Workflow 编排脚本（code-review-fanout.js，opt-in 多维审查）
 - `feedback/` —— 经验教训库 + 索引

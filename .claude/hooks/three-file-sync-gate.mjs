@@ -124,7 +124,7 @@ runFailClosed(async () => {
 
   if (c12 && codeDirty && !progDirty) {
     kinds.push('C1');
-    reasons.push(`三文件同步铁律：检测到未提交的代码/家底改动（如 ${firstCode}）但 progress.md 未同步。请把本轮的决策/完成事项/进度/新任务即时写入 progress.md（doc 类主 Agent 直接写），保证随时可 Clear→recap 完整恢复，然后重试停止。`);
+    reasons.push(`三文件同步铁律：检测到未提交的代码/家底改动（如 ${firstCode}）但 progress.md 未同步。把本轮的决策、完成、新任务各记一行进 progress.md（一条一行，证据写提交号或文件路径，过程不抄；doc 类主 Agent 直接写），然后重试停止。`);
   }
 
   // 成对校验只在两份都存在时进行，缺一不强造、不拦停。

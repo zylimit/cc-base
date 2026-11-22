@@ -10,12 +10,15 @@ paths:
 [文件结构]
     project/
     ├── Product-Spec.md                    # 产品需求文档
-    ├── Product-Spec-CHANGELOG.md          # 需求变更记录
+    ├── Product-Spec-CHANGELOG.md          # 需求变更记录（被换掉的旧文与用户原话只在这里留一份）
     ├── Architecture-Design.md             # 架构设计文档（可选，M/L 档项目）
     ├── DFX-Spec.md                        # DFX 质量属性设计（可选，与架构设计配套）
     ├── Design-Brief.md                    # 设计规范文档（可选，体验脊柱：信息架构 / 页面规格 / 八态 / 文案 / 可访问性）
     ├── DESIGN.md                          # 视觉 token 与规则（可选，与 Design-Brief 配套，Google design.md 规范，代码直接读 token）
     ├── DEV-PLAN.md                        # 分阶段开发计划
+    ├── DEV-PLAN.archive.md                # 做完的 Phase 原文（攒多了由 plan-archive.mjs 搬来，原文件留指针；搬过才有）
+    ├── progress.md                        # 项目记忆：Pinned / Decisions / TODO / 断点 / Done，只留仍在生效的
+    ├── progress.archive.md                # 过线的决策与完成原文（progress-archive.mjs 搬来；搬过才有，recap 不读）
     ├── domain/                            # 领域口径库（可选，副产品；一域一文件，见 .claude/rules/domain-rulings.md）
     ├── docs/design/                       # 设计详述（可选，一个复杂模块一份 <模块名>-设计.md：规则编号 + 代码位置 + 常量 + 测试，见 .claude/rules/design-detail.md）
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
@@ -41,7 +44,7 @@ paths:
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / collect-feedback 收下游 feedback / progress-archive 归档搬运 / design-trace 设计详述规则 ↔ 测试 ↔ 常量核对 / statusline 状态行 / supervisor 进程守护）
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / collect-feedback 收下游 feedback / progress-archive 归档搬运 / plan-archive 做完的 Phase 归档 / project-status 现在到哪与活文档体积 / design-trace 设计详述规则 ↔ 测试 ↔ 常量核对 / statusline 状态行 / supervisor 进程守护）
         ├── tests/                         # 框架自测三十来套（selftest 引擎自测 / 安装器与跨平台 / hook 行为与注册面 / 档位 / 闸与证据层红锁 / 审计脚本 / 发布装配 / 前期文档闸与设计稿审计），每套头一行标 `# risk:`，cases/run-all.sh 统一跑（默认 high，`--level all` 跑全）——清单以目录实际内容为准，不在本文件逐个列
         └── skills/
             ├── product-spec-builder/      # 需求收集

@@ -4,6 +4,7 @@ description: 给人看的问题说明先讲人话故事、一张图只画一件�
 created: 2026-11-01
 updated: 2026-11-01
 graduated: false
+skipped: true  # 2026-11-22 裁定：换词对照（成端 / 熔接）是光纤领域口径，归项目 domain/，不进框架
 source_skill: N/A
 scope: 给不信任数据的相关方 / 非技术读者看的问题说明、矛盾手册、核查说明类产物（含 T0511 矛盾手册）
 exceptions: 受众明确是工程师自己、且用户要的是字段级明细表时，术语可放明细层；未说明其它例外

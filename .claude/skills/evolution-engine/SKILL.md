@@ -66,6 +66,7 @@ agent: evolution-runner
     - Skill 优化 → 修改对应 SKILL.md
     - 新 Skill → 调用 skill-builder 创建
     - 跳过 → 标记 skipped: true，不再重复提议
+    - 索引同步：FEEDBACK-INDEX.md 里毕业的行首加 `✅[已毕业] `、跳过的加 `⏭[已跳过] `、暂不成文的加 `⏸[暂不成文] `；三种前缀 check-evolution 都计总数不计待处理，开场那句「N 条待处理」只数还没裁过的
 
 [返回格式]
     返回给主 Agent：
