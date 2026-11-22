@@ -24,7 +24,7 @@ C4Context
   System(gen, "人读文档生成器", "从来源生成并核对工程文档")
   System_Ext(src, "项目来源", "Product-Spec.md、代码、建表定义、测试、设计文档")
   System_Ext(pages, "人读文档页面", "随项目仓入库的静态网页")
-  Rel(maint, gen, "跑 build / check / todo / note")
+  Rel(maint, gen, "跑 build / check / pending / note")
   Rel(gen, src, "只读")
   Rel(gen, pages, "生成")
   Rel(reader, pages, "阅读")
@@ -37,10 +37,10 @@ C4Context
 | sources | 把一种来源读成实体，每种来源一个取事实器：Markdown 切块、建表定义、代码扫描、测试扫描 | `extract(配置) → 实体` | model | links、notes、render、check | 来源的写法变了、要支持新语言或新格式 | high | 无 |
 | model | 文档模型：实体、关联、指纹、锚点的定义与归一 | 数据形状 | — | 其余全部 | 文档要多讲一类东西 | high | 无 |
 | links | 把实体连成关联图，每条边带出处档位 | `link(实体, 项目判断) → 关联图` | model | render、check | 关联的推法变了 | high | 无 |
-| notes | 侧车的唯一读写者：项目配置、项目判断、AI 写的说明；给说明盖指纹，判现行、待更新、孤儿 | `bind(模型) → 带说明的模型 + 待办清单`；`put / confirm` | model | sources、render | 说明的存法或绑定规则变了 | high | 无 |
+| notes | 读项目配置与项目判断；说明的唯一写入者：给说明盖指纹，判现行、待更新、孤儿 | `bind(模型) → 带说明的模型 + 待办清单`；`put / confirm / drop` | model | sources、render | 说明的存法或绑定规则变了 | high | 无 |
 | render | 把带说明的模型出成页面 | `render(模型) → 临时目录` | model | sources、notes 的内部 | 版式与切分方式变了 | medium | 无 |
 | check | 重新取事实，再从产出的页面里反读内容，两边比对出不一致清单 | `check(根) → 不一致清单` | sources、model、notes | render 的任何中间结果 | 「一致」的定义变了 | high | 无 |
-| cli | 一个入口串起各段 | `init` / `build` / `check` / `todo` / `note put` / `note confirm` | 全部 | — | 用法变了 | low | 无 |
+| cli | 一个入口串起各段 | `init` / `build` / `check` / `pending` / `note put` / `note confirm` | 全部 | — | 用法变了 | low | 无 |
 
 - **容器图（C4 L2，图即规则：谁可依赖谁）**：
 
@@ -65,7 +65,7 @@ C4Container
   Rel(notes, model, "读")
   Rel(render, model, "读")
   Rel(check, model, "读")
-  Rel(notes, sidecar, "唯一读写者")
+  Rel(notes, sidecar, "读配置与项目判断，说明只有它写")
   Rel(render, out, "唯一写入者")
 ```
 
@@ -73,7 +73,7 @@ C4Container
 
 - **分层**（外 → 内，依赖只许向内）：cli → sources / links / notes / render / check → model
 - **禁边**：render ✗→ sources（页面只认模型）；check ✗→ render 的中间结果（核对器自己重新取事实、自己从页面反读，否则渲染器吞了字它看不见）；sources ✗→ notes（事实不许掺 AI 的话）；任何模块 ✗→ 写来源文件
-- **数据所有权**：`docs/readable/` 只有 render 写，先写临时目录、核对通过再整目录替换；`docs/readable-src/` 只有 notes 写——说明的正文由 AI 交给 `note put`，指纹由命令按当前来源盖上，AI 碰不到指纹；来源文件生成器永不写
+- **数据所有权**：`docs/readable/` 只有 render 写，先写临时目录、核对通过再整目录替换；`docs/readable-src/notes/` 只有 notes 写——说明的正文由 AI 交给 `note put`，指纹由命令按当前来源盖上，AI 碰不到指纹；同目录下的 `config.json` 与 `map.json` 是人和 AI 直接编辑的配置，生成器只读、只校验；来源文件生成器永不写
 
 ## 4. 一致性约定
 
@@ -95,7 +95,7 @@ C4Container
 ## 6. 关键场景走查
 
 ### 场景 1：AI 改了一条需求和两张表之后（规格 FLOW-2）
-build 重新取事实：那条需求的指纹变了，两张表的指纹变了。notes 发现挂在这两张表上的说明指纹对不上，列进待办；render 把新的字段表与需求原文写进页面，旧说明带「待更新」横条。`todo` 把待办连同每项的上下文交给 AI，AI 重写两段说明，经 `note put` 落盘、由命令盖上新指纹。再 build，横条消失；check 报不一致 0 条。
+build 重新取事实：那条需求的指纹变了，两张表的指纹变了。notes 发现挂在这两张表上的说明指纹对不上，列进待办；render 把新的字段表与需求原文写进页面，旧说明带「待更新」横条。`pending` 把待办连同每项的上下文交给 AI，AI 重写两段说明，经 `note put` 落盘、由命令盖上新指纹。再 build，横条消失；check 报不一致 0 条。
 
 ```mermaid
 sequenceDiagram
@@ -113,7 +113,7 @@ sequenceDiagram
   C->>R: 出页面到临时目录
   C->>K: 核对临时目录
   K-->>C: 通过，替换 docs/readable/
-  M->>C: todo
+  M->>C: pending
   C-->>M: 待办清单与上下文
   M->>C: note put（两段说明的正文）
   C->>N: 盖指纹并落盘
@@ -128,7 +128,7 @@ sources 把 Product-Spec.md 切成块：标题、顶层列表项连同续行与�
 render 写的是临时目录；写完由 check 核临时目录，通过才替换 `docs/readable/`。任何一步出错，临时目录丢弃，读者看到的仍是上一版，命令退出码非 0 并说明错在哪一份。
 
 ### 场景 4：建表定义里有静态读不出的部分
-conflation 的 schema.sql 有 78 条 CREATE、105 条 ADD COLUMN，另有 10 处 `DO $$` 块在运行时改约束。取事实器把 CREATE 与 ALTER 合并出现行结构；`DO $$` 块合并不了，就在数据库设计的页面上列出「这几处定义要到库里才生效，文档未包含」并带行号，不装作完整。
+conflation 的 schema.sql 有 77 条 CREATE、117 条 ADD COLUMN，另有 17 个 `DO $$` 块，其中 16 个在运行时改表结构（2026-11-23 实数）。取事实器把 CREATE 与 ALTER 合并出现行结构；`DO $$` 块合并不了，就在数据库设计的页面上列出「这几处定义要到库里才生效，文档未包含」并带行号，不装作完整。
 
 ## 7. 运行与部署包络
 
@@ -229,7 +229,7 @@ conflation 的 schema.sql 有 78 条 CREATE、105 条 ADD COLUMN，另有 10 处
 | 「谁写谁读」从字符串里的 SQL 推出；conflation 有 8 处动态拼出的表名推不到 | ADR-4 | 页面列出「未解析」清单；由项目判断补归属 |
 | 指纹粒度定错：绑整个文件会天天全标「待更新」，绑得过细说明数量爆 | §4 | 小样上数一周内被标过期的说明条数，过多就调规范形 |
 | 关系图自动排布容易超支 | §5 | 每组最多 12 张表，简单分层排布，不追求好看 |
-| 首批说明量大：conflation 约一百张表、几十个模块 | ADR-2 | `todo` 每项只给约 4KB 上下文、按页分批；外键列的含义机械给出不交给 AI |
+| 首批说明量大：conflation 约一百张表、几十个模块 | ADR-2 | `pending` 每项只给约 4KB 上下文、按页分批；外键列的含义机械给出不交给 AI |
 | 交接后侧车不再更新 | ADR-2、规格 OUT-1 | 用户已定不管 |
 | 生成物入库增大仓库、带来差异噪音 | ADR-3 | 见 ADR-3 的 revisit-if |
 
