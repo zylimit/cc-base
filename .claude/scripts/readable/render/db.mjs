@@ -5,14 +5,13 @@
 import { cmp } from '../model.mjs';
 import { esc, code, at, origin, judged, fileSlug, page, table, diagram, LEGEND, DIAGRAM_MAX } from './layout.mjs';
 import { DOC, tableFile, tLink, crumbs, title, outRefs, erNode, tablePage } from './db-table.mjs';
+import { noteSection, firstPara, staleMark } from './note.mjs';
+import { scrub } from './db-scrub.mjs';
+import { REDACTED } from '../sensitive.mjs';
 
 export { tableFile };
 export const GROUP_MAX = DIAGRAM_MAX; // 契约 C 节：一组超过 12 张表的切成几页，每页的关系图最多 12 张表
-// 契约 C 节「不带出去的东西」：第一期原样照出，只在 db/index.html 顶上警告，隐不隐去待用户裁定。
-const LEAKS = [
-  ['内网地址', /\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b/g],
-  ['疑似密钥', /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}|\b(?:password|passwd|secret|api[_-]?key|access[_-]?key|token)\s*[:=]\s*['"]?[^\s'",;)]{6,}/gi],
-];
+export const GROUP_DIAGRAM_MAX = 20; // 契约 F 节：组超过 20 个就不画分组关系图，只留清单
 
 // 分组在文档模型里只有一份 groups（契约 F 节），成员以它为准；这里只管怎么切页：
 // 超过 12 张的按组内顺序（模型里已按表名排好）均分成几页（15 张 → 8 + 7），免得最后一页只剩一两张；文件名 g-<组 id>，切页的接 -1、-2。
@@ -36,6 +35,14 @@ const firstSentence = (s) => {
 };
 // 组名后面的档位：项目判断的组标「AI 提议」/「人已确认」，按前缀分出来的（default）不标。
 const withStatus = (html, status) => (judged(status) ? `${html} ${judged(status)}` : html);
+// 清单里每张表那一行（契约 G 节「页面」）：有表说明用它的第一段、标「说明」（过期的另标「待更新」），没有用来源里的表注释，都没有留空。
+const purpose = (name, ctx) => {
+  const t = ctx.tables.get(name), n = t && ctx.notes[t.anchor];
+  if (n) return `${firstPara(n.text)} ${origin('note')}${staleMark(n)}`;
+  return t?.comment ? `${esc(firstSentence(t.comment))} ${origin('comment')}` : '';
+};
+// 清单页与组页里一组一张的小表，各栏定宽，几张表的列对得齐（契约 C 节「读得全」）。
+const LIST_W = ['32%', null], GROUP_W = ['26%', '56px', '24%', '76px', null];
 
 function index(model, cfg) {
   const tables = new Map(model.tables.map((t) => [t.name, t]));
@@ -52,7 +59,8 @@ function index(model, cfg) {
   for (const list of inc.values()) list.sort((a, b) => cmp(a.from, b.from) || cmp(a.cols.join(','), b.cols.join(',')));
   // 没归属的运行时表名：表页上「没有找到写（读）这张表的代码」后面补一句「另有 N 处……见清单」（契约 F 节）。
   const dynamicOpen = model.dynamic.filter((d) => !d.assigned).length;
-  return { cfg, tables, pages, groupOf, out, inc, unfoldedBy, usage: model.usage, dynamicOpen };
+  // 说明：取事实那边还没并进 notes 时没有这个键，按「全都没写」出。
+  return { cfg, tables, pages, groupOf, out, inc, unfoldedBy, usage: model.usage, dynamicOpen, notes: model.notes || {} };
 }
 
 function groupPage(g, ctx) {
@@ -68,41 +76,67 @@ function groupPage(g, ctx) {
         : `表名都以 <code>${esc(g.grp.id)}_</code> 开头。`;
   const rows = g.tables.map((n) => {
     const t = ctx.tables.get(n), to = [...new Set(ctx.out.get(n).map((r) => r.to))].sort(cmp), ins = new Set((ctx.inc.get(n) || []).map((r) => r.from));
-    return [tLink(n, ctx), String(t.columns.length), to.map((x) => tLink(x, ctx)).join(', '), ins.size ? `<span class="nw">${ins.size} 张表</span>` : '', esc(firstSentence(t.comment))];
+    return [tLink(n, ctx, true), String(t.columns.length), to.map((x) => tLink(x, ctx, true)).join(', '), ins.size ? `<span class="nw">${ins.size} 张表</span>` : '', purpose(n, ctx)];
   });
   const body = [
     `<h1>${withStatus(esc(g.label), g.status)}</h1>`,
     `<p class="lead">${DOC}的一个分组，${g.tables.length} 张表。${why}</p>`,
     parts,
+    noteSection(`group:${g.grp.id}`, ctx.notes[`group:${g.grp.id}`]),
     `<h2>关系图 ${origin('fact')}</h2>`,
     nodes.length
       ? '<p class="muted">一个方框是一张表，写主键（PK）与外键（FK）列，每条外键后面写着「→ 被引用的表」；被引用的表也在这一页的，另画一条连线，箭头指向它。点方框看那张表。</p>\n'
         + `<div class="scroll">${diagram(nodes, `${g.label} 组的关系图`)}</div>`
       : '<p class="muted">这一组没有表。</p>',
     `<h2>组内各表 ${origin('fact')}</h2>`,
-    table(['表', '列数', '它引用了', '被引用', `注释的第一句 ${origin('comment')}`], rows),
+    table(['表', '列数', '它引用了', '被引用', '一句话用途'], rows, GROUP_W),
   ].filter(Boolean).join('\n');
   return { path: `db/${g.file}`, html: page({ title: title(ctx, g.label), depth: 1, crumbs: crumbs([g.label]), body }) };
 }
 
-// 页面上会出现的文字里，形如内网地址或密钥的字样（契约 C 节）。只扫模型与配置，不回头读来源文件。
-function leaks(model, cfg) {
-  const hits = [], seen = new Set();
-  const scan = (where, v) => {
-    if (typeof v === 'string') {
-      for (const [kind, re] of LEAKS) for (const m of v.matchAll(re)) {
-        const k = `${where}\u0000${m[0]}`;
-        if (!seen.has(k)) { seen.add(k); hits.push([esc(where), esc(kind), code(m[0])]); }
-      }
-    } else if (Array.isArray(v)) v.forEach((x) => scan(where, x));
-    else if (v && typeof v === 'object') for (const k of Object.keys(v).sort(cmp)) scan(where, v[k]);
-  };
-  scan('配置', cfg);
-  for (const t of model.tables) scan(`表 ${t.name}`, t);
-  for (const v of model.views) scan(`视图 ${v.name}`, v);
-  for (const f of model.functions) scan(`函数 ${f.name}`, f);
-  for (const key of ['unfolded', 'unparsed', 'conflicts', 'orphanAlters', 'dynamic']) for (const x of model[key]) scan(`${x.file ?? ''} 第 ${x.line ?? '?'} 行`, x);
-  return hits;
+// 分组关系图（契约 F 节「页面」）：接手的人先要看到整个库分成哪几块、块与块怎么连，然后才是一张张表。
+// 一个方框一个组，写组名与表数，点方框到那一组（切了页的到第一页）；两组之间有外键的画一条线，线上写几条外键，
+// 箭头指向被引用的那一组；组内的外键不画。一张表恰在一组（links 保证），引用了建表定义里没有的表的外键不算。
+function groupDiagram(model, ctx) {
+  const gs = model.groups;
+  if (gs.length > GROUP_DIAGRAM_MAX) return `<p class="muted">共 ${gs.length} 个组，超过 ${GROUP_DIAGRAM_MAX} 个不画分组关系图，只留下面的清单。</p>`;
+  if (gs.length < 2) return '';
+  const home = new Map(), count = new Map(gs.map((g) => [g.id, new Map()]));
+  for (const g of gs) for (const n of g.tables) if (!home.has(n)) home.set(n, g.id);
+  for (const t of model.tables) for (const r of ctx.out.get(t.name)) {
+    const a = home.get(r.from), b = home.get(r.to);
+    if (a && b && a !== b) count.get(a).set(b, (count.get(a).get(b) || 0) + 1);
+  }
+  const first = new Map(ctx.pages.filter((p) => p.part === 1).map((p) => [p.grp.id, p.file]));
+  // 枢纽：被一半以上的组引用的那一组（契约 F 节）。几乎每个组都连着它，线画出来只是一捆，盖住别的组之间怎么连；
+  // 指向它的线不画，改在图下用一句话写明谁引用了它、各几条。方框照旧画。
+  const hubs = gs.filter((g) => gs.filter((o) => count.get(o.id).has(g.id)).length * 2 > gs.length);
+  const hubIds = new Set(hubs.map((g) => g.id));
+  const nodes = gs.map((g) => {
+    const to = [...count.get(g.id).keys()].filter((b) => !hubIds.has(b)).sort(cmp);
+    const lines = [`${g.tables.length} 张表`];
+    if (hubIds.has(g.id)) lines.push('几乎每个组都引用');
+    return { name: g.id, label: g.title, href: first.get(g.id), lines, parents: to, counts: Object.fromEntries(to.map((b) => [b, count.get(g.id).get(b)])) };
+  });
+  const gLink = (g) => `<a href="${esc(first.get(g.id))}">${esc(g.title)}</a>`;
+  const hubNotes = hubs.map((h) => {
+    const who = gs.filter((o) => count.get(o.id).has(h.id)).map((o) => `${gLink(o)}（${count.get(o.id).get(h.id)} 条）`);
+    return `<p>这些组都引用 ${gLink(h)}：${who.join('、')}。指向它的线没画。</p>`;
+  });
+  return [
+    `<h2>分组关系图 ${origin('fact')}</h2>`,
+    '<p class="muted">一个方框是一组，写组名与表数；两组之间有外键的画一条线，线上的数是几条外键，箭头指向被引用的那一组。组内的外键不画。点方框看那一组。</p>',
+    `<div class="scroll">${diagram(nodes, `${DOC}的分组关系图`, GROUP_DIAGRAM_MAX)}</div>`,
+    ...hubNotes,
+  ].join('\n');
+}
+
+// 隐去了几处、各在哪（契约 G 节「不带出去的东西」）：只写位置与哪一项，不写原文。
+function redactions(hits) {
+  if (!hits.length) return '';
+  const n = hits.reduce((s, h) => s + h.n, 0);
+  const rows = hits.map((h) => [h.anchor ? `说明 ${code(h.anchor)}` : at(h.file, h.line), esc(h.what), String(h.n)]);
+  return `<div class="notice" role="note"><p>隐去了 ${n} 处：来源或说明里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['在哪', '哪一项', '处数'], rows, ['34%', null, '64px'])}</div>`;
 }
 
 // 建表定义的四张问题清单形状不尽相同，按已知的键出列，其余简单值并进「原因」，不丢。
@@ -139,10 +173,6 @@ const CODE_LISTS = [
 function indexPage(model, ctx) {
   const ncol = model.tables.reduce((s, t) => s + t.columns.length, 0), nidx = model.tables.reduce((s, t) => s + t.indexes.length, 0);
   const extra = [`${model.views.length} 个视图`, `${model.functions.length} 个数据库函数`];
-  const hits = leaks(model, ctx.cfg);
-  const warn = hits.length
-    ? `<div class="notice" role="note"><p>来源与配置里有 ${hits.length} 处形如内网地址或密钥的字样，下面的页面原样照出了；要不要隐去还没定。</p>\n${table(['在哪', '像什么', '字样'], hits)}</div>`
-    : '';
   const judgedGroups = model.groups.some((g) => g.status !== 'default' || g.id === '_ungrouped');
   const basis = judgedGroups
     ? '按项目判断（<code>docs/readable-src/map.json</code>）分组，组名后面标着是谁的判断；没被收进任何组的表在「未分组」。一组超过 12 张的按名字顺序分成几页。每组一页，有关系图。'
@@ -151,14 +181,16 @@ function indexPage(model, ctx) {
     const pgs = ctx.pages.filter((p) => p.grp === grp);
     const split = pgs.length > 1 ? `<p class="muted">分成 ${pgs.length} 页：${pgs.map((p) => `<a href="${p.file}">${esc(p.label)}</a>`).join('、')}</p>\n` : '';
     return `<h3>${withStatus(`<a href="${pgs[0].file}">${esc(grp.title)}</a>`, grp.status)} <span class="muted">${grp.tables.length} 张表</span></h3>\n${split}`
-      + table(['表', `注释的第一句 ${origin('comment')}`], grp.tables.map((n) => [tLink(n, ctx), esc(firstSentence(ctx.tables.get(n)?.comment))]));
+      + table(['表', '一句话用途'], grp.tables.map((n) => [tLink(n, ctx, true), purpose(n, ctx)]), LIST_W);
   });
   const objs = (list, label, none, head, row) => `<h2>${label} ${origin('fact')}</h2>\n${list.length ? table(head, list.map(row)) : `<p class="muted">${none}</p>`}`;
   const body = [
-    warn,
+    redactions(ctx.hits),
     `<h1>${DOC}</h1>`,
     `<p>来源（按执行顺序）：${ctx.cfg.ddl.map(code).join('、')} ${origin('fact')}</p>`,
     `<p class="lead">${[`${model.tables.length} 张表`, `${ncol} 列`, `${nidx} 个索引`, ...extra].join('、')}。一张表一页，下面先分组列出。</p>`,
+    noteSection('doc:db', ctx.notes['doc:db']),
+    groupDiagram(model, ctx),
     `<h2>分组${judgedGroups ? '' : ` ${origin('fact')}`}</h2>`, // 项目判断的组各自在组名后面标档位
     `<p class="muted">${basis}</p>`,
     ...groups,
@@ -176,8 +208,10 @@ function indexPage(model, ctx) {
 }
 
 // 入口：模型 → 数据库设计的全部页面，外加首页上那一条目录项。stats 给命令行报数用。
-export function renderDb(model, cfg) {
-  const ctx = index(model, cfg);
+// 各页用隐去过的模型副本（db-scrub.mjs），传进来的模型不动。
+export function renderDb(source, cfg) {
+  const { model, hits } = scrub(source);
+  const ctx = { ...index(model, cfg), hits };
   const files = [indexPage(model, ctx), ...ctx.pages.map((g) => groupPage(g, ctx)), ...model.tables.map((t) => tablePage(t, ctx))];
   return {
     entry: { href: 'db/index.html', label: DOC, summary: `${model.tables.length} 张表，分成 ${model.groups.length} 组` },

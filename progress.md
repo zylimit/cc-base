@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-11-22_
+_Last updated: 2026-11-23_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -21,6 +21,7 @@ _Last updated: 2026-11-22_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-11-23: [#140] 人读文档第一期 Task 1.1–1.3 入库：建表定义的取事实器、数据库页面、谁写谁读与按项目判断分组（evidence：`2a7dac4`、`7051ef9`；三套契约测试 56 条通过，run-all rc 0；下游副本实测 79 张表、写 293 处读 1215 处、抽 10 张表对照无漏报）
 - 2026-11-22: [#140] 人读文档的规格 v1.0 与架构稿写成：11 条需求、四条 ADR，并入了第二个模型独立出的骨架；规格复述已过，架构待用户批准（evidence：`docs/readable-spec/Product-Spec.md`、`docs/readable-spec/Architecture-Design.md`；spec-lint、predev-lint、adr-check 均 rc 0）
 - 2026-11-22: [#141] 发版前自检三项毕业进 dev-workflow-details.md [发布阶段]（evidence：feedback `2026-11-08-self-check-before-asking-release.md`，用户同日「毕业进框架」）
 - 2026-11-22: [#131] 三台远程机器上在用的项目装到 e8d15e9：rog-ts 的 OFR-ARIANE、ai-ts 的 digifiber-conflation（补对 tdd-gate matcher）、mac-ts 的 lutetia；lutetia 归档已提交推送并在 mac-ts 拉到（evidence：lutetia 1c01bed；各机 doctor 与 project-status 输出，主 Agent 亲跑）
@@ -48,9 +49,8 @@ _Last updated: 2026-11-22_
 - 2026-10-30: **下游实战回流整批落地（分支 `feat/downstream-feedback-loop-and-gate-noise`，待合 main）**：[#87][#91] 随批收口。① `scripts/collect-feedback.sh` + 测试 23/0 + setup.sh / setup.ps1 的 FEEDBACK-INDEX 改 create-only（#87）；② `hooks/lib/advise-dedup.mjs` + three-file-sync-gate / tdd-gate 去重 + tdd 关键词门 + harness-async-verify 每 session 一次 + session-rules-banner sticky 文案；③ `tier set fast --sticky` 写侧 / 读侧 / harness.mjs flag / fast-mode.sh|ps1 / statusline（#91）；④ progress-archive 的 Pinned 超 15 告警；⑤ product-spec-builder / dev-builder / evolution-engine / progress-recorder / dev-planner 五个 SKILL + CLAUDE.md + EVOLUTION.md + rules/file-structure + harness-large-repo + docs/guide 03 / 05 / 06 / 08 / 09 / 13 / 14 / 15 + README + ARCHITECTURE 同步；⑥ 首批收三个下游 24 条 feedback（same=11 跨项目同文件）。证据：test-collect-feedback 23/0、test-hooks-node 全过（新增 TD-6..10 / TS1-4 / AV-2 / SB-2 / CE-2）、test-three-file-sync-gate 24/0、test-tier 9/0、test-tier-hardening 6/0、test-fast-mode 3/0、test-progress-archive 29/0、test-setup / test-distribution 27/0、static-check 绿、tier validate ok、doctor 151 条清单一致、selftest 141、`run-all --level all` rc 0；code-reviewer 轻核报 2 HIGH（CRLF 双 frontmatter、模板行内注释当值）+ Stage 0 红（SC2046），修后同一审查者复核「全修对、无新 HIGH」；真实下游 dry-run 幂等 new=0 updated=0 same=35。残留见 TODO #97 至 #103。
 - 2026-10-20: **补「设计详述」这一层文档：模块算法规则一条一编号、带代码位置与测试，代码改了文档没跟上机器查得出**——新增 `.claude/rules/design-detail.md`（定位、与 domain/ 口径库的边界、文档结构、六个必填字段、核对脚本契约、流程接线）、`arch-designer/templates/design-detail-template.md`、`.claude/scripts/design-trace.mjs`（三类缺口 + 结构缺口；rc 0 全对 / 1 有缺口 / 2 用法错 / 3 内部错误）；three-file-sync-gate 加设计详述同步分支，档位单列 `design-detail-sync`（fast / standard 提醒、strict 拦），子闸经 harness/lib/tier.mjs 的 SUB_GATES 随宿主登记；接线只增量：CLAUDE.md 一行指针 + 铁律 6 与 [档位] 各补半句、file-structure 目录树、架构模板模块表加「设计详述」列、派单 Business Context 抄规则编号、implementer 回执新增 Design rules 栏、dev-builder 四步走第二步与 release-builder 检查清单跑 design-trace（rc 1 记 CONCERNS）、code-review Stage 1 加设计详述核对、progress-recorder 只留指针、guide 05 / 09。过程：implementer（sonnet）写脚本与闸 → tester 另一实例写测（test-design-trace.sh 42 条 risk high；test-three-file-sync-gate.sh 15→20 条）→ opus 审查 4 HIGH（标题换写法整条规则消失、实现代码里的标签抹掉无测试缺口、注释旧值盖住常量漂移、代码范围写目录 / 反斜杠闸永久静默）全修，同一实例复核收口，复核报的 Python 三引号误报顺手修。证据见本次提交的自测输出。
 - 2026-10-19: **给同级目录 digifiber-conflation 装框架（全新安装）**——target 是干净 clone，`.claude/` 已被其 .gitignore 排除（本机迭代不进产品仓），所以没有存量家底。先 `setup.sh -mac --dry-run` 得 create=148 / update=0 / conflict=0，再正式装：hooks=22、skills=64，默认包（未带 --with-tests / --with-harness）。evidence：目标侧 doctor rc 0「通过（有告警）」，唯一告警是 harness ext/ 未装（默认如此）；FRAMEWORK-MANIFEST 145 条 SHA 一致；`tier validate` rc 0、档位 standard；目标仓 `git status` 干净。githooks 没装（与本仓一致，按需跑 `.claude/scripts/install-githooks.sh`）。顺带发现：setup.sh 拒绝含 `..` 的相对 target，要传绝对路径。
-- 2026-10-19: **修 shell 脚本里「`$变量` 紧跟中文全角标点」的展开 bug**——现象：macOS 上的 bash 会把全角字符的首字节吃进变量名；开了 `set -u` 的脚本当场崩（如 `doctor.sh:191` 报 `claude_ver�: unbound variable`），没开的把变量静默展开成空。修法：35 个 .sh 共 178 处统一改成 `${变量}`，同时重生成 `FRAMEWORK-MANIFEST.txt`。evidence：doctor 通过（rc 0）、`gen-manifest --check` 一致、35 个文件 `bash -n` 全过、diff 经脚本核对只有加花括号；`test-audit-scripts` 由崩溃变为 12 过 1 败（那 1 败见 TODO #95）。
 （2026-08-16 及更早的 Done 条目（v1.0.x~v1.10.0），以及 2026-09-01～2026-09-03 期间的 21 条 Done 条目，2026-09-19 再搬 2026-09-03 当日的 14 条、同日晚再搬 2026-09-04 的 1 条，已归档到 progress.archive.md；正文保留最近 50 条）
-（归档指针：累计搬出 68 条，最近一次 2026-11-22 搬 1 条；原文见 progress.archive.md「Archived Done」）
+（归档指针：累计搬出 69 条，最近一次 2026-11-23 搬 1 条；原文见 progress.archive.md「Archived Done」）
 
 ## Decisions
 - 2026-11-23: **人读文档的页面不写生成时间，只标来源内容的指纹。**依据：生成物入库，同样的来源必须生成同样的文件，否则每次重出都是一批没有内容的差异；实测两次生成总哈希相同。适用范围：人读文档的全部页面。取代：规格「数据与权限」表原写的「对应的来源版本与生成时间」（已改，澄清记录有一行）。主 Agent 决定，用户可否决。
@@ -92,7 +92,7 @@ _Last updated: 2026-11-22_
 
 ## 当前断点
 
-**断点（2026-11-23）**：人读文档第一期（数据库设计）开发中。Task 1.1 取事实器与 1.2 数据库页面已实现、主 Agent 亲跑亲看（下游副本 77 张表 94 页，两次生成总哈希相同，注入失败原目录不变）；看页面与真数据后契约 B、C 两节有修订，取事实器正按修订改三处、测试同步，未提交。下一步：两单回来后亲跑全量回归再提交 → Task 1.3 谁写谁读与按业务分组（契约 F 节）→ 1.4 说明与指纹（G 节）→ 1.5 核对器 → 整期一轮 code-review。小样工作区在仓外 `~/readable-samples/conflation`（源码副本加配置与分组提议，不入任何仓）。等用户裁的两件：一字不丢与不出内网地址的冲突、先给哪些模块补设计详述。
+**断点（2026-11-23）**：人读文档第一期（数据库设计）开发中。Task 1.1 取事实器、1.2 数据库页面、1.3 谁写谁读与按项目判断分组已入库推送（`2a7dac4`、`7051ef9`），主 Agent 亲跑亲看。Task 1.4 说明的落盘与指纹（契约 G 节）拆成落盘命令与页面显示两单在做，测试同步，未提交。下一步：1.4 验收入库 → 给小样的一个分组把说明写全，出一份完整样页请用户看 → 1.5 核对器（契约 H 节）→ 整期一轮 code-review → 写 skill 与使用指南。小样工作区在仓外 `~/readable-samples/conflation`（源码副本加配置、分组提议与运行时表名的归属，不入任何仓）。等用户裁的两件：一字不丢与不出内网地址的冲突、先给哪些模块补设计详述。
 
 ## TODO
 - [P2][OPEN][#129] **setup.sh merge_settings 不同步已有框架 hook 的 matcher / args，dry-run 却报 settings.json update**（2026-11-06）：jq merge 按 hook 名去重，只追加目标没有的 hook；已装过的 tdd-gate 在 d9d9fdf 把 matcher 改成 `Agent|Task`，升级到 digifiber-conflation 时被当成已存在跳过，装后 settings.json 与升级前一字不差，而 dry-run 只按文件内容比、报的是 update——计划与实际对不上。影响：老项目切 Cursor 后 tdd-gate 匹配不到 Task，静默失效；以后模板里任何已有 hook 的 matcher / args 改动都到不了老项目。修法方向：已有框架条目（按 hook 名认出的）把 matcher 同步成模板值，用户自定义条目不动；dry-run 的 update / skip 按合并结果判；setup.ps1 对等。安装器缺陷，按 MEDIUM 档 + 红锁用例走。Context：`setup.sh:478` merge_settings；同族 #110。（原 mac 侧编号 #115，2026-11-08 合并时因与本仓 #115 撞号改为 #129）

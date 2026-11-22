@@ -3,7 +3,8 @@
 // 从这张表的页面找到写它的文件（FLOW-1）。读者最先要知道这张表是干什么的，结构细节往后放（F 节表页从上到下的顺序）。
 // 同 db.mjs：只读文档模型、只出字符串。几页都要用的小件（文件名、表名链接、外键文字、关系图的方框）放在这里，db.mjs 从这里取。
 import { cmp } from '../model.mjs';
-import { esc, code, codeBreak, multi, at, attrs, origin, judged, fileSlug, page, table, diagram, DIAGRAM_MAX } from './layout.mjs';
+import { esc, code, codeBreak, multi, at, origin, judged, fileSlug, page, table, diagram, DIAGRAM_MAX } from './layout.mjs';
+import { noteSection, noteMark, noteHtml, noteState } from './note.mjs';
 
 export const DOC = '数据库设计';
 export const USAGE_TOP = 20; // 契约 F 节：谁写谁读超过 20 个文件的，其余收进可展开的区
@@ -17,7 +18,12 @@ const VERB_ORDER = ['insert', 'update', 'delete', 'merge', 'copy', 'truncate'];
 export const tableFile = (name) => `t-${fileSlug(name)}.html`;
 // 约束、索引的原文带着源码里的缩进与换行，在格子里折得很乱：显示前把连续空白压成一个空格（视图定义不压，保留换行）。
 export const flat = (s) => String(s).replace(/\s+/g, ' ').trim();
-export const tLink = (name, ctx) => (ctx.tables.has(name) ? `<a href="${tableFile(name)}">${esc(name)}</a>` : esc(name));
+// brk：定宽的窄格子里用，下划线后面给折行点（同 codeBreak），不从一个词中间断开。
+export const tLink = (name, ctx, brk = false) => {
+  const s = brk ? esc(name).replace(/_/g, '_<wbr>') : esc(name);
+  return ctx.tables.has(name) ? `<a href="${tableFile(name)}">${s}</a>` : s;
+};
+export const LIST_TOP = 8; // 契约 C 节「读得全」：「谁引用了它」这类清单超过 8 条的，其余收进可展开的区
 export const cols = (list) => list.map(esc).join(', ');
 export const refText = (r, ctx) => `${tLink(r.to, ctx)}${r.toCols.length ? ` (${cols(r.toCols)})` : ''}${r.onDelete ? ` · ON DELETE ${esc(r.onDelete)}` : ''}${r.onUpdate ? ` · ON UPDATE ${esc(r.onUpdate)}` : ''}`;
 export const crumbs = (...rest) => [['文档首页', 'index.html'], [DOC, 'db/index.html'], ...rest];
@@ -91,6 +97,35 @@ function usageRow(f, writes) {
   return writes ? [file, VERB_ORDER.filter((v) => f.verbs.has(v)).map((v) => v.toUpperCase()).join('、'), n, lines] : [file, n, lines];
 }
 
+// 「它引用了谁」「谁引用了它」：前 8 条列出，其余收进 <details>，免得把字段表挤到几屏之后；
+// 打印时合着的不出，另备一份只在打印时显示的，纸上不丢（同下面「谁在读」的做法）。
+function refList(items) {
+  const ul = (xs) => `<ul>${xs.map((x) => `<li>${x}</li>`).join('\n')}</ul>`;
+  if (items.length <= LIST_TOP) return ul(items);
+  const rest = items.slice(LIST_TOP);
+  return `${ul(items.slice(0, LIST_TOP))}\n<details class="more"><summary>还有 ${rest.length} 条</summary>\n${ul(rest)}\n</details>\n<div class="print-only">${ul(rest)}</div>`;
+}
+
+// 外键列指向哪里：列上的 REFERENCES，或表级 FOREIGN KEY 里这一列对着的那一列（组合外键列数对不上时只写表）。
+function fkTarget(t, c, ctx) {
+  if (c.references) return `${tLink(c.references.table, ctx)}${c.references.column ? `.${esc(c.references.column)}` : ''}`;
+  const k = t.constraints.find((x) => x.type === 'foreign key' && x.references && (x.columns || []).includes(c.name));
+  if (!k) return '';
+  const to = k.references.columns || (k.references.column ? [k.references.column] : []), col = to.length === k.columns.length ? to[k.columns.indexOf(c.name)] : null;
+  return `${tLink(k.references.table, ctx)}${col ? `.${esc(col)}` : ''}`;
+}
+
+// 字段表的「含义」一栏（契约 G 节「页面」）：来源里的注释与说明各自带标记，都在；过期的说明标「待更新」。
+// 外键列两样都没有时机械给一句「指向 <表>.<列>」，标「取自来源」——它的含义由引用关系给出。
+// 格子带 data-note / data-state，核对器按它读回这一列的说明状态。
+function meaning(t, c, ctx) {
+  const n = ctx.notes[c.anchor], parts = [];
+  if (c.comment) parts.push(`<div class="m">${origin('comment')}<br>${multi(c.comment)}</div>`);
+  if (n) parts.push(`<div class="m">${noteMark(n)}\n${noteHtml(n.text)}</div>`);
+  if (!parts.length) { const to = fkTarget(t, c, ctx); if (to) parts.push(`<div class="m">${origin('fact')}<br>指向 ${to}</div>`); }
+  return { attrs: { 'data-note': c.anchor, 'data-state': noteState(n) }, html: parts.join('\n') };
+}
+
 function usage(t, kind, ctx) {
   const writes = kind === 'writes', what = writes ? '写' : '读';
   const head = `<h2>谁在${what}这张表 ${origin('code')}</h2>`;
@@ -124,7 +159,7 @@ export function tablePage(t, ctx) {
       String(i + 1), codeBreak(c.name), k('type', code(c.type)), k('nullable', c.nullable ? '是' : '否'), k('default', c.default == null ? '' : code(c.default)),
       [c.primaryKey && '主键', c.unique && '唯一', c.check && codeBreak(flat(c.check))].filter(Boolean).join('<br>'),
       c.references ? refText({ to: c.references.table, toCols: c.references.column ? [c.references.column] : [], onDelete: c.references.onDelete, onUpdate: c.references.onUpdate }, ctx) : '',
-      c.comment ? multi(c.comment) : '',
+      meaning(t, c, ctx),
     ],
   }));
   // 约束与索引多半和表写在同一个文件里，同文件只写行号，不同才写全。
@@ -143,18 +178,18 @@ export function tablePage(t, ctx) {
     hint,
     `<h1>${esc(t.name)}</h1>`,
     `<p>出处：${at(t.file, t.line)} ${origin('fact')}<br>所在的组：<a href="${g.file}">${esc(g.label)}</a>${judged(g.status) ? ` ${judged(g.status)}` : ''}<br>服务的需求：<span class="muted">未关联——需求一侧的关联在后面的阶段接上</span></p>`,
-    // 说明区带锚点与状态，Task 1.4 起 data-state 还有 draft / reviewed / stale。
-    `<section${attrs({ 'data-note': t.anchor, 'data-state': 'none' })}>\n<h2>说明 ${origin('note')}</h2>\n<p class="muted">说明：未写</p>\n</section>`,
+    // 说明区带锚点与状态（none / draft / reviewed / stale），核对器按它读回。
+    noteSection(t.anchor, ctx.notes[t.anchor]),
     `<h2>注释 ${origin('comment')}</h2>`,
     t.comment ? `<p>${multi(t.comment)}</p>` : '<p class="muted">来源里没写这张表的注释。</p>',
     `<h2>关系 ${origin('fact')}</h2>`,
     miniDiagram(t, ctx),
     '<h3>它引用了谁</h3>',
-    outs.length ? `<ul>${outs.map((r) => `<li>${cols(r.cols)} → ${refText(r, ctx)}</li>`).join('\n')}</ul>` : '<p class="muted">不引用别的表。</p>',
+    outs.length ? refList(outs.map((r) => `${cols(r.cols)} → ${refText(r, ctx)}`)) : '<p class="muted">不引用别的表。</p>',
     '<h3>谁引用了它</h3>',
-    ins.length ? `<ul>${ins.map((r) => `<li>${tLink(r.from, ctx)} 的 ${cols(r.cols)}${r.toCols.length ? ` → 本表 ${cols(r.toCols)}` : ''}${r.onDelete ? ` · ON DELETE ${esc(r.onDelete)}` : ''}</li>`).join('\n')}</ul>` : '<p class="muted">没有别的表引用它。</p>',
+    ins.length ? refList(ins.map((r) => `${tLink(r.from, ctx)} 的 ${cols(r.cols)}${r.toCols.length ? ` → 本表 ${cols(r.toCols)}` : ''}${r.onDelete ? ` · ON DELETE ${esc(r.onDelete)}` : ''}`)) : '<p class="muted">没有别的表引用它。</p>',
     `<h2>字段（${t.columns.length} 个）${origin('fact')}</h2>`,
-    table(['#', '名字', '类型', '可空', '默认', '键与约束', '引用', `注释 ${origin('comment')}`], fields, ['44px', '16%', '12%', '48px', '11%', '15%', '11%', null]),
+    table(['#', '名字', '类型', '可空', '默认', '键与约束', '引用', '含义'], fields, ['44px', '16%', '12%', '48px', '11%', '15%', '11%', null]),
     usage(t, 'writes', ctx),
     usage(t, 'reads', ctx),
     cons.length ? `<h2>表级约束 ${origin('fact')}</h2>\n${table(['类型', '名字', '列', '原文', '出处'], cons, ['72px', '24%', '16%', null, '120px'])}` : '',

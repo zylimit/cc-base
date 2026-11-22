@@ -14,19 +14,21 @@ export function prefixGroups(names) {
     const i = n.indexOf('_'), k = i > 0 ? n.slice(0, i) : n;
     (by.get(k) || by.set(k, []).get(k)).push(n);
   }
-  const groups = [...by].filter(([, v]) => v.length > 1).map(([k, v]) => ({ id: k, title: k, status: 'default', tables: v }));
+  // 按 id 排序，「其它」放最后（契约 F 节）：它的 id 以下划线打头，按码点排会夹在大写与小写前缀之间。
+  const groups = [...by].filter(([, v]) => v.length > 1).map(([k, v]) => ({ id: k, title: k, status: 'default', tables: v })).sort((a, b) => cmp(a.id, b.id));
   const other = [...by.values()].filter((v) => v.length === 1).flat();
   if (other.length) groups.push({ ...OTHER, status: 'default', tables: other.sort(cmp) });
-  return groups.sort((a, b) => cmp(a.id, b.id));
+  return groups;
 }
 
+// 组的先后照 tableGroups 写的先后——那是写的人排的阅读顺序，不重排；「未分组」放最后（契约 F 节）。
 function mapGroups(tableGroups, names) {
   const seen = new Set(tableGroups.flatMap((g) => g.tables));
   const groups = tableGroups.map((g) => ({ id: g.id, title: g.title, status: g.status, tables: [...g.tables].sort(cmp) }));
   const rest = names.filter((n) => !seen.has(n)).sort(cmp);
   // 未分组的表是机械归进来的，不是谁的判断，档位同前缀分组记 default。
   if (rest.length) groups.push({ ...UNGROUPED, status: 'default', tables: rest });
-  return groups.sort((a, b) => cmp(a.id, b.id));
+  return groups;
 }
 
 // 同一文件里先按行，再按动作；项目判断补的条目没有行号，排在该文件的机械条目之后。

@@ -10,7 +10,9 @@ export const OUT = 'docs/readable';
 // 任何一步失败，临时目录删掉、原有的 docs/readable/ 一个字节不动，错误往上抛，入口报成退出码 3。
 // 换上那一步是两次改名：旧目录先挪开，新目录改名进位，进位失败就把旧目录挪回来。
 // files：[{path, html}]，path 相对 docs/readable/。
-export function publish(root, files) {
+// verify（可不给）：临时目录写完、核对过字节数、换上之前调一次 verify(临时目录)——入口拿它跑核对的第 2 项（契约 H 节）；
+// 它抛错就同落盘失败：临时目录删掉、原有页面不动，错误往上抛。
+export function publish(root, files, verify) {
   const out = join(root, OUT), parent = dirname(out);
   const tmp = join(parent, `.readable-tmp-${process.pid}`), old = join(parent, `.readable-old-${process.pid}`);
   const failAt = process.env.READABLE_FAIL_AT === 'render' ? Math.floor(files.length / 2) : -1;
@@ -25,6 +27,7 @@ export function publish(root, files) {
     for (const f of files) {
       if (statSync(join(tmp, f.path)).size !== Buffer.byteLength(f.html)) throw new Error(`落盘核对不过：${f.path} 的字节数与生成的不同`);
     }
+    if (verify) verify(tmp);
     const had = existsSync(out);
     if (had) renameSync(out, old);
     try { renameSync(tmp, out); } catch (e) { if (had) renameSync(old, out); throw e; }

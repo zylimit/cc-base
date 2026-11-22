@@ -14,6 +14,9 @@ export const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 export const tableAnchor = (table) => `table:${table}`;
 export const columnAnchor = (table, column) => `column:${table}.${column}`;
 export const viewAnchor = (view) => `view:${view}`;
+// 说明还挂在这两种锚点上（契约 G 节）：组的 id 取自文档模型的 groups，文档第一期只有 doc:db。
+export const groupAnchor = (id) => `group:${id}`;
+export const docAnchor = (doc) => `doc:${doc}`;
 
 // 按码点截而不按 UTF-16 码元：中文注释里偶有四字节字符，按码元截会切出半个代理对，落进 JSON 成了乱码。
 export const excerpt = (text) => Array.from(text.slice(0, EXCERPT_LEN * 2)).slice(0, EXCERPT_LEN).join('');

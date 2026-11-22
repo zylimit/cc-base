@@ -6,23 +6,30 @@
 //   init                 起草 docs/readable-src/config.json；已存在则一个字节不动、报「配置已存在」
 //   build --facts-json   只取事实、不出页面：文档模型（一份 JSON）打到标准输出，提示走标准错误
 //   build                出页面到 docs/readable/（2026-11-23 Task 1.2 先出数据库设计）：先写同级临时目录，写完核对再整目录换上
-//   check（Task 1.5）、pending 与 note put|confirm（Task 1.4）——现在都报「尚未实现」
+//   pending [--json]     按表列出要补的说明（2026-11-23 Task 1.4）；--json 时每张表附一份上下文，退出码恒为 0
+//   note put [--file <文件>]                  交若干段「## <锚点>」加正文（不给文件读标准输入），全过才落盘、盖指纹、记 draft
+//   note confirm <锚点…> | --all  --by <名字>  指纹对得上的记成 reviewed；对不上的不改、列出来，退出码 1
+//   note drop <锚点…>                         删掉这几段说明
+//   check [--json]       逐项比对文档与来源（2026-11-23 Task 1.5，契约 H 节），一条一行「在哪：怎么不一致」，末行「不一致 N 条」；摘要走标准错误
 //   --root   目标目录，默认 $CLAUDE_PROJECT_DIR，再默认当前目录
-//   --json   init 的结果也只出一份 JSON（标准输出只有它）
-// 退出码：0 成功；1 有不一致（check 用，本期没有）；2 用法或配置错；3 脚本自身出错（含尚未实现的子命令、页面落盘失败）
-// 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）。
+//   --json   init、pending 与 check 的结果只出一份 JSON（标准输出只有它）
+// 退出码：0 成功；1 有不一致（check 的清单不空、note confirm 遇到指纹对不上的）；2 用法或配置错（含 note put 整批被拒）；3 脚本自身出错（含页面落盘失败、build 落盘前的自检不过）
+// 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）；
+// READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）。
 // 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；init 起草配置仍在这里。
-import { existsSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
 import { cmp } from './readable/model.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
-import { CONFIG, ConfigError, loadConfig, loadMap } from './readable/notes.mjs';
+import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
 import { link } from './readable/links.mjs';
 import { renderDb } from './readable/render/db.mjs';
 import { renderHome } from './readable/render/layout.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
-const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put|confirm> [--root <目录>] [--json]';
+import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
+const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
+const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
 const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**'];
 const CODE_EXT = /\.(py|ts|tsx)$/;
 // 契约 A 节：ddl 依次找这三类，同一目录按文件名排序；三类都收、按这个先后排、去重——
@@ -41,16 +48,28 @@ function parseArgs(argv) {
   const sub = argv[0];
   if (!sub || sub.startsWith('-')) usage('缺子命令');
   if (!Object.hasOwn(COMMANDS, sub)) usage(`未知子命令：${sub}`);
-  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, action: null };
+  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, action: null, file: null, by: null, all: false, anchors: [] };
+  const value = (i, flag) => { if (argv[i] === undefined) usage(`${flag} 缺值`); return argv[i]; };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--root') { o.root = argv[++i]; if (o.root === undefined) usage('--root 缺值'); }
+    if (a === '--root') o.root = value(++i, '--root');
     else if (a === '--json') o.json = true;
     else if (a === '--facts-json' && sub === 'build') o.factsJson = true;
-    else if (sub === 'note' && !o.action && (a === 'put' || a === 'confirm')) o.action = a;
+    else if (sub === 'note' && !o.action && NOTE_ACTIONS.includes(a)) o.action = a;
+    else if (o.action === 'put' && a === '--file') o.file = value(++i, '--file');
+    else if (o.action === 'confirm' && a === '--by') o.by = value(++i, '--by').trim();
+    else if (o.action === 'confirm' && a === '--all') o.all = true;
+    else if ((o.action === 'confirm' || o.action === 'drop') && !a.startsWith('-')) o.anchors.push(a);
     else usage(`未知参数：${a}`);
   }
-  if (sub === 'note' && !o.action) usage('note 后面要跟 put 或 confirm');
+  if (sub === 'note' && !o.action) usage('note 后面要跟 put、confirm 或 drop');
+  if (o.action === 'confirm') {
+    if (!o.by) usage('note confirm 要用 --by <名字> 写明谁抽审的');
+    if (/[<>\r\n]/.test(o.by)) usage('--by 的名字里不许有尖括号与换行');
+    if (o.all === (o.anchors.length > 0)) usage('note confirm 要么点名锚点，要么 --all，二者取一');
+  }
+  if (o.action === 'drop' && !o.anchors.length) usage('note drop 后面要跟要删的锚点');
+  if (o.file !== null && !(existsSync(o.file) && statSync(o.file).isFile())) usage(`--file 不是文件：${o.file}`);
   if (!existsSync(o.root) || !statSync(o.root).isDirectory()) usage(`--root 不是目录：${o.root}`);
   return o;
 }
@@ -123,14 +142,34 @@ function cmdInit(o) {
   notes.forEach((t) => console.log(`  提示：${t}`));
 }
 
-// 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来。
+// 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来
+// → 绑说明（契约 G 节：notes 按现行的切片判现行、待更新、孤儿，交给页面与 --facts-json 的是同一份）。
 function collect(root, cfg, skipped) {
   const ddl = extractDdl(cfg, root, skipped);
   const map = loadMap(root, ddl.tables.map((t) => t.name));
   const scan = extractCode(cfg, root, codeFiles(root, cfg), [...ddl.tables, ...ddl.views].map((x) => x.name));
   const linked = link(ddl, scan, map, cfg.ddl);
   const unscanned = scan.unscanned.sort((a, b) => cmp(a.file, b.file));
-  return { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
+  return { ...facts, ...bindNotes(root, facts) };
+}
+const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
+
+// 出页面（只返回「路径 → 内容」，不碰磁盘）：build 落盘与 check 第 1 项重出用的是这同一个，两边才比得上。
+// 配置里没写 title 时用根目录名，同 init 起草的口径；页面上不出现根目录的绝对路径。
+function pages(root, cfg, facts) {
+  const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
+  const db = renderDb(facts, page);
+  return { db, files: [renderHome(page.title, [db.entry]), ...db.files] };
+}
+
+// 核对（契约 H 节）：四项都在 check.mjs；这里只取事实、重出一遍交过去、出结果、定退出码。
+function cmdCheck(o) {
+  const cfg = loadConfig(o.root), facts = collect(o.root, cfg, {});
+  const r = runCheck({ dir: join(o.root, OUT), label: `${OUT}/`, facts, rendered: pages(o.root, cfg, facts).files });
+  if (o.json) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+  else { console.error(`readable-docs: ${summaryLine(r.summary)}`); console.log(lines(r.problems).join('\n')); }
+  process.exitCode = r.ok ? 0 : 1;
 }
 
 function cmdBuild(o) {
@@ -139,7 +178,8 @@ function cmdBuild(o) {
   const cols = facts.tables.reduce((s, t) => s + t.columns.length, 0);
   const uses = Object.values(facts.usage).reduce((s, u) => [s[0] + u.writes.length, s[1] + u.reads.length], [0, 0]);
   const tally = `表 ${facts.tables.length} 张、列 ${cols} 个；未合并的动态定义 ${facts.unfolded.length}、未解析的语句 ${facts.unparsed.length}、定义冲突 ${facts.conflicts.length}、改了不存在的表 ${facts.orphanAlters.length}`
-    + `；分 ${facts.groups.length} 组；代码里写 ${uses[0]} 处、读 ${uses[1]} 处，表名运行时拼的 ${facts.dynamic.length}、代码里建的表 ${facts.codeTables.length}、没扫成的文件 ${facts.unscanned.length}、项目判断里对不上的 ${facts.mapProblems.length}`;
+    + `；分 ${facts.groups.length} 组；代码里写 ${uses[0]} 处、读 ${uses[1]} 处，表名运行时拼的 ${facts.dynamic.length}、代码里建的表 ${facts.codeTables.length}、没扫成的文件 ${facts.unscanned.length}、项目判断里对不上的 ${facts.mapProblems.length}`
+    + `；说明 ${Object.keys(facts.notes).length} 段（待更新 ${Object.values(facts.notes).filter((n) => n.state === 'stale').length}）、孤儿 ${facts.orphanNotes.length} 段`;
   const sk = Object.entries(skipped).sort((a, b) => cmp(a[0], b[0]));
   if (o.factsJson) {
     // 不用 process.exit：大块输出写进管道时提前退出会截断，只设退出码让事件循环自己排空。
@@ -148,26 +188,70 @@ function cmdBuild(o) {
     if (sk.length) console.error(`readable-docs: 略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
     return;
   }
-  // 配置里没写 title 时用根目录名，同 init 起草的口径；页面上不出现根目录的绝对路径。
-  const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(o.root)) };
-  const db = renderDb(facts, page);
-  const files = [renderHome(page.title, [db.entry]), ...db.files];
-  publish(o.root, files);
+  const { db, files } = pages(o.root, cfg, facts);
+  // 落盘前对临时目录跑核对第 2 项（契约 H 节），不过就不换上，CheckFailed 往上抛成退出码 3。
+  publish(o.root, files, (tmp) => selfCheck(tmp, facts));
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
   console.log(`已生成 ${OUT}/：${files.length} 个页面、${bytes} 字节`);
   console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
   if (sk.length) console.log(`  略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
 }
 
-const stub = (what) => () => die(3, `${what}尚未实现`);
+const refuse = (msg) => { console.error(`readable-docs: ${msg}`); process.exitCode = 2; };
+const indent = (text) => text.split('\n').map((l) => `    ${l}`).join('\n');
+const today = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+
+// 说明的落盘只经这几个命令（契约 G 节）；校验、指纹、落盘都在 notes，这里只读输入、报结果、定退出码。
+function cmdNote(o) {
+  if (o.action === 'drop') {
+    const r = dropNotes(o.root, o.anchors);
+    if (r.missing.length) return refuse(`这几个锚点没有说明，一段都没删：${r.missing.join('、')}`);
+    console.log(`已删掉 ${r.dropped.length} 段说明：${r.dropped.join('、')}`);
+    return;
+  }
+  const facts = loadFacts(o);
+  if (o.action === 'put') {
+    const r = putNotes(o.root, facts, readFileSync(o.file ?? 0, 'utf8'));
+    if (!r.ok) {
+      for (const p of r.problems) console.error(`readable-docs: ${p.where}：${p.reasons.join('；')}`);
+      return refuse(`有 ${r.problems.length} 处不过，整批没有落盘`);
+    }
+    console.log(`已落盘 ${r.written.length} 段说明，状态 draft：${r.written.join('、')}`);
+    return;
+  }
+  const r = confirmNotes(o.root, facts, o.all ? null : o.anchors, o.by, today());
+  if (r.missing.length) return refuse(`这几个锚点没有说明，一段都没改：${r.missing.join('、')}`);
+  console.log(`已记成 reviewed（${o.by}，${today()}）${r.confirmed.length} 段${r.confirmed.length ? `：${r.confirmed.join('、')}` : ''}`);
+  if (r.kept.length) console.log(`原本已抽审、--all 没动的 ${r.kept.length} 段：${r.kept.join('、')}`);
+  for (const m of r.mismatched) console.log(`没改 ${m.anchor}：${m.why}`);
+  if (r.mismatched.length) process.exitCode = 1;
+}
+
+function cmdPending(o) {
+  const r = pendingList(o.root, loadFacts(o));
+  if (o.json) { process.stdout.write(`${JSON.stringify(r, null, 2)}\n`); return; }
+  const s = r.summary;
+  console.log(`要补的：表 ${s.tables} 张（缺表说明 ${s.missingTables} 张）、缺含义的列 ${s.columns} 个、组 ${s.groups} 个、doc:db ${s.doc ? '要补' : '不用补'}；待更新 ${s.stale} 段、孤儿 ${s.orphans} 段`);
+  const staleLines = (list) => list.forEach((x) => console.log(`  待更新 ${x.anchor}，旧正文：\n${indent(x.text)}`));
+  for (const t of r.tables) {
+    const what = [t.missingTable ? '缺表说明' : null, t.missingColumns.length ? `缺含义的列 ${t.missingColumns.length} 个：${t.missingColumns.join('、')}` : null].filter(Boolean);
+    console.log(`${t.anchor}${what.length ? `  ${what.join('；')}` : ''}`);
+    staleLines(t.stale);
+  }
+  for (const g of [...r.groups, ...(r.doc ? [r.doc] : [])]) {
+    console.log(`${g.anchor}${g.missing ? '  缺说明' : ''}`);
+    if (g.stale) staleLines([g.stale]);
+  }
+  for (const x of r.orphans) console.log(`孤儿 ${x.anchor}（锚点已经不存在），正文：\n${indent(x.text)}`);
+}
 
 // 子命令表：后续 Task 在这里换掉桩（build 的页面分支在 cmdBuild 里）。
 const COMMANDS = {
   init: cmdInit,
   build: cmdBuild,
-  check: stub('核对（check，Task 1.5）'),
-  pending: stub('待办（pending，Task 1.4）'),
-  note: stub('说明落盘（note put / confirm，Task 1.4）'),
+  check: cmdCheck,
+  pending: cmdPending,
+  note: cmdNote,
 };
 
 try {
@@ -176,5 +260,7 @@ try {
 } catch (e) {
   // 配置错与 map.json 不是合法 JSON 由 notes 抛 ConfigError：是用法错，退出码 2；别的都是本脚本的错。
   if (e instanceof ConfigError) { console.error(`readable-docs: ${e.message}`); process.exitCode = 2; }
+  // build 落盘前的自检不过：新页面没换上，说明哪一页哪一项对不上，退出码 3（契约 H 节）。
+  else if (e instanceof CheckFailed) { console.error(`readable-docs: ${e.message}`); process.exitCode = 3; }
   else { console.error(`readable-docs: 脚本自身出错：${e?.stack || e}`); process.exitCode = 3; }
 }

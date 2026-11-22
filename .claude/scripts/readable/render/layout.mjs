@@ -90,6 +90,13 @@ svg.er rect.f{stroke:var(--accent);stroke-width:2.5}
 svg.er line{stroke:var(--line)}
 svg.er path.e{fill:none;stroke:var(--muted);stroke-width:1.2}
 svg.er path.ah{fill:var(--muted)}
+svg.er text.n{font-size:11px;fill:var(--muted);stroke:var(--bg);stroke-width:3px;paint-order:stroke}
+.o-stale{border-color:var(--warn-line);background:var(--warn);color:var(--fg)}
+.note ul{margin:6px 0}
+td .m p,td .m ul{margin:2px 0}
+td .m ul{padding-left:18px}
+td .m+.m{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
+.m>.o:first-child{margin-left:0}
 @media print{main{max-width:none;padding:0}.scroll{overflow:visible}table.fixed{min-width:0}td{overflow-wrap:anywhere}.nw{white-space:normal}pre{white-space:pre-wrap}svg.er{max-width:100%;height:auto}a{text-decoration:none}h2{break-after:avoid}tr{break-inside:avoid}details.more{display:none}.print-only{display:block}}
 `.trim();
 
@@ -107,7 +114,9 @@ export const LEGEND = `<h2>页面上的标记</h2>
 <dl class="legend">
 <dt>${origin('fact')}</dt><dd>结构直接取自项目的来源文件（建表定义等），由命令机械生成；谁写谁读查的是代码里的 SQL，标「取自来源（代码里的 SQL）」。</dd>
 <dt>${origin('comment')}</dt><dd>来源文件里作者写的注释（<code>--</code> 与 <code>COMMENT ON</code>），原样照录；来源里没写的地方留空。</dd>
-<dt>${origin('note')}</dt><dd>AI 写的解释，不是来源本身；还没写的地方标「说明：未写」。</dd>
+<dt>${origin('note')}</dt><dd>AI 写的解释，不是来源本身；还没写的地方标「说明：未写」。「说明 · 草稿」还没有人抽审过；「说明 · 已抽审」写着是谁、哪天对着来源看过。</dd>
+<dt><span class="o o-stale">待更新</span></dt><dd>这段说明写于来源的旧版本：写完之后来源改过，说明可能过时，原文照显；机械取出的部分仍是现行的，先看结构与代码位置。</dd>
+<dt>〔已隐去〕</dt><dd>来源或说明里形如内网地址、带口令的地址或密钥的字样，页面上换掉了，原文只在来源里；数据库设计清单页顶上列着各在哪里。</dd>
 <dt>${judged('proposed')} ${judged('confirmed')}</dt><dd>项目判断：人和 AI 补的判断（<code>docs/readable-src/map.json</code>），比如表怎么分组、运行时拼的表名归到哪张表，不是从来源里查出来的。「AI 提议」还没有人确认过。</dd>
 </dl>`;
 
@@ -159,10 +168,12 @@ function layers(nodes) {
   return alone.length ? [...ordered, alone] : ordered;
 }
 
-export function diagram(nodes, label) {
-  if (nodes.length > DIAGRAM_MAX) throw new Error(`关系图最多 ${DIAGRAM_MAX} 张表，这里给了 ${nodes.length} 张`);
+// 方框可以另给 label（显示的名字，不给就显示 name；name 只当键用，分组关系图里是组 id）与 counts（{被引用的 name: 条数}，写在那条线上）；
+// max 是这张图最多几个方框，默认同组页的 12（分组关系图是 20，契约 F 节）。
+export function diagram(nodes, label, max = DIAGRAM_MAX) {
+  if (nodes.length > max) throw new Error(`关系图最多 ${max} 个方框，这里给了 ${nodes.length} 个`);
   const box = new Map(nodes.map((n) => {
-    const w = Math.ceil(Math.max(120, textW(n.name, FONT + 1), ...n.lines.map((l) => textW(l, FONT))) + PAD * 2);
+    const w = Math.ceil(Math.max(120, textW(n.label ?? n.name, FONT + 1), ...n.lines.map((l) => textW(l, FONT))) + PAD * 2);
     return [n.name, { n, w, h: TITLE_H + (n.lines.length ? n.lines.length * LINE_H + PAD : 4) }];
   }));
   const pack = (budget) => {
@@ -206,7 +217,7 @@ export function diagram(nodes, label) {
   };
   for (const [b, p] of pairs) {
     const up = p.row < b.row, down = p.row > b.row;
-    edges.push({ c: end(b, up ? 'top' : 'bottom', p), t: end(p, down ? 'top' : 'bottom', b), same: !up && !down, long: Math.abs(p.row - b.row) > 1 });
+    edges.push({ c: end(b, up ? 'top' : 'bottom', p), t: end(p, down ? 'top' : 'bottom', b), same: !up && !down, long: Math.abs(p.row - b.row) > 1, n: b.n.counts?.[p.n.name] });
   }
   for (const list of ends.values()) {
     list.sort((a, b) => a.other.x + a.other.w / 2 - (b.other.x + b.other.w / 2) || cmp(a.other.n.name, b.other.n.name));
@@ -214,18 +225,20 @@ export function diagram(nodes, label) {
   }
   let lane = 0;
   const gapY = (e, off) => (e.side === 'top' ? top[e.b.row] - off : bot[e.b.row] + off);
-  const paths = edges.map(({ c, t, same, long }) => {
+  // 线上的条数：短线写在曲线正中；隔行的长线左边竖道挤，写在出发那一端的竖段旁边。
+  const tag = (n, x, y, anchor) => (n == null ? '' : `<text class="n" x="${r1(x)}" y="${r1(y)}" text-anchor="${anchor}">${esc(n)}</text>`);
+  const paths = edges.map(({ c, t, same, long, n }) => {
     if (long) {
       const k = lane++, x = M + k * LANE, off = 12 + (k % 5) * 7;
-      return `<path class="e" d="M${c.x} ${c.y}V${gapY(c, off)}H${x}V${gapY(t, off)}H${t.x}V${t.y}" marker-end="url(#ah)"/>`;
+      return `<path class="e" d="M${c.x} ${c.y}V${gapY(c, off)}H${x}V${gapY(t, off)}H${t.x}V${t.y}" marker-end="url(#ah)"/>${tag(n, c.x + 4, (c.y + gapY(c, off)) / 2 + 4, 'start')}`;
     }
     const m1 = same ? c.y + GAP_Y * 0.6 : r1((c.y + t.y) / 2), m2 = same ? t.y + GAP_Y * 0.6 : m1;
-    return `<path class="e" d="M${c.x} ${c.y}C${c.x} ${m1} ${t.x} ${m2} ${t.x} ${t.y}" marker-end="url(#ah)"/>`;
+    return `<path class="e" d="M${c.x} ${c.y}C${c.x} ${m1} ${t.x} ${m2} ${t.x} ${t.y}" marker-end="url(#ah)"/>${tag(n, (c.x + t.x) / 2, (c.y + 3 * m1 + 3 * m2 + t.y) / 8 + 4, 'middle')}`;
   });
   const boxes = named.map(({ n, x, y: by, w, h }) => {
     const lines = n.lines.map((l, i) => `<text x="${x + PAD}" y="${by + TITLE_H + PAD - 2 + LINE_H * i + 10}">${esc(l)}</text>`).join('');
     const sep = n.lines.length ? `<line x1="${x}" y1="${by + TITLE_H}" x2="${x + w}" y2="${by + TITLE_H}"/>` : '';
-    return `<a href="${esc(n.href)}"><rect${n.focus ? ' class="f"' : ''} x="${x}" y="${by}" width="${w}" height="${h}" rx="3"/><text class="tt" x="${x + PAD}" y="${by + 17}">${esc(n.name)}</text>${sep}${lines}</a>`;
+    return `<a href="${esc(n.href)}"><rect${n.focus ? ' class="f"' : ''} x="${x}" y="${by}" width="${w}" height="${h}" rx="3"/><text class="tt" x="${x + PAD}" y="${by + 17}">${esc(n.label ?? n.name)}</text>${sep}${lines}</a>`;
   });
   return `<svg class="er" width="${W}" height="${r1(H)}" viewBox="0 0 ${W} ${r1(H)}" role="img" aria-label="${esc(label)}">\n<title>${esc(label)}</title>\n<defs><marker id="ah" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="ah" d="M0 0L8 4L0 8z"/></marker></defs>\n${paths.join('\n')}\n${boxes.join('\n')}\n</svg>`;
 }
