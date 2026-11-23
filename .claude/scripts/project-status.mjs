@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-status.mjs —— 「现在到哪了」「三份活文档有多重」一条命令答完，只读、不写任何文件、不是闸。
+// project-status.mjs —— 「现在到哪了」「三份活文档有多重」「人读文档到哪了」一条命令答完，只读、不写任何文件、不是闸。
 // 为什么有它：下游要读 Spec / DEV-PLAN / progress 三份才答得出现状，而这三份已涨到几百 KB（OFR-ARIANE 的 Spec 416KB、
 // progress 630KB；conflation 的 DEV-PLAN 658KB）。2026-11-22 决策：现状现算，不另养手工台账；recap 先跑它、报待归档先归档。
 // 用法：node .claude/scripts/project-status.mjs [--root <目录>] [--table] [--json]
@@ -11,10 +11,12 @@
 // 也不按位置：conflation 的 Phase 59 排在 54 前面）；编号更小却没标 ✅ 的报 u 个（只陈述事实，做完没标还是被跳过判不了）。
 // 口径全在 docs/living-docs-contract-2026-11.md 第 3 节。待归档数不 import 两个归档脚本，调子进程 --check --json 取；
 // 调不成写「未知：<原因>」，不猜——归档脚本整次拒绝（比如首末同日判不出方向）正是要人去理的情形，原因吞掉就没人理。
+// 第三行「人读文档」（docs/readable-spec/phase1-db-contract.md I 节第 10 条）同理：数取同目录生成器的 check --json 与
+// init --suggest --json（都只读），没有配置报「未初始化」，取不到报「读不出」带原因，不当 0。--json 里是 readable 一项。
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 function usageError(msg) {
     console.error(`project-status: ${msg}（用法：project-status.mjs [--root <dir>] [--table] [--json]）`);
@@ -265,6 +267,36 @@ function buildReqs() {
 }
 const reqs = buildReqs();
 
+// ---------------- 人读文档 ----------------
+// 生成器的退出码 0、1 都是答出来了（1 = 有不一致 / 有漏项），别的取 stderr 第一行当原因，同 callArchive 截到 60 字。
+function callDocs(args) {
+    const p = join(here, 'readable-docs.mjs');
+    if (!existsSync(p)) return { error: '没装生成器' };
+    const r = spawnSync(process.execPath, [p, ...args, '--root', root], { encoding: 'utf8', timeout: 60000, maxBuffer: 1 << 26 });
+    if (r.error) return { error: clip(r.error.code === 'ETIMEDOUT' ? '超过 60 秒没跑完' : String(r.error.message).split(/\r?\n/)[0]) };
+    const first = String(r.stderr || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '');
+    if (r.status !== 0 && r.status !== 1) return { error: first ? clip(first) : `退出码 ${r.status ?? r.signal}` };
+    try { return { data: JSON.parse(r.stdout) }; } catch { return { error: '输出读不懂' }; }
+}
+function readableStatus() {
+    if (!existsSync(join(root, 'docs/readable-src/config.json'))) return { exists: false };
+    const { data: c, error } = callDocs(['check', '--json']);
+    const s = c && c.summary;
+    const n = s && s.unwritten && s.notes ? { pages: s.pagesOnDisk, tables: s.unwritten.tables, modules: s.arch ? s.arch.unwrittenModules : 0, stale: s.notes.stale, orphans: s.notes.orphans } : null;
+    if (error || !n || !Object.values(n).every(Number.isInteger)) return { exists: true, error: error || '输出读不懂' };
+    const g = callDocs(['init', '--suggest', '--json']);
+    const suggest = g.error ? { error: g.error } : g.data && typeof g.data.ok === 'boolean' && g.data.missing ? { ok: g.data.ok, missing: g.data.missing } : { error: '输出读不懂' };
+    return { exists: true, pages: n.pages, unwritten: { tables: n.tables, modules: n.modules }, notes: { stale: n.stale, orphans: n.orphans }, suggest };
+}
+const readable = readableStatus();
+function readableLine(d) {
+    if (!d.exists) return '人读文档：未初始化';
+    if (d.error) return `人读文档：读不出（${d.error}）`;
+    const m = d.suggest.missing, gaps = m ? ['ddl', 'codeRoots', 'archDocs'].filter((k) => m[k] && m[k].length).map((k) => `${k} ${m[k].length} 个`).concat(m.spec ? ['spec'] : []) : [];
+    const sg = d.suggest.error ? `配置有没有漏项读不出（${d.suggest.error}）` : d.suggest.ok ? '配置没有漏项' : `配置有漏项：${gaps.join('、')}（readable-docs.mjs init --suggest 看清单）`;
+    return `人读文档：${d.pages} 页 · 没写说明的表 ${d.unwritten.tables} 张、模块 ${d.unwritten.modules} 个 · 待更新 ${d.notes.stale} 段、孤儿 ${d.notes.orphans} 段 · ${sg}`;
+}
+
 // ---------------- 输出 ----------------
 const unk = (n, err, fmt) => (err !== null ? `（待归档未知：${err}）` : n > 0 ? fmt(n) : '');
 const withErr = (o, err) => (err !== null ? { ...o, archiveError: err } : o);
@@ -276,6 +308,7 @@ if (json) {
         plan: plan ? withErr({ exists: true, bytes: plan.bytes, total: plan.total, done: plan.done, current: plan.current, replay: plan.replay, unmarked: plan.unmarked, longTitles: plan.longTitles, archiveDue: planDue }, planErr) : { exists: false },
         progress: progText === null ? { exists: false } : withErr({ exists: true, bytes: progBytes, archiveDue: progDue, pinned: pinned || null, heaviest: heaviest.map((h) => ({ section: h.name, bytes: h.bytes })) }, progErr),
         reqs: reqs.map((r) => ({ id: r.id, tag: r.tag, phases: r.phases, state: r.state })),
+        readable,
     };
     console.log(JSON.stringify(out));
     process.exit(0);
@@ -326,6 +359,7 @@ if (!spec && !plan && progText === null) {
     const due = (planDue || 0) > 0 || (progDue || 0) > 0;
     console.log(`活文档：${l2.join(' · ')}${due ? '——先跑 /archive' : ''}`);
 }
+console.log(readableLine(readable));
 
 if (table) {
     if (reqs.length === 0) {

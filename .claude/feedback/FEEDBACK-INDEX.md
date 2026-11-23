@@ -102,3 +102,4 @@
 - [免确认模式下后台子 Agent 卡在 rm 确认框上，没人知道](bash-var-rm-prompts-stall-background-agents.md) — 免确认模式下后台子 Agent 的 Bash 里带 shell 变量路径的 rm 仍弹确认，子 Agent 停下等人点，复核被拖 6 小时；用户「不都是危险模式了，还弹框」
 - [检查器结果只看结尾就下结论，少报了 19 条](read-full-checker-output-before-count.md) — 汇报 plan-lint 结果只看了输出结尾就说「两条」，实际 21 条；报任何检查器结果前要读完整输出并先数条数
 - ✅[已毕业] [让用户敲 /release-builder 之前先自检](2026-11-08-self-check-before-asking-release.md) — 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲
+- [做完一项能力，验收的是技能，不是某个项目生成出来的文档](2026-11-24-acceptance-target-is-the-skill-not-generated-output.md) — 用户原话「我在乎的不是生成的文档，是你的skill」；主 Agent 按文档种类数进度，技能只有 68 行、无触发用例、会话里的做法没写进技能；流程缺「让没参与的新实例照技能跑一遍」一步，方向是 skill-builder 或 dev-builder Phase 收尾

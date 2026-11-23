@@ -1,10 +1,10 @@
 // init.mjs —— 入口的两件独立的事：走项目里的文件（walk），与 init 起草 docs/readable-src/config.json（契约 docs/readable-spec/phase1-db-contract.md A 节）。
 // 原在入口 readable-docs.mjs，2026-11-23 第三期 Task 3.4 原样搬来：入口要给架构这一份腾地方，单个文件别超过三百行。
-// walk 也给 build 用（取代码文件、建表定义）；init 只在这里。
+// walk 也给 build 用（取代码文件、建表定义）；init 与 init --suggest（配置跟上项目，契约 I 节第 5 条）只在这里，两者共用同一套找法。
 import { existsSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
-import { join, resolve, basename, dirname } from 'node:path';
+import { join, resolve, basename, dirname, posix } from 'node:path';
 import { cmp } from './model.mjs';
-import { CONFIG } from './config.mjs';
+import { CONFIG, loadConfig } from './config.mjs';
 import { globRe } from './arch-map.mjs'; // ignore 与模块的 paths 同一套通配（第三期契约 A 节）
 
 // 后三条是测试文件与代码放在一起的写法（第三期契约 A 节）：不排掉，模块图上全是测试库。已有的配置不替人改。
@@ -38,15 +38,20 @@ export function walk(root, ignore, sub = '') {
   return out;
 }
 
-// codeRoots：含 .py / .ts / .tsx 最多的两个顶层目录（契约 A 节），同数按名字。
-function topCodeDirs(files) {
+// 每个顶层目录里有几个 .py / .ts / .tsx（根目录下直接放的不算进任何目录）。
+function codeCounts(files) {
   const n = new Map();
   for (const f of files) {
     const k = f.indexOf('/');
     if (k > 0 && CODE_EXT.test(f)) n.set(f.slice(0, k), (n.get(f.slice(0, k)) || 0) + 1);
   }
-  return [...n].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).slice(0, 2).map(([d]) => d);
+  return n;
 }
+
+// codeRoots：含 .py / .ts / .tsx 最多的两个顶层目录（契约 A 节），同数按名字。
+const topCodeDirs = (files) => [...codeCounts(files)].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).slice(0, 2).map(([d]) => d);
+// ddl：三类依次找、各自按文件名排、去重（契约 A 节）。
+const findDdl = (files) => [...new Set(DDL_PATTERNS.flatMap(([, hit]) => files.filter(hit).sort(cmp)))];
 
 export function cmdInit(o) {
   const p = join(o.root, CONFIG);
@@ -56,7 +61,7 @@ export function cmdInit(o) {
     return;
   }
   const files = walk(o.root, DEFAULT_IGNORE);
-  const ddl = [...new Set(DDL_PATTERNS.flatMap(([, hit]) => files.filter(hit).sort(cmp)))];
+  const ddl = findDdl(files);
   const spec = existsSync(join(o.root, 'Product-Spec.md')) ? 'Product-Spec.md' : null;
   const archDocs = existsSync(join(o.root, ARCH_DOC_FILE)) ? [ARCH_DOC_FILE] : [];
   const cfg = { version: 1, title: basename(resolve(o.root)), spec, ddl, codeRoots: topCodeDirs(files), ignore: DEFAULT_IGNORE, archDocs };
@@ -72,4 +77,40 @@ export function cmdInit(o) {
   ddl.forEach((f, i) => console.log(`    ${i + 1}. ${f}`));
   console.log(`  codeRoots：${cfg.codeRoots.join('、') || '（空）'}`);
   notes.forEach((t) => console.log(`  提示：${t}`));
+}
+
+// init --suggest（契约 I 节第 5 条）：新项目先有需求规格、后有代码，配置是在还没有代码时起草的；建表文件与代码目录后来才冒出来，
+// 没人把它们填进配置，数据库设计与架构设计就一直是空的。这里照现在的项目把起草重做一遍、与配置比，只报漏了什么，一个字节不改。
+// 误报比漏报伤人：提交前每次都提醒一条不该补的，人就不看了。所以走文件用配置自己的 ignore（排掉的不算漏），
+// 顶层目录至少 MIN_CODE_FILES 个代码文件才报，已经有代码根在它里面的不报（多半是有意只取一部分）。
+const MIN_CODE_FILES = 3;
+const SPEC_FILE = 'Product-Spec.md';
+// 配置里手写的路径先规范化再比：./db/schema.sql、db//schema.sql、反斜杠、末尾的 / 与走出来的 db/schema.sql 是同一个。
+const norm = (p) => posix.normalize(p.replace(/\\/g, '/')).replace(/(.)\/+$/, '$1');
+
+export function suggest(root) {
+  const cfg = loadConfig(root); // 配置不在：ConfigError「先跑 init」，入口报退出码 2
+  const files = walk(root, cfg.ignore);
+  const listed = new Set(cfg.ddl.map(norm)), roots = cfg.codeRoots.map(norm);
+  const ddl = findDdl(files).filter((f) => !listed.has(f)).sort(cmp);
+  // 代码根是 . 时整个项目都扫到了，哪个顶层目录都不算漏。
+  const covered = (d) => roots.some((r) => r === '.' || r === d || r.startsWith(`${d}/`));
+  const codeRoots = [...codeCounts(files)].filter(([d, n]) => n >= MIN_CODE_FILES && !covered(d)).map(([d]) => d).sort(cmp);
+  const spec = cfg.spec == null && existsSync(join(root, SPEC_FILE)) ? SPEC_FILE : null;
+  const archDocs = existsSync(join(root, ARCH_DOC_FILE)) && !cfg.archDocs.map(norm).includes(ARCH_DOC_FILE) ? [ARCH_DOC_FILE] : [];
+  return { ok: !ddl.length && !codeRoots.length && !spec && !archDocs.length, missing: { ddl, codeRoots, spec, archDocs } };
+}
+
+// 人读输出一样一行，每行写清漏的是哪个文件、哪个目录、该填进配置的哪一项；退出码 0 没有差别、1 有差别。
+export function cmdSuggest(o) {
+  const r = suggest(o.root), m = r.missing;
+  if (o.json) process.stdout.write(`${JSON.stringify(r)}\n`);
+  else if (r.ok) console.log('配置跟得上项目，没有漏项');
+  else {
+    if (m.ddl.length) console.log(`ddl 漏了 ${m.ddl.length} 个建表定义文件：${m.ddl.join('、')}（按执行顺序填进 ${CONFIG} 的 ddl；不该算的写进 ignore）`);
+    if (m.codeRoots.length) console.log(`codeRoots 漏了 ${m.codeRoots.length} 个顶层目录：${m.codeRoots.join('、')}（里面有 ${MIN_CODE_FILES} 个以上代码文件、没有代码根；填进 ${CONFIG} 的 codeRoots，不该算的写进 ignore）`);
+    const docs = [m.spec ? `spec 是 null，根目录却有 ${m.spec}（填进 spec）` : null, ...m.archDocs.map((f) => `archDocs 里没有根目录的 ${f}（填进 archDocs）`)].filter(Boolean);
+    if (docs.length) console.log(`${docs.join('；')}（都在 ${CONFIG}）`);
+  }
+  process.exitCode = r.ok ? 0 : 1;
 }

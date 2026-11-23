@@ -4,6 +4,8 @@
 // （需求 REQ-DOC-001；契约 docs/readable-spec/phase1-db-contract.md；2026-11-22 Task 1.1 先做 init 与 build --facts-json）。
 // 用法：node .claude/scripts/readable-docs.mjs <子命令> [--root <目录>] [--json]
 //   init                 起草 docs/readable-src/config.json；已存在则一个字节不动、报「配置已存在」
+//   init --suggest       只读：照现在的项目重做一遍起草、与配置比，报漏列的建表定义、代码目录、需求规格与架构文档（契约 I 节第 5 条）；
+//                        退出码 0 没有漏项、1 有漏项，配置不在退出码 2
 //   build --facts-json   只取事实、不出页面：文档模型（一份 JSON）打到标准输出，提示走标准错误
 //   build                出页面到 docs/readable/（2026-11-23 Task 1.2 先出数据库设计，Task 2.2 加需求规格）：先写同级临时目录，写完核对再整目录换上
 //   pending [--json]     按表列出要补的说明（2026-11-23 Task 1.4）；--json 时每张表附一份上下文，退出码恒为 0
@@ -12,7 +14,7 @@
 //   note drop <锚点…>                         删掉这几段说明
 //   check [--json]       逐项比对文档与来源（2026-11-23 Task 1.5，契约 H 节），一条一行「在哪：怎么不一致」，末行「不一致 N 条」；摘要走标准错误
 //   --root   目标目录，默认 $CLAUDE_PROJECT_DIR，再默认当前目录
-//   --json   init、pending 与 check 的结果只出一份 JSON（标准输出只有它）
+//   --json   init（含 --suggest）、pending 与 check 的结果只出一份 JSON（标准输出只有它）
 // 退出码：0 成功；1 有不一致（check 的清单不空、note confirm 遇到指纹对不上的）；2 用法或配置错（含 note put 整批被拒）；3 脚本自身出错（含页面落盘失败、build 落盘前的自检不过）
 // 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）；
 // READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）；
@@ -31,7 +33,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { cmp } from './readable/model.mjs';
-import { walk, cmdInit } from './readable/init.mjs';
+import { walk, cmdInit, cmdSuggest } from './readable/init.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
 import { extract as extractSpec, extractDocs, SpecLoss } from './readable/sources/md-blocks.mjs';
@@ -47,7 +49,7 @@ import { renderSpec } from './readable/render/spec.mjs';
 import { renderArchDocs } from './readable/render/arch-docs.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
-const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
+const USAGE = 'readable-docs.mjs <init [--suggest] | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
 const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
 const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现行的页超过 10 张只列前 10 张
 
@@ -58,13 +60,14 @@ function parseArgs(argv) {
   const sub = argv[0];
   if (!sub || sub.startsWith('-')) usage('缺子命令');
   if (!Object.hasOwn(COMMANDS, sub)) usage(`未知子命令：${sub}`);
-  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, action: null, file: null, by: null, all: false, anchors: [] };
+  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, suggest: false, action: null, file: null, by: null, all: false, anchors: [] };
   const value = (i, flag) => { if (argv[i] === undefined) usage(`${flag} 缺值`); return argv[i]; };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--root') o.root = value(++i, '--root');
     else if (a === '--json') o.json = true;
     else if (a === '--facts-json' && sub === 'build') o.factsJson = true;
+    else if (a === '--suggest' && sub === 'init') o.suggest = true;
     else if (sub === 'note' && !o.action && NOTE_ACTIONS.includes(a)) o.action = a;
     else if (o.action === 'put' && a === '--file') o.file = value(++i, '--file');
     else if (o.action === 'confirm' && a === '--by') o.by = value(++i, '--by').trim();
@@ -234,7 +237,7 @@ function cmdPending(o) {
 
 // 子命令表：后续 Task 在这里换掉桩（build 的页面分支在 cmdBuild 里）。
 const COMMANDS = {
-  init: cmdInit,
+  init: (o) => (o.suggest ? cmdSuggest(o) : cmdInit(o)),
   build: cmdBuild,
   check: cmdCheck,
   pending: cmdPending,

@@ -4,7 +4,8 @@
 # 钩子从本仓调，夹具是 mktemp -d 里的 git 仓（拷入引擎）；断言只从契约推导，每个「拦」配「不拦」对照。
 set -eu
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-HOOK="$REPO_ROOT/.claude/hooks/pre-commit-check.mjs"
+HOOK="${1:-$REPO_ROOT/.claude/hooks/pre-commit-check.mjs}"
+SCRIPTS="$(cd "$(dirname "$HOOK")/../scripts" && pwd)"  # 换了被测钩子（$1）时，生成器取它同一棵 .claude 下的
 echo "===== test-readable-commit-hook ====="
 if ! command -v node >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then echo "SKIPPED: 无 node 或 git，未执行 != 通过。"; exit 0; fi
 [ -f "$HOOK" ] || { echo "  [FAIL] 缺被测钩子：$HOOK" >&2; exit 1; }
@@ -15,7 +16,7 @@ chk() {  # chk <0 过|非 0 不过> <标题> <EXPECT> <GOT>
   printf '         EXPECT %s\n         GOT    %s\n' "$3" "$4"
 }
 G() { git -C "$1" -c user.name=t -c user.email=t@example.com "${@:2}"; }
-nd() { env -u CLAUDE_PROJECT_DIR node "$REPO_ROOT/.claude/scripts/readable-docs.mjs" "$@"; }
+nd() { env -u CLAUDE_PROJECT_DIR node "$SCRIPTS/readable-docs.mjs" "$@"; }
 tree() { (cd "$1" && find . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -c1-16); }
 yn() { if "$@" >/dev/null 2>&1; then printf y; else printf n; fi; }
 # hook <root> <命令>：喂一次 Bash 工具调用，RC 与 OUT（标准输出 + 标准错误）
@@ -26,7 +27,7 @@ sql() {  # sql <root> [多一列]
 }
 mk() {  # mk <root> [无配置|fast|ignore]：提交好的 git 仓；有配置时页面已重出并入库
   local r="$1"; mkdir -p "$r/sql" "$r/.claude/scripts" "$r/.claude/harness"; git -C "$r" init -q; : >"$r/Product-Spec.md"
-  cp "$REPO_ROOT/.claude/scripts/readable-docs.mjs" "$r/.claude/scripts/"; cp -r "$REPO_ROOT/.claude/scripts/readable" "$r/.claude/scripts/"
+  cp "$SCRIPTS/readable-docs.mjs" "$r/.claude/scripts/"; cp -r "$SCRIPTS/readable" "$r/.claude/scripts/"
   cp "$REPO_ROOT/.claude/harness/profile.json" "$r/.claude/harness/" 2>/dev/null || true
   [ "${2:-}" = fast ] && node -e 'const fs=require("fs"),f=process.argv[1],p=JSON.parse(fs.readFileSync(f,"utf8"));p.default="fast";fs.writeFileSync(f,JSON.stringify(p))' "$r/.claude/harness/profile.json"
   [ "${2:-}" = ignore ] && echo 'docs/readable/' >"$r/.gitignore"
@@ -65,5 +66,11 @@ chk "$([ "$RC" = 0 ] && [ "$T0" = "$T1" ] && echo 0 || echo 1)" "命令是 git s
 # 8 打死：advise 档（fast）也拦
 K="$TMP/a8"; mk "$K" fast; sql "$K" memo_x; G "$K" add sql; hook "$K" "$CM"
 chk "$([ "$RC|$(has 'git add docs/readable')" = "0|y" ] && echo 0 || echo 1)" "fast 档（pre-commit-check 为 advise）：来源变了照重出照报，退出码 0 不拦" "0|y" "$RC|$(has 'git add docs/readable')"
+# 9 打死：配置漏了项目里的建表文件却不吭声（契约 I 节第 5 条）/ 吭声却拦提交 / 只说「有漏项」不点名
+M="$TMP/a9"; mk "$M"; printf 'CREATE TABLE audit_log (id int PRIMARY KEY);\n' >"$M/sql/audit_log.sql"; G "$M" add -A; hook "$M" "$CM"
+chk "$([ "$RC|$(has audit_log.sql)" = "0|y" ] && echo 0 || echo 1)" "配置没列 sql/audit_log.sql：提交照样成功（退出码 0），输出点名 audit_log.sql" "0|y" "$RC|$(has audit_log.sql)"
+# 10 打死：没有漏项也多说话（提醒太吵，人就不看了）。对照基线 = 同一提交里只多一个无关文件、页面现行的输出；漏项那条的输出里多出的部分才是新提醒，这里要求没有
+N="$TMP/a10"; mk "$N"; echo x >"$N/n.txt"; G "$N" add n.txt; hook "$N" "$CM"; NOISE=$(printf '%s' "$OUT" | grep -cE '漏|suggest|配置跟' || true)
+chk "$([ "$RC|$NOISE|${#OUT}" = "0|0|0" ] && echo 0 || echo 1)" "配置跟得上项目、页面现行：退出码 0、输出为空（这一段不多说一个字）" "0|0|0" "$RC|$NOISE|${#OUT}"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

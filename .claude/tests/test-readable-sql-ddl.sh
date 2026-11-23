@@ -220,5 +220,38 @@ eq "整块并完的不进 unfolded：外键块、索引块都不在清单里，�
 eq "一块两守卫加一句 EXECUTE：两条约束都并进 shipments，动态加的列 note 没并（打死有动态语句就整块不并）" "ck_ship_id,fk_ship_order|id,order_id" 'T("shipments").constraints.map(x=>x.name).sort().join()+"|"+T("shipments").columns.map(c=>c.name).join()'
 eq "同一个块仍在 unfolded 里、tables 恰为 [\"动态表名\"]，不含 shipments（打死并了一部分就把块拿掉 / tables 没收窄）" "1|[\"动态表名\"]" 'const u=d.unfolded.filter(x=>x.tables.includes("动态表名")); u.length+"|"+J(u[0]&&u[0].tables)'
 eq "不该并的三种：按条件删（fk_old 还在）、循环里（looped 没 ck_loop）、守卫查的不是系统表（flagged 没 ck_flag），三块都仍在 unfolded（打死把推断当事实）" "true|0|0|true|true|true" '[T("legacy").constraints.some(x=>x.name==="fk_old"),T("looped").constraints.length,T("flagged").constraints.length,...["legacy","looped","flagged"].map(n=>d.unfolded.some(u=>u.tables.includes(n)))].join("|")'
+# 12 init --suggest（契约 I 节第 5 条）：新项目的配置在还没有代码时起草，之后冒出的建表文件与代码目录没人填进去，数据库设计与架构设计就一直是空的
+tree() { (cd "$1" && find . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -c1-16); }
+sg_cfg() {  # sg_cfg <root> <spec JSON> <ddl JSON> <codeRoots JSON> <archDocs JSON>
+  mkdir -p "$1/docs/readable-src"
+  printf '{"version":1,"title":"t","spec":%s,"ddl":%s,"codeRoots":%s,"ignore":["**/tests/**"],"archDocs":%s}\n' "$2" "$3" "$4" "$5" >"$1/docs/readable-src/config.json"
+}
+sg_files() { local d="$1" n="$2" e="$3" i; mkdir -p "$d"; for i in $(seq 1 "$n"); do : >"$d/m$i.$e"; done; }
+sg_get() { q "$TMP/sg.json" 'J([d.ok,d.missing.ddl,d.missing.codeRoots,d.missing.spec,d.missing.archDocs])'; }
+sg_run() { run init --suggest --json --root "$1"; RCS=$RC; cp "$TMP/out" "$TMP/sg.json"; }
+# 12a 打死：配置起草后加进来的建表文件 / 代码目录不报；报了但漏报其一；已列的也跟着报；填进去后仍报差别
+SA="$TMP/sa"; mkdir -p "$SA/sql" "$SA/db"; : >"$SA/Product-Spec.md"; : >"$SA/sql/001_a.sql"; : >"$SA/db/schema.sql"; sg_files "$SA/svc" 3 py; sg_files "$SA/app" 4 py
+sg_cfg "$SA" '"Product-Spec.md"' '["sql/001_a.sql"]' '["svc"]' '[]'
+sg_run "$SA"; G1="rc=$RCS $(sg_get)"; run init --suggest --root "$SA"; HM=$RC; H1=$(grep -cF 'db/schema.sql' "$TMP/out" || true); H2=$(grep -cF 'app' "$TMP/out" || true)
+sg_cfg "$SA" '"Product-Spec.md"' '["sql/001_a.sql","db/schema.sql"]' '["svc","app"]' '[]'; sg_run "$SA"; G2="rc=$RCS $(sg_get)"; run init --suggest --root "$SA"; HF=$RC; HFT=$(grep -cF '配置跟得上项目，没有漏项' "$TMP/out" || true)
+W1='rc=1 [false,["db/schema.sql"],["app"],null,[]]'; W2='rc=0 [true,[],[],null,[]]'
+chk "$([ "$G1" = "$W1" ] && [ "$HM" = 1 ] && [ "$H1" -ge 1 ] && [ "$H2" -ge 1 ] && [ "$G2" = "$W2" ] && [ "$HF" = 0 ] && [ "$HFT" -ge 1 ] && echo 0 || echo 1)" "init --suggest：新加的 db/schema.sql 与 app/（4 个 .py）各被报出、已列的 sql/001_a.sql 与 svc 不报，退出码 1，人读输出点名两者；填进配置后退出码 0、ok true、写「配置跟得上项目，没有漏项」" "$W1 | 人读 rc=1 点名两者 | $W2 | 人读 rc=0 含「没有漏项」" "$G1 | 人读 rc=$HM 点名=$H1/$H2 | $G2 | 人读 rc=$HF 含=$HFT"
+# 12b 打死：ignore 排掉的目录与建表文件也报、已有代码根在里面的顶层目录也报、只有 2 个代码文件的顶层目录也报（提醒太吵，人就不看了）；real/ 是正例，防得到空答案就算过
+SC="$TMP/sc"; mkdir -p "$SC/tests" "$SC/pkg/api" "$SC/pkg/web"; : >"$SC/Product-Spec.md"
+sg_files "$SC/tests" 5 py; : >"$SC/tests/schema.sql"; sg_files "$SC/pkg/api" 3 py; sg_files "$SC/pkg/web" 5 py; sg_files "$SC/tiny" 2 py; sg_files "$SC/real" 4 ts
+sg_cfg "$SC" '"Product-Spec.md"' '[]' '["pkg/api"]' '[]'; sg_run "$SC"; G3="rc=$RCS $(sg_get)"
+W3='rc=1 [false,[],["real"],null,[]]'
+chk "$([ "$G3" = "$W3" ] && echo 0 || echo 1)" "init --suggest 收窄：被 ignore 排掉的 tests/（5 个 .py + schema.sql）、已有代码根 pkg/api 的 pkg（另有 pkg/web 5 个 .py）、只有 2 个 .py 的 tiny 都不报；只剩 real/（4 个 .ts）" "$W3" "$G3"
+# 12c 打死：spec 是 null 而根目录有 Product-Spec.md 不报 / archDocs 里没有 Architecture-Design.md 不报 / 已列的别的架构文档也跟着报；填好后仍报
+SD="$TMP/sd"; mkdir -p "$SD/docs"; : >"$SD/Product-Spec.md"; : >"$SD/Architecture-Design.md"; : >"$SD/docs/arch-old.md"
+sg_cfg "$SD" 'null' '[]' '[]' '["docs/arch-old.md"]'; sg_run "$SD"; G4="rc=$RCS $(sg_get)"
+sg_cfg "$SD" '"Product-Spec.md"' '[]' '[]' '["docs/arch-old.md","Architecture-Design.md"]'; sg_run "$SD"; G5="rc=$RCS $(sg_get)"
+W4='rc=1 [false,[],[],"Product-Spec.md",["Architecture-Design.md"]]'; W5='rc=0 [true,[],[],null,[]]'
+chk "$([ "$G4" = "$W4" ] && [ "$G5" = "$W5" ] && echo 0 || echo 1)" "init --suggest：spec 为 null 而根目录有 Product-Spec.md、archDocs 里缺根目录的 Architecture-Design.md，各自报出（已列的 docs/arch-old.md 不报）；填好后退出码 0" "$W4 | $W5" "$G4 | $G5"
+# 12d 打死：--suggest 悄悄改配置或往项目里落文件（含 --json 与人读两种）；没有配置时退出码不是 2、或顺手建了配置
+sg_cfg "$SA" '"Product-Spec.md"' '["sql/001_a.sql"]' '["svc"]' '[]'; T0=$(tree "$SA"); H0=$(sha256sum "$SA/docs/readable-src/config.json")
+run init --suggest --root "$SA"; RCH=$RC; run init --suggest --json --root "$SA"; RCJ2=$RC; T1=$(tree "$SA"); H1c=$(sha256sum "$SA/docs/readable-src/config.json")
+SN="$TMP/sn"; mkdir -p "$SN/db"; : >"$SN/db/schema.sql"; N0=$(tree "$SN"); run init --suggest --root "$SN"; RCN=$RC; NO=$(cat "$TMP/out" "$TMP/err" | grep -cE '先.{0,4}init' || true); N1=$(tree "$SN")
+chk "$([ "$RCH|$RCJ2" = "1|1" ] && [ "$T0" = "$T1" ] && [ "$H0" = "$H1c" ] && [ "$RCN" = 2 ] && [ "$NO" -ge 1 ] && [ "$N0" = "$N1" ] && [ ! -e "$SN/docs" ] && echo 0 || echo 1)" "init --suggest 只读：有漏项时（两种都真跑到了：退出码 1）跑完人读与 --json 两种，项目目录总哈希与配置哈希不变；没有配置时退出码恰为 2、提示「先…init」（不是用法串）、没建 docs" "rc=1|1 tree 同|config 同|rc=2|提示含先 init|无 docs" "rc=$RCH|$RCJ2 tree $([ "$T0" = "$T1" ] && echo 同 || echo 变)|config $([ "$H0" = "$H1c" ] && echo 同 || echo 变)|rc=$RCN|先 init 提示=$NO|docs=$([ -e "$SN/docs" ] && echo 有 || echo 无)"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

@@ -1,5 +1,5 @@
 // readable-refresh.mjs — pre-commit-check 里「提交前重出人读文档」那一段（2026-11-23 加）。
-// 行为照 docs/readable-spec/phase1-db-contract.md I 节第 1 条。为什么挂在提交前：人读文档是入库的生成物，
+// 行为照 docs/readable-spec/phase1-db-contract.md I 节第 1、5 条。为什么挂在提交前：人读文档是入库的生成物，
 // 写给没有 AI 编程工具的接手团队看，靠人记得「改完代码重出一遍」迟早会忘，忘了仓里的文档就悄悄落后于代码；
 // 提交是每次改动必经的一步，机器在这里重出，不占人。
 //   - 没有 docs/readable-src/config.json：什么都不做、什么都不说。
@@ -8,8 +8,12 @@
 //   - 重出自己失败（配置错、落盘前自检没过、超时）→ 不拦，原因照原样报出来——出文档的毛病不该把
 //     所有提交都卡死，那样人很快就会把这道闸关掉。失败要大声说，但放行。
 //   - 有待更新或成了孤儿的说明 → 不拦，报数：补说明是任务验收的事，提交这一刻只提醒。
+//   - 配置没跟上项目（init --suggest 报出漏列的建表文件、代码目录、需求规格或架构文档）→ 不拦，一句话列出漏的。
+//     配置是在还没有代码时起草的，之后冒出来的建表文件与代码目录没人填，数据库设计与架构设计就一直是空的；
+//     没有漏项时一个字不多，它自己出错、超时同 build 失败一样报出来、放行。
 // 超时压得比 settings.json 给整道闸的 30 秒小得多：tsc 与大仓门也在这 30 秒里，重出占满了，
-// 宿主会把整道闸杀掉，编译门的判决也跟着丢。真项目上 build 不到一秒、check 约 0.3 秒，十倍余量还有富余。
+// 宿主会把整道闸杀掉，编译门的判决也跟着丢。真项目上 build 不到一秒、check 约 0.3 秒，十倍余量还有富余；
+// init --suggest 只走一遍文件清单，给得最少。
 import fs from 'node:fs';
 import path from 'node:path';
 import { run, git, say, errText } from './io.mjs';
@@ -20,6 +24,7 @@ const SCRIPT = '.claude/scripts/readable-docs.mjs';
 const OUT = 'docs/readable';
 const BUILD_TIMEOUT_MS = 10000;
 const CHECK_TIMEOUT_MS = 5000;
+const SUGGEST_TIMEOUT_MS = 3000;
 // 核对的 JSON 全文要读进来再数，spawnSync 默认 1MB 截断会让子进程被杀、解析失败
 const MAX_BUFFER = 64 * 1024 * 1024;
 const LIST_CAP = 5;
@@ -72,6 +77,21 @@ function noteDebt(root) {
   return { stale: count('note-stale'), orphan: count('note-orphan') };
 }
 
+/** 配置漏了什么：读 init --suggest --json（契约 I 节第 5 条）。退出码 0 没漏、1 有漏，别的都是没查成。每样最多列 LIST_CAP 个。 */
+function configGaps(root) {
+  const r = runDocs(root, ['init', '--suggest', '--json'], SUGGEST_TIMEOUT_MS);
+  if (r.error || (r.status !== 0 && r.status !== 1)) return { error: `readable-docs.mjs init --suggest --json ${failReason(r, SUGGEST_TIMEOUT_MS)}` };
+  if (r.status === 0) return { gaps: [] };
+  let m;
+  try { m = JSON.parse(r.stdout).missing; } catch (e) { return { error: `init --suggest --json 的输出不是 JSON：${errText(e)}` }; }
+  const list = (key, xs) => (Array.isArray(xs) && xs.length
+    ? `${key} 漏了 ${xs.slice(0, LIST_CAP).join('、')}${xs.length > LIST_CAP ? ` 等 ${xs.length} 个` : ''}` : null);
+  const gaps = m && typeof m === 'object'
+    ? [list('ddl', m.ddl), list('codeRoots', m.codeRoots), m.spec ? `spec 是 null 而根目录有 ${m.spec}` : null, list('archDocs', m.archDocs)].filter(Boolean) : [];
+  // 退出码说有漏、却一样都认不出来：输出的形状不对，不当成「没漏」
+  return gaps.length ? { gaps } : { error: 'init --suggest --json 退出码 1，输出里却认不出漏了什么' };
+}
+
 function reportChanges(paths, mode) {
   const n = (what) => paths.filter(([, k]) => k === what).length;
   const head = `docs/readable/ 有 ${paths.length} 页重出后变了、还没暂存（改动 ${n('改动')}、新增 ${n('新增')}、删掉 ${n('删掉')}）`;
@@ -113,6 +133,12 @@ function refresh(root, mode) {
   if (debt.error) say(`⚠️ 人读文档已重出，但没数成说明的状态（${debt.error}）——不拦这次提交。`);
   else if (debt.stale || debt.orphan) {
     say(`⚠️ 人读文档有 ${debt.stale} 段说明待更新、${debt.orphan} 段成了孤儿——不拦这次提交，任务验收前补齐（node ${SCRIPT} pending 看清单）。`);
+  }
+
+  const cfg = configGaps(root);
+  if (cfg.error) say(`⚠️ 人读文档已重出，但没查成配置有没有漏项（${cfg.error}）——不拦这次提交。`);
+  else if (cfg.gaps.length) {
+    say(`⚠️ 人读文档的配置没跟上项目：${cfg.gaps.join('；')}——不拦这次提交，填进 ${CONFIG}（不该算的写进 ignore）后重出（node ${SCRIPT} init --suggest 看清单）。`);
   }
   return held;
 }

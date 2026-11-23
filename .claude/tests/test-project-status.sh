@@ -95,5 +95,28 @@ ROOT="$TMP/s3"; mkdir -p "$ROOT"
 run_ps; L2=$(sed -n 2p "$PS_OUT")
 ok=0; [ "$PS_RC" = "0" ] || ok=1; grep -Fq '待归档未知：' <<<"$L2" || ok=1; grep -Fq '同日' <<<"${L2#*待归档未知：}" || ok=1; grep -Fq '先跑 /archive' <<<"$L2" && ok=1
 chk "$ok" "S3 归档脚本因首末同日拒绝：第二行「待归档未知：」后带出原因（含「同日」），不催 /archive" "rc=0；第二行含「待归档未知：」且其后含「同日」；不含「先跑 /archive」" "rc=$PS_RC L2=[$L2]"
+# ============================== S4 / S5：「人读文档」一行（docs/readable-spec/phase1-db-contract.md I 节第 10 条）==============================
+# 夹具按装好框架的样子搭：把被测脚本所在目录整个拷进 <项目>/.claude/scripts/，再从那里跑——生成器在不在由夹具定，不受被测脚本放哪影响。
+hx() { mkdir -p "$1/.claude"; cp -r "$(dirname "$ENGINE")" "$1/.claude/scripts"; [ "${2:-}" = nogen ] && rm -rf "$1/.claude/scripts/readable-docs.mjs" "$1/.claude/scripts/readable"; return 0; }
+hcfg() { mkdir -p "$1/sql" "$1/docs/readable-src"; : >"$1/Product-Spec.md"; for t in a1 b2 c3 d4; do echo "CREATE TABLE $t (id int);"; done >"$1/sql/s.sql"
+  printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql"],"codeRoots":[],"ignore":[]}\n' >"$1/docs/readable-src/config.json"; }
+hps() { HP_RC=0; ( cd "$1" && env -u CLAUDE_PROJECT_DIR node "$1/.claude/scripts/project-status.mjs" --root "$1" "${@:2}" >"$TMP/hp.out" 2>/dev/null ) || HP_RC=$?; }
+hline() { grep -F '人读文档' "$TMP/hp.out" | head -1 || true; }
+# S4 打死：没配置的项目也报数 / 不报「未初始化」；有配置的不报页数与没写说明的表数（或报错数）；--json 里没有这一项；状态命令写了文件
+H0="$TMP/h0"; mkdir -p "$H0"; hx "$H0"; hps "$H0"; N_RC=$HP_RC; N_L=$(hline); hps "$H0" --json; N_J=$(jf "$TMP/hp.out" 'command')
+HK=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(Object.keys(d).filter(k=>/readable|人读/i.test(k)).join())' "$TMP/hp.out" 2>/dev/null || true)
+H1="$TMP/h1"; mkdir -p "$H1"; hx "$H1"; hcfg "$H1"; node "$H1/.claude/scripts/readable-docs.mjs" build --root "$H1" >/dev/null 2>&1
+PG=$(find "$H1/docs/readable" -type f | wc -l | tr -d ' '); B4=$(find "$H1" -type f | LC_ALL=C sort | xargs sha256sum | sha256sum)
+hps "$H1"; C_RC=$HP_RC; C_L=$(hline); hps "$H1" --json; HK1=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(Object.keys(d).filter(k=>/readable|人读/i.test(k)).join())' "$TMP/hp.out" 2>/dev/null || true)
+A4=$(find "$H1" -type f | LC_ALL=C sort | xargs sha256sum | sha256sum)
+nm() { grep -Eq "(^|[^0-9])$2([^0-9]|\$)" <<<"$1"; }
+ok=0; [ "$N_RC|$C_RC" = "0|0" ] || ok=1; grep -Fq '未初始化' <<<"$N_L" || ok=1; [ -n "$HK" ] && [ -n "$HK1" ] || ok=1
+[ -n "$C_L" ] && ! grep -Fq '未初始化' <<<"$C_L" || ok=1; nm "$C_L" "$PG" || ok=1; nm "$C_L" 4 || ok=1; [ "$B4" = "$A4" ] || ok=1
+chk "$ok" "S4 人读文档一行：没配置报「未初始化」；有配置（4 张表、build 出 $PG 个文件）的那行带页数 $PG 与没写说明的表 4；--json 两种都有这一项；跑完项目目录一个字节没变（只读）" \
+  "rc 0|0；无配置行含「未初始化」；有配置行含 $PG 与 4、不含「未初始化」；--json 顶层有含 readable/人读 的键；目录哈希不变" "rc=$N_RC|$C_RC 无配置行=[$N_L] 有配置行=[$C_L] json键=[$HK]|[$HK1] 哈希$([ "$B4" = "$A4" ] && echo 同 || echo 变)"
+# S5 打死：没装生成器就把页数报成 0 / 报成正常数字，或当作「未初始化」（配置明明在）/ 整条状态命令跟着崩
+H2="$TMP/h2"; mkdir -p "$H2"; hx "$H2" nogen; hcfg "$H2"; hps "$H2"; G_RC=$HP_RC; G_L=$(hline)
+ok=0; [ "$G_RC" = "0" ] || ok=1; [ -n "$G_L" ] || ok=1; grep -Fq '读不出' <<<"$G_L" || ok=1; grep -Fq '未初始化' <<<"$G_L" && ok=1; sed -n 1p "$TMP/hp.out" | grep -q '^现在到哪：' || ok=1
+chk "$ok" "S5 有配置而没装生成器：状态命令照常出报告（退出码 0、第一行「现在到哪：」），人读文档那行写「读不出」、不写「未初始化」、不写成页数" "rc=0；第一行以「现在到哪：」开头；人读文档行含「读不出」不含「未初始化」" "rc=$G_RC 人读文档行=[$G_L]"
 printf '==== test-project-status：PASS=%s FAIL=%s ====\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ] || exit 1

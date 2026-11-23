@@ -61,10 +61,11 @@ run_doctor() { DOC_RC=0; DOC_OUT=$(bash "$SB/.claude/scripts/doctor.sh" "$SB" 2>
 digest() { printf '%s\n' "$1" | grep -E '✗|^!|MANIFEST|manifest|清单' | head -8 | tr '\n' '|'; }
 echo "-- ① 控制组：清单与文件一致 --"
 run_doctor
-BASE_OUT="$DOC_OUT"
+BASE_OUT="$DOC_OUT"; BASE_RC=$DOC_RC
 [ "$DOC_RC" -eq 0 ] && r=0 || r=1
 chk "$r" "① 未篡改时 doctor rc = 0" "rc=0" "rc=${DOC_RC}；相关行：$(digest "$BASE_OUT")"
 echo "-- ② 篡改抽样窗口之外的一条（第 $TOTAL 条：${TARGET}）--"
+cp "$SB/.claude/$TARGET" "$TMP/target.bak"
 printf '\n# tampered by test-doctor\n' >> "$SB/.claude/$TARGET"
 run_doctor
 case "$DOC_OUT" in *"$TARGET"*) r=0 ;; *) r=1 ;; esac
@@ -74,6 +75,21 @@ chk "$r" "② 逐条点名：输出含被改的 ${TARGET}（旧实现抽样漏�
 chk "$r" "② 有不一致时 doctor rc 非 0（不是 note 级告警）" \
     "rc != 0（基线已验 rc=0，差异只有清单篡改）" "rc=$DOC_RC"
 
+cp "$TMP/target.bak" "$SB/.claude/$TARGET"  # 还原 ② 的篡改，下面两条要在「基线 rc=0」上比
+# 没配置的项目：自检输出里不许出现人读文档的话（契约 I 节第 11 条「没有配置的项目输出与加这一步之前相同」；逐字比对旧版见回执，这里守「不提」）
+case "$BASE_OUT" in *人读文档*) r=1 ;; *) r=0 ;; esac
+chk "$r" "③ 没有 docs/readable-src/config.json 的项目：自检输出不提「人读文档」" "输出不含「人读文档」" "含=$(printf '%s\n' "$BASE_OUT" | grep -c '人读文档' || true) 行"
+# 有配置：页面现行不提示；手改一页后提示且整份自检退出码不变（只提示、不判红）。生成器用沙箱里那份，页面现出来再比。
+mkdir -p "$SB/sql"; : >"$SB/Product-Spec.md"; echo 'CREATE TABLE a1 (id int);' >"$SB/sql/s.sql"; mkdir -p "$SB/docs/readable-src"
+printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql"],"codeRoots":[],"ignore":[]}\n' >"$SB/docs/readable-src/config.json"
+env -u CLAUDE_PROJECT_DIR node "$SB/.claude/scripts/readable-docs.mjs" build --root "$SB" >/dev/null 2>&1
+run_doctor; CFG_RC=$DOC_RC; CFG_OUT="$DOC_OUT"
+printf '\n<!-- 手改 -->\n' >>"$SB/docs/readable/db/index.html"
+run_doctor; EDIT_RC=$DOC_RC; EDIT_OUT="$DOC_OUT"
+ok=1; case "$CFG_OUT" in *人读文档*) : ;; *) case "$EDIT_OUT" in *人读文档*build*|*build*人读文档*) [ "$CFG_RC" = "$BASE_RC" ] && [ "$EDIT_RC" = "$CFG_RC" ] && ok=0 ;; esac ;; esac
+chk "$ok" "④ 有配置：页面现行时不提示；手改 docs/readable/db/index.html 之后提示「人读文档……build」，整份自检退出码与不手改时相同（不判红）" \
+    "现行：无提示 rc=$BASE_RC；手改：有提示、rc 同 $BASE_RC" "现行 rc=$CFG_RC 提示行=$(printf '%s\n' "$CFG_OUT" | grep -c '人读文档' || true)；手改 rc=$EDIT_RC 提示行=$(printf '%s\n' "$EDIT_OUT" | grep '人读文档' | head -2 | tr '\n' '|')"
+rm -rf "$SB/docs" "$SB/sql" "$SB/Product-Spec.md"
 echo ""
 echo "==== test-doctor：PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]
