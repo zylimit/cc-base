@@ -57,9 +57,9 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         - 参数化查询防注入，不裸拼 SQL；频繁查询的字段加索引，不滥加
 
     [人读文档]
-        - 项目有 docs/readable-src/ 时，Task 碰了建表定义或读写表的代码，就带着文档一起交：改完跑 `node .claude/scripts/readable-docs.mjs build`，`pending` 里因这次改动缺的、过期的说明当场补齐（`note put`），`check` 报「不一致 0 条」才算完成。说明由改代码的人写——他最清楚为什么这么改，事后再补只能靠猜
+        - 项目有 docs/readable-src/ 时，Task 碰了建表定义或读写表的代码，或者给一个模块加了文件、接口、跨模块的引用，就带着文档一起交：改完跑 `node .claude/scripts/readable-docs.mjs build`，`pending` 里因这次改动缺的、过期的说明当场补齐（`note put`），`check` 报「不一致 0 条」才算完成。说明由改代码的人写——他最清楚为什么这么改，事后再补只能靠猜
         - 派单时把这一条写进 Verification；主 Agent 验收亲跑 `check`，不拿回执里的「0 条」当数
-        - 没碰表结构的改动不用写说明，页面由提交前检查自动重出，见 [Git 工作流]；写法与边界见 readable-docs SKILL.md
+        - 没碰表结构、也没改模块的文件清单、接口与依赖的改动不用写说明，页面由提交前检查自动重出，见 [Git 工作流]；写法与边界见 readable-docs SKILL.md
 
     [Git 工作流]
         - 原子提交：每完成一个独立功能就 commit，一个 commit 一个逻辑变更，不攒到 Phase 结束
