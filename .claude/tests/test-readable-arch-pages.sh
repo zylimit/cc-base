@@ -31,7 +31,7 @@ const delRow=(h,k)=>{const s=spans(h,'data-row').filter(([a,b,t])=>dec(val(t,'da
 const cells=(r,k)=>spans(r.html,'data-k').filter(s=>val(s[2],'data-k')===k).map(s=>txt(r.html.slice(s[0],s[1])));
 const same=(a,b)=>JSON.stringify([...a].sort())==JSON.stringify([...b].sort());
 const sz=n=>n<100?'不到 100 行':n<500?'100–500 行':n<1000?'500–1000 行':'1000 行以上';
-module.exports={fs,txt,rows,cv,cells,cellRe,delRow,same,sz};
+module.exports={fs,txt,rows,cv,cells,cellRe,delRow,same,sz,spans,val};
 EOF
 nj() { node -e "const H=require('$TMP/h.js'),fs=H.fs;try{$1}catch(e){console.log('THROW '+String(e.message).slice(0,90))}" "${@:2}"; }
 w() { mkdir -p "$(dirname "$R/$1")"; local f=$1; shift; printf '%s\n' "$@" >"$R/$f"; }
@@ -201,5 +201,120 @@ eq "夹具里有切不动的 odd.py（进没扫成）、挂了两次的路由器
 
 # 23 打死：核对器只比 data-row、不比显示的字（审查用三处突变实测：显示的路径写错，check 照报 0 条）
 eq "手改核对·m-core 页 util.py 那一行显示的路径改一个字、data-row 不动：退出码 1、arch- 类问题只有 arch-mismatch 且点到 core（stale-page 另报，不算在内）" "1|arch-mismatch|true" "$(mut x 'const p=process.argv[1]+"/docs/readable/arch/m-core.html",h=fs.readFileSync(p,"utf8"),r=H.rows(h).find(x=>x.sec=="files"&&x.k=="app/core/util.py");if(!r)console.log("NOROW");else{const c=r.html.match(H.cellRe("key"));if(!c)console.log("NOKEY");else{const nr=r.html.replace(c[0],()=>c[0].replace(c[3],()=>c[3].replace("util","utix")));if(nr===r.html)console.log("NOMUT");else fs.writeFileSync(p,h.replace(r.html,()=>nr))}}' core)"
+
+# ===== 现有架构文档（archDocs，Task 3.5；契约 A、D 末段、E 末条、F 末条）。夹具：legacy/ 下两份合成的 Markdown，各有一级标题、前言、两个二级标题；甲档含列表、表格、带内网地址的一句。
+mklg() { mkdir -p "$1/legacy"
+  cat >"$1/legacy/arch-a.md" <<'EOF'
+# 旧版总体说明
+
+写在前面的一句话。
+
+## 甲部分
+
+- 条目甲一
+- 条目甲二，内部入口在 10.9.8.7 上。
+
+| 列甲 | 列乙 |
+|---|---|
+| 格甲 | 格乙 |
+
+## 乙部分
+
+一段含占位的话 <占位名> 与 `等宽` 内容。
+EOF
+  cat >"$1/legacy/arch-b.md" <<'EOF'
+# 旧版决策记录
+
+前言一句话乙。
+
+## 决定一
+
+采用方案甲。
+
+## 决定二
+
+- 理由甲
+- 理由乙
+- [REQ-X-001] 带编号的条目
+EOF
+  printf '随手记的文本\n' >"$1/legacy/notes.txt"; }
+cfgA() { node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/config.json",c=JSON.parse(fs.readFileSync(f));c.archDocs=JSON.parse(process.argv[2]);fs.writeFileSync(f,JSON.stringify(c))' "$1" "$2"; }
+LGA='["legacy/arch-a.md","legacy/arch-b.md"]'
+hp() { (cd "$1" 2>/dev/null && find . -type f | sort | xargs -r sha256sum | sha256sum) || echo none; }
+AX="$TMP/ax"; cp -r "$B" "$AX"; rm -rf "$AX/docs/readable"; printf '# 规格\n\n## 一 章\n\n- [REQ-X-001] 规格里的同编号条目\n' >"$AX/Product-Spec.md"; mklg "$AX"; cfgA "$AX" "$LGA"; bd "$AX"; RBX=$RB; AXF="$TMP/axf.json"; nd build --facts-json --root "$AX" >"$AXF" 2>/dev/null || true; ck "$AX"; RCX=$RC; LASTX=$(last "$AX")
+XD="$AX/docs/readable/arch"; OLD2="$TMP/old2"; mkdir -p "$OLD2"; (cd "$REPO_ROOT" && git archive db33c73 .claude/scripts | tar -x -C "$OLD2")
+
+# 24 打死：两份文档的页面出错地方 / 章页缺失或多出 / 页面上读回的块数与事实不符（丢块、重块、串到别的文档）
+eq "archDocs 两份：arch/doc-01、doc-02 各出 index.html 与 s-<两位章号>.html（章数 = 事实里该份的 sections），每份目录下页面读回的 data-block 编号集合恰等于 facts.archDocs[i].blocks 的编号（一块不少、不重）；事实里两份的 file 依次是配置的路径；生成前 build 退出码 0" "0||legacy/arch-a.md,legacy/arch-b.md|" \
+  "$RBX|$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),AD=R+"/docs/readable/arch/",bad=[];
+if(!f.archDocs||f.archDocs.length!=2){console.log("FACTS archDocs="+(f.archDocs||[]).length)}else{
+f.archDocs.forEach((d,i)=>{const dir=AD+"doc-0"+(i+1)+"/";let ls=[];try{ls=fs.readdirSync(dir).sort()}catch(e){bad.push("nodir"+(i+1));return}
+const want=["index.html"].concat(d.sections.map((s,j)=>"s-"+String(j).padStart(2,"0")+".html")).sort();if(ls.join()!=want.join())bad.push("files"+(i+1)+"="+ls.join("/"));
+const ids=[];ls.forEach(p=>{[...fs.readFileSync(dir+p,"utf8").matchAll(/data-block="(\d+)"/g)].forEach(m=>ids.push(+m[1]))});ids.sort((a,b)=>a-b);
+const ex=d.blocks.map(b=>b.n).sort((a,b)=>a-b);if(!ex.length||ids.join()!=ex.join())bad.push("blocks"+(i+1)+":"+ids.length+"/"+ex.length)});
+console.log(bad.join(";")+"|"+f.archDocs.map(d=>d.file).join())}' "$AX" "$AXF")|$(nj 'const R=process.argv[1],AD=R+"/docs/readable/arch/",bad=[],at=(t,k)=>(t.match(new RegExp("\\s"+k+"=\"([^\"]*)\""))||[])[1],all=[];
+[1,2].forEach(i=>{const dir=AD+"doc-0"+i+"/";let ls=[];try{ls=fs.readdirSync(dir).filter(p=>/s-\d+\.html$/.test(p))}catch(e){bad.push("nodir"+i)}
+ls.forEach(p=>{const ids=new Set();H.spans(fs.readFileSync(dir+p,"utf8"),"data-block").forEach(([a,b,t])=>{const an=at(t,"data-anchor"),id=at(t,"id");all.push([i,an]);if(!an||!an.startsWith("archdoc:0"+i+"/"))bad.push("d"+i+"/"+p+":"+an);if(id==null||ids.has(id))bad.push("d"+i+"/"+p+":id="+id);ids.add(id)})})});
+if(all.filter(x=>x[0]==2&&x[1]=="archdoc:02/req:REQ-X-001").length!=1)bad.push("noreq02");if(all.some(x=>x[1]=="req:REQ-X-001"))bad.push("bare");
+let sp=0;try{fs.readdirSync(R+"/docs/readable/spec").filter(p=>/s-\d+\.html$/.test(p)).forEach(p=>H.spans(fs.readFileSync(R+"/docs/readable/spec/"+p,"utf8"),"data-block").forEach(([a,b,t])=>{const an=at(t,"data-anchor");if(/^archdoc:/.test(an||""))bad.push("specprefix:"+an);if(an=="req:REQ-X-001")sp++}))}catch(e){bad.push("nospec")}
+if(sp!=1)bad.push("specreq="+sp);console.log(bad.join(";"))' "$AX")"
+
+# 25 打死：横条没出（读的人把旧文档当现行）/ 只有清单页或只有章页有 / 路径写成别份的 / 链接指错（指到别处或不存在）/ 横条带了 data-block 被算进块 / 横条不在顶上
+eq "横条：两份文档的清单页与每一章页（共 8 页）上都有原话「这是 <本份路径> 的原文，写的时候对应的代码以它自己标的版本为准；现行的结构以架构首页为准。」（空白不计）；文字「架构首页」的链接从该页所在目录出发指到 arch/index.html 且文件存在；链接不在任何 data-block 里、在第一个 data-block 之前，横条的话不在任何块的文字里" "|8" \
+  "$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),AD=R+"/docs/readable/arch/",bad=[],P=require("path"),ns=s=>s.replace(/\s+/g,"");let n=0;
+(f.archDocs||[]).forEach((d,i)=>{const dir=AD+"doc-0"+(i+1)+"/",want=ns("这是"+d.file+"的原文，写的时候对应的代码以它自己标的版本为准；现行的结构以架构首页为准。");
+let ls=[];try{ls=fs.readdirSync(dir).filter(p=>/\.html$/.test(p))}catch(e){bad.push("nodir"+(i+1))}
+ls.forEach(p=>{n++;const h=fs.readFileSync(dir+p,"utf8"),t=ns(H.txt(h)),tg="d"+(i+1)+"/"+p;if(!t.includes(want))bad.push(tg+":text");
+const lk=[...h.matchAll(/<a\b[^>]*\shref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].filter(m=>H.txt(m[2])=="架构首页");if(!lk.length)bad.push(tg+":nolink");
+lk.forEach(m=>{const q=P.resolve(dir,m[1].split("#")[0]);if(q!=P.resolve(AD,"index.html")||!fs.existsSync(q))bad.push(tg+":href="+m[1])});
+const bl=H.spans(h,"data-block");if(lk.length){const li=lk[0].index;if(bl.some(([a,b])=>a<=li&&li<b))bad.push(tg+":linkinblock");if(bl.length&&li>bl[0][0])bad.push(tg+":notontop")}
+if(bl.some(([a,b])=>ns(H.txt(h.slice(a,b))).includes("的原文，写的时候")))bad.push(tg+":textinblock")})});
+console.log(bad.join(";")+"|"+n)' "$AX" "$AXF")"
+
+# 26 打死：架构首页漏掉第 7 段 / 某份文档没列 / 章数块数格子与事实不符 / 链接指不到清单页 / 没配时也出这一段
+eq "架构首页第 7 段：有 data-section=archDocs 的容器、行键恰为两份文档的路径、key 格显示路径、chapters = sections 数、blocks = 块数、行里的链接从 arch/ 出发指到那一份的 doc-0i/index.html 且文件存在、段首原话在；对照：没配 archDocs 的夹具 B 首页没有这个容器" "|n" \
+  "$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),AD=R+"/docs/readable/arch/",P=require("path"),h=fs.readFileSync(AD+"index.html","utf8"),rs=H.rows(h).filter(r=>r.sec=="archDocs"),bad=[],ns=s=>s.replace(/\s+/g,"");
+if(!/data-section="archDocs"/.test(h))bad.push("nosection");
+if(!ns(H.txt(h)).includes(ns("下面是项目里原有的文档，原文照排；写的时候对应的代码可能已经变了，现行的结构以本页上面几段为准")))bad.push("lead");
+if(!H.same(rs.map(r=>r.k),(f.archDocs||[]).map(d=>d.file)))bad.push("keys="+rs.map(r=>r.k).join(","));
+else(f.archDocs||[]).forEach((d,i)=>{const r=rs.find(x=>x.k==d.file);if(!H.cv(r,"key",d.file))bad.push("key"+i);if(!H.cv(r,"chapters",String(d.sections.length)))bad.push("ch"+i);if(!H.cv(r,"blocks",String(d.blocks.length)))bad.push("bl"+i);
+const want=P.resolve(AD,"doc-0"+(i+1)+"/index.html");if(!fs.existsSync(want)||![...r.html.matchAll(/href="([^"]*)"/g)].some(m=>P.resolve(AD,m[1].split("#")[0])==want))bad.push("link"+i)});
+console.log(bad.join(";"))' "$AX" "$AXF")|$(yn grep -qF 'data-section="archDocs"' "$AD/index.html")"
+
+# 27 打死：改了一个字而核对报 0 条（最贵的假绿）/ 报到别的文档上 / 点不到路径与来源的行 / 未动时误报（对照）
+ZL=$(grep -n '^- 条目甲一' "$AX/legacy/arch-a.md" | cut -d: -f1 || true)
+spk() { node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")),a=j.problems.filter(p=>p.kind.startsWith("spec-")),m=p=>(p.where+" "+p.detail),x=a.filter(p=>m(p).includes(process.argv[2]));console.log(a.length+"|"+[...new Set(a.map(p=>p.kind))].join()+"|"+x.length+"|"+a.filter(p=>m(p).includes(process.argv[3])).length+"|"+x.some(p=>m(p).includes(process.argv[4])))}catch(e){console.log("NOJSON")}' "$TMP/c.json" "$1" "$2" "$3"; }
+ZM="$TMP/zm"; cp -r "$AX" "$ZM"
+ZMUT=$(nj 'const p=process.argv[1]+"/docs/readable/arch/doc-01/s-01.html",h=fs.existsSync(p)?fs.readFileSync(p,"utf8"):"",i=h.indexOf("data-block="),j=h.indexOf("条目甲一",i);if(i<0||j<0)console.log("NOWORD");else{fs.writeFileSync(p,h.slice(0,j)+"条目甲二"+h.slice(j+4));console.log("done")}' "$ZM"); ck "$ZM"; ZRC=$RC; ZK=$(spk legacy/arch-a.md legacy/arch-b.md "$ZL")
+eq "零丢失：把 arch/doc-01 的 s-01 页上「条目甲一」改成「条目甲二」：check 退出码 1、spec- 类问题恰 1 条且是 spec-mismatch、点到 legacy/arch-a.md 与来源第 ${ZL} 行、没点到另一份 legacy/arch-b.md；对照：改之前 check 退出码 0、末行「不一致 0 条」" "0|不一致 0 条|done|1|1|spec-mismatch|1|0|true" \
+  "$RCX|$LASTX|$ZMUT|$ZRC|$(printf '%s' "$ZK" | cut -d'|' -f1)|$(printf '%s' "$ZK" | cut -d'|' -f2)|$(printf '%s' "$ZK" | cut -d'|' -f3)|$(printf '%s' "$ZK" | cut -d'|' -f4)|$(printf '%s' "$ZK" | cut -d'|' -f5)"
+
+# 28 打死：旧文档里的内网地址原样上了页面 / 隐去了但清单页顶上没列（读者不知道少了什么）/ 隐去后核对误报
+ZA=$(grep -n '10\.9\.8\.7' "$AX/legacy/arch-a.md" | cut -d: -f1 || true)
+eq "隐去：legacy/arch-a.md 里的 10.9.8.7 在 arch/doc-01、doc-02 下搜不到；doc-01 清单页有「已隐去」且顶上的隐去清单写出来源第 ${ZA} 行；check 退出码 0（隐去后的字比）" "n|y|y|0" \
+  "$(yn grep -rqF 10.9.8.7 "$XD/doc-01" "$XD/doc-02")|$(yn grep -qF 已隐去 "$XD/doc-01/index.html")|$(nj 'const t=H.txt(fs.readFileSync(process.argv[1]+"/docs/readable/arch/doc-01/index.html","utf8"));console.log(/隐去了/.test(t)&&t.includes("第 "+process.argv[2]+" 行")?"y":"n")' "$AX" "$ZA")|$RCX"
+
+# 29 打死：为做这一项把需求规格 / 数据库设计的页面改了；架构设计别的页面（模块页、接口总表）跟着变；没配 archDocs 的项目整套页面与旧脚本的不同（最贵的第二种错）；对照：首页确实变了（防比较空转）
+P0="$TMP/p0"; cp -r "$B" "$P0"; rm -rf "$P0/docs/readable"; printf '# 规格\n\n前言。\n\n## 一 章\n\n- 条\n' >"$P0/Product-Spec.md"; bd "$P0"
+P1="$TMP/p1"; cp -r "$P0" "$P1"; rm -rf "$P1/docs/readable"; mklg "$P1"; cfgA "$P1" "$LGA"; bd "$P1"
+PO="$TMP/po"; cp -r "$P0" "$PO"; rm -rf "$PO/docs/readable"; env -u CLAUDE_PROJECT_DIR node "$OLD2/.claude/scripts/readable-docs.mjs" build --root "$PO" >/dev/null 2>&1 || true
+OTH=same; for f in $(cd "$P0/docs/readable/arch" && ls | grep -v '^index\.html$' | grep -v '^doc-'); do cmp -s "$P0/docs/readable/arch/$f" "$P1/docs/readable/arch/$f" || OTH="changed:$f"; done
+eq "不变：加 archDocs 前后 spec/ 与 db/ 逐字节相同（spec/ 有章页）；arch/ 下除首页外的 m-*.html 与 routes.html 逐字节相同、首页变了；没配 archDocs 时整个 docs/readable 与提交 db33c73 的旧脚本生成的逐字节相同" "same|same|same|differs|same|y" \
+  "$([ "$(hp "$P0/docs/readable/spec")" = "$(hp "$P1/docs/readable/spec")" ] && echo same || echo changed)|$([ "$(hp "$P0/docs/readable/db")" = "$(hp "$P1/docs/readable/db")" ] && echo same || echo changed)|$OTH|$(cmp -s "$P0/docs/readable/arch/index.html" "$P1/docs/readable/arch/index.html" && echo same || echo differs)|$([ "$(hp "$P0/docs/readable")" = "$(hp "$PO/docs/readable")" ] && echo same || echo changed)|$(yn test -f "$P0/docs/readable/spec/s-01.html")"
+
+# 30 打死：配置错了照样生成（路径不存在 / 不是 .md 的文件被当 Markdown 排 / 同一份排两遍出重复页）；退出码不是 2 或没点名是哪个路径
+cerr() { local X="$TMP/ce_$1"; cp -r "$P0" "$X"; rm -rf "$X/docs/readable"; mklg "$X"; cfgA "$X" "$2"; local c=0; nd build --root "$X" >"$TMP/ce_$1.out" 2>&1 || c=$?; echo "$c|$(grep -qF "$3" "$TMP/ce_$1.out" && echo y || echo n)"; }
+eq "配置三种错各退出码 2 并点名那个路径：路径不存在（legacy/nope.md）、不是 .md（文件存在的 legacy/notes.txt）、同一个路径写了两遍（legacy/arch-a.md）" "2|y|2|y|2|y" \
+  "$(cerr miss '["legacy/arch-a.md","legacy/nope.md"]' legacy/nope.md)|$(cerr txt '["legacy/arch-a.md","legacy/notes.txt"]' legacy/notes.txt)|$(cerr dup '["legacy/arch-a.md","legacy/arch-b.md","legacy/arch-a.md"]' legacy/arch-a.md)"
+
+# 31 打死：没有架构这一份的项目配了 archDocs 却硬出页面 / 悄悄不出而不说 / build 失败
+NX="$TMP/nx"; cp -r "$P0" "$NX"; rm -rf "$NX/docs/readable"; mklg "$NX"; cfgA "$NX" "$LGA"; node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/config.json",c=JSON.parse(fs.readFileSync(f));c.codeRoots=[];fs.writeFileSync(f,JSON.stringify(c))' "$NX"
+NRC=0; nd build --root "$NX" >"$TMP/nx.out" 2>&1 || NRC=$?
+eq "没配 codeRoots（没有架构这一份）而配了 archDocs：build 退出码 0、docs/readable 下找不到 doc-* 目录、输出里写明「配了 archDocs，但这个项目没有架构这一份，没出」（空白不计）、check 末行「不一致 0 条」" "0|0|y|不一致 0 条" \
+  "$NRC|$(find "$NX/docs/readable" -name 'doc-*' 2>/dev/null | wc -l | tr -d ' ')|$(tr -d ' \n' <"$TMP/nx.out" | grep -qF '配了archDocs，但这个项目没有架构这一份，没出' && echo y || echo n)|$(last "$NX")"
+
+# 32 打死：现有架构文档的页面不确定（时间、遍历顺序）；对照：页面确实出了（否则「相同」是空话）
+cp -r "$AX/docs/readable" "$TMP/snapx"; bd "$AX"; DX=$(diff -r "$TMP/snapx" "$AX/docs/readable" >/dev/null 2>&1 && echo same || echo differ)
+eq "同一输入再 build 一次：整个 docs/readable（含 arch/doc-01、doc-02）逐字节相同；对照 doc-01、doc-02 的清单页确实存在" "same|y|y" "$DX|$(yn test -f "$AX/docs/readable/arch/doc-01/index.html")|$(yn test -f "$AX/docs/readable/arch/doc-02/index.html")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

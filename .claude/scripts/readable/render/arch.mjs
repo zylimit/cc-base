@@ -1,4 +1,5 @@
-// arch.mjs —— 架构设计这一份的页面：架构首页、接口总表，模块页在 arch-module.mjs（第三期契约 docs/readable-spec/phase3-arch-contract.md D 节）。
+// arch.mjs —— 架构设计这一份的页面：架构首页、接口总表，模块页在 arch-module.mjs，现有的架构文档换排的页在 arch-docs.mjs
+// （第三期契约 docs/readable-spec/phase3-arch-contract.md D 节）。
 // 为什么有它：接手的人看完数据库设计第二步就看这里——系统由哪几块组成、每一块管什么、谁用谁、对外提供什么、碰哪些表（规格 REQ-DOC-002）。
 // 首页要一眼看清几块：几百行的明细（循环依赖里的文件对、没人引用的文件）一律收进可展开的区，不摊在首页上。
 // 「结构上看得出的」只说是算出来的，不下判断。只读文档模型（build --facts-json 的 code、arch 与说明）、只出字符串，落盘在 publish.mjs。
@@ -78,12 +79,25 @@ function unreadable(v) {
   ].join('\n');
 }
 
-function indexPage(v, inj) {
+// 现有的架构文档（D 节第 7 条与末段）：配了 archDocs 才有这一段，没配的首页与之前逐字节相同。它们是旧文档，原文照排在 doc-NN/ 下，
+// 这一段只列入口：每份一行，文档名链到它的清单页、来源的路径（data-k="key"）、几章、几块；不标「取自来源」，免得与上面几段从代码里取的事实混起来。
+// 它排在首页很靠后（真数据上首页十来屏，它在末尾），所以标题带 id，首页开头那句报数的话后面有半句链过来（docsLead）。
+const DOCS_ID = 'archDocs';
+function existingDocs(docs) {
+  if (!docs.length) return '';
+  const rows = docs.map((d) => row(d.file, [`<a href="${esc(d.href)}">${esc(d.name)}</a>`, k('key', pathCode(d.file)), k('chapters', String(d.chapters)), k('blocks', String(d.blocks))]));
+  return section('archDocs', `<h2 id="${DOCS_ID}">现有的架构文档（${docs.length} 份）</h2>\n<p class="muted">下面是项目里原有的文档，原文照排；写的时候对应的代码可能已经变了，现行的结构以本页上面几段为准。</p>\n`
+    + table(['文档', '来源的路径', '章', '块'], rows, [null, '36%', '64px', '64px']));
+}
+// 首页开头那句报数的话后面接的半句（契约 D 节第 7 段那一条）：接在「取自来源」标记之后，那个标记只管前面从代码里取的数。没配的不接，首页逐字节不变。
+const docsLead = (docs) => (docs.length ? ` 项目原有的架构文档 ${docs.length} 份，列在<a href="#${DOCS_ID}">本页末尾</a>。` : '');
+
+function indexPage(v, inj, docs) {
   const hint = v.tests ? `<div class="notice" role="note"><p>文件清单里有 ${v.tests} 个测试文件（名字带 <code>.test.</code>、<code>.spec.</code> 或在 <code>__tests__/</code> 下），它们进了模块图；可以在配置（<code>docs/readable-src/config.json</code>）的 <code>ignore</code> 里排掉，比如加 <code>**/*.test.*</code>、<code>**/*.spec.*</code>、<code>**/__tests__/**</code>。</p></div>` : '';
   const body = [
     redactions(v.hits),
     `<h1>${ARCH}</h1>`,
-    `<p class="lead">${v.modules.length} 个模块、${v.files} 个代码文件、${approxLines(v.lines, 2)}；接口 ${v.routes.length} 个，全部列在<a href="routes.html">接口总表</a>；未归属的文件 ${v.unassigned.length} 个。${origin('fact')}</p>`,
+    `<p class="lead">${v.modules.length} 个模块、${v.files} 个代码文件、${approxLines(v.lines, 2)}；接口 ${v.routes.length} 个，全部列在<a href="routes.html">接口总表</a>；未归属的文件 ${v.unassigned.length} 个。${origin('fact')}${docsLead(docs)}</p>`,
     archNote('doc:arch', v.docNote, '导读', '还没有导读。先看下面的总图与模块清单，再点进模块。'),
     `<h2>总图 ${judgedMark(v.source === 'dirs' ? 'default' : v.modules.every((m) => m.status === 'confirmed') ? 'confirmed' : 'proposed')}</h2>`,
     '<p class="muted">方框怎么分是项目判断；线与线上的数取自来源（代码里的引用）。</p>',
@@ -92,6 +106,7 @@ function indexPage(v, inj) {
     structure(v, inj),
     unreadable(v),
     hint,
+    existingDocs(docs),
     LEGEND,
   ].filter(Boolean).join('\n');
   return { path: 'arch/index.html', html: page({ title: pageTitle(v), depth: 1, crumbs: [['文档首页', 'index.html'], [ARCH]], body, css: CSS }) };
@@ -117,9 +132,10 @@ function routesPage(v) {
 }
 
 // 入口：模型 → 架构这一份的全部页面，外加首页上那一条目录项；moduleOf（原始路径 → {id, title}）给数据库设计的表页标模块。
-export function renderArch(facts, { title }) {
+// docs：现有的架构文档在首页第 7 段列的那几行（arch-docs.mjs 的 row），它们自己的页面由 arch-docs.mjs 出；不给就没有这一段。
+export function renderArch(facts, { title, docs = [] }) {
   const v = archView(facts, title), inj = injection(v);
-  const files = [indexPage(v, inj), routesPage(v), ...v.modules.map((m) => modulePage(v, m, inj))];
+  const files = [indexPage(v, inj, docs), routesPage(v), ...v.modules.map((m) => modulePage(v, m, inj))];
   const moduleOf = new Map([...v.owner].map(([f, id]) => [f, { id, title: v.byId.get(id).title }]));
   return {
     entry: { href: 'arch/index.html', label: ARCH, summary: `${v.modules.length} 个模块、${v.routes.length} 个接口` },

@@ -5,7 +5,8 @@
 // 比的就是那张表，一段一行一格都不漏（比法在 check-arch-rows.mjs）：模块页的文件（显示的路径、规模档、入口、文件头说明全文与取自哪一处）、
 // 接口（方法、路径、处理函数、所在文件、处理函数的说明全文、拼不出完整路径的原因）、它依赖的模块（显示的 id、用到的名字）、
 // 依赖它的模块、对外提供的名字、读写的表、用到的外部包，连同 <h1> 的模块标题；架构首页的模块清单（显示的 id、约多少行与六个数）、
-// 未归属的文件、超过 1000 行的、没人引用的、循环依赖、越层引用、没解析到的与运行时才定的引用、没扫的文件、项目判断里对不上的；
+// 未归属的文件、超过 1000 行的、没人引用的、循环依赖、越层引用、没解析到的与运行时才定的引用、没扫的文件、项目判断里对不上的、
+// 现有的架构文档（配了 archDocs 才有；它们各自的页面逐块比在 check-spec.mjs 的 archDocsFacts）；
 // 接口总表的每一条（连同所属模块，不带处理函数的说明）；表页上每个文件标的模块。键不许只放在属性里——data-row 只配行，显示键的那一格（路径、模块 id、
 // 名字、所在文件）也比显示的字：原先只比 data-row，出页面的代码把显示的路径、模块写错了，check 照样报「不一致 0 条」（2026-11-23 整期审查实测）。
 // 规模档、约多少行这类由事实算出来的字，照契约自己算，不借出页面的代码。
@@ -40,6 +41,12 @@ function headAtOf(f) {
 // 模块页的接口比这六格；接口总表不放处理函数的说明（D 节），比的是 ROUTE_K 去掉 doc、加上 module。
 const ROUTE_K = ['method', 'path', 'handler', 'file', 'doc', 'why'];
 const TOTAL_K = ['method', 'path', 'handler', 'file', 'why', 'module'];
+// 一份现有的架构文档分几章（第二期契约 C 节的分法，照契约自己数，不借出页面的代码）：一个二级标题一章，
+// 第一个二级标题之前有内容的另算一章（s-00）；一块都没有的是 0 章。
+function chapterCount(blocks) {
+  const h2 = blocks.filter((b) => b.kind === 'heading' && b.level === 2).length, first = blocks.findIndex((b) => b.kind === 'heading' && b.level === 2);
+  return h2 + (blocks.length && first !== 0 ? 1 : 0);
+}
 const routeWant = (r, doc, extra = {}) => ({ key: key(`${r.method} ${r.fullPath ?? r.path}`), k: opt({
   method: shown(r.method), path: shown(r.fullPath ?? r.path), handler: shown(r.handler), file: shown(r.file), doc: doc == null ? undefined : shown(doc), why: whyOf(r), ...extra }) });
 // 文件名由 id 推出（同第一期的推法，照契约自己推，不借出页面的代码）；模块 id 只许小写字母、数字与连字符，推出来就是它自己。
@@ -70,7 +77,8 @@ function modulePage(tree, m, files, docOf, add) {
 }
 
 // 架构首页。循环依赖一组的键是成员 id、照模块清单的先后；越层引用有层才有这一段，没有层时页面上不该有它。
-function indexPage(tree, A, C, add) {
+// 现有的架构文档（第 7 段）同理：配了 archDocs 才有，每份一行，键是来源的路径，比显示的路径、几章、几块。
+function indexPage(tree, A, C, docs, add) {
   const order = new Map(A.modules.map((m, i) => [m.id, i])), at = (id) => order.get(id) ?? A.modules.length;
   section(tree, 'modules', '模块清单', ['module', 'files', 'lines', 'routes', 'reads', 'writes', 'uses', 'usedBy'], A.modules.map((m) => ({ key: m.id, k: {
     module: m.id, files: count(m.files), lines: about(m.lines), routes: count(m.routes), reads: count(m.tables.reads), writes: count(m.tables.writes), uses: count(m.uses), usedBy: count(m.usedBy) } })), add);
@@ -85,6 +93,8 @@ function indexPage(tree, A, C, add) {
   texts('dynamic', '运行时才定的引用', C.dynamic);
   section(tree, 'skipped', '没扫的文件', ['count'], C.skipped.map((s) => ({ key: key(s.ext), k: { count: String(s.count) } })), add);
   section(tree, 'problems', '项目判断里对不上的', ['detail'], A.problems.map((p) => ({ key: key(`${p.kind} ${p.module ?? ''}`), k: { detail: shown(p.detail) } })), add);
+  section(tree, 'archDocs', '现有的架构文档', ['key', 'chapters', 'blocks'], docs.map((d) => ({ key: key(d.file), k: {
+    key: shown(d.file), chapters: String(chapterCount(d.blocks)), blocks: count(d.blocks) } })), add, docs.length ? 1 : 0);
 }
 
 // 表页上「谁在写、谁在读」的每个文件标的模块（D 节）：沿用第一期的行（data-row="writer" / "reader"），行里多一格 data-k="module"，
@@ -125,7 +135,7 @@ export function archFacts(rd, facts, label, noteRegions) {
     fn(tree, (detail) => out.push({ kind: 'arch-mismatch', where: at(rel, anchor), detail }));
     noteRegions(tree, notesHere, notes, (kind, a, detail) => out.push({ kind, where: at(rel, a), detail }));
   };
-  page(INDEX, null, ['doc:arch'], (tree, add) => indexPage(tree, facts.arch, facts.code, add));
+  page(INDEX, null, ['doc:arch'], (tree, add) => indexPage(tree, facts.arch, facts.code, facts.archDocs ?? [], add));
   page(ROUTES, null, [], (tree, add) => section(tree, 'routes', '接口总表', TOTAL_K,
     facts.code.routes.map((r) => routeWant(r, null, { module: owner.get(r.file) ?? UNASSIGNED })), add));
   const files = new Map(facts.code.files.map((f) => [f.path, f])), docOf = docLookup(facts.code.routes), want = new Set();

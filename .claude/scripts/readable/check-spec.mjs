@@ -11,11 +11,15 @@
 // 不然两头各改一个字，中间几千块全被当成「先后不对」。分句的断行是空标记、步骤图与打印用的那份引用不带 data-block，读回来的字不因排法变。
 // 配上的块（文字相同的、先后不对的、文字不同的）再看两样：结构（列表子项挂在谁下面、标题的标签级数，spec-structure）
 // 与引用为打印另备的那一份（缺了、多了、字不同都报 spec-mismatch）。字一个没少、层次却没了，或打印出来的与屏幕上的不同，都是给人看错了。
+// 现有的架构文档（第三期契约 D 节末段、E 节）照同一项逐份比（archDocsFacts）：页面在 arch/doc-<两位序号>/ 下，kind 沿用这七种，
+// where 里写明是哪一份的路径。没有架构这一份的项目不出这些页面，也就不比。
 import { cmp } from './model.mjs';
 import { redact } from './sensitive.mjs';
 import { squash, specBlocks, specPrints, specFigs, plainMarks } from './check-read.mjs';
 
-const SPEC_PAGE = /^spec\/s-(\d+)\.html$/; // 契约 C 节：文件名只用序号
+// 契约 C 节：文件名只用序号。需求规格在 spec/ 下；第 i 份现有的架构文档（照配置的先后，从 01 起）在 arch/doc-<两位序号>/ 下——照契约自己推，不借出页面的代码。
+const pageRe = (dir) => new RegExp(`^${dir}/s-(\\d+)\\.html$`);
+const docDir = (i) => `arch/doc-${String(i + 1).padStart(2, '0')}`;
 const KIND = { heading: '标题', list: '列表项', table: '表格行', quote: '引用', fence: '围栏', hr: '分隔线', paragraph: '段落' };
 const LCS_CAP = 4e6; // 中间对不上的两段块数之积超过它就不求公共子序列（四百万格约 16MB），按位置一一配
 const ORDERED = /^\d{1,9}[.)]$/; // 有序列表的记号：数字加「.」或「)」（契约 B 节）；页面上只有它们显示序号
@@ -126,18 +130,19 @@ function figures(S, all, out) {
 }
 
 // rd：核对器的目录读取器（check.mjs 的 reader）；spec：重新切的块，没配需求规格的是 null；label：给人看的位置前缀。
-export function specFacts(rd, spec, label) {
+// dir：这一份的页面所在的目录（需求规格是 spec）；tag：接在页面路径后面、点名是哪一份的字（需求规格不加，与加这个参数之前逐字相同）。
+export function specFacts(rd, spec, label, { dir = 'spec', tag = '' } = {}) {
   const out = [];
   if (!spec) return { problems: out, read: 0 };
-  const num = (rel) => { const m = SPEC_PAGE.exec(rel); return m ? Number(m[1]) : Infinity; };
-  const rels = rd.html.filter((r) => r.startsWith('spec/')).sort((a, b) => num(a) - num(b) || cmp(a, b));
+  const PAGE = pageRe(dir), num = (rel) => { const m = PAGE.exec(rel); return m ? Number(m[1]) : Infinity; };
+  const rels = rd.html.filter((r) => r.startsWith(`${dir}/`)).sort((a, b) => num(a) - num(b) || cmp(a, b));
   const seen = new Map(), P = [], at = new Map(), printAll = [], figAll = [];
   let read = 0;
   for (const rel of rels) {
-    const tree = rd.tree(rel);
+    const tree = rd.tree(rel), page = `${label}${rel}${tag}`;
     for (const b of specBlocks(tree)) {
       read++;
-      const where = `${label}${rel} · 第 ${b.n} 块`;
+      const where = `${page} · 第 ${b.n} 块`;
       if (seen.has(b.n)) { out.push({ kind: 'spec-duplicate', where, detail: `第 ${b.n} 块在页面上不止一处（${seen.get(b.n)} 里已经有它）` }); continue; }
       seen.set(b.n, rel);
       at.set(b, P.length);
@@ -145,8 +150,8 @@ export function specFacts(rd, spec, label) {
       const h = HEAD_TAG.exec(b.tag);
       P.push({ where, n: b.n, tag: b.tag, level: h ? Number(h[1]) : null, up: b.up, text, cells, marker, info, key: specKey(text, cells, marker, info) });
     }
-    for (const x of specPrints(tree)) printAll.push({ of: x.of, where: `${label}${rel} · 打印用的那一份（data-print-of="${x.of}"）`, text: specNorm(x.text) });
-    for (const x of specFigs(tree)) figAll.push({ ...x, where: `${label}${rel} · 图（data-fig="${x.of}"）` });
+    for (const x of specPrints(tree)) printAll.push({ of: x.of, where: `${page} · 打印用的那一份（data-print-of="${x.of}"）`, text: specNorm(x.text) });
+    for (const x of specFigs(tree)) figAll.push({ ...x, where: `${page} · 图（data-fig="${x.of}"）` });
   }
   // 包着它的那一块换成 P 里的下标；那一块在页面上是重复的（没进 P）记 -1。
   for (const p of P) p.up = p.up == null ? null : (at.get(p.up) ?? -1);
@@ -154,7 +159,7 @@ export function specFacts(rd, spec, label) {
     const cells = b.kind === 'table' ? b.cells.map((c) => srcNorm(b.kind, c)) : null, text = cells ? cells.join(' | ') : srcNorm(b.kind, b.text);
     const marker = b.kind === 'list' && ORDERED.test(b.marker ?? '') ? b.marker : null, info = b.kind === 'fence' && b.info ? srcNorm('fence', b.info) : null;
     return {
-      where: `${label}spec/ · 来源 ${spec.file} 第 ${b.line} 行`, at: `来源 ${spec.file} 第 ${b.line} 行的${KIND[b.kind] ?? b.kind}`,
+      where: `${label}${dir}/ · 来源 ${spec.file} 第 ${b.line} 行`, at: `来源 ${spec.file} 第 ${b.line} 行的${KIND[b.kind] ?? b.kind}`,
       kind: b.kind, line: b.line, level: b.kind === 'heading' ? b.level : null, parent: b.parent == null ? null : b.parent - 1,
       text, cells, marker, info, key: specKey(text, cells, marker, info),
     };
@@ -189,4 +194,18 @@ export function specFacts(rd, spec, label) {
   prints(S, P, matched, printAll, out);
   figures(S, figAll, out);
   return { problems: out, read };
+}
+
+// 现有的架构文档一块不少、一字不差（第三期契约 E 节最后一条）：每一份跑上面那一项，页面在它自己的目录下，where 里接上「现有架构文档 <路径>」。
+// 这些页面只在有架构这一份时出（D 节末段），没有模块的项目一份都不比、读回 0 块；read 是各份页面上读回的块数之和。
+export function archDocsFacts(rd, facts, label) {
+  const docs = facts.archDocs ?? [], problems = [];
+  let read = 0;
+  if (!facts.arch?.modules?.length) return { problems, read };
+  docs.forEach((d, i) => {
+    const r = specFacts(rd, d, label, { dir: docDir(i), tag: ` · 现有架构文档 ${d.file}` });
+    problems.push(...r.problems);
+    read += r.read;
+  });
+  return { problems, read };
 }

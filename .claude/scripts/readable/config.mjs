@@ -15,8 +15,9 @@ export function readJson(root, rel, what) {
   catch (e) { if (e instanceof SyntaxError) bad(`${what}不是合法 JSON：${rel}：${e.message}`); throw e; }
 }
 
-// archDocs（第三期契约 A 节）：现有的架构文档与决策记录，可以没有；写了路径而文件不存在，同 ddl 一样退出码 2 并点名。
-// 内容怎么上页面是后面的 Task，这里只校验。
+// archDocs（第三期契约 A 节、D 节末段）：现有的架构文档与决策记录，可以没有。只认 Markdown（.md，大小写不论）；同一个路径写了两遍
+// （./a.md 与 a.md 规范化之后是同一个，也算）；写了路径而文件不存在——三种都同 ddl 一样退出码 2 并点名。
+// 页面按它们在清单里的先后编号出在 arch/doc-<两位序号>/，重了的会出两份一模一样的，多半是手误。
 export function loadConfig(root) {
   if (!existsSync(join(root, CONFIG))) bad(`配置不存在：${CONFIG}（先跑 init）`);
   const cfg = readJson(root, CONFIG, '配置');
@@ -47,6 +48,13 @@ export function loadConfig(root) {
   ddl.forEach((f, i) => must(`ddl[${i}]`, f, 'file'));
   codeRoots.forEach((d, i) => must(`codeRoots[${i}]`, d, 'dir'));
   if (cfg.spec != null) must('spec', cfg.spec, 'file');
+  const seen = new Map();
+  archDocs.forEach((f, i) => {
+    if (!/\.md$/i.test(f)) bad(`配置里的 archDocs[${i}] = ${f} 不是 Markdown：现有的架构文档只认 .md`);
+    const n = posix.normalize(f.replace(/\\/g, '/'));
+    if (seen.has(n)) bad(`配置的 archDocs 里同一个路径写了两遍：archDocs[${seen.get(n)}] 与 archDocs[${i}] 都是 ${n}`);
+    seen.set(n, i);
+  });
   archDocs.forEach((f, i) => must(`archDocs[${i}]`, f, 'file'));
   return { ...cfg, ddl, codeRoots, ignore, archDocs };
 }

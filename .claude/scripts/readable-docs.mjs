@@ -23,6 +23,9 @@
 // READABLE_FAIL_AT=arch-render 时，出页面的代码在第一个有文件的模块页上漏掉一个文件那一行，落盘前的自检拦下、原有页面不动（在 render/arch-module.mjs，第三期契约 D、E 节）；
 // arch-show-key 第一个文件显示的路径写错、arch-show-head 第一条文件头说明少最后一个字（同在 render/arch-module.mjs），
 // arch-drop-section 架构首页「没有被项目里别的文件引用的」整段不出（在 render/arch.mjs）。这四个在没有架构这一份的项目上报错、退出码 3（在下面 pages）。
+// 现有的架构文档（archDocs，第三期 Task 3.5）另有两个，都落在第一份上：READABLE_FAIL_AT=arch-doc-cut 切出来的第一块带字的少一个字，
+// 还原自检拦下（在 sources/md-blocks.mjs，没配 archDocs 时报错）；arch-doc-render 出页面的代码把第一条带字的列表项的最后一个字丢掉，
+// 落盘前的自检拦下（在 render/spec.mjs，经 render/arch-docs.mjs 交进去；没有这些页面时在下面 pages 报错）。都是退出码 3。
 // 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；
 // init 起草配置与走文件的 walk 在 readable/init.mjs（第三期 Task 3.4 搬过去，给架构这一份腾地方）。
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -31,7 +34,7 @@ import { cmp } from './readable/model.mjs';
 import { walk, cmdInit } from './readable/init.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
-import { extract as extractSpec, SpecLoss } from './readable/sources/md-blocks.mjs';
+import { extract as extractSpec, extractDocs, SpecLoss } from './readable/sources/md-blocks.mjs';
 import { extract as extractImports } from './readable/sources/code-imports.mjs';
 import { addRoutes } from './readable/sources/code-routes.mjs';
 import { ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
@@ -41,6 +44,7 @@ import { renderDb } from './readable/render/db.mjs';
 import { renderArch } from './readable/render/arch.mjs';
 import { renderHome } from './readable/render/layout.mjs';
 import { renderSpec } from './readable/render/spec.mjs';
+import { renderArchDocs } from './readable/render/arch-docs.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
@@ -86,8 +90,9 @@ const codeFiles = (root, cfg) => [...new Set(cfg.codeRoots.flatMap((d) => walk(r
 // 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来
 // → 绑说明（契约 G 节：notes 按现行的切片判现行、待更新、孤儿，交给页面与 --facts-json 的是同一份）。
 // 需求规格的切块（第二期契约 B 节）最先做：还原自检不过就抛 SpecLoss，后面的都不必跑，也不会打出半份结果；没配 spec 的是 null。
+// 现有的架构文档（archDocs，第三期契约 D 节末段）紧跟着同样切、同样自检；没配的是空数组。没有架构这一份的项目照样切（事实里有），只是不出页面。
 function collect(root, cfg, skipped) {
-  const spec = extractSpec(cfg, root);
+  const spec = extractSpec(cfg, root), archDocs = extractDocs(cfg, root);
   const ddl = extractDdl(cfg, root, skipped);
   const map = loadMap(root, ddl.tables.map((t) => t.name));
   const scan = extractCode(cfg, root, codeFiles(root, cfg), [...ddl.tables, ...ddl.views].map((x) => x.name));
@@ -102,7 +107,7 @@ function collect(root, cfg, skipped) {
   const code = addRoutes(extractImports(cfg, root, codeAll), cfg, root, codeAll);
   // 照模块划分汇总（第三期契约 B 节「汇总成模块」，Task 3.3）：划分取自 map.json 的 modules，没有就按目录分；表的写读取自上面的 usage。
   const arch = buildArch(code, linked.usage, map.arch, cfg.codeRoots);
-  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec, code, arch };
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec, archDocs, code, arch };
   return { ...facts, ...bindNotes(root, facts) };
 }
 const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
@@ -113,14 +118,17 @@ const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
 // 配了需求规格的再出 spec/ 下的页面，首页的文档清单多一项（第二期契约 C 节，2026-11-23 Task 2.2）；spec 为 null 的一页都不出、首页不列。
 // 有模块的（配了 codeRoots、取得到代码文件）再出 arch/ 下的页面，首页清单里排在数据库设计后面（接手的人先看库、再看架构），
 // 表页上「谁在写、谁在读」的文件标出所属的模块：所属关系经 renderDb 的 moduleOf 参数带给表页（第三期契约 D 节）。没有模块的一页不出、表页不变。
+// 有架构这一份又配了 archDocs 的，每一份现有的架构文档出在 arch/doc-<两位序号>/ 下，架构首页多第 7 段列它们；没配的一页不多、首页不变。
 function pages(root, cfg, facts) {
   const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
-  const at = process.env.READABLE_FAIL_AT; // 架构的四个注入点（第三期契约 E 节）没有架构这一份时不许悄悄什么都不做
-  if (!facts.arch.modules.length && ['arch-render', 'arch-show-key', 'arch-show-head', 'arch-drop-section'].includes(at)) throw new Error(`READABLE_FAIL_AT=${at}：这个项目没有架构这一份，注入点没有可下手的地方`);
-  const arch = facts.arch.modules.length ? renderArch(facts, { title: page.title }) : null;
+  const at = process.env.READABLE_FAIL_AT, hasArch = facts.arch.modules.length > 0; // 架构的注入点（第三期契约 E 节）没有可下手的页时不许悄悄什么都不做
+  if (!hasArch && ['arch-render', 'arch-show-key', 'arch-show-head', 'arch-drop-section'].includes(at)) throw new Error(`READABLE_FAIL_AT=${at}：这个项目没有架构这一份，注入点没有可下手的地方`);
+  if (at === 'arch-doc-render' && !(hasArch && facts.archDocs.length)) throw new Error(`READABLE_FAIL_AT=${at}：${hasArch ? '没配 archDocs' : '这个项目没有架构这一份'}，现有架构文档的页面不出，注入点没有可下手的地方`);
+  const archDocs = hasArch ? renderArchDocs(facts.archDocs, { title: page.title }) : [];
+  const arch = hasArch ? renderArch(facts, { title: page.title, docs: archDocs.map((d) => d.row) }) : null;
   const db = renderDb(facts, page, arch ? { moduleOf: arch.moduleOf } : {}), spec = facts.spec ? renderSpec(facts.spec, { title: db.title }) : null;
   const docs = [db.entry, ...(arch ? [arch.entry] : []), ...(spec ? [spec.entry] : [])];
-  return { db, spec, arch, files: [renderHome(db.title, docs), ...db.files, ...(arch ? arch.files : []), ...(spec ? spec.files : [])] };
+  return { db, spec, arch, archDocs, files: [renderHome(db.title, docs), ...db.files, ...(arch ? arch.files : []), ...archDocs.flatMap((d) => d.files), ...(spec ? spec.files : [])] };
 }
 
 // 核对（契约 H 节）：四项都在 check.mjs；这里只取事实、重出一遍交过去、出结果、定退出码。
@@ -154,7 +162,7 @@ function cmdBuild(o) {
     if (sk.length) console.error(`readable-docs: 略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
     return;
   }
-  const { db, spec, arch, files } = pages(o.root, cfg, facts);
+  const { db, spec, arch, archDocs, files } = pages(o.root, cfg, facts);
   // 落盘前对临时目录跑核对第 2 项（契约 H 节），不过就不换上，CheckFailed 往上抛成退出码 3。
   publish(o.root, files, (tmp) => selfCheck(tmp, facts));
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
@@ -162,6 +170,9 @@ function cmdBuild(o) {
   console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
   if (archTally) console.log(`  ${archTally}`);
   if (arch) console.log(`  架构设计：${arch.stats.pages} 页（首页、接口总表，模块页 ${arch.stats.modules} 页）；隐去 ${arch.stats.hidden} 处`);
+  // 现有的架构文档（第三期契约 D 节末段）：配了才多这一行，没配的报数与之前逐字相同；没有架构这一份的写明没出。
+  const sum = (key) => archDocs.reduce((s, d) => s + d.stats[key], 0);
+  if (facts.archDocs.length) console.log(`  现有架构文档：${arch ? `${archDocs.length} 份、共 ${sum('pages')} 章、${sum('blocks')} 块；隐去 ${sum('hidden')} 处` : '配了 archDocs，但这个项目没有架构这一份，没出'}`);
   if (spec) {
     const k = {};
     for (const b of facts.spec.blocks) k[b.kind] = (k[b.kind] || 0) + 1;

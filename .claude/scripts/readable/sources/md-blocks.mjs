@@ -1,4 +1,6 @@
-// md-blocks.mjs —— 需求规格的切块：把一份 Markdown 按先后切成一列块（契约 docs/readable-spec/phase2-spec-contract.md A、B 两节；架构稿 §6 场景 2）。
+// md-blocks.mjs —— Markdown 的切块：把一份 Markdown 按先后切成一列块（契约 docs/readable-spec/phase2-spec-contract.md A、B 两节；架构稿 §6 场景 2）。
+// 切的有两种：需求规格（配置的 spec），与现有的架构文档、决策记录（配置的 archDocs，第三期契约 D 节末段）——同一套切法、同一道自检，
+// 报错里点名是哪一份的第几行。
 // 为什么自己切、不用现成的 Markdown 解析库：这一层最贵的错是悄悄丢字或串块。现成的库按渲染的口径归并空白、吃掉转义、
 // 把认不出的写法折进别处，丢了什么不会告诉我们；这里只认契约里那七种块，别的写法一律按段落原样收下，宁可排得朴素也不少一个字。
 // 切完当场跑还原自检（restore）：每块的文字连同切块时去掉的记号放回原位，必须逐行等于原文，对不上抛 SpecLoss（入口给退出码 3）。
@@ -222,36 +224,49 @@ export function marksOnly(blocks, lays, label) {
   });
 }
 
-// 测试注入点 READABLE_FAIL_AT=spec-cut（契约 B 节）：切出来的第一块带字的少最后一个字，还原自检应当拦下并点名到行。
-// 规格里一块带字的都没有就没有字可少，直接报错——注入点不许悄悄什么都不做。
-function injectCut(blocks, label) {
-  if (process.env.READABLE_FAIL_AT !== 'spec-cut') return;
+// 测试注入点（契约 B 节）：切出来的第一块带字的少最后一个字，还原自检应当拦下并点名到行。at 是这一份认的注入点名：
+// 需求规格是 READABLE_FAIL_AT=spec-cut；现有的架构文档只有第一份认 arch-doc-cut，别的几份不认（at 为 null）。
+// 这一份里一块带字的都没有就没有字可少，直接报错——注入点不许悄悄什么都不做。
+function injectCut(blocks, label, at) {
+  if (at == null || process.env.READABLE_FAIL_AT !== at) return;
   const b = blocks.find((x) => x.text !== '');
-  if (!b) throw new SpecLoss(`${label}READABLE_FAIL_AT=spec-cut：没有带字的块可少一个字，按要求模拟失败`);
+  if (!b) throw new SpecLoss(`${label}READABLE_FAIL_AT=${at}：没有带字的块可少一个字，按要求模拟失败`);
   b.text = Array.from(b.text).slice(0, -1).join('');
 }
 
 // 一份 Markdown 文本 → { blocks, sections }，还原自检与记号检查都过了才返回。开头的 BOM 不是字，先去掉；CRLF 与 LF 一样分行；
-// 文件末尾的换行不另算一行，不然没收尾的围栏会多吞一个并不存在的空行。
-export function chunk(src, label = '需求规格') {
+// 文件末尾的换行不另算一行，不然没收尾的围栏会多吞一个并不存在的空行。cutAt 是这一份认的切块注入点（见 injectCut）。
+export function chunk(src, label = '需求规格', cutAt = 'spec-cut') {
   const lines = src.replace(/^﻿/, '').split(/\r?\n/);
   if (lines.length > 1 && lines.at(-1) === '') lines.pop();
   const raw = cut(lines), { blocks, sections } = finalize(raw), lays = raw.map((b) => b.lay);
-  injectCut(blocks, label);
+  injectCut(blocks, label, cutAt);
   restore(lines, blocks, lays, label);
   marksOnly(blocks, lays, label);
   return { blocks, sections };
 }
 
-// 取事实（契约 A 节）：配置的 spec 为 null 时没有这份文档，返回 null，不算错。
+// 读一份 Markdown 并切块。what 是给人看的这一份是什么（「需求规格」「现有架构文档」），报错里连同路径一起点名。
 // 写了路径而文件不存在（或不是文件）时抛错：多半是路径写错了，悄悄不出比报错更坏；入口在读配置时已按退出码 2 点名，这里是兜底。
 // 按严格的 UTF-8 解：坏字节默认会被换成替换符，那就是悄悄丢了字，宁可报错。
-export function extract(cfg, root) {
-  if (cfg.spec == null) return null;
-  const abs = join(root, cfg.spec);
-  if (!existsSync(abs) || !statSync(abs).isFile()) throw new SpecLoss(`需求规格 ${cfg.spec} 不存在或不是文件，不切块`);
+function readMd(root, rel, what, cutAt) {
+  const abs = join(root, rel);
+  if (!existsSync(abs) || !statSync(abs).isFile()) throw new SpecLoss(`${what} ${rel} 不存在或不是文件，不切块`);
   let src;
   try { src = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(abs)); }
-  catch (e) { if (e instanceof TypeError) throw new SpecLoss(`需求规格 ${cfg.spec} 不是合法的 UTF-8，不切块（${e.message}）`); throw e; }
-  return { file: cfg.spec, ...chunk(src, `需求规格 ${cfg.spec} `) };
+  catch (e) { if (e instanceof TypeError) throw new SpecLoss(`${what} ${rel} 不是合法的 UTF-8，不切块（${e.message}）`); throw e; }
+  return { file: rel, ...chunk(src, `${what} ${rel} `, cutAt) };
+}
+
+// 取事实（契约 A 节）：配置的 spec 为 null 时没有这份文档，返回 null，不算错。
+export function extract(cfg, root) {
+  return cfg.spec == null ? null : readMd(root, cfg.spec, '需求规格', 'spec-cut');
+}
+
+// 现有的架构文档（第三期契约 A 节 archDocs、D 节末段）：照配置里的先后每一份同上切块、同上自检，每一项与 spec 同一个形状；没配的是空数组。
+// 测试注入点 READABLE_FAIL_AT=arch-doc-cut 落在第一份上；一份都没配就没有可下手的地方，直接报错。
+export function extractDocs(cfg, root) {
+  const list = cfg.archDocs ?? [];
+  if (process.env.READABLE_FAIL_AT === 'arch-doc-cut' && !list.length) throw new SpecLoss('READABLE_FAIL_AT=arch-doc-cut：没配 archDocs，没有可下手的地方，按要求模拟失败');
+  return list.map((rel, i) => readMd(root, rel, '现有架构文档', i === 0 ? 'arch-doc-cut' : null));
 }

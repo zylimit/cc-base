@@ -17,7 +17,7 @@ const FIELD = {
   key: '显示的字', size: '规模', entry: '入口', head: '文件头说明', headAt: '文件头说明取自哪一处', method: '方法', path: '路径', handler: '处理函数', file: '所在文件',
   doc: '处理函数的说明', why: '拼不出完整路径的原因', module: '模块', names: '用到的名字', name: '名字', by: '被哪几个模块用', rw: '读写',
   files: '文件数', lines: '约多少行', routes: '接口数', reads: '读几张表', writes: '写几张表', uses: '依赖几个模块', usedBy: '被几个模块依赖', pairs: '文件对数',
-  text: '原文', count: '个数', detail: '怎么对不上',
+  text: '原文', count: '个数', detail: '怎么对不上', chapters: '几章', blocks: '几块',
 };
 const NO_CELL = '（没有这一格）';
 const clip = (list) => `${list.slice(0, 5).map((x) => `「${x}」`).join('、')}${list.length > 5 ? ` 等 ${list.length} 条` : ''}`;
