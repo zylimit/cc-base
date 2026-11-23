@@ -129,5 +129,21 @@ eq "readable/check*.mjs 里带 render/ 的行没有 import（架构禁边；有�
 # 12 上一次被杀留下的临时目录：docs/.readable-tmp-99999 在 build 之后不在了，页面照常落盘
 R="$TMP/k"; mk "$R"; bd "$R"; mkdir -p "$R/docs/.readable-tmp-99999"; echo x >"$R/docs/.readable-tmp-99999/f"; bd "$R"
 eq "预放 docs/.readable-tmp-99999：build 退出码 0、它不在了、docs/readable/index.html 在" "0|n|y" "$RB|$(yn test -e "$R/docs/.readable-tmp-99999")|$(yn test -f "$R/docs/readable/index.html")"
+# 13 打死：核对器只比 data-row / 锚点配行、不比显示的字——字段表显示的列名、「谁在读」显示的文件路径写错，check 照报 0 条（审查在架构页上用三处突变实测出同一类假绿）
+cat >"$TMP/mutcell.js" <<'EOF'
+// 用法：node mutcell.js <页面> <行起始正则> <data-k> <旧文> <新文>：在匹配的那一行里，把该 data-k 格内文字的第一处旧文改成新文，属性不动
+const fs=require('fs'),[p,rowRe,k,a,b]=process.argv.slice(2),h=fs.readFileSync(p,'utf8');
+const row=(h.match(new RegExp('<tr\\b[^>]*'+rowRe+'[^>]*>[\\s\\S]*?</tr>'))||[])[0];if(!row){console.log('NOROW');process.exit()}
+const c=row.match(new RegExp('<(\\w+)([^>]*\\sdata-k="'+k+'"[^>]*)>([\\s\\S]*?)</\\1>'));if(!c){console.log('NOCELL');process.exit()}
+if(!c[3].includes(a)){console.log('NOTEXT');process.exit()}
+fs.writeFileSync(p,h.replace(row,()=>row.replace(c[0],()=>c[0].replace(c[3],()=>c[3].replace(a,b)))));
+EOF
+G=""
+for c in 'column:orders.status|data-anchor="column:orders.status"|name|status|statuz|column:orders.status' 'reader|data-row="reader"|file|app|apq|orders'; do
+  IFS='|' read -r tag rre k a b pt <<<"$c"; R="$TMP/n$k"; mkr "$R"; bd "$R"
+  M=$(node "$TMP/mutcell.js" "$(T "$R" t-orders.html)" "$rre" "$k" "$a" "$b"); ck "$R"
+  G="$G$M$RC$(hp fact-mismatch "$pt")$(hp stale-page t-customers),"
+done
+eq "手改：orders 页 status 那一列显示的列名改一个字（锚点不动）/ 「谁在读」那行显示的文件路径改一个字（data-row 不动）：各退出码 1、fact-mismatch 点到那一列 / 那张表、没改的 t-customers 不被 stale-page 点（NOROW、NOCELL 表示页面上没有这个读回标记）" "1yn,1yn," "$G"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

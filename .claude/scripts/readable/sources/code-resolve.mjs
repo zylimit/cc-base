@@ -2,7 +2,10 @@
 // （第三期契约 docs/readable-spec/phase3-arch-contract.md B 节「引用」「接口」）。
 // 为什么单拆出来：code-imports.mjs 靠它们出引用边，code-routes.mjs 靠同一套找「挂上来的乙是哪个文件里的路由器」、取处理函数的说明。
 // 只许有这一份：两边各写一份，迟早一边改了「from a import b 指向谁」而另一边没改，接口挂到的文件与模块图上的边就对不上
-// （2026-11-23 Task 3.2 从 code-imports.mjs 原样搬来，行为一个字节没变）。
+// （2026-11-23 Task 3.2 从 code-imports.mjs 搬来）。
+// Python 绝对引用从哪几个起点找，照解释器自己找模块的先后（契约 B 节「Python 绝对引用的起点」）：脚本目录、自己的代码根、别的代码根、项目根。
+// 代码根本身是个包、又被按包的写法引用时，它自己不当起点——否则包里的 import logging、from celery import … 会被接到同目录下同名的文件上；
+// 自己的代码根排在别的前面——否则两个代码根下有同名文件时，引用会被接到另一个根的那个上。这两样都要先看全项目才定得下来，所以解析器拿着全部文件建。
 import { statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { builtinModules } from 'node:module';
@@ -35,6 +38,12 @@ export const PY_IMPORT = /^import\s+([\s\S]+)$/;
 export const PY_FROM = new RegExp(`^from\\s*(\\.*)\\s*(${PY_DOTTED})?\\s*import(?![\\w\\u0080-\\uffff])\\s*([\\s\\S]*)$`);
 export const dotted = (s) => s.replace(/\s+/g, '').split('.');
 
+// ---- JS 一族：引用语句的样子（认引用的 code-imports.mjs 与取文件头说明的 code-heads.mjs 共用）----
+// 从关键字之后起，读到模块名的字面量之前；只在抹掉了注释与字符串正文的源码上用。
+export const JS_NAME = '[A-Za-z_$\\u0080-\\uffff][\\w$\\u0080-\\uffff]*';
+export const JS_IMPORT = new RegExp(`\\s*(?:type\\s+)?(?:(${JS_NAME})\\s*,?\\s*)?(?:\\{([^}]*)\\}|(\\*)\\s*as\\s+${JS_NAME})?\\s*from\\s*(?=["'])`, 'y');
+export const JS_EXPORT = new RegExp(`\\s*(?:type\\s+)?(?:(\\*)(?:\\s*as\\s+${JS_NAME})?|\\{([^}]*)\\})\\s*from\\s*(?=["'])`, 'y');
+
 export function pyStatements(o) { // 以 import / from 开头的简单语句：[[起, 止]]，o 是抹掉了注释与字符串正文的源码
   const res = [];
   let depth = 0, atStart = true, cur = -1;
@@ -58,6 +67,17 @@ export function pyStatements(o) { // 以 import / from 开头的简单语句：[
   return res;
 }
 
+// 入口：代码里有 if __name__ == "__main__":（两边倒过来写的也认）。脚本目录由它认，所以与解析放在一起。
+export function pyMain(src, sp) {
+  const o = sp.other, isMain = (p) => { const l = sp.byStart.get(p); return !!l && src.slice(l.bs, l.be) === '__main__' ? l : null; };
+  for (const m of o.matchAll(/(?:^|\n)[ \t]*if[ \t(]+__name__\s*==\s*/g)) if (isMain(m.index + m[0].length)) return true;
+  for (const m of o.matchAll(/(?:^|\n)[ \t]*if[ \t(]+(?=["'])/g)) {
+    const l = isMain(m.index + m[0].length);
+    if (l && sticky(/\s*==\s*__name__(?![\w\u0080-￿])/y, o, l.end)) return true;
+  }
+  return false;
+}
+
 // ---- 说明：统一缩进 ----
 const expandTabs = (s) => { let r = ''; for (const ch of s) r += ch === '\t' ? ' '.repeat(8 - (r.length % 8)) : ch; return r; };
 // first 为真时同 inspect.cleandoc：第一行只去行首空白，公共缩进只从第二行起算；为假时所有行一起算。全空返回 null。
@@ -73,32 +93,87 @@ export function cleandoc(lines, first) {
 }
 
 // ---- 解析到文件 ----
-export function resolver(root, config) {
-  const seen = new Map();
-  const isFile = (rel) => { if (!seen.has(rel)) seen.set(rel, statSync(join(root, rel), { throwIfNoEntry: false })?.isFile() ?? false); return seen.get(rel); };
+// TypeScript 的引用里写的是编译后的扩展名（./a.js 指 a.ts）：原样没有这个文件时换成这几个再试（契约 B 节）。
+const JS_SWAP = new Map([['.js', ['.ts', '.tsx']], ['.jsx', ['.ts', '.tsx']], ['.mjs', ['.mts']], ['.cjs', ['.cts']]]);
+const TS_ONLY = /\.[mc]ts$/; // 是代码、却不在扫的扩展名里：对上了不当样式表一类放过，调用方按「不在扫的范围里」记
+const CODE_EXT = [...JS_TRY, '.py']; // 代码文件的扩展名（同 langOf）
+
+// files：codeRoots 下去掉 ignore 的全部文件——对上的代码文件不在这里面的（代码根之外、被 ignore 排掉的）不成边，由调用方用 listed 判。
+// py：切得动的 Python 文件 [{ file, src, sp }]，用来定哪些目录是脚本目录、哪些代码根是包式的。
+export function resolver(root, config, files, py) {
+  const seen = new Map(), stat = (rel) => statSync(join(root, rel), { throwIfNoEntry: false });
+  const isFile = (rel) => { const k = `f:${rel}`; if (!seen.has(k)) seen.set(k, stat(rel)?.isFile() ?? false); return seen.get(k); };
+  const isDir = (rel) => { const k = `d:${rel}`; if (!seen.has(k)) seen.set(k, stat(rel)?.isDirectory() ?? false); return seen.get(k); };
   const norm = (d) => { const x = posix.normalize(String(d).replace(/\\/g, '/')).replace(/\/+$/, ''); return x === '.' ? '' : x; };
-  const starts = [...new Set([...(config.codeRoots ?? []).map(norm), ''])]; // 契约 B 节：依次拿每个代码根目录、再拿项目根当起点
   const cat = (...xs) => xs.filter((x) => x !== '').join('/');
+  const dirOf = (f) => { const d = posix.dirname(f); return d === '.' ? '' : d; };
+  const inDir = (d, r) => r === '' || d === r || d.startsWith(`${r}/`);
+  const hasInit = (d) => isFile(cat(d, '__init__.py'));
+  const listed = new Set(files.filter(langOf));
+  const roots = [...new Set((config.codeRoots ?? []).map(norm))], deep = [...roots].sort((a, b) => b.length - a.length);
+  const ownRoot = (d) => deep.find((r) => inDir(d, r)); // 几个代码根互相套着时取最深的那个
   // 同一个名字既有 a/ 包又有 a.py 时 Python 先认包，这里同它。
   const pyFile = (dir, parts) => { const b = cat(dir, ...parts), init = cat(b, '__init__.py'); return isFile(init) ? init : parts.length && isFile(`${b}.py`) ? `${b}.py` : null; };
+
+  // 脚本目录：没有 __init__.py、里面有带 __main__ 的文件——脚本直接运行时，解释器先在脚本自己的目录里找。
+  const mainDirs = new Set(py.filter((x) => pyMain(x.src, x.sp)).map((x) => dirOf(x.file)));
+  // 包式的代码根：有 __init__.py，并且项目里有一处引用按包的写法指进它——直接放在它下面的文件用了相对引用、子目录里的相对引用退到了它这一层，
+  // 或者拿它的目录名当包名引用。有 __init__.py 而全用平铺写法的照旧是平铺的：起点是它自己。
+  const pkg = new Set(), cands = roots.filter((r) => r !== '' && hasInit(r));
+  for (const { file, sp } of cands.length ? py : []) {
+    const d = dirOf(file);
+    for (const [s, e] of pyStatements(sp.other)) {
+      const t = sp.other.slice(s, e).replace(/\\\r?\n/g, ' ').trim(), m = PY_FROM.exec(t), dots = m ? m[1].length : 0;
+      const firsts = m ? (dots || !m[2] ? [] : [dotted(m[2])[0]]) : (PY_IMPORT.exec(t)?.[1].split(',').map((x) => dotted(x.trim().split(/\s+as\s+/)[0])[0]) ?? []);
+      for (const r of cands) {
+        if (dots && inDir(d, r) && dots - 1 >= (d === r ? 0 : d.slice(r.length + 1).split('/').length)) pkg.add(r);
+        if (firsts.includes(posix.basename(r))) pkg.add(r);
+      }
+    }
+  }
+  // 包式的代码根不当起点，起点是它上面第一个不含 __init__.py 的目录（最远到项目根）。
+  const startOf = (r) => { if (!pkg.has(r)) return r; let d = dirOf(r); while (d !== '' && hasInit(d)) d = dirOf(d); return d; };
+  const startsAt = new Map();
+  const starts = (file) => { // 脚本目录 → 自己的代码根 → 别的代码根（照配置的先后）→ 项目根
+    const d = dirOf(file);
+    if (!startsAt.has(d)) {
+      const own = ownRoot(d), list = mainDirs.has(d) && !hasInit(d) ? [d] : [];
+      if (own !== undefined) list.push(startOf(own));
+      startsAt.set(d, [...new Set([...list, ...roots.map(startOf), ''])]);
+    }
+    return startsAt.get(d);
+  };
   // 能对上文件的最长前缀；几个起点都对得上时取最长的，一样长取先试的起点。
-  const longest = (parts) => {
+  const longest = (parts, file) => {
     let best = null;
-    for (const s of starts) for (let j = parts.length; j > (best?.j ?? 0); j--) { const f = pyFile(s, parts.slice(0, j)); if (f) { best = { j, f }; break; } }
+    for (const s of starts(file)) for (let j = parts.length; j > (best?.j ?? 0); j--) { const f = pyFile(s, parts.slice(0, j)); if (f) { best = { j, f }; break; } }
     return best;
+  };
+  // 包式的代码根里没对上的绝对引用：第一段与这个根下直接放着的目录或 .py 同名、又不是标准库的，返回那个路径——
+  // 它按包读指外部的包，从这个目录里直接启动时指那个文件，两种读法由调用方都摆出来，不猜。
+  const shadow = (file, first) => {
+    const own = ownRoot(dirOf(file));
+    if (own === undefined || !pkg.has(own) || PY_STDLIB.has(first)) return null;
+    const p = cat(own, first);
+    return isDir(p) ? p : isFile(`${p}.py`) ? `${p}.py` : null;
   };
   const jsTarget = (file, spec) => {
     if (!/^\.\.?(?:\/|$)/.test(spec)) {
       if (/^[@~]\//.test(spec) || spec.startsWith('/')) return { to: null }; // 别名开头的现在不解析（契约 B 节）
-      const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
-      return { ext: spec.startsWith('node:') || NODE_BUILTIN.has(spec) || NODE_BUILTIN.has(pkg) ? null : pkg };
+      const name = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+      if (spec.startsWith('node:') || NODE_BUILTIN.has(spec) || NODE_BUILTIN.has(name)) return { ext: null };
+      // 第一段与某个代码根下直接放着的目录或代码文件（去掉扩展名）同名：多半是配了基准目录的项目内引用，不记成外部包，
+      // 由调用方记进「没解析到的引用」。几个代码根照配置的先后，同一个根里先认目录。
+      const near = roots.map((r) => cat(r, spec.split('/')[0])).map((p) => (isDir(p) ? p : CODE_EXT.map((x) => p + x).find(isFile))).find(Boolean);
+      return near ? { to: null, near } : { ext: name };
     }
     const b = norm(posix.join(posix.dirname(file), spec));
     if (b === '..' || b.startsWith('../')) return { to: null };
-    for (const c of [b, ...JS_TRY.map((x) => `${b}${x}`), ...JS_TRY.map((x) => cat(b, `index${x}`))]) {
-      if (c && isFile(c)) return langOf(c) ? { to: c } : { asset: true }; // 样式表、JSON、图片：不成边，也不算没解析到
+    const x = posix.extname(b), swap = (JS_SWAP.get(x) ?? []).map((t) => b.slice(0, -x.length) + t);
+    for (const c of [b, ...swap, ...JS_TRY.map((t) => `${b}${t}`), ...JS_TRY.map((t) => cat(b, `index${t}`))]) {
+      if (c && isFile(c)) return langOf(c) || TS_ONLY.test(c) ? { to: c } : { asset: true }; // 样式表、JSON、图片：不成边，也不算没解析到
     }
     return { to: null };
   };
-  return { pyFile, longest, jsTarget };
+  return { pyFile, longest, shadow, jsTarget, listed: (f) => listed.has(f) };
 }

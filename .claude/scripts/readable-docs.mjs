@@ -20,7 +20,9 @@
 // READABLE_FAIL_AT=spec-cut 时，需求规格切出来的第一块带字的少一个字，还原自检拦下：build、check、build --facts-json 都退出码 3、
 // 什么都不出（在 sources/md-blocks.mjs，第二期契约 B 节）；READABLE_FAIL_AT=spec-render 时，出页面的代码把第一条带字的列表项的
 // 最后一个字丢掉，落盘前的自检拦下、原有页面不动（在 render/spec.mjs，第二期契约 D 节）。
-// READABLE_FAIL_AT=arch-render 时，出页面的代码在第一个有文件的模块页上漏掉一个文件那一行，落盘前的自检拦下、原有页面不动（在 render/arch-module.mjs，第三期契约 D、E 节）。
+// READABLE_FAIL_AT=arch-render 时，出页面的代码在第一个有文件的模块页上漏掉一个文件那一行，落盘前的自检拦下、原有页面不动（在 render/arch-module.mjs，第三期契约 D、E 节）；
+// arch-show-key 第一个文件显示的路径写错、arch-show-head 第一条文件头说明少最后一个字（同在 render/arch-module.mjs），
+// arch-drop-section 架构首页「没有被项目里别的文件引用的」整段不出（在 render/arch.mjs）。这四个在没有架构这一份的项目上报错、退出码 3（在下面 pages）。
 // 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；
 // init 起草配置与走文件的 walk 在 readable/init.mjs（第三期 Task 3.4 搬过去，给架构这一份腾地方）。
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -113,6 +115,8 @@ const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
 // 表页上「谁在写、谁在读」的文件标出所属的模块：所属关系经 renderDb 的 moduleOf 参数带给表页（第三期契约 D 节）。没有模块的一页不出、表页不变。
 function pages(root, cfg, facts) {
   const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
+  const at = process.env.READABLE_FAIL_AT; // 架构的四个注入点（第三期契约 E 节）没有架构这一份时不许悄悄什么都不做
+  if (!facts.arch.modules.length && ['arch-render', 'arch-show-key', 'arch-show-head', 'arch-drop-section'].includes(at)) throw new Error(`READABLE_FAIL_AT=${at}：这个项目没有架构这一份，注入点没有可下手的地方`);
   const arch = facts.arch.modules.length ? renderArch(facts, { title: page.title }) : null;
   const db = renderDb(facts, page, arch ? { moduleOf: arch.moduleOf } : {}), spec = facts.spec ? renderSpec(facts.spec, { title: db.title }) : null;
   const docs = [db.entry, ...(arch ? [arch.entry] : []), ...(spec ? [spec.entry] : [])];

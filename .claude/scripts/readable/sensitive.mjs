@@ -1,6 +1,9 @@
 // 不带出去的东西：隐去规则只有这一份（契约 G 节「不带出去的东西」）。
 // note put 拒收、页面隐去、核对器比对都用它。
 // 内网地址三段、带口令的地址（用户名为空的 ://:口令@ 也算）、sk-ant- / sk-proj- 开头的串、
+// 几种形状固定的令牌（GitHub、AWS 访问键、Google 接口键、Slack、JWT，私钥是从 BEGIN 到 END 整块：照框架自带的密钥扫描
+// .claude/harness/audit/scan-secrets.mjs 里标了 confident 的那几条写，两边不互相 import——那边扫仓库、这边隐页面，各管各的；
+// 文件头说明全文上了架构页之后补的，那一段最容易夹着粘进来的令牌）、
 // password / passwd / secret / token / api_key / 密码 / 口令 / 密钥（前后用下划线连着别的词也算，如 AWS_SECRET_ACCESS_KEY、db_password）
 // 后面用 =、: 或全角的 ： 接着八位以上的值（值里可以有符号）、且带数字或总长不少于十六位的。
 // 隐去只换掉口令或地址本身：值与地址里的用户名、口令都只取连着的 ASCII 可见字符，到空白、引号、中文或全角标点为止。
@@ -23,6 +26,16 @@ const IP_PRE = '(?<![\\d.])';
 const IP_POST = '(?!\\.?\\d)';
 
 const RULES = [
+  {
+    kind: '密钥',
+    // 私钥整块（契约 G 节）：从 BEGIN 那一行到 END 那一行，中间的正文一起换掉——只换 BEGIN 那一行，正文照样上页面。
+    // 中间只认 ASCII（含换行），也不许跨过另一个 BEGIN：块与块之间、块后面的中文说明不被当成正文吞掉。
+    // 没有 END 的，换到 BEGIN 后面连着的那几行整行只含字母、数字与 + / = 的为止（行尾要紧接换行或文字结尾，
+    // 「Some English note.」这样开头像正文的一行不算），下一行不是这样的就停，不连带吞掉后面的话。
+    // 排在第一条：别的规则先在正文里换掉一截，换进去的记号不是 ASCII，整块就认不全了。
+    re: /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:(?:(?!-----BEGIN )[\t\n\r -~])*?-----END [A-Z ]*PRIVATE KEY-----|(?:\r?\n[A-Za-z0-9+/=]+(?=\r?\n|\r?$))*)/g,
+    replace: () => REDACTED,
+  },
   {
     kind: '带口令的地址',
     // redis 的 ://:口令@主机 这种只有口令、没有用户名的也是；冒号后面到 @ 之间隔着中文的（网址的端口之后接一句话、再接一个邮箱地址）不算。
@@ -49,6 +62,15 @@ const RULES = [
     re: /(?<![A-Za-z0-9_-])sk-(?:ant|proj)-[A-Za-z0-9_-]*/g,
     replace: () => REDACTED,
   },
+  // 形状固定的令牌：前缀加定长或够长的一串，没有无害的读法（私钥整块在第一条）。
+  ...[
+    /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub：ghp_ / gho_ / ghu_ / ghs_ / ghr_
+    /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+    /\bAKIA[0-9A-Z]{16}\b/g, // AWS 访问键
+    /\bAIza[0-9A-Za-z_-]{35}/g, // Google 接口键
+    /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack
+    /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT：三段以点隔开，前两段是 JSON 开头
+  ].map((re) => ({ kind: '密钥', re, replace: () => REDACTED })),
   {
     kind: '口令或密钥',
     // 真的密钥几乎都带数字或很长；纯字母又不长的（如英文注释「token: refreshes the login session」里的 refreshes）是正常的词，不当密钥。

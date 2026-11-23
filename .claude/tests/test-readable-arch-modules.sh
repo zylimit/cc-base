@@ -115,5 +115,30 @@ R="$TMP/g"; mkcfg "$R" '["app"]'; map "$R" "\"modules\":[$(mod big 业务 '"app/
 pj "$R"; facts "$R"; facts "$R" "$TMP/f2.json"
 eq "pending --json 里 module:big 的上下文非空且不超过 4096 字节（40 个文件、文件头说明合计远超 4KB，必须截）；同一输入两次 --facts-json 逐字节相同且有 arch" "40|y|y|object|same" \
   "$(J "M('big').files.length" "$TMP/f.json")|$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const f=o=>{if(o&&typeof o=="object"){if(o.anchor=="module:big")return o;for(const k in o){const r=f(o[k]);if(r)return r}}};const it=f(d);const c=JSON.stringify(it&&it.context||"");console.log((c.includes("app/big/f")?"y":"n")+"|"+(Buffer.byteLength(c)<=4096?"y":"n"))' "$TMP/p.json" 2>/dev/null || echo NOPJ)|$(J "typeof d.arch" "$TMP/f.json")|$(cmp -s "$TMP/f.json" "$TMP/f2.json" && echo same || echo differ)"
+# ---- 整期审查之后补的（2026-11-23）：合成项目各自另起一份 ----
+# 11 打死：模块级 FastAPI 应用（带类型标注 / 写成 fastapi.FastAPI(…)）不认入口，服务的启动文件掉进「没人引用」清单；函数里的 app = FastAPI() 与只有 APIRouter 的也被当入口
+R="$TMP/en"; mkcfg "$R" '["app"]'
+w app/srv/main.py 'from fastapi import FastAPI' 'app = FastAPI()'
+w app/srv/typed.py 'from fastapi import FastAPI' 'app: FastAPI = FastAPI()'
+w app/srv/qual.py 'import fastapi' 'app = fastapi.FastAPI(title="t")'
+w app/srv/infn.py 'from fastapi import FastAPI' 'def make():' '    app = FastAPI()' '    return app'
+w app/srv/onlyrouter.py 'from fastapi import APIRouter' 'router = APIRouter()'
+facts "$R" "$TMP/en.json"
+eq "入口：模块级 app = FastAPI() / 带类型标注 / fastapi.FastAPI(…) 三种 entry 为真；写在函数里的、只有 APIRouter 的为假；arch.idle 里恰是后两个（前三个有入口，不再出现）" "true true true false false|app/srv/infn.py,app/srv/onlyrouter.py" "$(J "['main','typed','qual','infn','onlyrouter'].map(n=>d.code.files.find(f=>f.path=='app/srv/'+n+'.py').entry).join(' ')+'|'+d.arch.idle.join()" "$TMP/en.json")"
+# 12 打死：codeRoots 下一个代码文件都没取到（只有没扫的扩展名）而 map.json 写了模块时仍出一份空壳，让人以为扫过
+R="$TMP/nc"; mkcfg "$R" '["web"]'; w web/a.vue '<template/>'; map "$R" "$LY,\"modules\":[$(mod ui 接口 '"web/**"')]"
+facts "$R" "$TMP/nc.json"
+eq "codeRoots 下只有 .vue、map.json 写了模块：退出码 0、code.files 为空、arch.modules 是空数组（不出空壳）" "0|0|[]" "$RC|$(J "d.code.files.length" "$TMP/nc.json")|$(J "JSON.stringify(d.arch.modules)" "$TMP/nc.json")"
+# 13 打死：没有 layers（没写 / 写成空数组）而模块写了 layer 时不报对不上；layer 为 null 的误报
+R="$TMP/ly"; mkcfg "$R" '["app"]'; w app/a/x.py 'A = 1'
+map "$R" "\"modules\":[$(mod a 业务 '"app/a/**"')]"; facts "$R" "$TMP/ly1.json"
+map "$R" "\"layers\":[],\"modules\":[$(mod a 业务 '"app/a/**"')]"; facts "$R" "$TMP/ly2.json"
+map "$R" "\"modules\":[{\"id\":\"a\",\"title\":\"t\",\"layer\":null,\"paths\":[\"app/a/**\"],\"status\":\"proposed\"}]"; facts "$R" "$TMP/ly3.json"
+eq "没写 layers 而模块写了 layer、layers 写成空数组而模块写了 layer：problems 各恰一条 layer、该模块的层记 null；对照没写 layers 而模块的 layer 为 null：problems 为空" "layer/null|layer/null|" "$(J "d.arch.problems.map(p=>p.kind).join()+'/'+M('a').layer" "$TMP/ly1.json")|$(J "d.arch.problems.map(p=>p.kind).join()+'/'+M('a').layer" "$TMP/ly2.json")|$(J "d.arch.problems.map(p=>p.kind).join()" "$TMP/ly3.json")"
+# 14 打死：pending --json 的模块上下文里接口路径带内网地址原样贴出（上下文会被贴进派单与日志）；上下文里根本没有接口（非空转）
+R="$TMP/rd"; mkcfg "$R" '["app"]'; map "$R" "\"modules\":[$(mod api 接口 '"app/api/**"')]"
+w app/api/p.py 'from fastapi import FastAPI' 'app = FastAPI()' '@app.get("/proxy/10.20.30.40/data")' 'def px(): pass'
+pj "$R"
+eq "接口路径里有内网地址 10.20.30.40：pending --json 里 module:api 的上下文带着接口（含 /proxy/）、但看不到那个地址" "y|n" "$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const f=o=>{if(o&&typeof o=="object"){if(o.anchor=="module:api")return o;for(const k in o){const r=f(o[k]);if(r)return r}}};const it=f(d);const c=JSON.stringify(it&&it.context||"");console.log((c.includes("/proxy/")?"y":"n")+"|"+(c.includes("10.20.30.40")?"y":"n"))' "$TMP/p.json" 2>/dev/null || echo NOPJ)"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

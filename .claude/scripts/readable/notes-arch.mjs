@@ -27,7 +27,10 @@ export function archAnchors(arch, idx) {
 }
 
 const bytes = (v) => Buffer.byteLength(JSON.stringify(v));
-const clean = (s) => redact(String(s).replace(/\s+/g, ' ').trim()).text;
+// 上下文会被贴进派单与日志，取自来源的字（路径、名字、接口的路径与完整路径、文件头说明）都先过隐去（C 节）。
+const red = (s) => redact(String(s)).text;
+const clean = (s) => red(String(s).replace(/\s+/g, ' ').trim());
+const WHY = { runtime: '前缀是运行时定的', unmounted: '没找到它挂在哪，前面可能还有一段前缀' }; // 完整路径拼不出时，同页面上的标记
 // 文件头说明的头一句：第一行有字的，切到第一个句号（中文句号、问号、叹号，或英文的后面跟空白），再截到 80 个字。先过隐去。
 function firstSentence(head) {
   if (head == null) return null;
@@ -40,24 +43,28 @@ function firstSentence(head) {
 // 一个模块的上下文：文件（行数、入口、文件头说明的头一句）、接口、依赖与被依赖、读写的表、外部包。
 // 过了 4KB 每次从当下最长的那张清单的末尾截一条（一样长的按文件、接口、依赖、外部包、被依赖、读的表、写的表的先后），
 // 截了几条记在 omitted 里，不悄悄少。不按先后整张截：几百个文件的模块会先把文件截光，写说明的人一个文件都看不到。
+// 大小边截边算（清单里都是字符串：去掉末一条少它自己的字节，前面还有别的再少一个逗号），不每截一条就把整个对象重新序列化一遍。
 function moduleContext(m, byPath) {
   const ctx = {
     module: m.id, title: clean(m.title), layer: m.layer, status: m.status, lines: m.lines,
     files: m.files.map((f) => {
       const x = byPath.get(f), h = firstSentence(x.head);
-      return `${f}（${x.lines} 行${x.entry ? '，入口' : ''}）${h ? `：${h}` : ''}`;
+      return `${red(f)}（${x.lines} 行${x.entry ? '，入口' : ''}）${h ? `：${h}` : ''}`;
     }),
-    routes: m.routes.map((r) => `${r.method} ${r.fullPath ?? `${clean(r.path)}（前缀是运行时定的）`} → ${r.handler}（${r.file}）`),
-    uses: m.uses.map((u) => `${u.module}：${u.pairs.length} 对文件，用到 ${u.names.join('、') || '（没点名）'}`),
-    usedBy: [...m.usedBy], externals: [...m.externals], reads: [...m.tables.reads], writes: [...m.tables.writes],
+    routes: m.routes.map((r) => `${r.method} ${r.fullPath === null ? `${clean(r.path)}（${WHY[r.why] ?? WHY.runtime}）` : red(r.fullPath)} → ${red(r.handler)}（${red(r.file)}）`),
+    uses: m.uses.map((u) => `${u.module}：${u.pairs.length} 对文件，用到 ${u.names.map(red).join('、') || '（没点名）'}`),
+    usedBy: [...m.usedBy], externals: m.externals.map(red), reads: m.tables.reads.map(red), writes: m.tables.writes.map(red),
     omitted: {},
   };
   const order = ['files', 'routes', 'uses', 'externals', 'usedBy', 'reads', 'writes'];
-  while (bytes(ctx) > MODULE_CONTEXT_BUDGET) {
+  let size = bytes(ctx), om = bytes(ctx.omitted);
+  while (size > MODULE_CONTEXT_BUDGET) {
     const k = order.reduce((best, x) => (ctx[x].length > (best ? ctx[best].length : 0) ? x : best), null);
     if (!k) break;
-    ctx[k].pop();
+    size -= bytes(ctx[k].pop()) + (ctx[k].length ? 1 : 0);
     ctx.omitted[k] = (ctx.omitted[k] ?? 0) + 1;
+    const now = bytes(ctx.omitted);
+    size += now - om; om = now;
   }
   return ctx;
 }

@@ -3,7 +3,7 @@
 // （FLOW-2：AI 改了来源、重出、重写过期的说明之后，核对报不一致 0 条，这次改动才算完）。四项：
 //   1 页面是不是现行的：入口用出页面的函数在内存里重出一遍交进来，这里与 docs/readable/ 逐文件逐字节比；
 //   2 页面上显示的与事实一致：不信出页面的代码，用 check-read.mjs 自带的读取器把磁盘上的页面读回来，与重新取的事实比——
-//     出页面的代码吞了字、串了行，第 1 项两边错得一样看不出来，靠这一项；
+//     出页面的代码吞了字、串了行，第 1 项两边错得一样看不出来，靠这一项（数据库设计那一半在 check-db.mjs）；
 //   3 说明：指纹对不上的、锚点已经不存在的；4 指向不存在的东西：map.json 里对不上的、站内链接的目标文件不在的。
 // 配了需求规格的再多一项（第二期契约 D 节，check-spec.mjs 的 specFacts）：重新切的块与 spec/ 下各页读回的 data-block 一块不少、一字不差。
 // 架构稿 §3 禁边：这里不 import render/ 下的任何东西；第 1 项要的重出结果由入口交进来（与 build 落盘用的是同一个出页面的函数）。
@@ -11,13 +11,15 @@
 // publish 删掉临时目录、原有页面不动，入口报退出码 3。
 // 测试注入点：READABLE_FAIL_AT=selfcheck 时，自检拿到的事实里第一张表多一个列，模拟「出页面的代码少出了一个列」；
 // READABLE_FAIL_AT=leak 在出页面那一侧（render/db-scrub.mjs），模拟某个上页面的字段忘了过隐去，由这里的兜底拦下；
-// READABLE_FAIL_AT=spec-render 也在出页面那一侧（render/spec.mjs），由这里跑的需求规格那一项（check-spec.mjs）拦下。
+// READABLE_FAIL_AT=spec-render 也在出页面那一侧（render/spec.mjs），由这里跑的需求规格那一项（check-spec.mjs）拦下；
+// arch-render、arch-show-key、arch-show-head、arch-drop-section 在 render/arch-module.mjs 与 render/arch.mjs，由架构那一项拦下。
 // 有模块的再多一项（第三期契约 E 节，check-arch.mjs）：架构这一份各页与表页上的模块标记读回来与事实比，项目判断里对不上的各算一条。
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cmp } from './model.mjs';
 import { redact } from './sensitive.mjs';
-import { findAll, textOf, squash, segments, reader, danglingLinks } from './check-read.mjs';
+import { segments, reader, danglingLinks } from './check-read.mjs';
+import { pageFacts, noteRegions } from './check-db.mjs';
 import { specFacts } from './check-spec.mjs';
 import { archFacts, archProblems, archSummary, archLine } from './check-arch.mjs';
 
@@ -28,27 +30,6 @@ export class CheckFailed extends Error {
   }
 }
 
-// 文件名由表名推出（契约 C 节）：小写字母、数字、下划线、连字符以外的字符（大写字母也算）写成「~十六进制码点」。
-// 照契约自己推，不借出页面的代码。
-const slug = (name) => String(name).replace(/[^a-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
-const tablePath = (name) => `db/t-${slug(name)}.html`;
-const TABLE_PAGE = /^db\/t-[^/]*\.html$/;
-const GROUP_MAX = 12; // 契约 C 节：一组超过 12 张表的切成几页
-// 页面上显示的是隐去后的文字（契约 G 节「不带出去的东西」）：契约点名要隐去的默认值与说明正文，比对前事实一侧也过一遍。
-const shown = (s) => squash(redact(s).text);
-// 说明正文显示成的纯文字（契约 G 节「存放」的写法）：「- 」开头的行是列表项，前缀不显示；反引号里的是等宽字，反引号不显示。
-const notePlain = (text) => squash(redact(text).text.replace(/\r\n?/g, '\n').split('\n')
-  .map((l) => (l.startsWith('- ') ? l.slice(2) : l)).join('\n').replace(/`([^`\n]+)`/g, '$1'));
-// 说明区的读回标记（契约 C 节）：没有说明是 none，过期的是 stale，其余是侧车里记的 draft / reviewed。
-const wantState = (n) => (!n ? 'none' : n.state === 'stale' ? 'stale' : n.status);
-const groupBy = (xs, key) => { const m = new Map(); for (const x of xs) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; };
-// 两段文字从哪里开始不同，各取一小截给人看。
-function diffAt(got, want) {
-  let i = 0;
-  while (i < got.length && i < want.length && got[i] === want[i]) i++;
-  const cut = (s) => `${i > 12 ? '…' : ''}${s.slice(Math.max(0, i - 12), i + 24)}${s.length > i + 24 ? '…' : ''}`;
-  return `第 ${i + 1} 个字起不同，页面上「${cut(got)}」，侧车「${cut(want)}」`;
-}
 function firstDiffLine(got, want) {
   const a = got.split('\n'), b = want.split('\n');
   let i = 0;
@@ -69,115 +50,7 @@ function pagesCurrent(rd, rendered, label) {
   return out;
 }
 
-// 一个说明区：状态与侧车一致；有说明时正文的纯文字与侧车的一致，没有说明时不该有正文。
-// 正文在哪：说明区里带 data-k="note" 的那一块（表页、组页、清单页顶上的说明区，字段表「含义」格里的说明都是）——
-// 只认契约 C 节的读回标记，不认样式类名；格子里并排的「来源里的注释」带的是 data-k="comment"，不算说明的正文。
-function noteRegion(r, anchor, n, add) {
-  const state = r.attrs['data-state'], want = wantState(n);
-  if (state !== want) { add('note-mismatch', anchor, `说明的状态：页面上是「${state ?? '（没标）'}」，侧车是「${want}」`); return; }
-  const bodies = findAll(r, (x) => x.attrs['data-k'] === 'note');
-  if (!n) { if (bodies.length) add('note-mismatch', anchor, '侧车里没有这段说明，页面上却有说明的正文'); return; }
-  if (bodies.length !== 1) { add('note-mismatch', anchor, bodies.length ? `说明的正文出现了 ${bodies.length} 处` : '页面上看不到说明的正文'); return; }
-  const got = textOf(bodies[0]), plain = notePlain(n.text);
-  if (got !== plain) add('note-mismatch', anchor, `说明的正文与侧车不同：${diffAt(got, plain)}`);
-}
-
-// 一页上的说明区恰好是 anchors 这几个，各一处。
-function noteRegions(tree, anchors, notes, add) {
-  const regions = groupBy(findAll(tree, (n) => n.attrs['data-note'] !== undefined), (n) => n.attrs['data-note']);
-  for (const a of regions.keys()) if (!anchors.includes(a)) add('note-mismatch', a, '这一页不该有这个锚点的说明区');
-  for (const a of anchors) {
-    const list = regions.get(a) || [];
-    if (list.length !== 1) add('note-mismatch', a, list.length ? `说明区出现了 ${list.length} 处` : '页面上没有这个锚点的说明区');
-    else noteRegion(list[0], a, notes[a], add);
-  }
-}
-
-// 字段行里六格应显示的文字（契约 C 节「机器读得回来」）。照契约与页面的显示约定自己写一份，不借出页面的代码：
-// 键与约束是「主键」「唯一」、CHECK 原文、GENERATED 原文依次各占一行；引用是「表 (列) · ON DELETE 动作 · ON UPDATE 动作」；
-// 来源注释是注释原文，没有注释的列这一块不出（读回为空）。取自来源的文字页面上显示的是隐去后的，这里也先过一遍。
-function cellWants(c) {
-  const r = c.references;
-  return [
-    ['type', '类型', shown(c.type)],
-    ['nullable', '可空', c.nullable ? '是' : '否'],
-    ['default', '默认', c.default == null ? '' : shown(c.default)],
-    ['key', '键与约束', squash([c.primaryKey && '主键', c.unique && '唯一', c.check && shown(c.check), c.generated && shown(c.generated)].filter(Boolean).join(' '))],
-    ['ref', '引用', r ? squash(`${r.table}${r.column ? ` (${r.column})` : ''}${r.onDelete ? ` · ON DELETE ${r.onDelete}` : ''}${r.onUpdate ? ` · ON UPDATE ${r.onUpdate}` : ''}`) : ''],
-  ];
-}
-
-// 表级约束、索引、写它的文件、读它的文件：页面上带 data-row 的行数与事实一致（写读按文件算，一个文件一行）。
-function rowCounts(tree, t, usage, add) {
-  const files = (kind) => new Set((usage?.[t.name]?.[kind] || []).map((e) => e.file)).size;
-  const want = [['constraint', '表级约束', (t.constraints || []).length], ['index', '索引', (t.indexes || []).length], ['writer', '写它的文件', files('writes')], ['reader', '读它的文件', files('reads')]];
-  for (const [kind, what, n] of want) {
-    const got = findAll(tree, (x) => x.attrs['data-row'] === kind).length;
-    if (got !== n) add('fact-mismatch', null, `${what}：页面上 ${got} 行，来源里 ${n} 条${got < n ? `，少了 ${n - got} 条` : `，多了 ${got - n} 条`}`);
-  }
-}
-
-// 表页：表锚点与文件名对得上；每个列恰有一行，六格与事实一致，没有事实里没有的列；四张表的行数一致；说明区一致。
-function tablePage(tree, t, notes, usage, add) {
-  const anchors = findAll(tree, (n) => n.tag === 'main').map((m) => m.attrs['data-anchor']).filter((a) => a !== undefined);
-  if (anchors.length !== 1 || anchors[0] !== t.anchor) add('fact-mismatch', null, `页里的表锚点是${anchors.length ? anchors.map((a) => `「${a}」`).join('、') : '（没有）'}，按文件名应是「${t.anchor}」`);
-  const rows = groupBy(findAll(tree, (n) => String(n.attrs['data-anchor'] ?? '').startsWith('column:')), (n) => n.attrs['data-anchor']);
-  const mine = new Set(t.columns.map((c) => c.anchor));
-  for (const a of rows.keys()) if (!mine.has(a)) add('fact-mismatch', a, '页面上有这一列，来源里这张表没有它');
-  for (const c of t.columns) {
-    const list = rows.get(c.anchor) || [];
-    if (list.length !== 1) { add('fact-mismatch', c.anchor, list.length ? `页面上这一列出现了 ${list.length} 行` : '页面上少了这一列'); continue; }
-    for (const [k, what, want] of cellWants(c)) {
-      const found = findAll(list[0], (n) => n.attrs['data-k'] === k);
-      if (found.length !== 1) { add('fact-mismatch', c.anchor, `${what}格${found.length ? `出现了 ${found.length} 个` : '不见了'}`); continue; }
-      const got = textOf(found[0]);
-      if (got !== want) add('fact-mismatch', c.anchor, `${what}：页面上是「${got}」，来源是「${want}」`);
-    }
-    // 来源注释：有注释的列恰有一块，没有的一块都没有；块里的文字就是注释原文（隐去后）。
-    const com = findAll(list[0], (n) => n.attrs['data-k'] === 'comment'), want = c.comment == null || c.comment === '' ? '' : shown(c.comment);
-    if (com.length > 1) add('fact-mismatch', c.anchor, `来源注释出现了 ${com.length} 处`);
-    else if ((com.length ? textOf(com[0]) : '') !== want) add('fact-mismatch', c.anchor, `来源注释：页面上是「${com.length ? textOf(com[0]) : '（没有）'}」，来源是「${want || '（没有）'}」`);
-  }
-  rowCounts(tree, t, usage, add);
-  // 少了的列上面已经报过，它的说明区不再另报一条「没有」。
-  noteRegions(tree, [t.anchor, ...t.columns.filter((c) => rows.has(c.anchor)).map((c) => c.anchor)], notes, add);
-}
-
-// 第 2 项：把 dir 下的页面读回来与事实比。label 是给人看的位置前缀。
-function pageFacts(rd, facts, label) {
-  const out = [], notes = facts.notes || {};
-  const at = (rel, anchor) => `${label}${rel}${anchor ? ` · ${anchor}` : ''}`;
-  const has = new Set(rd.html), expected = new Map();
-  for (const t of facts.tables) {
-    const p = tablePath(t.name);
-    if (expected.has(p)) out.push({ kind: 'fact-mismatch', where: at(p), detail: `表 ${expected.get(p).name} 与 ${t.name} 推出的文件名相同，只有一页` });
-    else expected.set(p, t);
-  }
-  for (const rel of rd.html) if (TABLE_PAGE.test(rel) && !expected.has(rel)) out.push({ kind: 'extra-page', where: at(rel), detail: '这一页对不上任何一张现行的表' });
-  for (const [rel, t] of expected) {
-    if (!has.has(rel)) { out.push({ kind: 'missing-page', where: at(rel), detail: `表 ${t.name} 没有页面` }); continue; }
-    tablePage(rd.tree(rel), t, notes, facts.usage, (kind, anchor, detail) => out.push({ kind, where: at(rel, anchor), detail }));
-  }
-  // 别的页上的说明区：数据库设计清单页一个 doc:db；组页每页一个本组的（契约 C、F 节：g-<组 id>.html，超过 12 张表的均分成几页、接 -1、-2）。
-  const hosts = new Map([['db/index.html', ['doc:db']]]);
-  for (const g of facts.groups) {
-    const parts = Math.max(1, Math.ceil(g.tables.length / GROUP_MAX));
-    for (let i = 1; i <= parts; i++) {
-      const p = `db/g-${slug(g.id)}${parts > 1 ? `-${i}` : ''}.html`;
-      hosts.set(p, [...(hosts.get(p) || []), `group:${g.id}`]);
-    }
-  }
-  for (const [rel, anchors] of hosts) {
-    if (!has.has(rel)) { out.push({ kind: 'missing-page', where: at(rel), detail: `${anchors.join('、')} 的说明区所在的页不在` }); continue; }
-    noteRegions(rd.tree(rel), anchors, notes, (kind, anchor, detail) => out.push({ kind, where: at(rel, anchor), detail }));
-  }
-  for (const rel of rd.html) {
-    if (TABLE_PAGE.test(rel) || hosts.has(rel) || rel.startsWith('arch/')) continue; // arch/ 下的说明区由 check-arch.mjs 读回
-    if (/^db\/g-[^/]*\.html$/.test(rel)) { out.push({ kind: 'extra-page', where: at(rel), detail: '这一页对不上任何一个现行的组' }); continue; }
-    for (const r of findAll(rd.tree(rel), (n) => n.attrs['data-note'] !== undefined)) out.push({ kind: 'note-mismatch', where: at(rel, r.attrs['data-note']), detail: '这一页不该有这个锚点的说明区' });
-  }
-  return out;
-}
+// 第 2 项的数据库设计那一半（表页、组页、清单页）在 check-db.mjs 的 pageFacts，说明区的读回 noteRegions 也在那里。
 
 // 同一处同一类只留一条：第 1、2 项都会点到缺的页与多的页，留第 1 项的说法。
 function dedupe(list) {

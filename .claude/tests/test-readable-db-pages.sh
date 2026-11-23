@@ -69,5 +69,30 @@ L0=$(nd 2>/dev/null | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"
 L1=$(nd 2>/dev/null | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(j.usage.orders.reads.map(r=>r.line).join())')
 eq "表页「谁在读」有 app/api/report.py、整页无「第 23 行」、建表文件仍写「第 N 行」；代码顶上加三行后事实里的行号 23 变 26，而 docs/readable 总哈希不变" \
   "y|n|y|23>26|same" "$(sed "s#<wbr>##g" "$P" | grep -qF app/api/report.py && printf y || printf n)|$(yn grep -qF '第 23 行' "$P")|$(yn grep -qE '第 ?[0-9]+ ?行' "$P")|$L0>$L1|$([ "$HA" = "$HB" ] && echo same || echo changed)"
+# 10 打死：字段表显示的列名、谁在写 / 谁在读显示的文件路径没有 data-k 格（核对器只能拿锚点配行，显示的字写错看不出来）/ 格里的字不是列名或路径
+Q="$TMP/p5"; mk "$Q"; mkdir -p "$Q/app/api"; sed -i 's#"codeRoots":\[\]#"codeRoots":["app"]#' "$Q/docs/readable-src/config.json"
+printf '%s\n' 'def f(cur):' '    cur.execute("SELECT id FROM orders")' >"$Q/app/api/report.py"; printf '%s\n' 'def g(cur):' '    cur.execute("INSERT INTO orders (id) VALUES (1)")' >"$Q/app/api/put.py"
+run "$Q"; env -u CLAUDE_PROJECT_DIR node "$ENGINE" build --facts-json --root "$Q" >"$TMP/fq.json" 2>/dev/null || true
+cat >"$TMP/cells.js" <<'EOF'
+const fs=require('fs'),D=process.argv[2]+'/docs/readable/db/',f=JSON.parse(fs.readFileSync(process.argv[3]));
+const tx=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+const cell=(row,k)=>{const o=[],re=new RegExp('<(\\w+)[^>]*\\sdata-k="'+k+'"[^>]*>','g');let m;while((m=re.exec(row))){const r2=new RegExp('<(/?)'+m[1]+'(?=[\\s>/])[^>]*>','g');r2.lastIndex=m.index+m[0].length;let d=1,x;while(d&&(x=r2.exec(row)))d+=x[1]?-1:1;o.push(tx(row.slice(m.index,r2.lastIndex)))}return o};
+const bad=[],W=[],R=[];let n=0;
+for(const t of f.tables){const h=fs.readFileSync(D+'t-'+t.name+'.html','utf8');for(const row of h.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g)||[]){
+ const a=row.match(/data-anchor="column:([^".]+)\.([^"]+)"/);if(a){n++;const c=cell(row,'name');if(c.length!=1||c[0]!=a[2])bad.push(a[1]+'.'+a[2]+'='+c.join('/'))}
+ const w=row.match(/data-row="(writer|reader)"/);if(w){const c=cell(row,'file');if(c.length!=1)bad.push(t.name+':'+w[1]+':nofile');else(w[1]=='writer'?W:R).push(c[0])}}}
+const cols=f.tables.reduce((a,t)=>a+t.columns.length,0);if(n!=cols)bad.push('rows='+n+'/cols='+cols);
+console.log(bad.join(';')+'|'+W.join()+'|'+R.join());
+EOF
+eq "每张表页字段表每一行（共与事实里的列数相同）有 data-k=name 格、显示的字等于列名；orders 页「谁在写」那一行有 data-k=file 格显示 app/api/put.py、「谁在读」显示 app/api/report.py" "|app/api/put.py|app/api/report.py" "$(node "$TMP/cells.js" "$Q" "$TMP/fq.json")"
+
+# 11 打死：ddl 里列了的代码文件里的表定义，出处带上了行号（代码一改行号就挪，页面白变）/ 矫枉过正，连 .sql 里的定义也不带行号了
+K="$TMP/p6"; mk "$K"; mkdir -p "$K/app"; printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql","app/emb.py"],"codeRoots":["app"],"ignore":[]}\n' >"$K/docs/readable-src/config.json"
+printf '%s\n' 'import os' 'SQL = "CREATE TABLE emb_tbl (id int PRIMARY KEY)"' >"$K/app/emb.py"; run "$K"; RK=$RC
+env -u CLAUDE_PROJECT_DIR node "$ENGINE" build --facts-json --root "$K" >"$TMP/fk.json" 2>/dev/null || true
+EF=$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1]));const t=j.tables.find(x=>x.name=="emb_tbl");console.log(t?t.file+":"+t.line:"none")' "$TMP/fk.json")
+PE="$K/docs/readable/db/t-emb_tbl.html"; PO="$K/docs/readable/db/t-orders.html"
+eq "ddl 列了 app/emb.py 与 sql/s.sql：build 0、事实里 emb_tbl 的出处是 app/emb.py:2（行号确在事实里）；emb_tbl 页写出了 emb.py、整页无「第 N 行」；定义写在 .sql 里的 orders 页仍写「第 N 行」" "0|app/emb.py:2|y|n|y" \
+  "$RK|$EF|$(sed 's#<wbr>##g' "$PE" 2>/dev/null | grep -qF emb.py && echo y || echo n)|$(yn grep -qE '第 ?[0-9]+ ?行' "$PE")|$(yn grep -qE '第 ?[0-9]+ ?行' "$PO")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

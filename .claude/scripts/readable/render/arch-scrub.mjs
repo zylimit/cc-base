@@ -32,8 +32,9 @@ export function archView(facts, cfgTitle) {
     return n ? { ...n, text: r(n.text, `说明 ${anchor}`, '说明的正文') } : undefined;
   };
   // 接口取自 code.routes（带处理函数的说明），按所在文件归到模块；核对器另拿 arch 里各模块的 routes 比，两边对得上才算。
+  // why（完整路径拼不出的原因）是两个定好的词，不过隐去；认不认得由 arch-kit 的 routeWhy 管。
   const routes = code.routes.map((x) => ({
-    method: x.method, path: r(x.path, x.file, '接口路径'), fullPath: x.fullPath == null ? null : r(x.fullPath, x.file, '接口路径'),
+    method: x.method, path: r(x.path, x.file, '接口路径'), fullPath: x.fullPath == null ? null : r(x.fullPath, x.file, '接口路径'), why: x.why,
     handler: r(x.handler, x.file, '处理函数名'), file: P(x.file), doc: x.doc == null ? null : r(x.doc, x.file, '处理函数的说明'), module: owner.get(x.file) ?? null,
   }));
   const pairs = (list) => list.map(([a, b]) => [P(a), P(b)]);
@@ -42,7 +43,7 @@ export function archView(facts, cfgTitle) {
     files: m.files.map((p) => {
       const f = byPath.get(p);
       if (!f) throw new Error(`模块 ${m.id} 的文件 ${p} 不在 code.files 里`); // 汇总保证模块的文件都来自 code.files；对不上是模型的错，不悄悄漏一行
-      return { path: P(p), lines: f.lines, entry: f.entry, head: f.head == null ? null : r(f.head, p, '文件头说明') };
+      return { path: P(p), lines: f.lines, entry: f.entry, head: f.head == null ? null : r(f.head, p, '文件头说明'), headAt: f.headAt };
     }),
     lines: m.lines,
     routes: routes.filter((x) => x.module === m.id),

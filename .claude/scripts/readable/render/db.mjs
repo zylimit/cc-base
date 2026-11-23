@@ -4,7 +4,7 @@
 // 没有注释的地方留空，不编。
 import { cmp } from '../model.mjs';
 import { esc, code, at, origin, judged, fileSlug, page, table, diagram, LEGEND, DIAGRAM_MAX } from './layout.mjs';
-import { DOC, tableFile, tLink, crumbs, title, outRefs, erNode, tablePage } from './db-table.mjs';
+import { DOC, tableFile, tLink, crumbs, title, outRefs, erNode, tablePage, src, isCodeFile } from './db-table.mjs';
 import { noteSection, firstPara, staleMark } from './note.mjs';
 import { scrub } from './db-scrub.mjs';
 import { REDACTED } from '../sensitive.mjs';
@@ -133,11 +133,12 @@ function groupDiagram(model, ctx) {
   ].join('\n');
 }
 
-// 隐去了几处、各在哪（契约 G 节「不带出去的东西」）：只写位置与哪一项，不写原文。配置与项目判断没有行号，只写文件。
+// 隐去了几处、各在哪（契约 G 节「不带出去的东西」）：只写位置与哪一项，不写原文。配置与项目判断没有行号，只写文件；
+// 代码文件（含 ddl 里列的）的行号不上页面（F 节），也只写文件。
 function redactions(hits) {
   if (!hits.length) return '';
   const n = hits.reduce((s, h) => s + h.n, 0);
-  const rows = hits.map((h) => [h.anchor ? `说明 ${code(h.anchor)}` : h.line == null ? code(h.file) : at(h.file, h.line), esc(h.what), String(h.n)]);
+  const rows = hits.map((h) => [h.anchor ? `说明 ${code(h.anchor)}` : h.line == null || isCodeFile(h.file) ? code(h.file) : at(h.file, h.line), esc(h.what), String(h.n)]);
   return `<div class="notice" role="note"><p>隐去了 ${n} 处：来源或说明里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['在哪', '哪一项', '处数'], rows, ['34%', null, '64px'])}</div>`;
 }
 
@@ -147,7 +148,7 @@ function issues(list, ctx) {
   const rows = list.map((x) => {
     const tabs = x.tables ? x.tables.map((n) => tLink(n, ctx)).join(', ') : x.table ? tLink(x.table, ctx) + (x.column ? `.${esc(x.column)}` : '') : '';
     const rest = Object.keys(x).filter((k) => !KNOWN.has(k) && x[k] != null && typeof x[k] !== 'object').sort(cmp).map((k) => `${esc(k)}：${esc(x[k])}`);
-    return [at(x.file, x.line), tabs, code(x.head ?? x.text ?? ''), [x.reason ? esc(x.reason) : '', ...rest].filter(Boolean).join('<br>')];
+    return [src(x.file, x.line), tabs, code(x.head ?? x.text ?? ''), [x.reason ? esc(x.reason) : '', ...rest].filter(Boolean).join('<br>')];
   });
   const withWhy = rows.some((r) => r[3]);
   return table(['出处', '涉及的表', '原文开头', ...(withWhy ? ['原因'] : [])], withWhy ? rows : rows.map((r) => r.slice(0, 3)));
@@ -198,8 +199,8 @@ function indexPage(model, ctx) {
     `<h2>分组${judgedGroups ? '' : ` ${origin('fact')}`}</h2>`, // 项目判断的组各自在组名后面标档位
     `<p class="muted">${basis}</p>`,
     ...groups,
-    objs(model.views, '视图', '建表定义里没有视图。', ['名字', '出处', '定义原文'], (v) => [`<span id="${esc(v.anchor)}">${code(v.name)}</span>${v.materialized === true ? '<br><span class="muted">物化视图</span>' : ''}`, at(v.file, v.line), `<pre>${esc(v.sql)}</pre>`]),
-    objs(model.functions, '数据库函数', '建表定义里没有数据库函数。', ['名字', '出处', '签名'], (f) => [`<span id="${esc(f.anchor)}">${code(f.name)}</span>`, at(f.file, f.line), code(f.signature)]),
+    objs(model.views, '视图', '建表定义里没有视图。', ['名字', '出处', '定义原文'], (v) => [`<span id="${esc(v.anchor)}">${code(v.name)}</span>${v.materialized === true ? '<br><span class="muted">物化视图</span>' : ''}`, src(v.file, v.line), `<pre>${esc(v.sql)}</pre>`]),
+    objs(model.functions, '数据库函数', '建表定义里没有数据库函数。', ['名字', '出处', '签名'], (f) => [`<span id="${esc(f.anchor)}">${code(f.name)}</span>`, src(f.file, f.line), code(f.signature)]),
     ...ISSUES.filter(([k]) => model[k].length).map(([k, label, what]) => `<h2>${label}（${model[k].length} 处）${origin('fact')}</h2>\n<p class="muted">${what}</p>\n${issues(model[k], ctx)}`),
     ...CODE_LISTS.filter(([k]) => model[k].length).map(([k, id, label, what, head, row]) => {
       const n = model[k].length, unit = k === 'mapProblems' ? '条' : k === 'unscanned' ? '个' : '处'; // 各张清单的键 scrub 都给齐了（没有的是空数组）

@@ -20,13 +20,14 @@ const DDL_PATTERNS = [
   ['**/migrations/*.sql', (f) => /(?:^|\/)migrations\/[^/]+\.sql$/.test(f)],
 ];
 
-// 项目里的文件（相对路径、/ 分隔、按名字定序）。点开头的目录不进：.git、.venv、.claude 里的不是项目的来源
-// （cc-base 自己的 .claude/tests 里就有 SQL 夹具）。符号链接不跟，免得绕圈。sub 给了就只走那个子目录，路径仍相对 root。
+// 项目里的文件（相对路径、/ 分隔、按名字定序）。点开头的文件与目录、__pycache__ 目录不进，也不报数：.git、.venv、.claude 里的
+// 不是项目的来源（cc-base 自己的 .claude/tests 里就有 SQL 夹具）；编译缓存不入库，算进去的话同一份代码在跑过与没跑过的副本上
+// 出两样的页面（第三期契约 B 节「文件」）。符号链接不跟，免得绕圈。sub 给了就只走那个子目录，路径仍相对 root。
 export function walk(root, ignore, sub = '') {
   const res = ignore.map(globRe), skip = (rel) => res.some((r) => r.test(rel)), out = [];
   const visit = (dir, rel) => {
     for (const d of readdirSync(dir, { withFileTypes: true }).sort((a, b) => cmp(a.name, b.name))) {
-      if (d.name.startsWith('.')) continue;
+      if (d.name.startsWith('.') || (d.name === '__pycache__' && d.isDirectory())) continue;
       const r = rel ? `${rel}/${d.name}` : d.name;
       if (d.isDirectory()) { if (!skip(`${r}/`)) visit(join(dir, d.name), r); }
       else if (d.isFile() && !skip(r)) out.push(r);

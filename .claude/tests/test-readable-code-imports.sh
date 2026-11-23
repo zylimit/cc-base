@@ -81,6 +81,45 @@ eq "没有 __init__.py 的目录也当包：from plain import mod 与 from plain
 # 10 打死：输出带时间 / 乱序；没配 codeRoots 时 code 缺席或清单不是空数组
 facts "$R" "$TMP/m2.json"
 eq "同一份输入两次 --facts-json 逐字节相同（且 code 在，非空转）" "same|true" "$(cmp -s "$F" "$TMP/m2.json" && echo same || echo differs)|$(jf "$F" 'd.code.edges.length>5')"
+# ---- 整期审查之后补的（2026-11-23）：合成项目各自另起一份，只看它那一点 ----
+# 12 打死：JS 引用后面的说明取不到（只取得到三分之一）/ 跨行引用 + 指令后面认不出 / 文件最前面的说明被后面的盖掉 / 夹在两条引用之间的检查指令被当说明
+R="$TMP/h"; mkcfg "$R" '["web/src","pyd"]'; w pyd/doc.py '"""Py doc."""' 'X = 1'; w web/src/x.ts 'export const a = 1;'; w web/src/y.ts 'export const y = 1;'
+w web/src/hA.ts "'use client';" 'import {' '  a,' '  b,' "} from './x';" "import y from './y';" '' '// Renders the card.' '// Second line.' 'export const c = 1;'
+w web/src/hB.ts '/** Top block. */' "import a from './x';" '/** Later block. */' 'export const q = 1;'
+w web/src/hC.ts "import a from './x';" '// eslint-disable-next-line' "import b from './y';" 'export const q = 1;'
+facts "$R" "$TMP/h.json"
+eq "JS 文件头说明：指令加跨行引用之后、第一条别的语句之前的 // 块取得到（两行都在、没有 // 记号）；最前面有块时取最前面的（不含后面那块）；夹在两条引用之间的注释不算（head 为 null）；headAt：引用之后取到的是 after-imports、文件最前面的是 top、没有说明的是 null、Python 文档字符串是 top" "true|true|null|after-imports,top,null,top" "$(jf "$TMP/h.json" "(H=>(a=>a.includes('Renders the card.')&&a.includes('Second line.')&&!a.includes('//'))(H('web/src/hA.ts'))+'|'+(b=>b.includes('Top block.')&&!b.includes('Later block.'))(H('web/src/hB.ts'))+'|'+H('web/src/hC.ts')+'|'+['web/src/hA.ts','web/src/hB.ts','web/src/hC.ts','pyd/doc.py'].map(q=>String(d.code.files.find(x=>x.path==q).headAt)).join())(p=>String(d.code.files.find(x=>x.path==p).head))")"
+# 13 打死：编译缓存目录里的文件算进「没扫的文件」（同一份代码跑过与没跑过出两样的页面）或进 files
+R="$TMP/pc"; mkcfg "$R" '["app"]'; w app/m.py 'A = 1'; w app/z.vue '<template/>'; w app/__pycache__/m.cpython-312.pyc 'binary'; w app/__pycache__/stale.py 'B = 1'; w app/other/__pycache__/x.pyc 'binary'
+facts "$R" "$TMP/pc.json"
+eq "__pycache__ 里的 .pyc 不进 skipped、里面的 .py 不进 files（非空转：files 只有 app/m.py、skipped 只有 .vue 一个）" "false|false|app/m.py|.vue1" "$(jf "$TMP/pc.json" "d.code.skipped.some(s=>s.ext=='.pyc')+'|'+d.code.files.some(f=>f.path.includes('__pycache__'))+'|'+d.code.files.map(f=>f.path).join()+'|'+d.code.skipped.map(s=>s.ext+s.count).join()")"
+# 14 打死：包里的 import logging / from celery import … 被接到同目录同名的文件上（或记成外部包）；用包名的引用不成边
+R="$TMP/pk"; mkcfg "$R" '["svc"]'; w svc/__init__.py 'VERSION = 1'; w svc/logging.py 'X = 1'; w svc/celery.py 'Y = 1'; w svc/util.py 'Z = 1'
+w svc/main.py 'from . import util' 'import logging' 'from celery import Task'; w svc/pk2.py 'import svc.util as u'
+facts "$R" "$TMP/pk.json"
+eq "包式的代码根（有 __init__.py、里面用了相对引用）：main.py 的 import logging（标准库）不成边也不进 unresolved；from celery（外部包，同目录有同名文件）不成边、不记成外部包、进 unresolved 一条且点出 svc/celery.py；相对引用照常到 util.py；pk2.py 用包名 import svc.util 照常成边" "svc/util.py|1|true|[]|svc/util.py" "$(jf "$TMP/pk.json" "$(EF svc/main.py).map(e=>e.to).join()+'|'+d.code.unresolved.filter(e=>e.file=='svc/main.py').length+'|'+d.code.unresolved.filter(e=>e.file=='svc/main.py').every(e=>e.text.includes('svc/celery.py'))+'|'+JSON.stringify($(FF svc/main.py).externals)+'|'+$(EF svc/pk2.py).map(e=>e.to).join()")"
+# 15 打死：有 __init__.py 就一律当包、同目录的平铺引用全断
+R="$TMP/fl"; mkcfg "$R" '["flat"]'; w flat/__init__.py ''; w flat/a.py 'import b'; w flat/b.py 'B = 1'; w flat/c.py 'from b import B'
+facts "$R" "$TMP/fl.json"
+eq "有 __init__.py 却全用平铺写法的代码根（没有一处引用按包的写法指进它）：import b / from b import B 照旧成边到 flat/b.py" "flat/b.py|flat/b.py" "$(jf "$TMP/fl.json" "$(EF flat/a.py).map(e=>e.to).join()+'|'+$(EF flat/c.py).map(e=>e.to).join()")"
+# 16 打死：脚本目录里引用同目录的文件断掉（解释器先在脚本自己的目录里找）；没有入口文件的目录也被当脚本目录
+R="$TMP/sc"; mkcfg "$R" '["src"]'; w src/tools/run.py 'import helper' 'if __name__ == "__main__":' '    pass'; w src/tools/helper.py 'H = 1'; w src/tools/h2.py 'from helper import H'
+w src/plain/p1.py 'import p2'; w src/plain/p2.py 'P = 1'
+facts "$R" "$TMP/sc.json"
+eq "脚本目录（没有 __init__.py、里面有带 __main__ 的 run.py）：run.py 与同目录的 h2.py 引用 helper 都成边到 src/tools/helper.py；对照没有入口文件的 src/plain：p1.py 的 import p2 不成边" "src/tools/helper.py|src/tools/helper.py|0" "$(jf "$TMP/sc.json" "$(EF src/tools/run.py).map(e=>e.to).join()+'|'+$(EF src/tools/h2.py).map(e=>e.to).join()+'|'+$(EF src/plain/p1.py).length")"
+# 17 打死：两个代码根下同名文件，引用被接到先试的那个根（另一个根）的文件上
+R="$TMP/tw"; mkcfg "$R" '["r1","r2"]'; w r1/util.py 'A = 1'; w r2/util.py 'B = 1'; w r1/use.py 'import util'; w r2/use.py 'import util'
+facts "$R" "$TMP/tw.json"
+eq "两个代码根下都有 util.py：r1/use.py 的 import util 到 r1/util.py，r2/use.py 的到 r2/util.py（不是都到先配的 r1）" "r1/util.py|r2/util.py" "$(jf "$TMP/tw.json" "$(EF r1/use.py).map(e=>e.to).join()+'|'+$(EF r2/use.py).map(e=>e.to).join()")"
+# 18 打死：留下一条指向清单外的边（页面哪儿都看不见它）/ 悄悄丢掉不报 / 记成外部包
+R="$TMP/ou"; mkcfg "$R" '["src"]'; w shared.py 'S = 1'; w src/tests/fix.py 'F = 1'; w src/a.py 'import shared' 'from tests import fix'
+facts "$R" "$TMP/ou.json"
+eq "对上的文件不在文件清单里（项目根的 shared.py 在代码根之外；src/tests/fix.py 被 ignore 排掉）：不成边、各进 unresolved 一条（行 1、2）且写明「不在扫的范围里」、不记成外部包" "0|1,2|true|[]" "$(jf "$TMP/ou.json" "$(EF src/a.py).length+'|'+d.code.unresolved.filter(e=>e.file=='src/a.py').map(e=>e.line).join()+'|'+d.code.unresolved.filter(e=>e.file=='src/a.py').every(e=>e.text.includes('不在扫的范围里'))+'|'+JSON.stringify($(FF src/a.py).externals)")"
+# 19 打死：./a.js 而只有 a.ts 时断边（TypeScript 引用里写编译后的扩展名）；components/Button 这类基准目录写法被记成外部包 components
+R="$TMP/js"; mkcfg "$R" '["web/src"]'; w web/src/a.ts 'export const a = 1;'; w web/src/config.ts 'export const k = 1;'; w web/src/components/Button.tsx 'export default 1;'
+w web/src/main.ts "import { a } from './a.js';" "import B from 'components/Button';" "import R from 'react';" "import cfg from 'config';"
+facts "$R" "$TMP/js.json"
+eq "JS：'./a.js' 而只有 a.ts → 成边到 web/src/a.ts；'components/Button'（代码根下有 components/）与 'config'（代码根下有 config.ts）都不成边、不记成外部包、各进 unresolved 一条（行 2、4）且点出同名的路径；react 照记外部包" "web/src/a.ts|2,4|true|true|react" "$(jf "$TMP/js.json" "$(EF web/src/main.ts).map(e=>e.to).join()+'|'+d.code.unresolved.filter(e=>e.file=='web/src/main.ts').map(e=>e.line).join()+'|'+d.code.unresolved.filter(e=>e.file=='web/src/main.ts'&&e.line==2).every(e=>e.text.includes('web/src/components'))+'|'+d.code.unresolved.filter(e=>e.file=='web/src/main.ts'&&e.line==4).every(e=>e.text.includes('web/src/config.ts'))+'|'+$(FF web/src/main.ts).externals.join()")"
 R="$TMP/e"; mkcfg "$R" '[]'; w app/x.py 'import os'; facts "$R" "$TMP/e.json"
 eq "codeRoots 为空：code 在，files / edges / unresolved / dynamic / skipped 都是空数组" "0|true" "$RC|$(jf "$TMP/e.json" "['files','edges','unresolved','dynamic','skipped'].every(k=>Array.isArray(d.code[k])&&d.code[k].length==0)")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="

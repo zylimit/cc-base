@@ -28,9 +28,10 @@ const rows=h=>{const S=spans(h,'data-section');return spans(h,'data-row').map(([
 const cellRe=k=>new RegExp('<(\\w+)([^>]*\\sdata-k="'+k+'"[^>]*)>([\\s\\S]*?)<\\/\\1>');
 const cv=(r,k,v)=>{const m=r.html.match(cellRe(k));return !!m&&(txt(m[3])===v||dec(m[2]).includes('="'+v+'"'))};
 const delRow=(h,k)=>{const s=spans(h,'data-row').filter(([a,b,t])=>dec(val(t,'data-row')||'')===k)[0];return s?h.slice(0,s[0])+h.slice(s[1]):null};
+const cells=(r,k)=>spans(r.html,'data-k').filter(s=>val(s[2],'data-k')===k).map(s=>txt(r.html.slice(s[0],s[1])));
 const same=(a,b)=>JSON.stringify([...a].sort())==JSON.stringify([...b].sort());
 const sz=n=>n<100?'不到 100 行':n<500?'100–500 行':n<1000?'500–1000 行':'1000 行以上';
-module.exports={fs,txt,rows,cv,cellRe,delRow,same,sz};
+module.exports={fs,txt,rows,cv,cells,cellRe,delRow,same,sz};
 EOF
 nj() { node -e "const H=require('$TMP/h.js'),fs=H.fs;try{$1}catch(e){console.log('THROW '+String(e.message).slice(0,90))}" "${@:2}"; }
 w() { mkdir -p "$(dirname "$R/$1")"; local f=$1; shift; printf '%s\n' "$@" >"$R/$f"; }
@@ -39,7 +40,7 @@ mkfx() { R=$1; mkdir -p "$R/docs/readable-src" "$R/sql"; : >"$R/Product-Spec.md"
   printf 'CREATE TABLE orders (id int PRIMARY KEY);\nCREATE TABLE items (id int PRIMARY KEY);\nCREATE TABLE logs (id int PRIMARY KEY);\n' >"$R/sql/s.sql"
   printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql"],"codeRoots":["app"],"ignore":[]}\n' >"$R/docs/readable-src/config.json"
   printf '{"version":1,"tableGroups":[],"dynamicTables":[],"layers":["接口","业务","数据"],"modules":[%s,%s,%s]}\n' "$(mm api 甲层网关 接口)" "$(mm core 乙层业务 业务)" "$(mm store 丙层存储 数据)" >"$R/docs/readable-src/map.json"
-  w app/api/web.py '"""Web entry point.' 'Second line of head.' 'Third line of head."""' 'from fastapi import APIRouter' 'from ..core.svc import run' 'router = APIRouter(prefix="/v1")' 'Q = "SELECT a FROM orders"' '@router.get("/orders")' 'def list_orders():' '    """Lists the orders."""' '    return 1' '@router.post("/orders")' 'def make_order(): return run()' 'def ping(): pass'
+  w app/api/web.py '"""Web entry point.' 'Second line of head.' 'Third line of head."""' 'from fastapi import APIRouter, FastAPI' 'from ..core.svc import run' 'router = APIRouter(prefix="/v1")' 'Q = "SELECT a FROM orders"' '@router.get("/orders")' 'def list_orders():' '    """Lists the orders."""' '    return 1' '@router.post("/orders")' 'def make_order(): return run()' 'def ping(): pass' 'app = FastAPI()' 'app.include_router(router)'
   w app/api/a2.py 'A = 1'; w app/api/a3.py 'A = 3'; w app/core/svc.py 'from ..store.db import save' 'def run(): save()' 'W = "INSERT INTO items (a) VALUES (1)"'; w app/core/util.py 'U = 1'
   w app/store/db.py 'def save(): pass' 'Q = "INSERT INTO orders (x) VALUES (1)"' 'R = "SELECT a FROM logs"'; w app/misc/stray.py 'S = "SELECT a FROM logs"'; }
 B="$TMP/b"; mkfx "$B"; bd "$B"; FJ="$TMP/f.json"; nd build --facts-json --root "$B" >"$FJ" 2>/dev/null || true; ck "$B"; D="$B/docs/readable"; AD="$D/arch"
@@ -51,7 +52,7 @@ eq "页面齐全：arch/index、三个 m-<id>、routes 都在且 m-*.html 恰三
 # 2 打死：页面上文件 / 接口 / 依赖 / 提供 / 读写表漏项或串位、行数不对、文件头说明与处理函数说明被截断
 eq "模块页事实：每个模块页各段（data-section）的 data-row 键集与 facts.arch 相同——文件（size 规模档，由事实里的行数按四档算出）、接口（method、path、handler）、依赖（模块 id，名字与文件对在行内）、对外提供（by）、读写的表（每表一行，rw 为读 / 写 / 读写）——格子值逐项相同；文件头三行与处理函数说明全文在 api 页" "" \
   "$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),A=f.arch,L={},bad=[];f.code.files.forEach(x=>L[x.path]=x.lines);
-for(const m of A.modules){const h=fs.readFileSync(R+"/docs/readable/arch/m-"+m.id+".html","utf8"),rs=H.rows(h),n=(s,x)=>bad.push(m.id+":"+s+":"+x),rk=r=>r.method+" "+(r.fullPath===null?r.path:r.fullPath);
+for(const m of A.modules){const h=fs.readFileSync(R+"/docs/readable/arch/m-"+m.id+".html","utf8"),rs=H.rows(h),n=(s,x)=>bad.push(m.id+":"+s+":"+x),rk=r=>r.method+" "+(r.fullPath??r.path);
 const chk=(s,keys,fn)=>{const x=rs.filter(r=>r.sec==s);if(!H.same(x.map(r=>r.k),keys))n(s,"keys="+x.map(r=>r.k).join(",").slice(0,70));else x.forEach(fn)};
 chk("files",m.files,r=>{if(!H.cv(r,"size",H.sz(L[r.k])))n("lines",r.k)});
 chk("routes",m.routes.map(rk),r=>{const q=m.routes.find(x=>rk(x)==r.k);if(!H.cv(r,"method",q.method)||!(H.cv(r,"path",q.fullPath)||H.cv(r,"path",q.path))||!H.cv(r,"handler",q.handler))n("route",r.k)});
@@ -105,8 +106,10 @@ eq "隐去：文件头说明里的 10.1.2.3 在 arch/ 下搜不到、搜得到�
 mkdir -p "$TMP/old"; (cd "$REPO_ROOT" && git archive f79fc5c .claude/scripts | tar -x -C "$TMP/old")
 Z="$TMP/z"; cp -r "$B" "$Z"; rm -rf "$Z/docs/readable"; node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/config.json",c=JSON.parse(fs.readFileSync(f));c.codeRoots=[];fs.writeFileSync(f,JSON.stringify(c))' "$Z"
 Y="$TMP/y"; cp -r "$Z" "$Y"; W="$TMP/w"; cp -r "$B" "$W"; rm -rf "$W/docs/readable"; bd "$Z"; RB9=$RB; ORC=0; env -u CLAUDE_PROJECT_DIR node "$TMP/old/.claude/scripts/readable-docs.mjs" build --root "$Y" >/dev/null 2>&1 || ORC=$?; env -u CLAUDE_PROJECT_DIR node "$TMP/old/.claude/scripts/readable-docs.mjs" build --root "$W" >/dev/null 2>&1 || true
-DRC=0; diff -r "$Z/docs/readable/db" "$Y/docs/readable/db" >/dev/null 2>&1 || DRC=$?; ck "$Z"
-eq "无架构一切照旧：codeRoots 为空 → build 0、arch 目录不在、文档首页无「架构设计」、check 0 条；db/ 与提交 f79fc5c 的代码生成的逐字节相同（旧代码 build 也是 0）" "0|n|n|0|不一致 0 条|0|0" "$RB9|$(yn test -d "$Z/docs/readable/arch")|$(yn grep -qF 架构设计 "$Z/docs/readable/index.html")|$RC|$(last "$Z")|$DRC|$ORC"
+# 新契约给第一期表页加了读回标记 data-k="name" / "file"（所有项目都有，与有没有架构无关）：比之前把这两个属性剔掉，其余一个字节不许变
+rm -rf "$TMP/zn"; cp -r "$Z/docs/readable/db" "$TMP/zn"; find "$TMP/zn" -name '*.html' -exec sed -i -E 's/ data-k="(name|file)"//g' {} +
+DRC=0; diff -r "$TMP/zn" "$Y/docs/readable/db" >/dev/null 2>&1 || DRC=$?; ck "$Z"
+eq "无架构一切照旧：codeRoots 为空 → build 0、arch 目录不在、文档首页无「架构设计」、check 0 条；db/ 剔掉 data-k=name/file 两个新读回属性后与提交 f79fc5c 的代码生成的逐字节相同（旧代码 build 也是 0）；表页上没有 data-k=\"module\"" "0|n|n|0|不一致 0 条|0|0|n" "$RB9|$(yn test -d "$Z/docs/readable/arch")|$(yn grep -qF 架构设计 "$Z/docs/readable/index.html")|$RC|$(last "$Z")|$DRC|$ORC|$(yn grep -rqF 'data-k="module"' "$Z/docs/readable/db")"
 eq "对照（防上一臂空转）：有架构时 orders 表页与旧代码生成的不同（多了模块标记）" "differ" "$(cmp -s "$D/db/t-orders.html" "$W/docs/readable/db/t-orders.html" && echo same || echo differ)"
 
 # 10 打死：落盘前自检失败仍替换页面 / 退出码不是 3 / 两次生成不逐字节相同
@@ -115,10 +118,10 @@ cp -r "$D" "$TMP/snap" 2>/dev/null || mkdir -p "$TMP/snap"; bd "$B"; DET=$(diff 
 eq "落盘前自检：READABLE_FAIL_AT=arch-render 时 build 退出码 3、原有页面哈希不变；同一输入再 build 一次整个 docs/readable 逐字节相同" "3|same|same" "$FRC|$([ "$H0" = "$H1" ] && echo same || echo differ)|$DET"
 
 # 11 打死：接口总表漏行 / 方法或完整路径与事实不符 / 缺所属模块链接；没有接口的项目这一页消失或留空
-rt=$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),rs=H.rows(fs.readFileSync(R+"/docs/readable/arch/routes.html","utf8")),b=[],rk=r=>r.method+" "+r.fullPath;if(!H.same(rs.map(r=>r.k),f.code.routes.map(rk)))b.push("keys="+rs.map(r=>r.k).join(","));
+rt=$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),rs=H.rows(fs.readFileSync(R+"/docs/readable/arch/routes.html","utf8")),b=[],rk=r=>r.method+" "+(r.fullPath??r.path);if(!H.same(rs.map(r=>r.k),f.code.routes.map(rk)))b.push("keys="+rs.map(r=>r.k).join(","));
 else rs.forEach(x=>{const r=f.code.routes.find(y=>rk(y)==x.k),m=f.arch.modules.find(y=>y.files.includes(r.file));if(!H.cv(x,"method",r.method)||!H.cv(x,"path",r.fullPath)&&!H.cv(x,"path",r.path)||!H.cv(x,"handler",r.handler)||!H.cv(x,"module",m.id)||!x.html.includes("m-"+m.id+".html"))b.push("cell:"+r.handler)});console.log(f.code.routes.length+"|"+b.join(";"))' "$B" "$FJ")
 E="$TMP/e"; cp -r "$B" "$E"; R=$E; w app/api/web.py 'X = 1'; bd "$E"
-eq "接口总表：行数等于接口数（2）、每行 data-row 为「方法 完整路径」、method / path / handler / module 格与事实相同并链到所属模块页；没有接口的项目 routes.html 照出且写「没有读出接口（只认装饰器写法的路由）」" "2||y" "$rt|$(nj 'console.log(H.txt(fs.readFileSync(process.argv[1]+"/docs/readable/arch/routes.html","utf8")).includes("没有读出接口（只认装饰器写法的路由）")?"y":"n")' "$E")"
+eq "接口总表：行数等于接口数（2）、每行 data-row 为「方法 完整路径」、method / path / handler / module 格与事实相同并链到所属模块页；接口总表的行没有 data-k=doc（0 个），模块页上有说明的 list_orders 行恰一个 doc 格、没说明的 make_order 行没有；没有接口的项目 routes.html 照出且写「没有读出接口（只认装饰器写法的路由）」" "2||y|0|1|0" "$rt|$(nj 'console.log(H.txt(fs.readFileSync(process.argv[1]+"/docs/readable/arch/routes.html","utf8")).includes("没有读出接口（只认装饰器写法的路由）")?"y":"n")' "$E")|$(nj 'const D=process.argv[1]+"/docs/readable/arch/",rr=H.rows(fs.readFileSync(D+"routes.html","utf8")).filter(r=>r.sec=="routes"),mr=H.rows(fs.readFileSync(D+"m-api.html","utf8")).filter(r=>r.sec=="routes"),dc=h=>{const r=mr.find(x=>H.cells(x,"handler").join()==h);return r?H.cells(r,"doc").length:"norow"};console.log(rr.reduce((a,r)=>a+H.cells(r,"doc").length,0)+"|"+dc("list_orders")+"|"+dc("make_order"))' "$B")"
 # 12 打死：模块页写确切行数 / 四档边界差一（99、100、1000）/ 模块规模写成确切数而非「约 N 行」
 Q="$TMP/q"; cp -r "$B" "$Q"; R=$Q; for n in 99 100 1000; do seq 1 $n | sed 's/^/x=/' >"$Q/app/core/s$n.py"; done; mkdir -p "$Q/app/huge"; seq 1 4893 | sed 's/^/x=/' >"$Q/app/huge/h.py"
 mapedit() { node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/map.json",m=JSON.parse(fs.readFileSync(f));m.modules.push({id:process.argv[2],title:process.argv[3],layer:"业务",paths:[process.argv[4]],status:"proposed"});fs.writeFileSync(f,JSON.stringify(m))' "$@"; }
@@ -138,5 +141,65 @@ M2="$TMP/m2"; cp -r "$B" "$M2"; mapedit "$M2" ghost 空模块 'nowhere/**'; bd "
 kd() { node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")),k=j.problems.map(p=>p.kind);console.log(k.includes("arch-map")+"|"+k.includes("arch-mismatch"))' "$TMP/c.json" 2>/dev/null || echo NOJSON; }
 K2=$(kd); ck "$B"
 eq "arch-map：map.json 里 paths 匹配不到文件的模块 → check --json 有 arch-map、无 arch-mismatch；对照：干净的 map.json 没有 arch-map" "true|false|false|false" "$K2|$(kd)"
+# 15–17 打死：出页面的代码把显示的字写错 / 整段漏掉，落盘前的自检看不见（原先只比 data-row）——三个注入点各被拦下：build 退出码 3、报错点到那一页、原有页面一个字节不动、docs 下无残留；对照：不注入同一输入 build 0 且页面确实会变（否则「不变」是空话）
+inj() { local P=$1 F="$TMP/in_$1"; cp -r "$B" "$F"; R=$F; w "app/core/zz_$P.py" 'M = 1'; H0=$(hs "$F"); L0=$(ls -A "$F/docs"); IRC=0; READABLE_FAIL_AT=$P nd build --root "$F" >"$TMP/o_$P" 2>&1 || IRC=$?
+  H1=$(hs "$F"); L1=$(ls -A "$F/docs"); bd "$F"; H2=$(hs "$F")
+  echo "$IRC|$([ "$H0" = "$H1" ] && echo same || echo changed)|$([ "$L0" = "$L1" ] && echo same || echo "$L1")|$(grep -qE "$2" "$TMP/o_$P" && echo y || echo n)|$RB|$([ "$H1" != "$H2" ] && echo differs || echo same)"; }
+eq "注入 arch-show-key（模块页上第一个文件显示的路径写错、data-row 不动）：退出码 3、输出点到 m-api 页、页面哈希不变、无残留；对照组不注入退出码 0、哈希变" "3|same|same|y|0|differs" "$(inj arch-show-key 'm-api')"
+eq "注入 arch-show-head（第一条文件头说明少最后一个字）：同上，点到 m-api 页" "3|same|same|y|0|differs" "$(inj arch-show-head 'm-api')"
+eq "注入 arch-drop-section（架构首页「没有被别的文件引用的」整段不出）：同上，点到架构首页 arch/index" "3|same|same|y|0|differs" "$(inj arch-drop-section 'arch/index')"
+
+# 18 打死：注入点找不到可下手的地方（项目里没有任何文件头说明）时悄悄成功——测试以为自检拦住了，其实压根没注入
+NH="$TMP/nh"; cp -r "$B" "$NH"; R=$NH; sed -i '1,3d' "$NH/app/api/web.py"; bd "$NH"; RB18=$RB; nd build --facts-json --root "$NH" >"$TMP/fnh.json" 2>/dev/null || true
+w app/core/zz_nh.py 'M = 1'; H0=$(hs "$NH"); NRC=0; READABLE_FAIL_AT=arch-show-head nd build --root "$NH" >"$TMP/o_nh" 2>&1 || NRC=$?; H1=$(hs "$NH")
+# 没有架构这一份的项目（Z：codeRoots 为空，已 build）设 arch-show-key：同样报错、退出码 3、页面不动（E 节末句）。源头多一张表，让「不拦」时页面确实会变
+NZ="$TMP/nz"; cp -r "$Z" "$NZ"; echo 'CREATE TABLE zeta_n (id int);' >>"$NZ/sql/s.sql"; HZ0=$(hs "$NZ"); ZRC=0; READABLE_FAIL_AT=arch-show-key nd build --root "$NZ" >/dev/null 2>&1 || ZRC=$?; HZ1=$(hs "$NZ"); NA="$ZRC|$([ "$HZ0" = "$HZ1" ] && echo same || echo changed)"
+eq "没有文件头说明的项目（夹具里 head 非空的文件数为 0，不带注入 build 退出码 0）跑 arch-show-head：退出码非 0、有报错输出、页面哈希不变；没配 codeRoots（没有架构）的小项目设 arch-show-key：同样退出码 3、页面哈希不变——不是悄悄成功" "0|0|y|y|same|3|same" \
+  "$(nj 'console.log(JSON.parse(fs.readFileSync(process.argv[1])).code.files.filter(x=>x.head!=null).length)' "$TMP/fnh.json")|$RB18|$([ "$NRC" != 0 ] && echo y || echo "rc=$NRC")|$([ -s "$TMP/o_nh" ] && echo y || echo n)|$([ "$H0" = "$H1" ] && echo same || echo changed)|$NA"
+
+# 19（含 headAt 子项）打死：模块页文件段的行没有 data-k=key 格 / 显示的路径与 data-row 不同 / 有说明的行缺 head 格 / 没说明的行硬塞 head 格 / head 格的字不是全文
+JA="$TMP/ja"; cp -r "$B" "$JA"; R=$JA; w app/core/ui.js "import React from 'react'" '/* Panel component notes. */' 'export function Panel() {}'; w app/core/top.js '/* Top of file note. */' "import x from 'y'" 'export const a = 1'; w app/core/plain.js 'export const b = 2'
+bd "$JA"; nd build --facts-json --root "$JA" >"$TMP/fja.json" 2>/dev/null || true
+eq "模块页 files 段每一行（共 6 行）恰一个 data-k=key 格、显示的字等于 data-row；facts 里有文件头说明的行（web.py）恰一个 data-k=head 格且字等于说明全文（空白归一），没有说明的行没有 head 格；子项 headAt：夹具再加三个 JS 文件（先引用后注释的 ui.js、注释在最前面的 top.js、没注释的 plain.js），事实里 headAt 为 after-imports 的 1 个、top 的 2 个（web.py 与 top.js），页面上 after-imports 的行恰一个 data-k=headAt 格、字含「写在引用语句之后的第一块注释」，top 与没说明的行没有这一格" "|6|1|1|2|" \
+  "$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),HD={},bad=[];f.code.files.forEach(x=>HD[x.path]=x.head);let n=0,nh=0;
+for(const m of f.arch.modules){H.rows(fs.readFileSync(R+"/docs/readable/arch/m-"+m.id+".html","utf8")).filter(r=>r.sec=="files").forEach(r=>{n++;const k=H.cells(r,"key"),h=H.cells(r,"head");if(k.length!=1||k[0]!=r.k)bad.push("key:"+r.k+"="+k.join("/"));const want=HD[r.k];if(want==null){if(h.length)bad.push("head+:"+r.k)}else{nh++;if(h.length!=1||h[0]!=want.replace(/\s+/g," ").trim())bad.push("head:"+r.k)}})}
+console.log(bad.join(";")+"|"+n+"|"+nh)' "$B" "$FJ")|$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),bad=[],c=x=>f.code.files.filter(y=>y.headAt===x).length;
+for(const m of f.arch.modules){H.rows(fs.readFileSync(R+"/docs/readable/arch/m-"+m.id+".html","utf8")).filter(r=>r.sec=="files").forEach(r=>{const x=f.code.files.find(y=>y.path==r.k),a=H.cells(r,"headAt");if(x.headAt==="after-imports"){if(a.length!=1||!a[0].includes("写在引用语句之后的第一块注释"))bad.push("at:"+r.k+"="+a.join("/"))}else if(a.length)bad.push("at+:"+r.k)})}
+console.log(c("after-imports")+"|"+c("top")+"|"+bad.join(";"))' "$JA" "$TMP/fja.json")"
+
+# 首页 modules 行 lines 格（data-k=lines）：显示的字照 D 节取整规矩（不到 100 行；模块取一位有效数字，约 N 行 / 约 N 千行 / 约 N 万行）从事实里该模块的行数算出，不手抄期望
+lc() { nj 'const [R,F]=process.argv.slice(1),A=JSON.parse(fs.readFileSync(F)).arch,h=fs.readFileSync(R+"/docs/readable/arch/index.html","utf8"),bad=[];
+const fm=n=>{if(n<100)return"不到 100 行";const e=Math.pow(10,Math.floor(Math.log10(n))),v=Math.round(n/e)*e;return v>=1e4?"约 "+v/1e4+" 万行":v>=1e3?"约 "+v/1e3+" 千行":"约 "+v+" 行"};
+H.rows(h).filter(r=>r.sec=="modules").forEach(r=>{const m=A.modules.find(x=>x.id==r.k),c=H.cells(r,"lines");if(!m||c.length!=1||c[0]!=fm(m.lines))bad.push(r.k+":"+c.join("/")+"!="+(m?fm(m.lines):"?"))});console.log(bad.length?bad.join(";"):"ok")' "$1" "$2"; }
+# 20 打死：首页某一段为空时整个容器不出（核对器读不到、分不清「没有」与「页面把这段丢了」）/ 首页模块行与未归属、没人引用的文件行显示的字与 data-row 不同
+eq "架构首页（无环、无运行时引用的夹具）有 data-section 为 cycles / big / idle / unresolved / dynamic / skipped / problems 的容器，空的照样在；modules 行显示的 id（data-k=module）、unassigned 与 idle 行显示的路径（data-k=key）都等于 data-row（idle 非空）；modules 行 data-k=lines 格显示的字等于照取整规矩由事实里模块行数算出的写法（夹具 B 全是「不到 100 行」，夹具 Q 里有 约 1 千行 与 约 5 千行）" "|3|1|y|ok|ok" \
+  "$(nj 'const R=process.argv[1],h=fs.readFileSync(R+"/docs/readable/arch/index.html","utf8"),have=new Set([...h.matchAll(/data-section="(\w+)"/g)].map(m=>m[1])),miss=["cycles","big","idle","unresolved","dynamic","skipped","problems"].filter(s=>!have.has(s)),rs=H.rows(h),bad=[],S=s=>rs.filter(r=>r.sec==s);
+S("modules").forEach(r=>{if(H.cells(r,"module").join()!=r.k)bad.push("mod:"+r.k)});["unassigned","idle"].forEach(s=>S(s).forEach(r=>{if(H.cells(r,"key").join()!=r.k)bad.push(s+":"+r.k)}));
+console.log(miss.join(",")+(bad.length?"!"+bad.join(";"):"")+"|"+S("modules").length+"|"+S("unassigned").length+"|"+(S("idle").length>0?"y":"n"))' "$B")""|$(lc "$B" "$FJ")|$(lc "$Q" "$TMP/fq.json")"
+
+# 21 打死：拼不出完整路径的接口没带 why 格（读者与核对器看不到原因）/ 两种原因的话说串 / 拼得出的也带 why / 接口总表与模块页只标一处
+W="$TMP/wy"; cp -r "$B" "$W"; R=$W
+w app/api/extra.py 'from fastapi import FastAPI, APIRouter' 'lone = APIRouter(prefix="/lone")' '@lone.get("/a")' 'def lone_h(): pass' 'app = FastAPI()' 'rr = APIRouter(prefix="/r")' '@rr.get(f"/dyn/{KIND}")' 'def dyn_h(): pass' 'app.include_router(rr)' '@app.get("/ok")' 'def ok_h(): pass'
+bd "$W"; nd build --facts-json --root "$W" >"$TMP/fw.json" 2>/dev/null || true
+eq "没挂载的路由器上的 lone_h（完整路径 null）、前缀是 f 串的 dyn_h（完整路径 null）：模块页 api 与接口总表上，lone_h 行的 data-k=why 格含「没找到它挂在哪，前面可能还有一段前缀」、dyn_h 行的含「前缀是运行时定的」、拼得出的 ok_h 行没有 why 格（两页共 6 行）" "lone_h:null,dyn_h:null,ok_h:/ok|6|" \
+  "$(nj 'const [R,F]=process.argv.slice(1),f=JSON.parse(fs.readFileSync(F)),D=R+"/docs/readable/arch/",bad=[];let n=0;const hs=["lone_h","dyn_h","ok_h"],pre=f.code.routes.filter(r=>hs.includes(r.handler)).sort((a,b)=>hs.indexOf(a.handler)-hs.indexOf(b.handler)).map(r=>r.handler+":"+r.fullPath).join();
+const want={lone_h:"没找到它挂在哪，前面可能还有一段前缀",dyn_h:"前缀是运行时定的",ok_h:null};
+for(const pg of ["m-api.html","routes.html"]){const rs=H.rows(fs.readFileSync(D+pg,"utf8")).filter(r=>r.sec=="routes");for(const hn of hs){const r=rs.find(x=>H.cells(x,"handler").join()==hn);if(!r){bad.push(pg+":"+hn+":norow");continue}n++;const y=H.cells(r,"why");if(want[hn]===null){if(y.length)bad.push(pg+":"+hn+":why+")}else if(y.length!=1||!y[0].includes(want[hn]))bad.push(pg+":"+hn+":"+y.join("/"))}}
+console.log(pre+"|"+n+"|"+bad.join(";"))' "$W" "$TMP/fw.json")"
+
+# 22 打死：任一代码文件的行号漏进页面（词法切不动的文件、挂了两次的路由器、定义写在代码文件里的表，各是一条已知的漏口）
+LN="$TMP/ln"; cp -r "$B" "$LN"; R=$LN
+w app/api/odd.py 'x = 1' 's = """never closed' 'more'
+w app/api/main2.py 'from fastapi import FastAPI, APIRouter' 'app = FastAPI()' 'r1 = APIRouter()' '@r1.get("/x")' 'def x(): pass' 'app.include_router(r1, prefix="/a")' 'app.include_router(r1, prefix="/b")'
+w app/store/emb.py 'def f(cur):' '    cur.execute("CREATE TABLE emb_tbl (id int PRIMARY KEY)")'
+sed -i 's#"ddl":\["sql/s.sql"\]#"ddl":["sql/s.sql","app/store/emb.py"]#' "$LN/docs/readable-src/config.json"
+bd "$LN"; RB22=$RB; nd build --facts-json --root "$LN" >"$TMP/fl0.json" 2>/dev/null || true; HL0=$(hs "$LN")
+for f in $(cd "$LN" && find app -name '*.py'); do { printf '\n\n\n'; cat "$LN/$f"; } >"$TMP/pad.tmp"; cp "$TMP/pad.tmp" "$LN/$f"; done
+bd "$LN"; RB22b=$RB; nd build --facts-json --root "$LN" >"$TMP/fl1.json" 2>/dev/null || true; HL1=$(hs "$LN")
+eq "夹具里有切不动的 odd.py（进没扫成）、挂了两次的路由器（第二处进没解析到的引用）、ddl 里列了的 emb.py 里定义的 emb_tbl；全部代码文件顶上各加三个空行重出：两次 build 都 0、事实里的行号确实变了、整个 docs/readable 逐字节不变（夹具总行数加完仍不到 90，不挨着「约 N 行」的进位边）" "0|0|y|y|y|differs|same|y" \
+  "$RB22|$RB22b|$(nj 'const f=JSON.parse(fs.readFileSync(process.argv[1]));console.log(f.unscanned.some(e=>e.file=="app/api/odd.py")?"y":"n")' "$TMP/fl0.json")|$(nj 'const f=JSON.parse(fs.readFileSync(process.argv[1]));console.log(f.code.unresolved.some(e=>e.file=="app/api/main2.py")?"y":"n")' "$TMP/fl0.json")|$(nj 'const f=JSON.parse(fs.readFileSync(process.argv[1]));console.log(f.tables.some(t=>t.name=="emb_tbl")?"y":"n")' "$TMP/fl0.json")|$([ "$(sha256sum <"$TMP/fl0.json")" != "$(sha256sum <"$TMP/fl1.json")" ] && echo differs || echo same)|$([ "$HL0" = "$HL1" ] && echo same || echo changed)|$(nj 'const f=JSON.parse(fs.readFileSync(process.argv[1]));console.log(f.code.files.reduce((a,x)=>a+x.lines,0)<90?"y":"n")' "$TMP/fl1.json")"
+
+# 23 打死：核对器只比 data-row、不比显示的字（审查用三处突变实测：显示的路径写错，check 照报 0 条）
+eq "手改核对·m-core 页 util.py 那一行显示的路径改一个字、data-row 不动：退出码 1、arch- 类问题只有 arch-mismatch 且点到 core（stale-page 另报，不算在内）" "1|arch-mismatch|true" "$(mut x 'const p=process.argv[1]+"/docs/readable/arch/m-core.html",h=fs.readFileSync(p,"utf8"),r=H.rows(h).find(x=>x.sec=="files"&&x.k=="app/core/util.py");if(!r)console.log("NOROW");else{const c=r.html.match(H.cellRe("key"));if(!c)console.log("NOKEY");else{const nr=r.html.replace(c[0],()=>c[0].replace(c[3],()=>c[3].replace("util","utix")));if(nr===r.html)console.log("NOMUT");else fs.writeFileSync(p,h.replace(r.html,()=>nr))}}' core)"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

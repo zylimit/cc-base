@@ -37,7 +37,9 @@ const initDir = (p) => (/(?:^|\/)__init__\.py$/.test(p) ? p.slice(0, Math.max(0,
 // code：取事实的 code（files、edges、routes）；usage：第一期的写读；am：notes.loadMap 校验过的 map.arch；codeRoots：配置里的。
 export function buildArch(code, usage, am, codeRoots) {
   const arch = { source: am.modules ? 'map' : 'dirs', layers: am.layers, modules: [], unassigned: [], cycles: [], upward: [], big: [], idle: [], problems: [] };
-  if (!codeRoots.length) return arch; // B 节末尾：没配 codeRoots 的项目 modules 是空数组，不出架构这一份
+  // B 节末尾：没配 codeRoots 的项目 modules 是空数组，不出架构这一份；配了而一个代码文件都没取到的同样——哪怕 map.json 里写了模块：
+  // 没有代码文件就没有可汇总的事实，出一份空壳只会让人以为扫过。
+  if (!codeRoots.length || !code.files.length) return arch;
   const paths = code.files.map((f) => f.path), byPath = new Map(code.files.map((f) => [f.path, f]));
   let mods, owner;
   const problems = [...am.problems];
@@ -80,7 +82,7 @@ export function buildArch(code, usage, am, codeRoots) {
     id: m.id, title: m.title, layer: m.layer, status: m.status,
     files: [...m.files].sort(cmp),
     lines: m.files.reduce((s, f) => s + byPath.get(f).lines, 0),
-    routes: code.routes.filter((r) => owner.get(r.file) === i).map((r) => ({ method: r.method, path: r.path, fullPath: r.fullPath, handler: r.handler, file: r.file })),
+    routes: code.routes.filter((r) => owner.get(r.file) === i).map((r) => ({ method: r.method, path: r.path, fullPath: r.fullPath, why: r.why, handler: r.handler, file: r.file })),
     uses: [...uses[i]].sort((x, y) => x[0] - y[0]).map(([b, d]) => ({ module: mods[b].id, pairs: d.pairs.sort(byPair), names: [...d.names].sort(cmp) })),
     usedBy: ids(usedBy[i]),
     provides: [...provides[i].values()].sort((x, y) => cmp(x.file, y.file) || cmp(x.name, y.name)).map((p) => ({ name: p.name, file: p.file, by: ids(p.by) })),

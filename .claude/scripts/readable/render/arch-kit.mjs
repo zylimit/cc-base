@@ -1,8 +1,9 @@
 // arch-kit.mjs —— 架构这一份几页都要用的小件：页名与面包屑、项目判断与「待写」的标记、说明区、可展开的长清单、标记的图例
 // （第三期契约 docs/readable-spec/phase3-arch-contract.md D 节）。只出字符串。
-// 读回标记照 D 节末尾那张表：一行一条带 data-row（值是这一行的键），要比的格子带 data-k，各段的容器带 data-section。
-// data-k 那个元素里显示的字就是要比的值（模块只认 id：id 单放在一个 <code data-k="module"> 里，标题另写在旁边），
-// 核对器（check-arch.mjs）不借这里的任何东西就读得回来。
+// 读回标记照 D 节末尾那张表：一行一条带 data-row（值是这一行的键），要比的格子带 data-k，各段的容器带 data-section，
+// 段里没有内容时容器照样在。data-k 那个元素里显示的字就是要比的值；显示键的那一格（路径、表名、包名、模块 id）也带 data-k——
+// data-row 只给核对器配行，读者看的是格子里的字，键只放在属性里，显示错了核对看不出来。模块只认 id：id 单放在一个
+// <code data-k="module"> 里，标题另写在旁边。核对器（check-arch.mjs）不借这里的任何东西就读得回来。
 import { esc, attrs, fileSlug, table, origin } from './layout.mjs';
 import { noteMark, noteHtml, noteState, STALE_TEXT } from './note.mjs';
 import { REDACTED } from '../sensitive.mjs';
@@ -26,11 +27,12 @@ export const CSS = [
 
 // 确切的行数不上页面（D 节）：页面是入库的生成物，代码随便加三行，模块页与首页就跟着变，每次提交都带一批没有内容的页面差异——
 // 与「代码文件的行号不上页面」同一个道理。文件按四档写规模（恰好 100、500、1000 行的归上面一档）；
-// 模块与全库写「约 N 行」，模块取一位有效数字、全库取两位，满千写「千」、满万写「万」。核对器在 check-arch.mjs 里另有一份分档的规矩。
+// 模块与全库写「约 N 行」，模块取一位有效数字、全库取两位，满千写「千」、满万写「万」。核对器在 check-arch.mjs 里另有一份分档与取整的规矩，
+// 首页模块清单的「约 N 行」它照那一份自己算、比（data-k="lines"）。
 export const sizeBand = (n) => (n < 100 ? '不到 100 行' : n < 500 ? '100–500 行' : n < 1000 ? '500–1000 行' : '1000 行以上');
-// 不到 100 行的照文件最低一档写「不到 100 行」：两位数取两位有效数字就是确切的数，加三行照样变，留着它等于没改。
+// 不到 100 行的一律照文件最低一档写「不到 100 行」，0 行的（没匹配到文件的空模块）也是（D 节原话「一律」）：
+// 两位数取两位有效数字就是确切的数，加三行照样变，留着它等于没改。
 export function approxLines(n, digits = 1) {
-  if (!n) return '0 行';
   if (n < 100) return '不到 100 行';
   const step = 10 ** Math.max(0, String(Math.floor(n)).length - digits), v = Math.round(n / step) * step;
   return v >= 10000 ? `约 ${v / 10000} 万行` : v >= 1000 ? `约 ${v / 1000} 千行` : `约 ${v} 行`;
@@ -42,6 +44,19 @@ export const k = (key, html) => ({ attrs: { 'data-k': key }, html });
 export const row = (key, cells) => ({ attrs: { 'data-row': key }, cells });
 export const section = (name, html) => `<section data-section="${esc(name)}">\n${html}\n</section>`;
 export const none = (text = '没有') => `<p class="muted">${text}</p>`;
+// 不成表的短清单（依赖它的模块、外部包）排成一句话：一项一个 <span data-row>，项与项之间用顿号。items：[{key, html}]。
+export const inlineRows = (items) => `<p>${items.map((x) => `<span${attrs({ 'data-row': x.key })}>${x.html}</span>`).join('、')}</p>`;
+// 为打印另备的那一份去掉 data-row / data-k，免得核对器把同一行数两遍、把同一格读成两处。属性值都转义过，里面不会有引号。
+const unmark = (html) => html.replace(/ data-(?:row|k)="[^"]*"/g, '');
+
+// 接口拼不出完整路径时标原因（契约 B 节「接口」、D 节接口总表）：runtime 是一路上有一段前缀算不准，unmounted 是路由器没找到挂在哪。
+// 拼不出完整路径而原因不是这两个的（包括缺这一栏、记了 null），是取事实的错，直接报错，不替它猜一个。
+export const WHY = { runtime: '前缀是运行时定的', unmounted: '没找到它挂在哪，前面可能还有一段前缀' };
+export function routeWhy(r) {
+  if (r.fullPath != null) return null;
+  if (!Object.hasOwn(WHY, r.why ?? '')) throw new Error(`接口 ${r.method} ${r.path}（${r.file}）拼不出完整路径，原因却不是 runtime 或 unmounted：${r.why}`);
+  return WHY[r.why];
+}
 // 链到模块页：标题是链接，id 单放一个等宽块（kOn 给了就带 data-k="module"，格子要比的就是这个 id）。prefix 是从别的目录链过来时的 ../arch/。
 export const mRef = (v, id, { prefix = '', kOn = false, br = true } = {}) => {
   const m = v.byId.get(id);
@@ -60,14 +75,13 @@ export function archNote(anchor, n, heading, missing) {
 }
 
 // 前 LIST_TOP 行列出，其余收进 <details>（不用脚本）；打印时合着的不出，另备一份只在打印时显示的，纸上不丢。
-// 打印那一份去掉 data-row / data-k，免得核对器把同一行数两遍。
 export function fold(head, rows, widths, unit = '条') {
   if (rows.length <= LIST_TOP) return table(head, rows, widths);
-  const rest = rows.slice(LIST_TOP), plain = rest.map((r) => (Array.isArray(r) ? r : r.cells).map((c) => (c && typeof c === 'object' ? c.html : c)));
-  return `${table(head, rows.slice(0, LIST_TOP), widths)}\n<details class="more"><summary>还有 ${rest.length} ${unit}</summary>\n${table(head, rest, widths)}\n</details>\n<div class="print-only">${table(head, plain, widths)}</div>`;
+  const rest = rows.slice(LIST_TOP);
+  return `${table(head, rows.slice(0, LIST_TOP), widths)}\n<details class="more"><summary>还有 ${rest.length} ${unit}</summary>\n${table(head, rest, widths)}\n</details>\n<div class="print-only">${unmark(table(head, rest, widths))}</div>`;
 }
 // 整段收起来：明细很长、首页上只要一个数的（循环依赖里几百对文件）。
-export const folded = (summary, html) => `<details class="more"><summary>${summary}</summary>\n${html}\n</details>\n<div class="print-only">${html}</div>`;
+export const folded = (summary, html) => `<details class="more"><summary>${summary}</summary>\n${html}\n</details>\n<div class="print-only">${unmark(html)}</div>`;
 // 文件对：「甲 → 乙」一对一行。
 export const pairList = (pairs) => `<ul class="pairs">${pairs.map(([a, b]) => `<li>${pathCode(a)} → ${pathCode(b)}</li>`).join('\n')}</ul>`;
 

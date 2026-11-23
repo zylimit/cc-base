@@ -162,7 +162,7 @@ export function extract(config, root, files, names) {
     try { sp = split(file, src); }
     catch (e) {
       if (!(e instanceof Unclosed)) throw e;
-      res.unscanned.push({ file, reason: `第 ${lineOf(src, e.at)} 行起的${e.message}没有闭合，整个文件没扫` });
+      res.unscanned.push({ file, reason: `有一处${e.message}没有闭合，整个文件没扫` }); // 原因要上页面，不带代码的行号（第一期契约 F 节）
       continue;
     }
     const r = scanSplit(file, src, sp, known);
@@ -183,7 +183,8 @@ export function ddlSegments(file, text) {
   catch (e) {
     if (!(e instanceof Unclosed)) throw e;
     const line = lineOf(text, e.at);
-    return { segments: [], error: { line, text: excerpt(text.slice(e.at)), reason: `第 ${line} 行起的${e.message}没有闭合，这个代码文件里的建表定义都没读` } };
+    // 原因要上页面，不带代码的行号（第一期契约 F 节）；行号留在 line 一栏
+    return { segments: [], error: { line, text: excerpt(text.slice(e.at)), reason: `有一处${e.message}没有闭合，整个文件没扫` } };
   }
   const segments = [];
   for (const l of sp.lits) {

@@ -3,15 +3,17 @@
 // 错一条边，模块图上就多一条或少一条线：把字符串里的 import 当真（多报）与漏掉括号里换行的名字、上两层的相对引用（漏报）一样贵。
 // 所以只在 code-lex.mjs 切出的「代码」里认引用语句——注释、字符串、文档串的正文在那里已抹成空格；读不出的进「没解析到的引用」
 // 「运行时才定的引用」，不悄悄丢。不跑被扫的代码、不调语言自带的解析器，只读文本。
-// 文件头说明是「来源里的注释」：原文照搬，只去掉引号与注释记号、统一缩进，不改写、不摘要（转义不解，\n 照原样两个字）。
+// 宁可不成边也不给猜的边：对上的文件不在文件清单里的、两种读法都说得通的，都进「没解析到的引用」并写明为什么，页面上看得见。
+// 「没解析到的引用」的原文是要上页面的字，里面不带代码的行号（行号只在 line 一栏）：代码一改行号就挪，入库的页面跟着变却没有读者在意的变化。
 // 实数（2026-11-23，一个下游项目）：后端两个 Python 代码根下非测试文件 371 个，文件之间的引用 1058 对；相对写法 806 处，
 // 带项目全路径的与以代码根为起点的各三百多处；服务端 336 个文件里 332 个开头有说明，中位 191 个字。前端 484 个 TypeScript 文件，引用全是相对路径。
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { cmp } from '../model.mjs';
 import { Unclosed, sticky, split, lineOf } from './code-lex.mjs';
-// 认语句的位置、解析到文件、标准库名单与说明的统一缩进在 code-resolve.mjs，与认接口的 code-routes.mjs 共用一份（2026-11-23 Task 3.2 搬出）
-import { langOf, PY_STDLIB, PY_NAME, PY_DOTTED, PY_IMPORT, PY_FROM, dotted, pyStatements, cleandoc, resolver } from './code-resolve.mjs';
+// 认语句的位置、解析到文件、标准库名单在 code-resolve.mjs，与认接口的 code-routes.mjs 共用一份（2026-11-23 Task 3.2 搬出）；文件头说明与入口在 code-heads.mjs
+import { langOf, PY_STDLIB, PY_NAME, PY_DOTTED, PY_IMPORT, PY_FROM, JS_NAME, JS_IMPORT, JS_EXPORT, dotted, pyStatements, resolver } from './code-resolve.mjs';
+import { pyHead, pyEntry, jsHead } from './code-heads.mjs';
 
 export { langOf };
 
@@ -76,38 +78,10 @@ function pyRefs(src, sp, rec) {
   }
 }
 
-// 文件头说明：第一条语句是字符串字面量（前面只有空行与注释——编码声明、#! 也是注释；o 里它们已是空格）。
-// b 串、f 串不是说明（同 Python 自己的口径）；紧挨着的几个字面量是隐式拼接，算一个。统一缩进照 inspect.cleandoc 的做法。
-function pyHead(src, sp) {
-  const o = sp.other;
-  let p = sticky(/\s*/y, o, 0).length, body = '', l;
-  while ((l = sp.byStart.get(p))) {
-    if (/[fb]/i.test(src.slice(l.start, l.bs).replace(/["']/g, ''))) return null;
-    body += src.slice(l.bs, l.be);
-    p = l.end + sticky(/[ \t]*/y, o, l.end).length;
-  }
-  if (p === sticky(/\s*/y, o, 0).length || (p < o.length && !/[\r\n;]/.test(o[p]))) return null;
-  return cleandoc(body.split(/\r?\n/), true);
-}
-
-// 入口：代码里有 if __name__ == "__main__":（两边倒过来写的也认）。
-function pyEntry(src, sp) {
-  const o = sp.other, isMain = (p) => { const l = sp.byStart.get(p); return !!l && src.slice(l.bs, l.be) === '__main__' ? l : null; };
-  for (const m of o.matchAll(/(?:^|\n)[ \t]*if[ \t(]+__name__\s*==\s*/g)) if (isMain(m.index + m[0].length)) return true;
-  for (const m of o.matchAll(/(?:^|\n)[ \t]*if[ \t(]+(?=["'])/g)) {
-    const l = isMain(m.index + m[0].length);
-    if (l && sticky(/\s*==\s*__name__(?![\w\u0080-￿])/y, o, l.end)) return true;
-  }
-  return false;
-}
-
 // ---- JS 一族：引用语句 ----
 // import … from '…'、import '…'、export … from '…'、require('…')、import('…')；import.meta 与别的 import 写法（TS 的 import x = 名字）不是引用。
 // 模块名必须是切词认出的字面量：JSX 标签之间的文字里写着 import x from 'y' 的，那个 'y' 不是字面量，不算。
-const JS_NAME = '[A-Za-z_$\\u0080-\\uffff][\\w$\\u0080-\\uffff]*';
 const JS_KW = /(?<![\w$.\u0080-￿])(?:import|export|require)(?![\w$\u0080-￿])/g;
-const JS_IMPORT = new RegExp(`\\s*(?:type\\s+)?(?:(${JS_NAME})\\s*,?\\s*)?(?:\\{([^}]*)\\}|(\\*)\\s*as\\s+${JS_NAME})?\\s*from\\s*(?=["'])`, 'y');
-const JS_EXPORT = new RegExp(`\\s*(?:type\\s+)?(?:(\\*)(?:\\s*as\\s+${JS_NAME})?|\\{([^}]*)\\})\\s*from\\s*(?=["'])`, 'y');
 const JS_SPEC_NAME = new RegExp(`^(?:type\\s+)?(${JS_NAME})`); // { a, b as c, type D } 里的一项：取 as 之前的原名
 const braceNames = (s) => s.split(',').map((x) => JS_SPEC_NAME.exec(x.trim())?.[1]).filter(Boolean);
 
@@ -143,59 +117,51 @@ function jsRefs(src, sp, rec) {
   }
 }
 
-// 文件头说明：第一行代码之前的第一块注释——一个 /* … */，或连着的 // 行（空行就断）。#! 那一行跳过。
-function jsHead(src) {
-  let i = src.charCodeAt(0) === 0xfeff ? 1 : 0;
-  if (src.startsWith('#!', i)) { const e = src.indexOf('\n', i); if (e < 0) return null; i = e + 1; }
-  i += sticky(/\s*/y, src, i).length;
-  if (src.startsWith('/*', i)) {
-    const e = src.indexOf('*/', i + 2);
-    if (e < 0) return null;
-    const ls = src.slice(i + 2, e).replace(/^\*+/, '').split(/\r?\n/).map((x, k) => (k ? x.replace(/^[ \t]*\*(?!\/) ?/, '') : x).trimEnd());
-    return cleandoc(ls, true);
-  }
-  const ls = [];
-  for (const x of src.slice(i).split('\n')) { const m = /^[ \t]*\/\/(.*)$/.exec(x); if (!m) break; ls.push(m[1].trimEnd()); }
-  return ls.length ? cleandoc(ls, false) : null;
-}
-
 // 一个文件的记录器：边并进全项目的 edges，外部包记在这个文件上，没解析到的与运行时定的进全项目的清单。
 function recorder(R, file, res, edges, externals) {
-  const edge = (to, line, names, whole, star) => {
+  const unresolved = (line, text) => res.unresolved.push({ file, line, text });
+  const outside = new Set(); // 同一行对上同一个清单外的文件只记一条
+  const edge = (to, line, names, whole, star, text) => {
+    // 对上的文件不在文件清单里（代码根之外、被 ignore 排掉的）：一条指向清单外的边在页面上哪儿都看不见，不成边、明说
+    if (!R.listed(to)) { if (!outside.has(`${line}\n${to}`)) { outside.add(`${line}\n${to}`); unresolved(line, `${text}（对上了 ${to}，但它不在扫的范围里）`); } return; }
     if (to === file) return; // 文件引用自己的不算
     const k = `${file}\n${to}`;
     if (!edges.has(k)) edges.set(k, { from: file, to, lines: new Set(), names: new Set(), whole: false, star: false });
     const e = edges.get(k);
     e.lines.add(line); names.forEach((n) => e.names.add(n)); e.whole ||= whole; e.star ||= star;
   };
-  const unresolved = (line, text) => res.unresolved.push({ file, line, text });
-  const pyExt = (pkg) => { if (!PY_STDLIB.has(pkg)) externals.add(pkg); };
+  // 绝对引用一个文件都没对上：包式的代码根里第一段与根下直接放着的文件或目录同名的，两种读法都说得通，不猜、明说；别的是外部包，只记第一段。
+  const external = (line, first, text) => {
+    const near = R.shadow(file, first);
+    if (near) unresolved(line, `${text}（按包里的绝对引用它指外部的 ${first}；同目录下有同名的 ${near}，这个目录要是直接从里面启动的，引用的就是那个文件）`);
+    else if (!PY_STDLIB.has(first)) externals.add(first);
+  };
   return {
     unresolved,
     dynamic: (line, text) => res.dynamic.push({ file, line, text }),
-    // 不是相对写法：取最长前缀；from a import b 而 a/b 是文件的，指向它（整个文件）。一个都对不上的是外部包，只记第一段。
+    // 不是相对写法：取最长前缀；from a import b 而 a/b 是文件的，指向它（整个文件）。
     // 同一条 from 里有的名字对上了、有的没对上的，没对上的那部分算没解析到——第一段是项目里的目录，不是外部包。
     pyAbs(line, parts, what, text) {
-      if (what === null || what === '*') { const h = R.longest(parts); if (h) edge(h.f, line, [], what === null, what === '*'); else pyExt(parts[0]); return; }
+      if (what === null || what === '*') { const h = R.longest(parts, file); if (h) edge(h.f, line, [], what === null, what === '*', text); else external(line, parts[0], text); return; }
       let hit = false, miss = false;
       for (const n of what) {
-        const h = R.longest([...parts, n]);
+        const h = R.longest([...parts, n], file);
         if (!h) { miss = true; continue; }
         hit = true;
-        if (h.j > parts.length) edge(h.f, line, [], true, false); else edge(h.f, line, [n], false, false);
+        if (h.j > parts.length) edge(h.f, line, [], true, false, text); else edge(h.f, line, [n], false, false, text);
       }
-      if (miss) { if (hit) unresolved(line, text); else pyExt(parts[0]); }
+      if (miss) { if (hit) unresolved(line, text); else external(line, parts[0], text); }
     },
     // 相对写法：一个点是本目录，每多一个点上一层；对不上文件的进「没解析到的引用」。
     pyRel(line, dots, parts, what, text) {
       const dir = posix.dirname(file) === '.' ? [] : posix.dirname(file).split('/');
       if (dots - 1 > dir.length) { unresolved(line, text); return; }
       const base = dir.slice(0, dir.length - (dots - 1)).join('/'), mod = R.pyFile(base, parts);
-      if (what === '*') { if (mod) edge(mod, line, [], false, true); else unresolved(line, text); return; }
+      if (what === '*') { if (mod) edge(mod, line, [], false, true, text); else unresolved(line, text); return; }
       let miss = false;
       for (const n of what) {
         const sub = R.pyFile(base, [...parts, n]);
-        if (sub) edge(sub, line, [], true, false); else if (mod) edge(mod, line, [n], false, false); else miss = true;
+        if (sub) edge(sub, line, [], true, false, text); else if (mod) edge(mod, line, [n], false, false, text); else miss = true;
       }
       if (miss) unresolved(line, text);
     },
@@ -203,7 +169,8 @@ function recorder(R, file, res, edges, externals) {
       const t = R.jsTarget(file, spec);
       if ('ext' in t) { if (t.ext) externals.add(t.ext); return; }
       if (t.asset) return;
-      if (t.to) edge(t.to, line, names, whole, false); else unresolved(line, text);
+      if (t.near) unresolved(line, `${text}（不是相对写法，但代码根下有同名的 ${t.near}）`);
+      else if (t.to) edge(t.to, line, names, whole, false, text); else unresolved(line, text);
     },
   };
 }
@@ -211,26 +178,28 @@ function recorder(R, file, res, edges, externals) {
 const countLines = (src) => (src === '' ? 0 : src.split('\n').length - (src.endsWith('\n') ? 1 : 0));
 
 // files：codeRoots 下去掉 ignore 的全部文件（不只代码文件，别的扩展名在这里按扩展名报数）。routes 在这里留空，由 code-routes.mjs 填。
+// 先把文件全切一遍再解析：Python 绝对引用的起点要看全项目（哪些目录是脚本目录、哪些代码根是包式的），见 code-resolve.mjs。
 export function extract(config, root, files) {
   const res = { files: [], edges: [], unresolved: [], dynamic: [], skipped: [], routes: [] };
-  const R = resolver(root, config), edges = new Map(), skipped = new Map();
+  const edges = new Map(), skipped = new Map(), cut = [];
   for (const file of files) {
     const lang = langOf(file);
     if (!lang) { const x = posix.extname(file); skipped.set(x, (skipped.get(x) ?? 0) + 1); continue; }
-    const src = readFileSync(join(root, file), 'utf8'), externals = new Set();
-    const f = { path: file, lang, lines: countLines(src), head: null, entry: false, externals: [] };
+    const src = readFileSync(join(root, file), 'utf8');
+    const f = { path: file, lang, lines: countLines(src), head: null, headAt: null, entry: false, externals: [] }; // headAt：说明取自哪一处（code-heads.mjs）
     res.files.push(f);
-    let sp;
-    try { sp = split(file, src); }
+    try { cut.push({ file, src, sp: split(file, src), f }); }
     catch (e) {
       if (!(e instanceof Unclosed)) throw e;
-      const line = lineOf(src, e.at); // 切不动的文件不出半截结果，明说在「没解析到的引用」里
-      res.unresolved.push({ file, line, text: `第 ${line} 行起的${e.message}没有闭合，整个文件的引用与文件头说明都没读` });
-      continue;
+      // 切不动的文件不出半截结果，明说在「没解析到的引用」里；原文不带行号（行号在 line 一栏）
+      res.unresolved.push({ file, line: lineOf(src, e.at), text: `有一处${e.message}没有闭合，整个文件没扫` });
     }
-    const rec = recorder(R, file, res, edges, externals);
-    if (lang === 'python') { pyRefs(src, sp, rec); f.head = pyHead(src, sp); f.entry = pyEntry(src, sp); }
-    else { jsRefs(src, sp, rec); f.head = jsHead(src); }
+  }
+  const R = resolver(root, config, files, cut.filter((x) => x.f.lang === 'python'));
+  for (const { file, src, sp, f } of cut) {
+    const externals = new Set(), rec = recorder(R, file, res, edges, externals);
+    if (f.lang === 'python') { pyRefs(src, sp, rec); f.head = pyHead(src, sp); f.headAt = f.head === null ? null : 'top'; f.entry = pyEntry(src, sp); }
+    else { jsRefs(src, sp, rec); Object.assign(f, jsHead(src, sp)); }
     f.externals = [...externals].sort(cmp);
   }
   res.files.sort((a, b) => cmp(a.path, b.path));
