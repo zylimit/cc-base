@@ -5,6 +5,7 @@
 //   2 页面上显示的与事实一致：不信出页面的代码，用 check-read.mjs 自带的读取器把磁盘上的页面读回来，与重新取的事实比——
 //     出页面的代码吞了字、串了行，第 1 项两边错得一样看不出来，靠这一项；
 //   3 说明：指纹对不上的、锚点已经不存在的；4 指向不存在的东西：map.json 里对不上的、站内链接的目标文件不在的。
+// 配了需求规格的再多一项（第二期契约 D 节，check-spec.mjs 的 specFacts）：重新切的块与 spec/ 下各页读回的 data-block 一块不少、一字不差。
 // 架构稿 §3 禁边：这里不 import render/ 下的任何东西；第 1 项要的重出结果由入口交进来（与 build 落盘用的是同一个出页面的函数）。
 // build 落盘前对临时目录跑第 2 项，再把每一页的文字过一遍隐去规则（selfCheck），不过就抛 CheckFailed，
 // publish 删掉临时目录、原有页面不动，入口报退出码 3。
@@ -15,6 +16,7 @@ import { join, posix } from 'node:path';
 import { cmp } from './model.mjs';
 import { redact } from './sensitive.mjs';
 import { parse, findAll, textOf, squash, segments } from './check-read.mjs';
+import { specFacts } from './check-spec.mjs';
 
 export class CheckFailed extends Error {
   constructor(problems) {
@@ -221,10 +223,13 @@ function dedupe(list) {
 // 外键列：列上的 REFERENCES，或表级 FOREIGN KEY 里点到它（契约 G 节：外键列的含义由引用关系给出，不算缺含义）。
 const isFk = (t, c) => !!c.references || t.constraints.some((k) => k.type === 'foreign key' && (k.columns || []).includes(c.name));
 
-function summarize(facts, rd, rendered, problems) {
+function summarize(facts, rd, rendered, problems, specRead) {
   const notes = facts.notes || {}, byKind = {};
   for (const p of problems) byKind[p.kind] = (byKind[p.kind] || 0) + 1;
+  // 需求规格这一项只在配了 spec 时报数；没配的项目摘要与加这一项之前逐字相同。
+  const spec = facts.spec ? { spec: { blocks: facts.spec.blocks.length, read: specRead } } : {};
   return {
+    ...spec,
     pages: rendered.length,
     pagesOnDisk: rd.files.length,
     tables: facts.tables.length,
@@ -246,17 +251,18 @@ function summarize(facts, rd, rendered, problems) {
 // 整套核对。dir：docs/readable/ 的绝对路径；label：给人看的位置前缀；facts：入口重新取的文档模型（带说明）；
 // rendered：入口用出页面的函数在内存里重出的 [{path, html}]。
 export function runCheck({ dir, label, facts, rendered }) {
-  const rd = reader(dir);
+  const rd = reader(dir), spec = specFacts(rd, facts.spec, label);
   const problems = dedupe([
     ...pagesCurrent(rd, rendered, label),
     ...pageFacts(rd, facts, label),
+    ...spec.problems,
     ...Object.keys(facts.notes || {}).sort(cmp).filter((a) => facts.notes[a].state === 'stale')
       .map((a) => ({ kind: 'note-stale', where: a, detail: '说明的指纹对不上：写于来源的旧版本，要按现在的来源重写后 note put' })),
     ...facts.orphanNotes.map((x) => ({ kind: 'note-orphan', where: x.anchor, detail: '说明的锚点已经不存在：改挂到新锚点（note put）或删掉（note drop）' })),
     ...facts.mapProblems.map((x) => ({ kind: 'dangling', where: `docs/readable-src/map.json ${x.where}`, detail: x.problem })),
     ...danglingLinks(rd, label),
   ]);
-  return { ok: problems.length === 0, problems, summary: summarize(facts, rd, rendered, problems) };
+  return { ok: problems.length === 0, problems, summary: summarize(facts, rd, rendered, problems, spec.read) };
 }
 
 // 隐去的兜底（契约 G 节末段）：逐个字段点名去隐总会漏字段，漏了的那一处两边都没隐、第 2 项比对一致，看不出来。
@@ -274,7 +280,7 @@ function leaks(rd, label) {
     }
     if (!at.size) continue;
     const total = [...at.values()].reduce((a, b) => a + b, 0);
-    out.push({ kind: 'leak', where: label + rel, detail: `页面上有 ${total} 处形如内网地址、带口令的地址或密钥的字样没有隐去（${[...at].map(([k, n]) => `${k} ${n} 处`).join('；')}）：出页面时有一个字段没过隐去，要在 render/db-scrub.mjs 里补上` });
+    out.push({ kind: 'leak', where: label + rel, detail: `页面上有 ${total} 处形如内网地址、带口令的地址或密钥的字样没有隐去（${[...at].map(([k, n]) => `${k} ${n} 处`).join('；')}）：出页面时有一个字段没过隐去，要在 render/${rel.startsWith('spec/') ? 'spec' : 'db'}-scrub.mjs 里补上` });
   }
   return out;
 }
@@ -282,7 +288,7 @@ function leaks(rd, label) {
 // build 落盘前的自检：跑第 2 项，再过一遍隐去的兜底，对的是写好的临时目录。
 export function selfCheck(dir, facts) {
   const rd = reader(dir);
-  const problems = dedupe([...pageFacts(rd, injected(facts), '新出的 '), ...leaks(rd, '新出的 ')]);
+  const problems = dedupe([...pageFacts(rd, injected(facts), '新出的 '), ...specFacts(rd, facts.spec, '新出的 ').problems, ...leaks(rd, '新出的 ')]);
   if (problems.length) throw new CheckFailed(problems);
 }
 
@@ -316,5 +322,6 @@ export function summaryLine(s) {
   const u = s.unwritten, d = s.declared;
   return `核对了 ${s.pages} 页（磁盘上 ${s.pagesOnDisk} 个文件）、表 ${s.tables} 张、列 ${s.columns} 个；说明 ${s.notes.written} 段（待更新 ${s.notes.stale}、孤儿 ${s.notes.orphans}）；`
     + `没写说明的（不算不一致）：表 ${u.tables} 张、缺含义的列 ${u.columns} 个、组 ${u.groups} 个、doc:db ${u.doc ? '没写' : '已写'}；`
-    + `文档已明说、不算不一致的：未合并的动态定义 ${d.unfolded}、未解析的语句 ${d.unparsed}、表名运行时拼的 ${d.dynamic}（未归属 ${d.dynamicUnassigned}）`;
+    + `文档已明说、不算不一致的：未合并的动态定义 ${d.unfolded}、未解析的语句 ${d.unparsed}、表名运行时拼的 ${d.dynamic}（未归属 ${d.dynamicUnassigned}）`
+    + (s.spec ? `；需求规格 ${s.spec.blocks} 块，页面上读回 ${s.spec.read} 块` : '');
 }

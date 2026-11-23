@@ -102,13 +102,14 @@ td .m+.m{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
 `.trim();
 
 // 页面骨架。crumbs 的地址都相对文档集根目录写，这里按页所在深度补 ../。
-// main 是 <main> 上的属性（表页的 data-anchor）。
-export function page({ title, depth = 0, crumbs = [], body, main }) {
+// main 是 <main> 上的属性（表页的 data-anchor）。css 是某一类文档自己多要的样式，接在共用样式后面；
+// 不给就一个字节不多——数据库设计的页面不给，加这个参数之前出的页面与之后逐字节相同。
+export function page({ title, depth = 0, crumbs = [], body, main, css }) {
   const up = '../'.repeat(depth);
   const nav = crumbs.length
     ? `<nav class="crumbs">${crumbs.map(([t, h]) => (h ? `<a href="${esc(up + h)}">${esc(t)}</a>` : `<span>${esc(t)}</span>`)).join(' › ')}</nav>\n`
     : '';
-  return `<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${esc(title)}</title>\n<style>\n${CSS}\n</style>\n</head>\n<body>\n<main${attrs(main)}>\n${nav}${body}\n</main>\n</body>\n</html>\n`;
+  return `<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${esc(title)}</title>\n<style>\n${CSS}${css ? `\n${css}` : ''}\n</style>\n</head>\n<body>\n<main${attrs(main)}>\n${nav}${body}\n</main>\n</body>\n</html>\n`;
 }
 
 export const LEGEND = `<h2>页面上的标记</h2>
@@ -138,7 +139,7 @@ export const DIAGRAM_MAX = 12;
 const ROW_W = 1040, GAP_X = 36, GAP_Y = 60, M = 8, PAD = 10, TITLE_H = 24, LINE_H = 17, FONT = 12, LANE = 10;
 const r1 = (v) => Math.round(v * 10) / 10;
 // 等宽字体下的估宽：西文约 0.62em，中日韩按满格算。宁宽勿窄，免得字压到框线上。
-const textW = (s, px) => Array.from(s).reduce((w, c) => w + (c.codePointAt(0) > 0x2e7f ? px : px * 0.62), 0);
+export const textW = (s, px) => Array.from(s).reduce((w, c) => w + (c.codePointAt(0) > 0x2e7f ? px : px * 0.62), 0);
 
 function layers(nodes) {
   const by = new Map(nodes.map((n) => [n.name, n])), depth = new Map(), busy = new Set();

@@ -78,7 +78,7 @@
 **关键文件**：
 - `.claude/scripts/readable/sources/md-blocks.mjs` — Markdown 切块与还原自检
 - `.claude/scripts/readable/render/spec.mjs` — 需求规格的页面
-- `.claude/scripts/readable/check.mjs` — 加零丢失那一项
+- `.claude/scripts/readable/check-spec.mjs` — 零丢失那一项（`check.mjs` 调它）
 - `.claude/scripts/readable-docs.mjs` — 接上新来源与新页面（owner：Task 2.2）
 
 **Task 清单**：

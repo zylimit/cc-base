@@ -86,14 +86,16 @@ function cut(lines) {
       i++;
     } else if ((m = LIST.exec(s))) {
       // 续行：紧跟其后、缩进比这一条的记号更深、又不是新列表项（也不是围栏起始）的行；行首的缩进记进 lay，文字用换行接上。
-      const w = width(m[1]), pre = [m[1] + m[2]], text = [m[3]];
+      // 记号的原文（「-」「3.」「2)」）进输出的 marker：有序列表的序号是内容（契约 B 节）。它前面的缩进与后面的空白记进 lay，
+      // 还原自检拿输出里的 marker 拼回第一行，序号记错了一个字也过不去。
+      const marker = m[2].replace(/[ \t]+$/, ''), w = width(m[1]), pre = [m[1] + m[2]], text = [m[3]];
       let j = i + 1;
       while (j < lines.length && !blank(lines[j]) && width(lead(lines[j])) > w && !LIST.test(lines[j]) && !fenceOpen(lines[j])) {
         const l = lead(lines[j]);
         pre.push(l); text.push(lines[j].slice(l.length)); j++;
       }
       while (items.length && items.at(-1).w >= w) items.pop();
-      const b = { kind: 'list', line: i, endLine: j - 1, level: w, path, text: text.join('\n'), up: items.length ? items.at(-1).b : null, lay: { pre } };
+      const b = { kind: 'list', line: i, endLine: j - 1, level: w, path, text: text.join('\n'), marker, up: items.length ? items.at(-1).b : null, lay: { pre, ind: m[1], gap: m[2].slice(marker.length) } };
       add(b); items.push({ w, b });
       i = j;
     } else if (TABLE.test(s)) {
@@ -139,6 +141,7 @@ function finalize(raw) {
     const c = (seen.get(a) ?? 0) + 1;
     seen.set(a, c);
     const out = { n: b.n, kind: b.kind, line: b.line + 1, endLine: b.endLine + 1, level: b.level, path: b.path, text: b.text };
+    if (b.kind === 'list') out.marker = b.marker; // 不进指纹：指纹的规范形只有种类加文字（契约 B 节）
     if (b.kind === 'table') { out.cells = b.cells; out.header = b.header; }
     out.parent = b.up ? b.up.n : null;
     out.anchor = nthAnchor(a, c);
@@ -155,7 +158,7 @@ function finalize(raw) {
   return { blocks, sections };
 }
 
-// 还原自检：只用输出里的 line / endLine / text / cells 加 lay 里的记号把原文拼回去，逐行比。
+// 还原自检：只用输出里的 line / endLine / text / cells / marker 加 lay 里的记号把原文拼回去，逐行比。
 // 没落进任何一块的只许是空行（契约「空行的多少不计」）；一行被两块占、块的先后与行号对不上，都算错。
 export function restore(lines, blocks, lays, label) {
   const out = new Array(lines.length).fill(null);
@@ -180,9 +183,9 @@ export function restore(lines, blocks, lays, label) {
       body.forEach((t, k) => put(b.line + 1 + k, t, b));
       if (lay.close !== null) put(b.endLine, lay.close, b);
     } else {
-      const text = b.text.split('\n');
-      if (text.length !== lay.pre.length || text.length !== b.endLine - b.line + 1) lose(`第 ${b.line} 行起的${b.kind}，文字的行数与起止行对不上`);
-      text.forEach((t, k) => put(b.line + k, lay.pre[k] + t, b));
+      const text = b.text.split('\n'), pre = b.kind === 'list' ? [lay.ind + b.marker + lay.gap, ...lay.pre.slice(1)] : lay.pre;
+      if (text.length !== pre.length || text.length !== b.endLine - b.line + 1) lose(`第 ${b.line} 行起的${b.kind}，文字的行数与起止行对不上`);
+      text.forEach((t, k) => put(b.line + k, pre[k] + t, b));
     }
   });
   lines.forEach((s, k) => {

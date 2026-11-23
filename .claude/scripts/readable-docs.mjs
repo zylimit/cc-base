@@ -5,7 +5,7 @@
 // 用法：node .claude/scripts/readable-docs.mjs <子命令> [--root <目录>] [--json]
 //   init                 起草 docs/readable-src/config.json；已存在则一个字节不动、报「配置已存在」
 //   build --facts-json   只取事实、不出页面：文档模型（一份 JSON）打到标准输出，提示走标准错误
-//   build                出页面到 docs/readable/（2026-11-23 Task 1.2 先出数据库设计）：先写同级临时目录，写完核对再整目录换上
+//   build                出页面到 docs/readable/（2026-11-23 Task 1.2 先出数据库设计，Task 2.2 加需求规格）：先写同级临时目录，写完核对再整目录换上
 //   pending [--json]     按表列出要补的说明（2026-11-23 Task 1.4）；--json 时每张表附一份上下文，退出码恒为 0
 //   note put [--file <文件>]                  交若干段「## <锚点>」加正文（不给文件读标准输入），全过才落盘、盖指纹、记 draft
 //   note confirm <锚点…> | --all  --by <名字>  指纹对得上的记成 reviewed；对不上的不改、列出来，退出码 1
@@ -28,6 +28,7 @@ import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmN
 import { link } from './readable/links.mjs';
 import { renderDb } from './readable/render/db.mjs';
 import { renderHome } from './readable/render/layout.mjs';
+import { renderSpec } from './readable/render/spec.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
@@ -166,10 +167,12 @@ const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
 // 出页面（只返回「路径 → 内容」，不碰磁盘）：build 落盘与 check 第 1 项重出用的是这同一个，两边才比得上。
 // 配置里没写 title 时用根目录名，同 init 起草的口径；页面上不出现根目录的绝对路径。
 // 首页的标题用 renderDb 隐去过的那一份（契约 G 节：配置的标题也过隐去）。
+// 配了需求规格的再出 spec/ 下的页面，首页的文档清单多一项（第二期契约 C 节，2026-11-23 Task 2.2）；spec 为 null 的一页都不出、首页不列。
 function pages(root, cfg, facts) {
   const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
-  const db = renderDb(facts, page);
-  return { db, files: [renderHome(db.title, [db.entry]), ...db.files] };
+  const db = renderDb(facts, page), spec = facts.spec ? renderSpec(facts.spec, { title: db.title }) : null;
+  const docs = [db.entry, ...(spec ? [spec.entry] : [])];
+  return { db, spec, files: [renderHome(db.title, docs), ...db.files, ...(spec ? spec.files : [])] };
 }
 
 // 核对（契约 H 节）：四项都在 check.mjs；这里只取事实、重出一遍交过去、出结果、定退出码。
@@ -198,12 +201,18 @@ function cmdBuild(o) {
     if (sk.length) console.error(`readable-docs: 略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
     return;
   }
-  const { db, files } = pages(o.root, cfg, facts);
+  const { db, spec, files } = pages(o.root, cfg, facts);
   // 落盘前对临时目录跑核对第 2 项（契约 H 节），不过就不换上，CheckFailed 往上抛成退出码 3。
   publish(o.root, files, (tmp) => selfCheck(tmp, facts));
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
   console.log(`已生成 ${OUT}/：${files.length} 个页面、${bytes} 字节`);
   console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
+  if (spec) {
+    const k = {};
+    for (const b of facts.spec.blocks) k[b.kind] = (k[b.kind] || 0) + 1;
+    const kinds = Object.entries(k).sort((a, b) => cmp(a[0], b[0])).map(([x, n]) => `${x} ${n}`).join('、');
+    console.log(`  需求规格：取自 ${cfg.spec}，${spec.stats.pages} 章、${spec.stats.blocks} 块（${kinds || '没有块'}）；隐去 ${spec.stats.hidden} 处`);
+  }
   if (sk.length) console.log(`  略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
 }
 

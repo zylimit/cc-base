@@ -120,3 +120,61 @@ export function textOf(node, skip = () => false) {
   walk(node);
   return squash(parts.join(''));
 }
+
+// 需求规格页上的块（第二期契约 docs/readable-spec/phase2-spec-contract.md C、D 节）：带 data-block 的元素按文档先后各读一块。
+// 一块的文字不含嵌在它里面的别的块（列表项里嵌着子项）；表格行（tr）另按格读，一个 th / td 一格。
+// 有序列表项前面显示的序号（data-k="marker"）另读进 marker、不算进文字——核对连序号一起比（D 节）；不止一处的用空格连起来，比的时候自然对不上。
+// 只认 data-block / data-anchor / data-k 与表格的标签，不认样式类名。
+export function specBlocks(root) {
+  const isBlock = (n) => n.attrs['data-block'] !== undefined, isMark = (n) => n.attrs['data-k'] === 'marker';
+  const marks = (n, out = []) => { for (const c of n.children) { if (!c.tag || isBlock(c)) continue; if (isMark(c)) out.push(c); else marks(c, out); } return out; };
+  return findAll(root, isBlock).map((n) => {
+    const b = { n: n.attrs['data-block'], anchor: n.attrs['data-anchor'] ?? null, text: textOf(n, (x) => isBlock(x) || isMark(x)) };
+    const mk = marks(n);
+    if (mk.length) b.marker = mk.map((m) => textOf(m)).join(' ');
+    if (n.tag === 'tr') b.cells = n.children.filter((c) => c.tag === 'td' || c.tag === 'th').map((c) => textOf(c, isBlock));
+    return b;
+  });
+}
+
+// 来源里一段文字去掉行内记号之后显示出来的样子（第二期契约 D 节）。出页面那边也有一份同样的规矩（render/spec-inline.mjs），
+// 禁边不许这里借它的，照规矩自己写一份，两份对同样的输入出同样的纯文字：
+// `等宽` 是 N 个反引号起、到下一串恰好 N 个反引号止，里面原样、不再认记号；收不了尾的反引号照字面。
+// ** 与 ~~ 在等宽之外从左往右配：后面紧跟非空白的能起；前面紧跟非空白、与起的之间隔着东西的能收；
+// 收的时候夹在中间没配上的起记号作废。配上的不显示，配不上的照字面。
+export function plainMarks(s) {
+  const parts = [];
+  let i = 0, text = '';
+  const keep = () => { if (text) parts.push({ lit: text }); text = ''; };
+  while (i < s.length) {
+    if (s[i] === '`') {
+      let j = i;
+      while (s[j] === '`') j++;
+      const run = j - i;
+      let k = j, close = -1;
+      while (k < s.length) {
+        if (s[k] !== '`') { k++; continue; }
+        let e = k;
+        while (s[e] === '`') e++;
+        if (e - k === run) { close = k; break; }
+        k = e;
+      }
+      if (close < 0) { text += s.slice(i, j); i = j; } else { text += s.slice(j, close); i = close + run; }
+      continue;
+    }
+    const d = s.slice(i, i + 2);
+    if (d === '**' || d === '~~') { keep(); parts.push({ mark: d, at: i }); i += 2; continue; }
+    text += s[i++];
+  }
+  keep();
+  const stack = [];
+  parts.forEach((p, k) => {
+    if (!p.mark) return;
+    const before = s[p.at - 1], after = s[p.at + 2];
+    let o = stack.length - 1;
+    while (o >= 0 && parts[stack[o]].mark !== p.mark) o--;
+    if (o >= 0 && before !== undefined && /\S/.test(before) && stack[o] !== k - 1) { parts[stack[o]].gone = true; p.gone = true; stack.splice(o); return; }
+    if (after !== undefined && /\S/.test(after)) stack.push(k);
+  });
+  return parts.map((p) => (p.mark ? (p.gone ? '' : p.mark) : p.lit)).join('');
+}

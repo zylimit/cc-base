@@ -96,6 +96,17 @@ eq "锚点：REQ 编号开头 → req:<编号>（段落也认）；粗体词开�
   'spec:Top/Alpha,spec:Top/Alpha~2,spec:Top/Alpha~3|req:REQ-ABC-001,req:REQ-ABC-001~2|req:REQ-ABC-009|true' \
   'const a=t=>S(t).anchor,p=[a("ZQ106"),a("ZQ107")].map(x=>(x.match(/^spec:Top#(\d+)$/)||[])[1]); [["ZQ101","ZQ102","ZQ103"].map(a).join(),["ZQ104","ZQ105"].map(a).join(),a("ZQ108"),!!p[0]&&!!p[1]&&+p[1]>+p[0]].join("|")'
 
+M="$TMP/mark"; mk "$M" '"spec.md"'   # marker 夹具：无序三种记号、有序 3. 与 2)、三条都写 1.、只有记号的空项，外加各种非列表块
+printf '%s\n' '# Top ZQ200' '- dash ZQ201' '* star ZQ202' '+ plus ZQ203' '3. three ZQ204' '2) two ZQ205' '' '1. one ZQ206' '1. one ZQ207' '1. one ZQ208' '' 'para ZQ209' '' \
+  '> quote ZQ210' '' '| H ZQ211 | x |' '|---|---|' '| c ZQ212 | y |' '' '```' 'fenced ZQ213' '```' '' '---' '' '9.' >"$M/spec.md"
+FACTS="$TMP/fm.json"; facts "$M" "$FACTS"
+eq "无序项的 marker 是它用的那个符号 - * +（打死不记 marker / 一律记成 -）" "-,*,+" '["ZQ201","ZQ202","ZQ203"].map(t=>S(t).marker).join()'
+eq "有序项的 marker 是原文的编号连标点：3. 与 2) 各自原样（不排序、不统一标点），只有记号的空项 9. 也带 marker（打死丢序号 / 改标点 / 空项漏记）" "3.,2)|9." \
+  '[S("ZQ204").marker,S("ZQ205").marker].join()+"|"+B.filter(b=>b.kind==="list").pop().marker'
+eq "三条来源都写 1. 的有序项 marker 仍是 1. 1. 1.（不替人改成 1. 2. 3.；打死自动重新编号）" "1.,1.,1." '["ZQ206","ZQ207","ZQ208"].map(t=>S(t).marker).join()'
+eq "列表项共 9 条且都有非空字符串 marker；别的种类的块（标题 段落 引用 表格行 围栏 分隔线共 7 块）没有 marker 或为 null（打死 marker 漏给非列表块）" "9|true|7|true" \
+  'const L=B.filter(b=>b.kind==="list"),O=B.filter(b=>b.kind!=="list"); [L.length,L.every(b=>typeof b.marker==="string"&&b.marker.length>0),O.length,O.every(b=>b.marker==null)].join("|")'
+
 N="$TMP/nospec"; mk "$N" null; FACTS="$TMP/fn.json"; facts "$N" "$FACTS"
 eq "spec 为 null 的项目：退出码 0、spec 键存在且是 null、tables 照旧有（后两项今天的实现就满足，红只会红在 spec 键）" "rc=0|null|true" "\"rc=$RC|\"+String(j.spec)+\"|\"+(j.tables.length>0)"
 D1=$(sha256sum <"$TMP/f1.json" | cut -c1-16); D2=$(sha256sum <"$TMP/f2.json" | cut -c1-16)
