@@ -8,6 +8,7 @@
 // 写在 qty 上的 CHECK (qty <= max_qty) 点到两列，叫 orders_check。截断与重名加数字不模拟：撞上了，按名字删的那条落进「定义冲突」，看得见。
 import { fail, fold, Cur, splitTop } from './sql-lex.mjs';
 
+// 删列与改列名时约束跟着走（dropColumnRefs / renameColumnRefs）也在这里；索引那一份在 sql-index.mjs。
 // ---- 读约束子句（列上的行内约束由 sql-ddl.mjs 的 parseColumn 读，借用这里的 refs 与 nullsDistinct）----
 export const nullsDistinct = (c) => c.eatW('NULLS', 'DISTINCT') || c.eatW('NULLS', 'NOT', 'DISTINCT');
 function identList(c) {
@@ -91,3 +92,38 @@ export function dropConstraint(t, n) {
   }
   return false;
 }
+
+// DROP CONSTRAINT IF EXISTS 名 没对上任何约束：先记一笔待定；之后本表又加了同名的约束（「先删再加」的幂等写法），这笔就销掉。
+// 剩下的进那张表的 maybeDropped（契约 B 节）——库里自动起的名字可能被截短或加了数字，这条语句也许真删掉了什么，静态看不出来。
+export const settleDrop = (t, id) => { if (id) t.maybeDropped = t.maybeDropped.filter((d) => d.name !== id); };
+
+// ---- 删列、改列名的连带（契约 B 节）：库里就是这么做的，不跟着改就是把不存在的约束、改掉的列名标成「取自来源」 ----
+const has = (list, n) => (list ?? []).includes(n);
+const swap = (list, from, to) => list && list.map((x) => (x === from ? to : x));
+
+// 删一列：点到它的表级约束（列清单里有它，或 CHECK 的表达式点到它）一并摘掉，被摘的是主键时其余列的主键标记也清掉；
+// 别的列上的行内 CHECK 点到它的同样摘掉——库只看表达式、不看 CHECK 写在哪（同上面补名那条）。可空性不动，理由同 dropConstraint。
+export function dropColumnRefs(t, n) {
+  const gone = t.constraints.filter((o) => has(o.columns, n) || (o.type === 'check' && has(o.idents, n)));
+  t.constraints = t.constraints.filter((o) => !gone.includes(o));
+  for (const o of gone) if (o.type === 'primary key') o.columns.forEach((cn) => { const col = t.columns.find((x) => x.name === cn); if (col) col.primaryKey = false; });
+  for (const col of t.columns) {
+    const keep = col.inl.filter((x) => !(x.type === 'check' && has(x.idents, n)));
+    if (keep.length !== col.inl.length) { col.inl = keep; col.check = checkText(keep); }
+  }
+}
+
+// 改列名：本表约束的列清单与 CHECK 点到的名字、别的表（含本表自引用）外键指向它的列名一并改。补出来的内部名 id 不动——库里也不改它。
+// 约束的 raw 与列上 references.raw、CHECK 原文是源码原文，照旧不改。
+export function renameColumnRefs(tables, t, from, to) {
+  for (const o of t.constraints) { o.columns = swap(o.columns, from, to); o.idents = swap(o.idents, from, to); }
+  for (const col of t.columns) for (const x of col.inl) x.idents = swap(x.idents, from, to);
+  for (const o of tables) {
+    for (const k of o.constraints) if (k.references?.table === t.name && has(k.references.columns, from)) k.references = { ...k.references, columns: swap(k.references.columns, from, to) };
+    for (const col of o.columns) if (col.references?.table === t.name && col.references.column === from) col.references = { ...col.references, column: to };
+  }
+}
+
+// ---- 记清单（sql-ddl.mjs 与 sql-index.mjs 共用）----
+export const conflict = (ctx, at, table, column, kind, reason) => ctx.facts.conflicts.push({ file: ctx.file, line: at.line, table, column, kind, reason, text: at.text });
+export const orphan = (ctx, at, table) => ctx.facts.orphanAlters.push({ file: ctx.file, line: at.line, table, text: at.text });

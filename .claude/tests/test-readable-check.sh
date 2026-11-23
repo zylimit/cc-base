@@ -2,7 +2,7 @@
 # risk: high
 # test-readable-check.sh — 人读文档 · 核对器 check 黑盒回归（docs/readable-spec/phase1-db-contract.md H 节，C 节「机器读得回来」）。
 # 断言只从契约推导：生成后即一致；手改页面 / 来源变了没重出 / 缺页 / 多页 / 说明过期孤儿手改 / 指向不存在的；每个「该报」配「不该报」的对照。夹具合成表名，mktemp -d + --root。
-# 未测：build 落盘前自检（契约没写死注入点名字，READABLE_FAIL_AT=render 是写盘失败而非自检失败，不猜）。
+# 落盘前自检用 READABLE_FAIL_AT=selfcheck 注入（H 节）；核对器 3 个以上格子独立读回、超 10 张截断、守 check 不 import 出页面的代码。
 set -eu
 REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ENGINE="${1:-$REPO_ROOT/.claude/scripts/readable-docs.mjs}"
@@ -39,6 +39,8 @@ CREATE TABLE order_items (id int PRIMARY KEY, order_id int, qty int);
 CREATE INDEX orders_status_idx ON orders (status);
 EOF
 }
+yn() { if "$@" >/dev/null 2>&1; then printf y; else printf n; fi; }
+tree() { (cd "$1" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16); }
 T() { echo "$1/docs/readable/db/$2"; }
 NOTE='## table:orders
 订单主表，一行一张订单。
@@ -88,10 +90,44 @@ R="$TMP/g"; mk "$R"; sed -i 's/"order_items"\]/"order_items","ghost_tbl"]/' "$R/
 eq "组里点到不存在的表 ghost_tbl：build 退出码 0；check 退出码 1，dangling 点到 ghost_tbl，别的类一个都没有" "0|1|y|dangling" "$RB|$RC|$(hp dangling ghost_tbl)|$(kinds)"
 
 # 9 未合并的动态定义、运行时拼的表名：文档已明说读不出，不算不一致（先确认夹具里真有这两样）
-R="$TMP/h"; mk "$R"; mkdir -p "$R/app"; sed -i 's/"codeRoots":\[\]/"codeRoots":["app"]/' "$R/docs/readable-src/config.json"
+R="$TMP/hout"; mk "$R"; mkdir -p "$R/app"; sed -i 's/"codeRoots":\[\]/"codeRoots":["app"]/' "$R/docs/readable-src/config.json"
 printf 'def f(t):\n    return "SELECT count(*) FROM " + t\n' >"$R/app/x.py"
 printf 'DO $$ BEGIN ALTER TABLE orders DROP CONSTRAINT IF EXISTS x; END $$;\n' >>"$R/sql/s.sql"
 bd "$R"; nd build --facts-json --root "$R" >"$TMP/f.json" 2>/dev/null || true; FX="$(jf 'j.unfolded.length')|$(jf 'j.dynamic.length')"; ck "$R"
 eq "夹具里有 1 处未合并的动态定义与 1 处运行时拼的表名；check 仍退出码 0、ok=true、problems 为空" "1|1|0|true|0" "$FX|$RC|$(jf j.ok)|$(jf j.problems.length)"
+
+# 8 落盘前自检：注入 READABLE_FAIL_AT=selfcheck → 退出码 3、点名哪一页、原页面一个字节不动、docs 下无残留；对照：不注入则页面确实会变
+R="$TMP/i"; mk "$R"; bd "$R"; H0=$(tree "$R/docs/readable"); L0=$(ls -A "$R/docs"); echo 'CREATE TABLE zeta (id int);' >>"$R/sql/s.sql"
+RS=0; READABLE_FAIL_AT=selfcheck nd build --root "$R" >"$TMP/o" 2>&1 || RS=$?; H1=$(tree "$R/docs/readable"); L1=$(ls -A "$R/docs"); bd "$R"; H2=$(tree "$R/docs/readable")
+eq "自检失败：退出码 3、输出点名某一页、docs/readable 总哈希不变、docs 下无临时目录；对照组不注入则哈希变、退出码 0" "3|y|same|same|differs|0" "$RS|$(yn grep -q '\.html' "$TMP/o")|$([ "$H0" = "$H1" ] && echo same || echo changed)|$([ "$L0" = "$L1" ] && echo same || echo "$L1")|$([ "$H1" != "$H2" ] && echo differs || echo same)|$RB"
+
+# 8b 页面级兜底：READABLE_FAIL_AT=leak 让新出的一页带内网地址 → 退出码 3、点名某一页、原页面不动、docs 下无残留；对照：不注入则退出码 0
+R="$TMP/l"; mk "$R"; bd "$R"; H0=$(tree "$R/docs/readable"); L0=$(ls -A "$R/docs"); echo 'CREATE TABLE zeta (id int);' >>"$R/sql/s.sql"
+RS=0; READABLE_FAIL_AT=leak nd build --root "$R" >"$TMP/o" 2>&1 || RS=$?; H1=$(tree "$R/docs/readable"); L1=$(ls -A "$R/docs"); bd "$R"
+eq "漏隐兜底：退出码 3、输出点名某一页、docs/readable 总哈希不变、docs 下无临时目录；对照组不注入则退出码 0" "3|y|same|same|0" "$RS|$(yn grep -q '\.html' "$TMP/o")|$([ "$H0" = "$H1" ] && echo same || echo changed)|$([ "$L0" = "$L1" ] && echo same || echo "$L1")|$RB"
+
+# 9 页面读取器要独立读到别的格子：手改 ref 格 / 删一行约束 / 删一行读它的文件，各被 fact-mismatch 点到；没改的 t-customers 不被点（对照）
+mkr() { mk "$1"; mkdir -p "$1/app"; printf 'q = "SELECT id FROM orders"\n' >"$1/app/r.py"; sed -i 's/"codeRoots":\[\]/"codeRoots":["app"]/' "$1/docs/readable-src/config.json"; echo 'ALTER TABLE orders ADD CONSTRAINT orders_pos CHECK (id > 0);' >>"$1/sql/s.sql"; }
+G=""
+for c in 'ref|column:orders.customer_id' 'constraint|orders' 'reader|orders'; do
+  k=${c%%|*}; R="$TMP/m$k"; mkr "$R"; bd "$R"; P=$(T "$R" t-orders.html); B0=$(md5sum <"$P"); N0=$(wc -l <"$P")
+  if [ "$k" = ref ]; then perl -i -pe 's|(data-anchor="column:orders\.customer_id".*?data-k="ref"[^>]*>).*?(</td>)|$1<a href="t-customers.html">customers</a> (name)$2|' "$P"
+  else sed -i "0,/data-row=\"$k\"/{/data-row=\"$k\"/d}" "$P"; fi
+  ck "$R"; G="$G$RC$(hp fact-mismatch "${c#*|}")$(hp stale-page t-customers)$([ "$B0" != "$(md5sum <"$P")" ] && echo d || echo s)$((N0 - $(wc -l <"$P"))),"
+done
+eq "手改 ref 格 / 删 constraint 行 / 删 reader 行（d=页面确实被改，数字=少了几行）：各退出码 1、fact-mismatch 点到那页（ref 点到那一列）、没改的 t-customers 不被 stale-page 点" "1ynd0,1ynd1,1ynd1," "$G"
+
+# 10 不是现行的页超过 10 张：人读输出只列前 10 张并写「另有」，--json 里全在
+R="$TMP/j"; mk "$R"; for i in $(seq 1 14); do echo "CREATE TABLE tt_$i (id int);" >>"$R/sql/s.sql"; done; bd "$R"
+{ echo; cat "$R/sql/s.sql"; } >"$TMP/s2" && mv "$TMP/s2" "$R/sql/s.sql"; ck "$R"; NS=$(jf "j.problems.filter(p=>p.kind=='stale-page').length"); nd check --root "$R" >"$TMP/human-out.txt" 2>&1 || true
+eq "建表文件靠前加一空行、17 张表页都变：--json 里 stale-page 多于 10 条；人读输出点名页面的行不超过 10 行且有「另有」" "y|y|y" "$([ "$NS" -gt 10 ] && echo y || echo "ns=$NS")|$([ "$(grep -c '\.html' "$TMP/human-out.txt")" -le 10 ] && echo y || echo "lines=$(grep -c '\.html' "$TMP/human-out.txt")")|$(yn grep -q '另有' "$TMP/human-out.txt")"
+
+# 11 守架构禁边：第 2 项（check-read 等）不许 import 出页面的代码，只读 import 行
+IMP=$(for f in "$(dirname "$ENGINE")"/readable/check*.mjs; do grep -nE "(from|import\(|require\()[[:space:]]*['\"][^'\"]*render/" "$f" | sed "s|^|$(basename "$f"):|" || true; done)
+eq "readable/check*.mjs 里带 render/ 的行没有 import（架构禁边；有命中则点出哪个文件哪一行）" "" "$IMP"
+
+# 12 上一次被杀留下的临时目录：docs/.readable-tmp-99999 在 build 之后不在了，页面照常落盘
+R="$TMP/k"; mk "$R"; bd "$R"; mkdir -p "$R/docs/.readable-tmp-99999"; echo x >"$R/docs/.readable-tmp-99999/f"; bd "$R"
+eq "预放 docs/.readable-tmp-99999：build 退出码 0、它不在了、docs/readable/index.html 在" "0|n|y" "$RB|$(yn test -e "$R/docs/.readable-tmp-99999")|$(yn test -f "$R/docs/readable/index.html")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

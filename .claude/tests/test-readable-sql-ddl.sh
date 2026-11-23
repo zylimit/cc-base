@@ -136,5 +136,51 @@ printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["x/sql/001_a.sq
 run build --facts-json --root "$X"
 if [ "$RC" = 2 ] && cat "$TMP/out" "$TMP/err" | grep -q 'no/such.sql'; then chk 0 "ddl 路径不存在：build 退出码 2 并点名那一条" "rc=2 点名 no/such.sql" "rc=$RC"
 else chk 1 "ddl 路径不存在：build 退出码 2 并点名那一条" "rc=2 点名 no/such.sql" "rc=$RC err=$(head -c 160 "$TMP/err")"; fi
+# 10 打死：DROP / RENAME COLUMN 不连带、不认 GENERATED 子句就丢整表、没名字的索引摘不掉、物化视图当表、`CREATE TABLE x ( -- ` 行尾注释丢了、maybeDropped 误报漏报
+R3="$TMP/r3"; mkdir -p "$R3/sql"; mkcfg "$R3" '["sql/c.sql"]'
+cat >"$R3/sql/c.sql" <<'EOF'
+CREATE TABLE p (id int PRIMARY KEY);
+CREATE TABLE t (a int, b int, CHECK (a > 0), UNIQUE (a, b), FOREIGN KEY (b) REFERENCES p(id), PRIMARY KEY (a, b));
+CREATE INDEX t_b_ix ON t (b);
+ALTER TABLE t DROP COLUMN b;
+CREATE TABLE u (id int, k int, UNIQUE (id, k), CHECK (k > 0));
+CREATE INDEX u_k_ix ON u (k);
+CREATE TABLE v (id int PRIMARY KEY, uk int REFERENCES u(k));
+CREATE TABLE w (uk int, FOREIGN KEY (uk) REFERENCES u(k));
+ALTER TABLE u RENAME COLUMN k TO kk;
+CREATE TABLE g (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, n int, sq int GENERATED ALWAYS AS (n * n) STORED);
+CREATE TABLE m (a int, b int);
+CREATE INDEX ON m (a);
+CREATE INDEX ON m (a, b);
+CREATE TABLE m2 (a int);
+CREATE INDEX ON m2 (a);
+DROP INDEX IF EXISTS m_a_idx;
+CREATE VIEW v_plain AS SELECT 1;
+CREATE MATERIALIZED VIEW mv_daily AS SELECT a FROM m;
+CREATE TABLE cm ( -- 行尾表注释
+  id int
+);
+CREATE TABLE md1 (id int);
+ALTER TABLE md1 DROP CONSTRAINT IF EXISTS gone_x;
+CREATE TABLE md2 (id int);
+ALTER TABLE md2 DROP CONSTRAINT IF EXISTS c1;
+ALTER TABLE md2 ADD CONSTRAINT c1 CHECK (id > 0);
+CREATE TABLE md3 (id int);
+ALTER TABLE md3 ADD CONSTRAINT c2 CHECK (id > 0);
+ALTER TABLE md3 DROP CONSTRAINT IF EXISTS c2;
+EOF
+run build --facts-json --root "$R3"; cp "$TMP/out" "$TMP/f3.json"; FACTS="$TMP/f3.json"
+chk "$RC" "r3 夹具能 build --facts-json（红在这条则下面各条都是连带）" "rc=0" "rc=$RC $(head -c 200 "$TMP/err")"
+eq "DROP COLUMN b：点到 b 的 UNIQUE / FOREIGN KEY / 主键与 (b) 上的索引都没了，只剩只点 a 的 CHECK，a 不再是主键（打死只摘列不摘约束）" "check|0|false|a" 'const t=T("t"); [t.constraints.map(c=>c.type).join(),t.indexes.length,K("t","a").primaryKey,t.columns.map(c=>c.name).join()].join("|")'
+eq "RENAME COLUMN k TO kk：本表 UNIQUE 与索引的列名、v 行内外键与 w 表级外键指向的列名都改成 kk，w 里不剩 \"k\"（打死只改列不改连带）" "id+kk|kk|kk|true|id,kk" 'const N=x=>String([].concat(x)).split(/[\s,]+/).filter(Boolean).join("+"),w=J(T("w").constraints); [T("u").constraints.filter(c=>c.type==="unique").map(c=>N(c.columns)).join(),T("u").indexes.map(i=>N(i.columns)).join(),K("v","uk").references.column,w.includes("\"kk\"")&&!w.includes("\"k\""),T("u").columns.map(c=>c.name).join()].join("|")'
+eq "IDENTITY / 生成列：整张 g 表在、generated 有原文、普通列 generated 为 null、主键仍认、未解析 0 条（打死遇到不认识的子句丢整表）" "3|true|true|true|true|0" '[T("g").columns.length,String(K("g","id").generated).includes("IDENTITY"),String(K("g","sq").generated).includes("n * n"),K("g","n").generated===null,K("g","id").primaryKey,d.unparsed.length].join("|")'
+eq "没写名字的索引：m2 的输出里 name 为 null；DROP INDEX IF EXISTS m_a_idx 只摘 m 上 (a) 那条，(a, b) 那条留着（打死补名不对 / 不摘 / 摘多）" "a+b:null|null" 'const N=x=>String([].concat(x)).split(/[\s,]+/).filter(Boolean).join("+"); [T("m").indexes.map(i=>N(i.columns)+":"+i.name).join(),T("m2").indexes.map(i=>String(i.name)).join()].join("|")'
+eq "CREATE MATERIALIZED VIEW：在 views 里且 materialized 为 true、不在 tables 里；普通视图 materialized 不为 true" "true|true|true|false" 'const a=d.views.find(v=>v.name==="mv_daily"),b=d.views.find(v=>v.name==="v_plain"); [!!a,a&&a.materialized===true,b&&b.materialized!==true,d.tables.some(t=>t.name==="mv_daily")].join("|")'
+eq "CREATE TABLE cm ( -- 注释：行尾注释归表，不漏给列" "true|false" '[String(T("cm").comment).includes("行尾表注释"),String(K("cm","id").comment).includes("行尾表注释")].join("|")'
+eq "maybeDropped：没对上且之后没人再加同名的 md1 一条（带 gone_x）；先删后加同名的 md2、对上了的 md3 都没有；这三条都不进定义冲突" "1,0,0|true|0" '[["md1","md2","md3"].map(n=>(T(n).maybeDropped||[]).length).join(),String(J(T("md1").maybeDropped)).includes("gone_x"),d.conflicts.length].join("|")'
+R="$TMP/r6"; mkdir -p "$R/sql"; mkcfg "$R" '["sql/a.sql"]'
+echo 'CREATE TABLE gi (id bigint GENERATED ALWAYS AS IDENTITY, n int, sq int GENERATED ALWAYS AS (n * n) STORED);' >"$R/sql/a.sql"
+run build --facts-json --root "$R"; cp "$TMP/out" "$TMP/f6.json"; FACTS="$TMP/f6.json"
+eq "标识列没写主键也没写 NOT NULL：nullable 为 false（库自动设不可空）；同表的生成列 STORED nullable 为 true、普通列 true（打死标识列误报可空 / 生成列误报不可空）" "false|true|true|0" '[K("gi","id").nullable,K("gi","sq").nullable,K("gi","n").nullable,d.unparsed.length].join("|")'
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

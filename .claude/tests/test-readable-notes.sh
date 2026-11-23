@@ -178,5 +178,15 @@ eq "build 后表页说明区 data-state：orders 草稿 draft、order_items 过�
 eq "过期页有「这段说明写于来源的旧版本」且原正文仍在；说明里的 <b> 转义（页面有 &lt;b&gt;、无原样 <b>粗体</b>）" "yy|yn" \
   "$(yn grep -qF '这段说明写于来源的旧版本' "$P/t-order_items.html")$(yn grep -qF '明细行，一行一个商品。' "$P/t-order_items.html")|$(yn grep -qF '&lt;b&gt;' "$P/t-orders.html")$(yn grep -qF '<b>粗体</b>' "$P/t-orders.html")"
 eq "来源注释里的 192.168.1.10 不出现在表页源码、页面写「已隐去」" "n|y" "$(yn grep -rqF '192.168.1.10' "$P/t-orders.html")|$(yn grep -qF '已隐去' "$P/t-orders.html")"
+
+# 11 打死：隐去逐字段打补丁、漏字段（按「整个 docs/readable 搜不到原文」测，不按某个字段被处理测）
+# 带口令地址运行时拼（协议头、口令、主机分开放），仓库文件里不留完整的 协议://用户:口令@主机
+SL=':'; SL="$SL//"; AT='@'
+U1="postgres${SL}app:Passw0rd99${AT}10.20.30.40/db"; U2="postgres${SL}app:S3cretpw${AT}10.20.30.41/db"; U3="redis${SL}:Sup3rSecretPw${AT}host"
+R="$TMP/a11"; mk "$R"; printf '%s\n' "CREATE FUNCTION f_c(d text DEFAULT '$U1') RETURNS int AS \$\$ SELECT 1 \$\$ LANGUAGE sql;" "CREATE TABLE bad LIKE '$U2';" "CREATE TABLE t (a int, -- $U3" '  b int, -- AWS_SECRET_ACCESS_KEY=abcd1234wxyz' '  c int, -- db_password: "hunter2!x9"' '  d int -- token: refreshes the login session' ');' >>"$R/sql/s.sql"
+for u in "$U1" "$U2" "$U3"; do grep -qF "$u" "$R/sql/s.sql" || { echo "夹具没写进建表文件：$u"; exit 1; }; done  # 夹具真落盘才往下测，否则「搜不到」是假绿
+sed -i 's/"title":"t"/"title":"db at 10.20.30.42"/' "$R/docs/readable-src/config.json"; BR=0; nd build --root "$R" >"$TMP/o" 2>&1 || BR=$?
+eq "函数签名里的口令与地址、坏语法（未解析原因）里的带口令地址、配置 title 里的地址、三种新密钥写法：build 退出码 0，整个 docs/readable 搜不到任何一条原文" "0|" "$BR|$(grep -rhoE 'Passw0rd99|S3cretpw|10\.20\.30\.4[0-2]|Sup3rSecretPw|abcd1234wxyz|hunter2!x9' "$R/docs/readable" 2>/dev/null | sort -u | tr '\n' ,)"
+eq "对照：是隐去不是整页丢掉——db/index.html 写了「已隐去」，正常英文说明 token: refreshes the login session 仍在 t 表页上" "y|y" "$(yn grep -qF '已隐去' "$R/docs/readable/db/index.html")|$(yn grep -qF 'refreshes the login session' "$R/docs/readable/db/t-t.html")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

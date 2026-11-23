@@ -26,4 +26,5 @@
 - [审 hook 输出形态迁移的对拍法](pattern_output-shape-migration-differential.md) — git show HEAD 新旧对拍；静默场景常没锁
 - [审 hook 注册面双形态 + 合并去重](pattern_registration-form-dual-support.md) — 升级造「新增 hook」；显式参数打对向目标
 - [审上游同步脚本 + 派生文件生成器](pattern_vendor-sync-and-generator-attacks.md) — 只写不清孤儿 / 闸失败留半成品 / 自测改仓
+- [审建表取事实 + 页面隐去 + 核对器](pattern_ddl-facts-and-page-redaction.md) — DROP/RENAME 级联漏；补名对不上静默；白名单隐去必漏字段
 - [审「留指针 + 下游读指针」与按缩进认父子](pattern_archive-pointer-and-indent-parsing.md) — 指针整行取编号致 lint 漂移；浅压深吞整段；变异副本喂 $1

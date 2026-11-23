@@ -74,6 +74,12 @@ export function link(facts, scan, map, ddl) {
     .filter((c) => { const k = `${c.file}\0${c.line}\0${c.name}`; if (ct.has(k)) return false; ct.add(k); return true; })
     .sort((a, b) => cmp(a.file, b.file) || a.line - b.line || cmp(a.name, b.name));
 
+  // 提到了表名、像 SQL 又不像的（契约 F 节）：不算进写读，同一行同一动作同一张表只留一条，同样排好序。
+  const seen = new Set();
+  const ambiguous = (scan.ambiguous ?? []).map((a) => ({ file: a.file, line: a.line, verb: a.verb, table: a.table, head: a.head }))
+    .filter((a) => { const k = `${a.file}\0${a.line}\0${a.verb}\0${a.table}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => byPlace(a, b) || cmp(a.table, b.table) || cmp(a.head, b.head));
+
   const groups = map.tableGroups ? mapGroups(map.tableGroups, tables) : prefixGroups(tables);
-  return { groups, usage, dynamic, codeTables };
+  return { groups, usage, dynamic, codeTables, ambiguous };
 }

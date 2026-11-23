@@ -15,7 +15,8 @@
 //   --json   init、pending 与 check 的结果只出一份 JSON（标准输出只有它）
 // 退出码：0 成功；1 有不一致（check 的清单不空、note confirm 遇到指纹对不上的）；2 用法或配置错（含 note put 整批被拒）；3 脚本自身出错（含页面落盘失败、build 落盘前的自检不过）
 // 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）；
-// READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）。
+// READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）；
+// READABLE_FAIL_AT=leak 时，第一张表的表页上多出一个没隐去的内网地址，模拟某个字段忘了过隐去，落盘前的兜底拦下（在 render/db-scrub.mjs）。
 // 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；init 起草配置仍在这里。
 import { existsSync, writeFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';
@@ -31,6 +32,7 @@ import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
 const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
 const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**'];
+const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现行的页超过 10 张只列前 10 张
 const CODE_EXT = /\.(py|ts|tsx)$/;
 // 契约 A 节：ddl 依次找这三类，同一目录按文件名排序；三类都收、按这个先后排、去重——
 // 只取先找到的一类会漏掉排在后面的迁移文件，漏表是这一层最贵的错；多收的在配置里一眼看得见、可删。
@@ -150,17 +152,21 @@ function collect(root, cfg, skipped) {
   const scan = extractCode(cfg, root, codeFiles(root, cfg), [...ddl.tables, ...ddl.views].map((x) => x.name));
   const linked = link(ddl, scan, map, cfg.ddl);
   const unscanned = scan.unscanned.sort((a, b) => cmp(a.file, b.file));
-  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
+  // ambiguous（契约 F 节「提到了表名、像 SQL 又不像的」）：取事实那边 2026-11-23 正在加，连起来的结果里有就用它，
+  // 只有扫描结果里有就用扫描的，都还没有时是空清单——只兜「这个键还没出」这一种，键在而形状不对照样往下报错。
+  const ambiguous = linked.ambiguous ?? scan.ambiguous ?? [];
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
   return { ...facts, ...bindNotes(root, facts) };
 }
 const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
 
 // 出页面（只返回「路径 → 内容」，不碰磁盘）：build 落盘与 check 第 1 项重出用的是这同一个，两边才比得上。
 // 配置里没写 title 时用根目录名，同 init 起草的口径；页面上不出现根目录的绝对路径。
+// 首页的标题用 renderDb 隐去过的那一份（契约 G 节：配置的标题也过隐去）。
 function pages(root, cfg, facts) {
   const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
   const db = renderDb(facts, page);
-  return { db, files: [renderHome(page.title, [db.entry]), ...db.files] };
+  return { db, files: [renderHome(db.title, [db.entry]), ...db.files] };
 }
 
 // 核对（契约 H 节）：四项都在 check.mjs；这里只取事实、重出一遍交过去、出结果、定退出码。
@@ -168,7 +174,8 @@ function cmdCheck(o) {
   const cfg = loadConfig(o.root), facts = collect(o.root, cfg, {});
   const r = runCheck({ dir: join(o.root, OUT), label: `${OUT}/`, facts, rendered: pages(o.root, cfg, facts).files });
   if (o.json) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
-  else { console.error(`readable-docs: ${summaryLine(r.summary)}`); console.log(lines(r.problems).join('\n')); }
+  // 人读输出里不是现行的页最多列 10 张，其余报个数（契约 H 节「输出」）；--json 照旧全列。
+  else { console.error(`readable-docs: ${summaryLine(r.summary)}`); console.log(lines(r.problems, CHECK_PAGE_CAP).join('\n')); }
   process.exitCode = r.ok ? 0 : 1;
 }
 

@@ -1,7 +1,8 @@
 // 不带出去的东西：隐去规则只有这一份（契约 G 节「不带出去的东西」）。
 // note put 拒收、页面隐去、核对器比对都用它。
-// 内网地址三段、带口令的地址、sk-ant- / sk-proj- 开头的串、
-// password / passwd / secret / token / api_key 后面用 = 或 : 接着八位以上字母数字、且带数字或总长不少于十六位的。
+// 内网地址三段、带口令的地址（用户名为空的 ://:口令@ 也算）、sk-ant- / sk-proj- 开头的串、
+// password / passwd / secret / token / api_key（前后用下划线连着别的词也算，如 AWS_SECRET_ACCESS_KEY、db_password）
+// 后面用 = 或 : 接着八位以上的值（取到空白或引号为止，值里可以有符号）、且带数字或总长不少于十六位的。
 
 export const REDACTED = '〔已隐去〕';
 
@@ -15,7 +16,7 @@ const IP_POST = '(?!\\.?\\d)';
 const RULES = [
   {
     kind: '带口令的地址',
-    re: /:\/\/[^\s\/:@'"]+:[^\s\/@'"]+@/g,
+    re: /:\/\/[^\s\/:@'"]*:[^\s\/@'"]+@/g, // redis://:口令@主机 这种只有口令、没有用户名的也是
     replace: () => `://${REDACTED}@`,
   },
   {
@@ -41,8 +42,10 @@ const RULES = [
   {
     kind: '口令或密钥',
     // 真的密钥几乎都带数字或很长；纯字母又不长的（如英文注释「token: refreshes the login session」里的 refreshes）是正常的词，不当密钥。
-    re: /(password|passwd|secret|token|api_key)(\s*[=:]\s*['"]?)(?=[A-Za-z0-9]{8,})(?:(?=[A-Za-z]*\d)|(?=[A-Za-z0-9]{16}))[A-Za-z0-9]+/gi,
-    replace: (_m, key, sep) => `${key}${sep}${REDACTED}`,
+    // 关键字前面连着的词（AWS_）不进匹配、原样留着；后面用下划线连着的词（_ACCESS_KEY、_key）进匹配，最多八节，免得一长串 a_a_a… 反复回溯。
+    // 值取到空白或引号为止，可以带符号（hunter2!x9）；列定义里 password_xxx TEXT 这种后面不是 = 或 : 的是列名，不算。
+    re: /(password|passwd|secret|token|api_key)((?:_[A-Za-z0-9]+){0,8})(\s*[=:]\s*['"`]?)(?=[^\s'"`]{8})(?:(?=[^\s'"`\d]*\d)|(?=[^\s'"`]{16}))[^\s'"`]+/gi,
+    replace: (_m, key, tail, sep) => `${key}${tail}${sep}${REDACTED}`,
   },
 ];
 

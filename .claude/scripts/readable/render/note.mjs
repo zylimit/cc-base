@@ -42,8 +42,9 @@ export function noteMark(n) {
 }
 
 // 说明区：表页、组页顶上（group:<组 id>）、清单页顶上（doc:db）。过期的在正文上面加一条横条，正文照显。
+// 正文那一块带 data-k="note"，核对器按它读回（契约 C 节「机器读得回来」，不认样式类名）。
 export function noteSection(anchor, n) {
   const body = !n ? '<p class="muted">说明：未写</p>'
-    : `${noteState(n) === 'stale' ? `<div class="notice" role="note"><p>${STALE_TEXT}</p></div>\n` : ''}<div class="note">\n${noteHtml(n.text)}\n</div>`;
+    : `${noteState(n) === 'stale' ? `<div class="notice" role="note"><p>${STALE_TEXT}</p></div>\n` : ''}<div class="note" data-k="note">\n${noteHtml(n.text)}\n</div>`;
   return `<section${attrs({ 'data-note': anchor, 'data-state': noteState(n) })}>\n<h2>说明 ${n ? noteMark(n) : origin('note')}</h2>\n${body}\n</section>`;
 }

@@ -117,11 +117,12 @@ function fkTarget(t, c, ctx) {
 
 // 字段表的「含义」一栏（契约 G 节「页面」）：来源里的注释与说明各自带标记，都在；过期的说明标「待更新」。
 // 外键列两样都没有时机械给一句「指向 <表>.<列>」，标「取自来源」——它的含义由引用关系给出。
-// 格子带 data-note / data-state，核对器按它读回这一列的说明状态。
+// 格子带 data-note / data-state，核对器按它读回这一列的说明状态；来源里的注释原文带 data-k="comment"、说明的正文带 data-k="note"，
+// 标记只包着文字本身、不包出处标记（契约 C 节「机器读得回来」：核对器只认这些标记，不认样式类名）。没有注释的列不出 comment 那一块。
 function meaning(t, c, ctx) {
   const n = ctx.notes[c.anchor], parts = [];
-  if (c.comment) parts.push(`<div class="m">${origin('comment')}<br>${multi(c.comment)}</div>`);
-  if (n) parts.push(`<div class="m">${noteMark(n)}\n${noteHtml(n.text)}</div>`);
+  if (c.comment) parts.push(`<div class="m">${origin('comment')}<br><span class="pre" data-k="comment">${esc(c.comment)}</span></div>`);
+  if (n) parts.push(`<div class="m">${noteMark(n)}\n<div data-k="note">${noteHtml(n.text)}</div></div>`);
   if (!parts.length) { const to = fkTarget(t, c, ctx); if (to) parts.push(`<div class="m">${origin('fact')}<br>指向 ${to}</div>`); }
   return { attrs: { 'data-note': c.anchor, 'data-state': noteState(n) }, html: parts.join('\n') };
 }
@@ -131,18 +132,29 @@ function usage(t, kind, ctx) {
   const head = `<h2>谁在${what}这张表 ${origin('code')}</h2>`;
   const files = byFile(ctx.usage[t.name]?.[kind] || []);
   if (!files.length) {
-    const n = ctx.dynamicOpen;
-    return `${head}\n<p class="muted">没有找到${what}这张表的代码。${n ? `另有 ${n} 处表名是运行时拼的，<a href="index.html#dynamic">见清单</a>。` : ''}</p>`;
+    const n = ctx.dynamicOpen, u = ctx.unscannedN;
+    return `${head}\n<p class="muted">没有找到${what}这张表的代码。${n ? `另有 ${n} 处表名是运行时拼的，<a href="index.html#dynamic">见清单</a>。` : ''}${u ? `另有 ${u} 个文件没扫成，<a href="index.html#unscanned">见清单</a>。` : ''}</p>`;
   }
   const hd = writes ? ['文件', '动作', '处数', '行号'] : ['文件', '处数', '行号'];
   const wd = writes ? [null, '200px', '56px', '30%'] : [null, '56px', '34%'];
-  const rows = files.map((f) => usageRow(f, writes)), rest = rows.slice(USAGE_TOP);
+  // 一个文件一行，行带 data-row="writer" / "reader"，核对器按它数行（契约 C 节「机器读得回来」）；
+  // 只在打印时显示的那一份是重复的，不带标记，免得同一个文件被数两遍。
+  const cells = files.map((f) => usageRow(f, writes)), mark = (r) => ({ attrs: { 'data-row': writes ? 'writer' : 'reader' }, cells: r });
+  const rest = cells.slice(USAGE_TOP);
   // 其余的收进 <details>（不用脚本）；打印时 <details> 合着的内容不出，另备一份只在打印时显示的，纸上不丢。
   const more = rest.length
-    ? `<details class="more"><summary>还有 ${rest.length} 个文件</summary>\n${table(hd, rest, wd)}\n</details>\n<div class="print-only"><p class="muted">还有 ${rest.length} 个文件：</p>\n${table(hd, rest, wd)}\n</div>`
+    ? `<details class="more"><summary>还有 ${rest.length} 个文件</summary>\n${table(hd, rest.map(mark), wd)}\n</details>\n<div class="print-only"><p class="muted">还有 ${rest.length} 个文件：</p>\n${table(hd, rest, wd)}\n</div>`
     : '';
   const lead = `<p class="muted">${files.length} 个文件，按${what}这张表的处数从多到少排${rest.length ? `，前 ${USAGE_TOP} 个列在这里、其余在下面展开` : ''}；行号是 SQL 动词所在的行。</p>`;
-  return [head, lead, table(hd, rows.slice(0, USAGE_TOP), wd), more].filter(Boolean).join('\n');
+  return [head, lead, table(hd, cells.slice(0, USAGE_TOP).map(mark), wd), more].filter(Boolean).join('\n');
+}
+
+// 按名字删约束、却没对上任何约束的语句（契约 B 节 maybeDropped）：库里自动起的名字可能被截短或加了数字，这条语句也许真删掉了什么，
+// 静态看不出来，页面顶上让读者知道下面的约束未必都还在。取事实那边还没出这个键时按「没有」处理。
+function droppedHint(t) {
+  const list = t.maybeDropped || [];
+  if (!list.length) return '';
+  return `<div class="notice" role="note"><p>这张表有 ${list.length} 条按名字删约束的语句没对上任何约束，下面的约束里可能有库里已经删掉的</p>\n<ul>${list.map((x) => `<li>${at(x.file, x.line)}：${code(x.name ?? '')}</li>`).join('\n')}</ul></div>`;
 }
 
 export function tablePage(t, ctx) {
@@ -151,21 +163,24 @@ export function tablePage(t, ctx) {
   const hint = unf.length
     ? `<div class="notice" role="note"><p>这张表有 ${unf.length} 处要到库里运行时才生效的改动没有并进来，下面的约束可能与库里不一致</p>\n<ul>${unf.map((u) => `<li>${at(u.file, u.line)}：${code(u.head ?? '')}</li>`).join('\n')}</ul></div>`
     : '';
-  // 类型、可空、默认三格带 data-k，格子里的文字就是模型里的值（可空写「是」「否」，没有默认值的为空），核对器按它读回。
+  // 类型、可空、默认、键与约束、引用五格带 data-k，格子里的文字就是模型里的值（可空写「是」「否」，没有默认值的为空），核对器按它读回。
+  // 键与约束一格依次是「主键」「唯一」、CHECK 原文、GENERATED 原文（契约 B 节 generated：IDENTITY 或算出来的列），各占一行。
   const k = (key, html) => ({ attrs: { 'data-k': key }, html });
   const fields = t.columns.map((c, i) => ({
     attrs: { 'data-anchor': c.anchor },
     cells: [
       String(i + 1), codeBreak(c.name), k('type', code(c.type)), k('nullable', c.nullable ? '是' : '否'), k('default', c.default == null ? '' : code(c.default)),
-      [c.primaryKey && '主键', c.unique && '唯一', c.check && codeBreak(flat(c.check))].filter(Boolean).join('<br>'),
-      c.references ? refText({ to: c.references.table, toCols: c.references.column ? [c.references.column] : [], onDelete: c.references.onDelete, onUpdate: c.references.onUpdate }, ctx) : '',
+      k('key', [c.primaryKey && '主键', c.unique && '唯一', c.check && codeBreak(flat(c.check)), c.generated && codeBreak(flat(c.generated))].filter(Boolean).join('<br>')),
+      k('ref', c.references ? refText({ to: c.references.table, toCols: c.references.column ? [c.references.column] : [], onDelete: c.references.onDelete, onUpdate: c.references.onUpdate }, ctx) : ''),
       meaning(t, c, ctx),
     ],
   }));
   // 约束与索引多半和表写在同一个文件里，同文件只写行号，不同才写全。
   const near = (file, line) => (file === t.file ? `第 ${esc(line)} 行` : at(file, line));
-  const cons = t.constraints.map((c) => [esc(CON_TYPE[c.type] || c.type), c.name ? codeBreak(c.name) : UNNAMED, cols(c.columns || []), codeBreak(flat(c.raw ?? c.check ?? '')), near(c.file, c.line)]);
-  const idx = t.indexes.map((x) => [codeBreak(x.name ?? ''), code(flat(x.columns ?? '')) + (x.options ? ` ${code(flat(x.options))}` : ''), x.unique ? '是' : '', esc(x.method ?? ''), x.where ? code(flat(x.where)) : '', near(x.file, x.line)]);
+  // 每一行带 data-row="constraint" / "index"，核对器按它数行（契约 C 节「机器读得回来」）。
+  const row = (kind, cells) => ({ attrs: { 'data-row': kind }, cells });
+  const cons = t.constraints.map((c) => row('constraint', [esc(CON_TYPE[c.type] || c.type), c.name ? codeBreak(c.name) : UNNAMED, cols(c.columns || []), codeBreak(flat(c.raw ?? c.check ?? '')), near(c.file, c.line)]));
+  const idx = t.indexes.map((x) => row('index', [codeBreak(x.name ?? ''), code(flat(x.columns ?? '')) + (x.options ? ` ${code(flat(x.options))}` : ''), x.unique ? '是' : '', esc(x.method ?? ''), x.where ? code(flat(x.where)) : '', near(x.file, x.line)]));
   // 建表之后的改动：紧贴在 ALTER TABLE 上方的注释，讲这一批改动为什么做，归给表、不挂到某一列上（契约 B、C 节）。
   // 改它的语句可以写在靠后的建表文件里，出处一律写全「文件 第 N 行」。
   const changes = (t.changes || []).map((x) => [
@@ -176,6 +191,7 @@ export function tablePage(t, ctx) {
   const outs = ctx.out.get(t.name), ins = ctx.inc.get(t.name) || [];
   const body = [
     hint,
+    droppedHint(t),
     `<h1>${esc(t.name)}</h1>`,
     `<p>出处：${at(t.file, t.line)} ${origin('fact')}<br>所在的组：<a href="${g.file}">${esc(g.label)}</a>${judged(g.status) ? ` ${judged(g.status)}` : ''}<br>服务的需求：<span class="muted">未关联——需求一侧的关联在后面的阶段接上</span></p>`,
     // 说明区带锚点与状态（none / draft / reviewed / stale），核对器按它读回。
@@ -189,7 +205,10 @@ export function tablePage(t, ctx) {
     '<h3>谁引用了它</h3>',
     ins.length ? refList(ins.map((r) => `${tLink(r.from, ctx)} 的 ${cols(r.cols)}${r.toCols.length ? ` → 本表 ${cols(r.toCols)}` : ''}${r.onDelete ? ` · ON DELETE ${esc(r.onDelete)}` : ''}`)) : '<p class="muted">没有别的表引用它。</p>',
     `<h2>字段（${t.columns.length} 个）${origin('fact')}</h2>`,
-    table(['#', '名字', '类型', '可空', '默认', '键与约束', '引用', '含义'], fields, ['44px', '16%', '12%', '48px', '11%', '15%', '11%', null]),
+    // 「含义」一栏分剩下的宽度，不窄于表宽的三成（契约 C 节「读得全」：字段的含义是这张表里最要读的字）：
+    // 其余定宽合计 58% + 92px，表宽 1068（1280 窗口下正文宽）时含义约 33%，到保底的 860 时约 31%。
+    // 原先约四分之一宽，一段十一项的枚举解释折成几十行高（2026-11-23 下游真数据）。
+    table(['#', '名字', '类型', '可空', '默认', '键与约束', '引用', '含义'], fields, ['44px', '14%', '11%', '48px', '10%', '12%', '11%', null]),
     usage(t, 'writes', ctx),
     usage(t, 'reads', ctx),
     cons.length ? `<h2>表级约束 ${origin('fact')}</h2>\n${table(['类型', '名字', '列', '原文', '出处'], cons, ['72px', '24%', '16%', null, '120px'])}` : '',

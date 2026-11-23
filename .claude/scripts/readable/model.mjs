@@ -40,10 +40,15 @@ export const functionAnchor = (fn, args = null) => (args === null ? `function:${
 export const emptyFacts = () => ({ tables: [], views: [], functions: [], unfolded: [], unparsed: [], conflicts: [], orphanAlters: [] });
 
 // 列的规范形是它自己的定义加注释（契约 B 节「指纹」）；约束与索引的规范形同理，只去掉出处。
-const columnForm = (c) => ({
-  name: c.name, type: c.type, nullable: c.nullable, default: c.default, primaryKey: c.primaryKey,
-  unique: c.unique, references: c.references, check: c.check, comment: c.comment,
-});
+// generated（标识列、生成列的原文）只在有的时候进规范形：没有它的列，指纹与加这个键之前逐位相同，挂在上面的东西不会因为本脚本升级全变。
+function columnForm(c) {
+  const form = {
+    name: c.name, type: c.type, nullable: c.nullable, default: c.default, primaryKey: c.primaryKey,
+    unique: c.unique, references: c.references, check: c.check, comment: c.comment,
+  };
+  if (c.generated != null) form.generated = c.generated;
+  return form;
+}
 const constraintForm = (c) => ({
   name: c.name, type: c.type, columns: c.columns, references: c.references, check: c.check, comment: c.comment, raw: c.raw,
 });
@@ -59,11 +64,16 @@ const changeForm = (x) => ({ file: x.file ?? null, line: x.line, comment: x.comm
 
 // 取事实器合并完的表（任意可迭代的 {name,file,line,comment,columns,constraints,indexes,changes?}）→ 按名字排好、盖好锚点与指纹的实体。
 // 表级约束的 name 只是源码里写了的名字，没写的为 null（补出来的内部名不进这里，契约 B 节）；没有改动备注的表 changes 为空数组。
+// maybeDropped（按名字删约束却没对上、之后也没再加同名的）同 changes 不进指纹：它说的是来源里一条语句，不是现行结构。
 export function finalizeTables(tables) {
   return [...tables].sort((a, b) => cmp(a.name, b.name)).map((t) => {
     const columns = t.columns.map((c) => {
       const form = columnForm(c);
-      return { anchor: columnAnchor(t.name, c.name), ...form, file: c.file, line: c.line, fingerprint: fingerprint(form) };
+      return {
+        anchor: columnAnchor(t.name, c.name), name: c.name, type: c.type, nullable: c.nullable, default: c.default, primaryKey: c.primaryKey,
+        unique: c.unique, references: c.references, check: c.check, generated: c.generated ?? null, comment: c.comment,
+        file: c.file, line: c.line, fingerprint: fingerprint(form),
+      };
     });
     const constraints = [...t.constraints].sort(byName(constraintForm)).map((c) => ({ ...constraintForm(c), file: c.file, line: c.line }));
     const indexes = [...t.indexes].sort(byName(indexForm)).map((x) => ({ ...indexForm(x), file: x.file, line: x.line }));
@@ -73,15 +83,16 @@ export function finalizeTables(tables) {
     };
     return {
       anchor: tableAnchor(t.name), name: t.name, file: t.file, line: t.line, comment: t.comment,
-      columns, constraints, indexes, changes: (t.changes ?? []).map(changeForm), fingerprint: fingerprint(form),
+      columns, constraints, indexes, changes: (t.changes ?? []).map(changeForm),
+      maybeDropped: (t.maybeDropped ?? []).map((d) => ({ file: d.file, line: d.line, name: d.name })), fingerprint: fingerprint(form),
     };
   });
 }
 
 // 视图与数据库函数只带名字、出处与原文（契约 B 节末尾的形状），按名字排序；同名的函数（重载）再按签名定序。
-// 函数的 args 是参数原文（压成一行），只在同名的不止一个时拿来算锚点后缀；它本身不进输出。
+// 函数的 args 是参数原文（压成一行），只在同名的不止一个时拿来算锚点后缀；它本身不进输出。视图的 materialized：物化视图为 true。
 export const finalizeViews = (views) => [...views].sort((a, b) => cmp(a.name, b.name))
-  .map((v) => ({ anchor: viewAnchor(v.name), name: v.name, file: v.file, line: v.line, sql: v.sql }));
+  .map((v) => ({ anchor: viewAnchor(v.name), name: v.name, file: v.file, line: v.line, sql: v.sql, materialized: v.materialized === true }));
 export function finalizeFunctions(fns) {
   const list = [...fns], seen = new Map();
   list.forEach((f) => seen.set(f.name, (seen.get(f.name) ?? 0) + 1));

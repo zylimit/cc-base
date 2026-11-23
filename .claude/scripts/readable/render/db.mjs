@@ -59,8 +59,10 @@ function index(model, cfg) {
   for (const list of inc.values()) list.sort((a, b) => cmp(a.from, b.from) || cmp(a.cols.join(','), b.cols.join(',')));
   // 没归属的运行时表名：表页上「没有找到写（读）这张表的代码」后面补一句「另有 N 处……见清单」（契约 F 节）。
   const dynamicOpen = model.dynamic.filter((d) => !d.assigned).length;
+  // 没扫成的文件：同处再补一句「另有 N 个文件没扫成，见清单」——那些文件里的写读不在任何一张表的页面上（契约 F 节）。
+  const unscannedN = model.unscanned.length;
   // 说明：取事实那边还没并进 notes 时没有这个键，按「全都没写」出。
-  return { cfg, tables, pages, groupOf, out, inc, unfoldedBy, usage: model.usage, dynamicOpen, notes: model.notes || {} };
+  return { cfg, tables, pages, groupOf, out, inc, unfoldedBy, usage: model.usage, dynamicOpen, unscannedN, notes: model.notes || {} };
 }
 
 function groupPage(g, ctx) {
@@ -131,11 +133,11 @@ function groupDiagram(model, ctx) {
   ].join('\n');
 }
 
-// 隐去了几处、各在哪（契约 G 节「不带出去的东西」）：只写位置与哪一项，不写原文。
+// 隐去了几处、各在哪（契约 G 节「不带出去的东西」）：只写位置与哪一项，不写原文。配置与项目判断没有行号，只写文件。
 function redactions(hits) {
   if (!hits.length) return '';
   const n = hits.reduce((s, h) => s + h.n, 0);
-  const rows = hits.map((h) => [h.anchor ? `说明 ${code(h.anchor)}` : at(h.file, h.line), esc(h.what), String(h.n)]);
+  const rows = hits.map((h) => [h.anchor ? `说明 ${code(h.anchor)}` : h.line == null ? code(h.file) : at(h.file, h.line), esc(h.what), String(h.n)]);
   return `<div class="notice" role="note"><p>隐去了 ${n} 处：来源或说明里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['在哪', '哪一项', '处数'], rows, ['34%', null, '64px'])}</div>`;
 }
 
@@ -162,6 +164,8 @@ const ISSUES = [
 const CODE_LISTS = [
   ['dynamic', 'dynamic', '表名是运行时拼的', '代码里的 SQL 动词后面跟的是占位（如 <code>{table}</code>、<code>%s</code>），或字符串到动词就结束、后面接着拼接，或写表接口的第一个实参不是字符串——静态看不出是哪张表，表页上「取自来源」的写读里没有这几处。项目判断（<code>docs/readable-src/map.json</code> 的 <code>dynamicTables</code>）把这个文件归到具体表上的标「已归属」，那些表的页面上列着这个文件。',
     ['出处', '动作', '原文开头', '归属'], (d) => [at(d.file, d.line), esc(String(d.verb ?? '').toUpperCase()), code(d.head), d.assigned ? '<span class="o">已归属</span>' : '']],
+  ['ambiguous', 'ambiguous', '提到了表名、像 SQL 又不像的', '代码的字符串里，动词不是全大写、后面跟着建表定义里的表名，再往后却不像一条 SQL 语句（比如日志、报错里的「failed to delete from orders, will retry」）——没有算进任何一张表的谁写谁读。列在这里而不丢掉，万一是一种没见过的写法。',
+    ['出处', '动作', '表', '原文开头'], (a, ctx) => [at(a.file, a.line), esc(String(a.verb ?? '').toUpperCase()), ctx.tables.has(a.table) ? tLink(a.table, ctx) : code(a.table), code(a.head)]],
   ['codeTables', 'code-tables', '代码里建的表', '代码的字符串里出现的 <code>CREATE TABLE</code>（带 <code>TEMP</code> 的不算），没有并进上面的表结构。配置的 <code>ddl</code> 列了的代码文件，里面的建表语句会并进来，不在这里。',
     ['出处', '表名'], (c, ctx) => [at(c.file, c.line), ctx.tables.has(c.name) ? tLink(c.name, ctx) : code(c.name)]],
   ['mapProblems', 'map-problems', '项目判断里对不上的', '<code>docs/readable-src/map.json</code> 里点到不存在的表或文件、一张表进了两个组、档位写错的，不拦生成，列在这里。',
@@ -194,11 +198,11 @@ function indexPage(model, ctx) {
     `<h2>分组${judgedGroups ? '' : ` ${origin('fact')}`}</h2>`, // 项目判断的组各自在组名后面标档位
     `<p class="muted">${basis}</p>`,
     ...groups,
-    objs(model.views, '视图', '建表定义里没有视图。', ['名字', '出处', '定义原文'], (v) => [`<span id="${esc(v.anchor)}">${code(v.name)}</span>`, at(v.file, v.line), `<pre>${esc(v.sql)}</pre>`]),
+    objs(model.views, '视图', '建表定义里没有视图。', ['名字', '出处', '定义原文'], (v) => [`<span id="${esc(v.anchor)}">${code(v.name)}</span>${v.materialized === true ? '<br><span class="muted">物化视图</span>' : ''}`, at(v.file, v.line), `<pre>${esc(v.sql)}</pre>`]),
     objs(model.functions, '数据库函数', '建表定义里没有数据库函数。', ['名字', '出处', '签名'], (f) => [`<span id="${esc(f.anchor)}">${code(f.name)}</span>`, at(f.file, f.line), code(f.signature)]),
     ...ISSUES.filter(([k]) => model[k].length).map(([k, label, what]) => `<h2>${label}（${model[k].length} 处）${origin('fact')}</h2>\n<p class="muted">${what}</p>\n${issues(model[k], ctx)}`),
     ...CODE_LISTS.filter(([k]) => model[k].length).map(([k, id, label, what, head, row]) => {
-      const n = model[k].length, unit = k === 'mapProblems' ? '条' : k === 'unscanned' ? '个' : '处';
+      const n = model[k].length, unit = k === 'mapProblems' ? '条' : k === 'unscanned' ? '个' : '处'; // 各张清单的键 scrub 都给齐了（没有的是空数组）
       const tail = k === 'dynamic' ? `，已归属 ${model[k].filter((d) => d.assigned).length} 处` : '';
       return `<h2 id="${id}">${label}（${n} ${unit}${tail}）${origin(k === 'mapProblems' ? 'fact' : 'code')}</h2>\n<p class="muted">${what}</p>\n${table(head, model[k].map((x) => row(x, ctx)))}`;
     }),
@@ -208,12 +212,13 @@ function indexPage(model, ctx) {
 }
 
 // 入口：模型 → 数据库设计的全部页面，外加首页上那一条目录项。stats 给命令行报数用。
-// 各页用隐去过的模型副本（db-scrub.mjs），传进来的模型不动。
+// 各页用隐去过的模型与配置副本（db-scrub.mjs），传进来的不动；title 是隐去过的配置标题，文档集首页也用它。
 export function renderDb(source, cfg) {
-  const { model, hits } = scrub(source);
-  const ctx = { ...index(model, cfg), hits };
+  const { model, cfg: shownCfg, hits } = scrub(source, cfg);
+  const ctx = { ...index(model, shownCfg), hits };
   const files = [indexPage(model, ctx), ...ctx.pages.map((g) => groupPage(g, ctx)), ...model.tables.map((t) => tablePage(t, ctx))];
   return {
+    title: shownCfg.title,
     entry: { href: 'db/index.html', label: DOC, summary: `${model.tables.length} 张表，分成 ${model.groups.length} 组` },
     files,
     stats: { tables: model.tables.length, groups: model.groups.length, groupPages: ctx.pages.length, largest: Math.max(0, ...ctx.pages.map((g) => g.tables.length)) },

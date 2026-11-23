@@ -19,9 +19,11 @@ export class ConfigError extends Error {}
 
 export const anchorKind = (anchor) => anchor.slice(0, anchor.indexOf(':'));
 
-// 文件名的写法同页面（契约 C 节）：ASCII 字母、数字、下划线、连字符以外的写成「~码点」，中文名离线拷贝不乱码。
+// 文件名的写法同页面（契约 C 节）：小写字母、数字、下划线、连字符以外的写成「~码点」，中文名离线拷贝不乱码；
+// 大写字母也转码，只差大小写的两个表名在不分大小写的文件系统上才不会落进同一个文件。
 // 不需要从文件名解回名字：锚点就写在文件里，两个名字碰巧落进同一个文件也只是同住，各段仍按锚点认。
-const slug = (name) => String(name).replace(/[^A-Za-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
+// 改推法之前按旧名落的侧车照旧读得到（loadNotes 读整个目录、按锚点认），下次 note put 那段时搬进新名的文件、旧文件里摘掉。
+const slug = (name) => String(name).replace(/[^a-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
 
 // 锚点落在哪个文件（相对 notes/）：表与它各列在 table/<表>.md，组在 group/<id>.md，doc:db 在 doc/db.md。
 // owner 是表名（表与列的说明）、组 id 或文档名，由调用方从文档模型里给——列锚点里的表名与列名靠点分不开。

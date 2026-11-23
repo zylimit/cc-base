@@ -77,6 +77,33 @@ export const hasClass = (n, c) => String(n.attrs.class || '').split(/\s+/).inclu
 // 空白归一：连续空白压成一个空格、去掉两头——页面显示时浏览器也是这样压的。
 export const squash = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
+// 一页上连着显示的一段段文字，给落盘前的隐去兜底用（契约 G 节末段、H 节「build 落盘之前」）：块与块之间断开、行内的连着——
+// 名字里的 <wbr>、格子里的 <code> 把一串字切成几个文字节点，连起来才是读者看到的那一串；可也不能把相邻两格并成一句，
+// 「password:」一格接着下一格的值会凑出原文里没有的命中。<title>、SVG 里的一行字各自成段；属性值各算一段（aria-label 等也是带出去的字）。
+// 每段带着它在哪：最近的上一个标题与最近的 data-anchor，给人点名用。
+const SEG_BREAK = new Set([...BLOCK, 'html', 'head', 'body', 'title', 'svg', 'text']);
+export function segments(root) {
+  const out = [];
+  let buf = [], heading = '';
+  const flush = (anchor) => { const s = squash(buf.join('')); buf = []; if (s) out.push({ text: s, heading, anchor }); };
+  const walk = (n, anchor) => {
+    for (const c of n.children) {
+      if (!c.tag) { buf.push(c.text); continue; }
+      const a = c.attrs['data-anchor'] ?? c.attrs['data-note'] ?? anchor;
+      for (const v of Object.values(c.attrs)) if (v) out.push({ text: v, heading, anchor: a });
+      if (RAW.has(c.tag)) continue;
+      const b = SEG_BREAK.has(c.tag);
+      if (b) flush(anchor);
+      walk(c, a);
+      if (b) flush(a);
+      if (/^h[1-6]$/.test(c.tag)) heading = textOf(c);
+    }
+  };
+  walk(root, null);
+  flush(null);
+  return out;
+}
+
 // 显示出来的纯文字：去掉标签、块与块之间隔一个空白、空白归一。skip 命中的元素连同里面的文字都不算。
 export function textOf(node, skip = () => false) {
   const parts = [];

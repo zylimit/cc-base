@@ -37,12 +37,24 @@ function pyString(src, start, q, pre, out) {
   if (out) { out.lits.push({ start, bs, be: k, end: k + close.length }); out.mask.push([bs, k]); }
   return k + close.length;
 }
+// {…} 里数括号、串照切；括号外的第一个 : 之后是格式说明——f"{x:'>10}" 里的 ' 是填充字符，不是串的开头（契约 F 节点名的三种写法之一），
+// 说明读到配对的 } 为止，里面的 {…} 是嵌套的替换字段。字典、切片、带括号的 lambda 里的 : 在括号里，不算。
 function pyExpr(src, k, start) {
-  for (let depth = 1; k < src.length;) {
+  for (let depth = 0; k < src.length;) {
     const c = src[k];
     if (c === '"' || c === "'") { k = pyString(src, k, k, '', null); continue; }
-    if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return k + 1;
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === '}') { if (depth === 0) return k + 1; depth--; }
+    else if (c === ':' && depth === 0) return pySpec(src, k + 1, start);
+    k++;
+  }
+  throw new Unclosed(start, 'f 串里的 {…}');
+}
+function pySpec(src, k, start) {
+  while (k < src.length) {
+    if (src[k] === '{') { k = pyExpr(src, k + 1, start); continue; }
+    if (src[k] === '}') return k + 1;
     k++;
   }
   throw new Unclosed(start, 'f 串里的 {…}');
@@ -66,8 +78,56 @@ function lexPy(src) {
 // 认单引号、双引号、反引号模板（${…} 里照切），// 与 /* */ 注释不算。正则字面量 /…/ 必须认出来，
 // 否则 /'/ 这种会被当成一个没闭合的串：前一个记号是值（名字、数、右括号、串）时 / 是除号，否则试着按正则读到行尾，读不成再当除号。
 // JSX 的闭合标签 </p> 里那个 / 不是正则的开头（JS 里 < 后面紧跟 / 只有这一种写法）——不认这条，组件文件的串全会切错位。
+// if / while / for / with 的条件括号之后是语句的开头，那里的 / 是正则：if (s) /'/.test(s) 里的 ' 不是串（契约 F 节点名的三种写法之一）。
 const JS_ID = /[A-Za-z_$\u0080-￿][\w$\u0080-￿]*/y;
 const REGEX_AFTER = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await']);
+const COND_PAREN = new Set(['if', 'while', 'for', 'with']);
+const hasJsx = (f) => /\.(?:jsx|tsx|js)$/.test(f); // .ts 里 <T>x 是类型断言，不认 JSX；.js 常写 React 组件，认
+
+// JSX 元素：在该是值的地方出现的 <名 或 <>。标签之间的文字原样跳过——<p>Don't refresh</p> 里的撇号是字，不是串的开头；
+// {…} 是表达式（里面的串照记），属性值的引号串照记。读不成元素（TSX 里的泛型箭头 <T,>(x) => x 一类）返回 -1，调用方把 < 当运算符接着读，
+// 这一趟记下的字面量撤回。
+const JSX_NAME = /[A-Za-z_$][\w$.:-]*/y;
+const JSX_ATTR = /[A-Za-z_$][\w$:-]*/y;
+const JSX_CLOSE = /<\/\s*([A-Za-z_$][\w$.:-]*)?\s*>/y;
+const ws = (src, k) => k + sticky(/\s*/y, src, k).length;
+function jsxElement(src, i, out) {
+  const mark = out && [out.lits.length, out.mask.length];
+  let e;
+  try { e = jsxTry(src, i, out); } catch (err) { if (!(err instanceof Unclosed)) throw err; e = -1; }
+  if (e < 0 && out) { out.lits.length = mark[0]; out.mask.length = mark[1]; }
+  return e;
+}
+function jsxTry(src, i, out) {
+  const name = src[i + 1] === '>' ? '' : sticky(JSX_NAME, src, i + 1);
+  if (name === null) return -1;
+  let k = i + 1 + name.length;
+  for (;;) { // 属性
+    k = ws(src, k);
+    if (src.startsWith('/>', k)) return k + 2;
+    if (src[k] === '>') { k++; break; }
+    if (src[k] === '{') { k = jsScan(src, k + 1, out, k, true); continue; }
+    const a = sticky(JSX_ATTR, src, k); if (!a) return -1;
+    k = ws(src, k + a.length);
+    if (src[k] !== '=') continue;
+    k = ws(src, k + 1);
+    if (src[k] === '"' || src[k] === "'") {
+      const e = src.indexOf(src[k], k + 1); if (e < 0) return -1;
+      if (out) { out.lits.push({ start: k, bs: k + 1, be: e, end: e + 1 }); out.mask.push([k + 1, e]); }
+      k = e + 1;
+    } else if (src[k] === '{') k = jsScan(src, k + 1, out, k, true);
+    else if (src[k] === '<') { k = jsxTry(src, k, out); if (k < 0) return -1; }
+    else return -1;
+  }
+  while (k < src.length) { // 子节点
+    if (src[k] === '{') { k = jsScan(src, k + 1, out, k, true); continue; }
+    if (src[k] !== '<') { k++; continue; }
+    const m = JSX_CLOSE.exec((JSX_CLOSE.lastIndex = k, src));
+    if (m) return (m[1] ?? '') === name ? JSX_CLOSE.lastIndex : -1;
+    k = jsxTry(src, k, out); if (k < 0) return -1;
+  }
+  return -1;
+}
 function jsComment(src, i) {
   if (src[i + 1] === '/') { const e = src.indexOf('\n', i); return e < 0 ? src.length : e; }
   const e = src.indexOf('*/', i + 2); if (e < 0) throw new Unclosed(i, '块注释'); return e + 2;
@@ -100,35 +160,40 @@ function jsRegex(src, i) { // 读成正则返回结尾，读不成（遇到换�
 }
 // 主循环；tpl 不为 null 时是在模板的 ${…} 里（tpl 是那个模板的起点），读到配对的 } 返回其后的位置。
 // ${…} 里的串、注释、正则同样要认（真数据里有 ${s.replace(/[."]/g, …)} 这种），所以与外层共用一个循环；里面的字面量不单记。
-function jsScan(src, i, out, tpl) {
-  let prevVal = false, depth = 0, lastOp = '';
+// jsx 为真时认 JSX 元素（见 hasJsx）；parens 记每个左括号前面紧挨着的词，配对的右括号之后是不是语句开头靠它。
+function jsScan(src, i, out, tpl, jsx) {
+  let prevVal = false, depth = 0, lastOp = '', lastWord = '';
+  const parens = [];
   while (i < src.length) {
     const c = src[i], d = src[i + 1];
     if (c === '/' && (d === '/' || d === '*')) { const e = jsComment(src, i); if (out) out.mask.push([i, e]); i = e; continue; }
-    if (c === '"' || c === "'" || c === '`') { i = jsString(src, i, out); prevVal = true; continue; }
-    if (c === '/' && !prevVal && lastOp !== '<') { const e = jsRegex(src, i); if (e > 0) { i = e; prevVal = true; continue; } }
+    if (c === '"' || c === "'" || c === '`') { i = jsString(src, i, out); prevVal = true; lastWord = ''; continue; }
+    if (c === '/' && !prevVal && lastOp !== '<') { const e = jsRegex(src, i); if (e > 0) { i = e; prevVal = true; lastWord = ''; continue; } }
+    if (c === '<' && !prevVal && jsx) { const e = jsxElement(src, i, out); if (e > 0) { i = e; prevVal = true; lastWord = ''; lastOp = ''; continue; } }
     const w = sticky(JS_ID, src, i);
-    if (w) { i += w.length; prevVal = !REGEX_AFTER.has(w); lastOp = ''; continue; }
-    if (c >= '0' && c <= '9') { i += sticky(/[\w.]+/y, src, i).length; prevVal = true; lastOp = ''; continue; }
+    if (w) { i += w.length; prevVal = !REGEX_AFTER.has(w); lastOp = ''; lastWord = w; continue; }
+    if (c >= '0' && c <= '9') { i += sticky(/[\w.]+/y, src, i).length; prevVal = true; lastOp = ''; lastWord = ''; continue; }
     if (c === '{') depth++;
     else if (c === '}' && tpl !== null && depth-- === 0) return i + 1;
-    if (c === ')' || c === ']' || c === '}') prevVal = true;
+    if (c === '(') parens.push(lastWord);
+    if (c === ')') prevVal = !COND_PAREN.has(parens.pop());
+    else if (c === ']' || c === '}') prevVal = true;
     else if (c > ' ') prevVal = false;
-    if (c > ' ') lastOp = c;
+    if (c > ' ') { lastOp = c; lastWord = ''; }
     i++;
   }
   if (tpl !== null) throw new Unclosed(tpl, '反引号模板里的 ${…}');
   return i;
 }
-function lexJs(src) {
+function lexJs(src, jsx) {
   const out = { lits: [], mask: [] };
-  jsScan(src, 0, out, null);
+  jsScan(src, 0, out, null, jsx);
   return out;
 }
 
 // 切好的文件：字面量清单、把注释与字面量正文抹成空格的「其它」、按偏移查行号。切不动抛 Unclosed。
 function split(file, src) {
-  const { lits, mask } = isPy(file) ? lexPy(src) : lexJs(src);
+  const { lits, mask } = isPy(file) ? lexPy(src) : lexJs(src, hasJsx(file));
   let other = '', p = 0;
   for (const [s, e] of mask) { other += src.slice(p, s) + src.slice(s, e).replace(/[^\n]/g, ' '); p = e; }
   other += src.slice(p);
@@ -183,11 +248,49 @@ function target(s, p) {
 const LIST_ALIAS = /\s*(?:(?:AS\s+)?(?!(?:WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|ON|USING|GROUP|ORDER|LIMIT|OFFSET|UNION|EXCEPT|INTERSECT|WINDOW|HAVING|FOR|RETURNING|SET|VALUES|LATERAL)\b)[A-Za-z_][\w$]*)?\s*,/iy;
 const COPY_FROM = /\s*(?:\([^)]*\)\s*)?FROM\b/iy;
 
-// 一个文件的事实：refs（已知表的写读）、dynamic（表名运行时拼的）、creates（字面量里的 CREATE TABLE，带 temp 标记）。
+// ---- 小写的动词要像 SQL 才算（契约 F 节）----
+// 动词全大写的照认：DELETE FROM orders 出现在散文里的可能很小。小写或大小写混写的，可能是真 SQL，也可能是日志、报错、文档串里的一句话
+// （log.info("failed to delete from orders, will retry")），所以要看表名之后像不像语句的下文；不像的进 ambiguous，不悄悄丢——万一是没见过的写法。
+// 下文按 PostgreSQL 的语法逐个动词收窄：UPDATE 表 [别名] 之后只能是 SET，INSERT INTO 表 的别名必须带 AS，MERGE INTO 表 之后是 USING……
+// 「Never update orders here; reads only.」里 here 读成别名，分号也接不上 UPDATE。逗号只在读的表清单里算，逗号后面还得是名字、再接下文；
+// 清单里带了别名的那一项不许以字面量结尾收场（「from orders, will retry」里 will 后面跟 retry 就到头了，是一句话）。COPY 表 FROM 另有 COPY_FROM 卡着。
+const WS = String.raw`(?:\s|\\[ntr])`; // 字面量是源码原文，里面的 \n 转义也算空白
+const RESERVED = 'WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|ON|USING|GROUP|ORDER|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|WINDOW|HAVING|FOR|'
+  + 'RETURNING|SET|VALUES|SELECT|DEFAULT|OVERRIDING|WITH|TABLESAMPLE|RESTART|CONTINUE|CASCADE|RESTRICT|AND|OR|NOT|AS|TABLE|FROM|INTO|IS|IN|BY|WHEN|THEN|ELSE|END';
+const ALIAS_WORD = `(?!(?:${RESERVED})\\b)[A-Za-z_][\\w$]*`;
+const ALIAS = new RegExp(`(?:${WS}+(?:AS${WS}+)?${ALIAS_WORD})?`, 'iy'), ALIAS_AS = new RegExp(`(?:${WS}+AS${WS}+${ALIAS_WORD})?`, 'iy');
+const re = (s) => new RegExp(`(?:${s})`, 'iy');
+const FOLLOW = {
+  insert: { alias: ALIAS_AS, next: re(`${WS}*\\(|${WS}+(?:VALUES|SELECT|DEFAULT|OVERRIDING|WITH)\\b`) },
+  update: { alias: ALIAS, next: re(`${WS}+SET\\b`) },
+  delete: { alias: ALIAS, next: re(`${WS}*[;)]|${WS}+(?:WHERE|USING|RETURNING)\\b`) },
+  truncate: { alias: re(''), next: re(`${WS}*;|${WS}+(?:RESTART|CONTINUE|CASCADE|RESTRICT)\\b`) },
+  merge: { alias: ALIAS, next: re(`${WS}+USING\\b`) },
+  select: { alias: ALIAS, next: re(`${WS}*[;()]|${WS}+(?:WHERE|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|ON|USING|GROUP|ORDER|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|WINDOW|HAVING|FOR|RETURNING|TABLESAMPLE)\\b`) },
+};
+const LIT_END = new RegExp(`${WS}*$`, 'y');
+const SQL_NAME = String.raw`(?:"[^"\\]+"|[A-Za-z_][\w$]*)`;
+const COMMA_NAME = new RegExp(`${WS}*,${WS}*${SQL_NAME}(?:${WS}*\\.${WS}*${SQL_NAME})*`, 'iy');
+function sqlLike(verb, s, p) {
+  const f = FOLLOW[verb]; if (!f) return true;
+  for (let first = true; ;first = false) {
+    const a = sticky(f.alias, s, p) ?? '', q = p + a.length;
+    if (sticky(f.next, s, q) !== null) return true;
+    if (sticky(LIT_END, s, q) !== null) return first || !a;
+    const c = verb === 'select' && sticky(COMMA_NAME, s, q);
+    if (!c) return false;
+    p = q + c.length;
+  }
+}
+
+// 一个文件的事实：refs（已知表的写读）、dynamic（表名运行时拼的）、creates（字面量里的 CREATE TABLE，带 temp 标记）、
+// ambiguous（小写的动词提到了已知的表、后面却不像 SQL 的）。
 function scanSplit(file, src, sp, known) {
-  const refs = [], dynamic = [], creates = [];
+  const refs = [], dynamic = [], creates = [], ambiguous = [];
   const flat = (a, b) => excerpt(src.slice(a, Math.min(b, a + 400)).replace(/\s+/g, ' ').trim());
   const ref = (off, verb, name, read) => { const t = known.get(name.toLowerCase()); if (t) refs.push({ file, line: sp.lineAt(off), verb, table: t, read }); };
+  // 那一段的开头：字面量的开头，或动词所在那一行的行首（长文档串里动词在第几行，从串头截八十个字看不到它）
+  const amb = (off, verb, name, lit) => { const t = known.get(name.toLowerCase()); if (t) ambiguous.push({ file, line: sp.lineAt(off), verb, table: t, head: flat(Math.max(lit.start, src.lastIndexOf('\n', off - 1) + 1), lit.end) }); };
   const dyn = (off, verb, lit) => dynamic.push({ file, line: sp.lineAt(off), verb, head: flat(lit.start, lit.end) });
   for (const lit of sp.lits) {
     const s = src.slice(lit.bs, lit.be);
@@ -195,7 +298,7 @@ function scanSplit(file, src, sp, known) {
     for (const m of s.matchAll(VERB)) {
       const k = m.slice(1, 9).findIndex((g) => g !== undefined), off = lit.bs + m.index, after = m.index + m[0].length;
       if (k < 0) { const t = target(s, after); if (t?.kind === 'name') creates.push({ file, line: sp.lineAt(off), name: t.name, temp: m[9] !== undefined }); continue; }
-      const verb = VERBS[k], read = k >= 6;
+      const verb = VERBS[k], read = k >= 6, upper = m[0] === m[0].toUpperCase();
       if (k === 1 && NOT_UPDATE.has(prevWord(s, m.index))) continue;
       if (k === 6 && NOT_FROM.has(prevWord(s, m.index))) continue;
       let t = target(s, after);
@@ -207,13 +310,15 @@ function scanSplit(file, src, sp, known) {
         if (plus) p += 1 + sticky(/(?:\s|\\\n)*/y, sp.other, p + 1).length;
         const nx = sp.byStart.get(p);
         if (!plus && !nx) continue;
-        t = nx ? target(src.slice(nx.bs, nx.be), 0) : { kind: 'ph' };
+        const nxs = nx && src.slice(nx.bs, nx.be);
+        t = nx ? target(nxs, 0) : { kind: 'ph' };
         if (t?.kind === 'end') t = { kind: 'ph' };
-        if (t) t.p = Infinity; // 名字在下一个字面量里：逗号续表、COPY 后面的 FROM 都不往下追
+        if (t) { t.fs = nxs; t.fp = t.p; t.p = Infinity; } // 名字在下一个字面量里：逗号续表、COPY 后面的 FROM 都不往下追；像不像 SQL 在那个字面量里看
       }
       if (!t) continue;
       if (k === 4 && Number.isFinite(t.p) && !sticky(COPY_FROM, s, t.p)) continue; // 只认 COPY 表 FROM；COPY 表 TO 是导出
       if (t.kind === 'ph') { dyn(off, verb, lit); continue; }
+      if (!upper && !sqlLike(verb, t.fs ?? s, t.fs ? t.fp : t.p)) { amb(off, verb, t.name, lit); continue; }
       ref(off, verb, t.name, read);
       // FROM 后面逗号连着的几张表都算；TRUNCATE 可以一次清几张
       if (k !== 3 && k !== 6) continue;
@@ -234,13 +339,13 @@ function scanSplit(file, src, sp, known) {
     if (t?.kind === 'name') ref(off, read ? 'select' : 'copy', t.name, read);
     else dynamic.push({ file, line: sp.lineAt(off), verb: read ? 'select' : 'copy', head: flat(off, src.indexOf(')', off) + 1 || src.length) });
   }
-  return { refs, dynamic, creates };
+  return { refs, dynamic, creates, ambiguous };
 }
 
 // 架构稿 §2 的 extract：files 是 codeRoots 下去掉 ignore 的代码文件（入口列好），names 是建表定义里有的表名与视图名。
 export function extract(config, root, files, names) {
   const known = new Map(names.map((n) => [n.toLowerCase(), n]));
-  const res = { refs: [], dynamic: [], creates: [], unscanned: [] };
+  const res = { refs: [], dynamic: [], creates: [], ambiguous: [], unscanned: [] };
   for (const file of files) {
     const src = readFileSync(join(root, file), 'utf8');
     let sp;
@@ -251,7 +356,7 @@ export function extract(config, root, files, names) {
       continue;
     }
     const r = scanSplit(file, src, sp, known);
-    res.refs.push(...r.refs); res.dynamic.push(...r.dynamic); res.creates.push(...r.creates);
+    res.refs.push(...r.refs); res.dynamic.push(...r.dynamic); res.creates.push(...r.creates); res.ambiguous.push(...r.ambiguous);
   }
   return res;
 }

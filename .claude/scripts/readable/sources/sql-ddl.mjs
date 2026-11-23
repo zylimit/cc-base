@@ -10,7 +10,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { emptyFacts, excerpt, finalizeTables, finalizeViews, finalizeFunctions } from '../model.mjs';
 import { ParseFail, fail, lex, statements, fold, Cur, splitTop, skipExpr, unquote } from './sql-lex.mjs';
-import { nullsDistinct, refs, tableConstraint, checkIdents, nameInline, nameConstraint, checkText, dropConstraint } from './sql-constraints.mjs';
+import { nullsDistinct, refs, tableConstraint, checkIdents, nameInline, nameConstraint, checkText, dropConstraint, settleDrop,
+  dropColumnRefs, renameColumnRefs, conflict, orphan } from './sql-constraints.mjs';
+import { createIndex, dropIndex, findIndex, dropColumnIndexes, renameIndexColumns } from './sql-index.mjs';
 import { isCodeFile, ddlSegments } from './code-scan.mjs';
 
 // ---- 注释归属（契约 B 节「注释从哪来」）----
@@ -64,7 +66,7 @@ function parseColumn(c) {
   const name = c.ident(), ts = c.i;
   skipExpr(c, COL_STOP, false);
   if (c.i === ts) fail(`列 ${name} 没写类型`);
-  const col = { name, type: c.raw(ts, c.i), nullable: true, default: null, primaryKey: false, unique: false, references: null, check: null, inl: [] };
+  const col = { name, type: c.raw(ts, c.i), nullable: true, default: null, primaryKey: false, unique: false, references: null, check: null, generated: null, inl: [] };
   while (!c.done()) {
     const cs = c.i; let cn = null;
     if (c.eatW('CONSTRAINT')) cn = c.ident();
@@ -81,15 +83,22 @@ function parseColumn(c) {
     } else if (c.eatW('CHECK')) {
       const [a, b] = c.group('CHECK 后面该是括号'); c.eatW('NO', 'INHERIT');
       col.inl.push({ type: 'check', name: cn, raw: c.raw(cs, c.i), idents: checkIdents(c, a, b) });
+    } else if (c.isW('GENERATED')) {
+      // 标识列与生成列是列的属性，原文记进 generated（契约 B 节）；读不懂它从前会让整条 CREATE TABLE 进「未解析」，后面的 ALTER 全成了「改了不存在的表」。
+      const gs = c.i++;
+      // 标识列在 PostgreSQL 里自动不可空（如 orders.id bigint GENERATED ALWAYS AS IDENTITY），不写 NOT NULL 也一样；生成列（AS (表达式) STORED）不在此列，照原规则。
+      if (c.eatW('ALWAYS', 'AS', 'IDENTITY') || c.eatW('BY', 'DEFAULT', 'AS', 'IDENTITY')) { col.nullable = false; if (c.isOp('(')) c.group(); }
+      else if (c.eatW('ALWAYS', 'AS')) { c.group('GENERATED ALWAYS AS 后面该是括号里的表达式'); if (!c.eatW('STORED')) c.eatW('VIRTUAL'); }
+      else fail(`列 ${name} 的 GENERATED 后面「${c.word()}」读不懂`);
+      if (col.generated) fail(`列 ${name} 写了两个 GENERATED`);
+      col.generated = c.raw(gs, c.i);
     } else fail(`列 ${name} 里有读不懂的「${c.word()}」`);
   }
   col.check = checkText(col.inl);
   return col;
 }
 
-// ---- 各类语句 ----
-const conflict = (ctx, at, table, column, kind, reason) => ctx.facts.conflicts.push({ file: ctx.file, line: at.line, table, column, kind, reason, text: at.text });
-const orphan = (ctx, at, table) => ctx.facts.orphanAlters.push({ file: ctx.file, line: at.line, table, text: at.text });
+// ---- 各类语句（建索引、删索引在 sql-index.mjs）----
 const markPk = (cols, names) => names.forEach((n) => { const o = cols.find((x) => x.name === n); o.primaryKey = true; o.nullable = false; });
 
 function createTable(st, ctx, at) {
@@ -121,12 +130,15 @@ function createTable(st, ctx, at) {
     if (!ine) conflict(ctx, at, name, null, 'table-exists', `表 ${name} 已经建过，这条没写 IF NOT EXISTS；保留先前的定义`);
     return;
   }
-  const first = ctx.toks[st.a];
-  ctx.tables.set(name, { name, file: ctx.file, line: at.line, comment: joinText(above(ctx, st.gap, first.s, first.line)), columns: cols, constraints: cons, indexes: [], changes: [] });
+  // 表的注释：上方紧贴的 -- 行；上方没有时取「CREATE TABLE 名 (」那一行行尾、第一个定义项之前的 --（契约 B 节）。
+  const first = ctx.toks[st.a], open = ctx.toks[a - 1], body = ctx.toks[a < b ? a : b].s;
+  const comment = joinText(above(ctx, st.gap, first.s, first.line)) ?? joinText(within(ctx, open.e, body, (cm) => !cm.full && cm.line === open.endLine));
+  ctx.tables.set(name, { name, file: ctx.file, line: at.line, comment, columns: cols, constraints: cons, indexes: [], changes: [], maybeDropped: [] });
 }
 
 function addConstraint(c, t, ctx, at) {
   const x = c.i, con = tableConstraint(c), written = con.name;
+  settleDrop(t, written); // 「先 DROP … IF EXISTS x 再 ADD CONSTRAINT x」：这条语句在，前面那笔待定就销掉，合没合并另有清单
   const lack = con.columns.filter((n) => !t.columns.some((o) => o.name === n));
   if (lack.length) return conflict(ctx, at, t.name, lack.join(', '), 'column-missing', `约束里的列 ${lack.join('、')} 不存在，这条约束没合并`);
   // 写了名字的与已有的、同样写了名字的表级约束同名，记冲突（原有行为）。补上的名字不拿来比：前面的 DO 块可能在运行时删过它
@@ -136,7 +148,7 @@ function addConstraint(c, t, ctx, at) {
     if (t.constraints.some((o) => o.type === 'primary key') || t.columns.some((o) => o.primaryKey)) return conflict(ctx, at, t.name, null, 'primary-key-exists', '表上已经有主键，保留先前的');
     markPk(t.columns, con.columns);
   }
-  nameConstraint(con, t.name, columnNames(t.columns));
+  nameConstraint(con, t.name, columnNames(t.columns)); settleDrop(t, con.id);
   t.constraints.push({ ...con, file: ctx.file, line: at.line, comment: joinText(inline(ctx, x, c.j, at.next)) });
 }
 
@@ -150,7 +162,7 @@ function alterAction(c, t, ctx, at) {
     // 已有的列：有 IF NOT EXISTS 跳过、没有记冲突，都保留先前的定义与位置（契约 B 节「合并成现行结构」）。
     if (find(col.name) >= 0) { if (!ine) conflict(ctx, at, t.name, col.name, 'column-exists', `列 ${col.name} 已经有了，这条没写 IF NOT EXISTS；保留先前的定义`); return; }
     if (col.primaryKey && (t.columns.some((o) => o.primaryKey) || t.constraints.some((o) => o.type === 'primary key'))) return conflict(ctx, at, t.name, col.name, 'primary-key-exists', '表上已经有主键，这一列没合并');
-    nameInline(col, t.name, [...columnNames(t.columns), col.name]);
+    nameInline(col, t.name, [...columnNames(t.columns), col.name]); col.inl.forEach((o) => settleDrop(t, o.id));
     // 这一行行尾的 -- 归这一列；语句上方紧贴的 -- 不归列，这一列记进那条改动备注的 addedColumns（被跳过的上面已经返回了）。
     t.columns.push({ ...col, file: ctx.file, line: at.line, comment: joinText(inline(ctx, x, c.j, at.next)) });
     at.note?.addedColumns.push(col.name);
@@ -159,13 +171,15 @@ function alterAction(c, t, ctx, at) {
   if (c.eatW('DROP')) {
     if (c.eatW('CONSTRAINT')) {
       const ie = c.eatW('IF', 'EXISTS'), n = c.ident(); if (!c.eatW('CASCADE')) c.eatW('RESTRICT'); c.end();
-      if (!dropConstraint(t, n) && !ie) conflict(ctx, at, t.name, null, 'constraint-missing', `约束 ${n} 不存在，这一步没合并`);
+      if (dropConstraint(t, n)) return;
+      if (!ie) conflict(ctx, at, t.name, null, 'constraint-missing', `约束 ${n} 不存在，这一步没合并`);
+      else t.maybeDropped.push({ file: ctx.file, line: at.line, name: n }); // 之后再加了同名的会被 settleDrop 销掉
       return;
     }
     c.eatW('COLUMN');
     const ie = c.eatW('IF', 'EXISTS'), n = c.ident(); if (!c.eatW('CASCADE')) c.eatW('RESTRICT'); c.end();
     const k = find(n); if (k < 0) { if (!ie) missing(n); return; }
-    t.columns.splice(k, 1); return;
+    t.columns.splice(k, 1); dropColumnRefs(t, n); dropColumnIndexes(ctx, t, n); return;
   }
   if (c.eatW('VALIDATE', 'CONSTRAINT')) { c.ident(); c.end(); return; } // 只是校验存量行，不改结构
   if (c.eatW('ALTER')) {
@@ -191,7 +205,7 @@ function alterAction(c, t, ctx, at) {
     const from = c.ident(); c.needW('TO'); const to = c.ident(); c.end();
     const k = find(from); if (k < 0) return missing(from);
     if (find(to) >= 0) return conflict(ctx, at, t.name, to, 'column-exists', `改名的目标 ${to} 已经有了，这一步没合并`);
-    t.columns[k].name = to; return;
+    t.columns[k].name = to; renameColumnRefs(ctx.tables.values(), t, from, to); renameIndexColumns(t, from, to); return;
   }
   fail(`ALTER TABLE 的动作「${c.word()}」不在契约认的范围`);
 }
@@ -213,49 +227,18 @@ function alterTable(st, ctx, at, run) {
   });
 }
 
-function createIndex(st, ctx, at) {
-  const c = new Cur(ctx, st.a + 1, st.b);
-  const unique = c.eatW('UNIQUE'); c.needW('INDEX'); c.eatW('CONCURRENTLY');
-  const ine = c.eatW('IF', 'NOT', 'EXISTS'), name = c.isW('ON') ? null : c.qname().at(-1);
-  c.needW('ON'); c.eatW('ONLY');
-  const table = c.qname().at(-1), method = c.eatW('USING') ? c.ident() : null;
-  const [a, b] = c.group('ON 表名后面该是括号里的索引列'), os = c.i;
-  if (a === b) fail('索引的列是空的');
-  while (!c.done() && !c.isW('WHERE')) { if (c.isOp('(')) c.group(); else c.i++; }
-  const options = c.i > os ? c.raw(os, c.i) : null; let where = null;
-  if (c.eatW('WHERE')) { if (c.done()) fail('WHERE 后面是空的'); where = c.raw(c.i, c.j); }
-  const t = ctx.tables.get(table);
-  if (!t) return orphan(ctx, at, table);
-  if (name && ctx.indexNames.has(name)) { if (!ine) conflict(ctx, at, table, null, 'index-exists', `索引 ${name} 已经有了，保留先前的定义`); return; }
-  if (name) ctx.indexNames.add(name);
-  t.indexes.push({ name, unique, method, columns: c.raw(a, b), options, where, file: ctx.file, line: at.line });
-}
-
-const indexOwner = (ctx, n) => [...ctx.tables.values()].find((o) => o.indexes.some((x) => x.name === n));
-
-// DROP INDEX [CONCURRENTLY] [IF EXISTS] 名[, …]：按名字摘掉索引；找不到的，带 IF EXISTS 跳过，不带的记冲突。
-function dropIndex(st, ctx, at) {
-  const c = new Cur(ctx, st.a + 2, st.b);
-  c.eatW('CONCURRENTLY'); const ie = c.eatW('IF', 'EXISTS'), names = [c.qname().at(-1)];
-  while (c.isOp(',')) { c.i++; names.push(c.qname().at(-1)); }
-  if (!c.eatW('CASCADE')) c.eatW('RESTRICT'); c.end();
-  for (const n of names) {
-    const t = indexOwner(ctx, n);
-    if (t) { t.indexes = t.indexes.filter((x) => x.name !== n); ctx.indexNames.delete(n); }
-    else if (!ie) conflict(ctx, at, null, null, 'index-missing', `索引 ${n} 不存在，这一步没合并`);
-  }
-}
-
-// CREATE [OR REPLACE] VIEW / FUNCTION：只记名字、出处与原文（视图取整条定义，函数取到返回类型为止的签名、压成一行）。
-// 同名再建：带 OR REPLACE 换成后一份；不带的库里会报错，记冲突、保留先前的。函数按「名字 + 参数」认同一个，重载各记一条。
-function defineObject(st, ctx, at, kind, from, replace) {
-  const c = new Cur(ctx, st.a + from, st.b), name = c.qname().at(-1), first = ctx.toks[st.a];
+// CREATE [OR REPLACE] VIEW / CREATE MATERIALIZED VIEW / CREATE [OR REPLACE] FUNCTION：只记名字、出处与原文（视图取整条定义，函数取到返回类型为止的签名、压成一行）。
+// 同名再建：带 OR REPLACE 换成后一份；不带的库里会报错，记冲突、保留先前的（物化视图带 IF NOT EXISTS 的跳过）。函数按「名字 + 参数」认同一个，重载各记一条。
+function defineObject(st, ctx, at, kind, from, replace, materialized = false) {
+  const c = new Cur(ctx, st.a + from, st.b), ine = materialized && c.eatW('IF', 'NOT', 'EXISTS'), name = c.qname().at(-1), first = ctx.toks[st.a];
   let key = name, item;
   if (kind === 'VIEW') {
     if (c.isOp('(')) c.group();
+    if (materialized && c.eatW('USING')) c.ident();
     if (c.eatW('WITH')) c.group('WITH 后面该是括号里的选项');
+    if (materialized && c.eatW('TABLESPACE')) c.ident();
     c.needW('AS'); if (c.done()) fail('AS 后面是空的');
-    item = { name, file: ctx.file, line: at.line, sql: ctx.src.slice(first.s, ctx.toks[st.b - 1].e) };
+    item = { name, file: ctx.file, line: at.line, sql: ctx.src.slice(first.s, ctx.toks[st.b - 1].e), materialized };
   } else {
     const [a, b] = c.group('函数名后面该是括号里的参数');
     if (c.eatW('RETURNS')) { const rs = c.i; skipExpr(c, FN_STOP, false); if (c.i === rs) fail('RETURNS 后面没有类型'); }
@@ -264,6 +247,7 @@ function defineObject(st, ctx, at, kind, from, replace) {
     item = { name, args, file: ctx.file, line: at.line, signature: c.raw(st.a, c.i).replace(/\s+/g, ' ') };
   }
   const store = kind === 'VIEW' ? ctx.views : ctx.functions, what = kind === 'VIEW' ? '视图' : '函数';
+  if (store.has(key) && ine) return;
   if (store.has(key) && !replace) return conflict(ctx, at, null, null, kind === 'VIEW' ? 'view-exists' : 'function-exists', `${what} ${name} 已经建过，这条没写 OR REPLACE；保留先前的定义`);
   store.set(key, item);
 }
@@ -308,7 +292,7 @@ function doBlock(st, ctx, at) {
     if (verb === 'ALTER' && !m[2]) continue; // ALTER INDEX 不在契约列的五种里
     if (head < 0) head = m.index;
     if (m[2]) add(nameAt(scan, end));
-    else if (verb === 'DROP') { const n = nameAt(scan, end); add(n === DYNAMIC ? n : indexOwner(ctx, n)?.name); }
+    else if (verb === 'DROP') { const n = nameAt(scan, end); add(n === DYNAMIC ? n : findIndex(ctx, n)?.t.name); }
     else { const on = /\bON\b/gi; on.lastIndex = end; const o = on.exec(scan); add(o ? nameAt(scan, o.index + 2) : DYNAMIC); }
   }
   if (head < 0) return false;
@@ -335,6 +319,7 @@ function dispatch(st, ctx) {
   if (w0 === 'CREATE') {
     const k0 = w1 === 'OR' && w(2) === 'REPLACE' ? 3 : 1;
     if (w(k0) === 'VIEW' || w(k0) === 'FUNCTION') return defineObject(st, ctx, at, w(k0), k0 + 1, k0 === 3);
+    if (w1 === 'MATERIALIZED' && w(2) === 'VIEW') return defineObject(st, ctx, at, 'VIEW', 3, false, true); // 从前悄悄进了「略过」
     let k = 1; while (MODS.has(w(k))) k++;
     if (w(k) === 'TABLE') { if (k > 1) fail('CREATE 后面带 TEMP / UNLOGGED / FOREIGN 一类修饰，不在契约认的范围'); return createTable(st, ctx, at); }
     if (w1 === 'INDEX' || (w1 === 'UNIQUE' && w(2) === 'INDEX')) return createIndex(st, ctx, at);

@@ -113,5 +113,19 @@ for bad in 'ghost 组里点到不存在的表|{"version":1,"tableGroups":[{"id":
 done
 mk2 "$N" '{not json'; facts "$N" "$F"
 eq "map.json 不是合法 JSON：退出码 2" "2" "$RC"
+
+# 12 打死：散文进读写（日志里的 delete from）/ 大写也要看形状 / 三种写法切坏文件 / codeRoots 越界不拦
+S="$TMP/s"; mkdir -p "$S/docs/readable-src" "$S/sql" "$S/app"; : >"$S/Product-Spec.md"
+printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql"],"codeRoots":["app"],"ignore":[]}\n' >"$S/docs/readable-src/config.json"
+printf '%s\n' 'CREATE TABLE orders (id int);' 'CREATE TABLE refunds (id int);' >"$S/sql/s.sql"
+printf '%s\n' 'A = """Never update orders here; reads only."""' 'log.info("failed to delete from orders, will retry")' 'raise ValueError("cannot insert into orders twice")' 'D = "update orders set n = 1"' 'E = "delete from orders"' 'F = "select id from orders o where o.x = 1"' 'G = "DELETE FROM orders, x"' >"$S/app/p.py"
+printf '%s\n' "export const A = () => <p>Don't refresh</p>;" 'const q = "SELECT id FROM orders";' >"$S/app/j.tsx"
+printf '%s\n' "if (s) /'/.test(s);" 'const q = "DELETE FROM refunds WHERE id = 1";' >"$S/app/r.js"
+printf '%s\n' "x = f\"{v:'>10}\"" 'q = "UPDATE refunds SET a = 1"' >"$S/app/f.py"
+facts "$S" "$TMP/s.json"; F="$TMP/s.json"; RS=$RC
+eq "三句散文不进 usage、都进 ambiguous（update / delete / insert 各一）；像 SQL 的小写 update / delete / select 与大写 DELETE FROM orders, x 进 usage；p.py 没有运行时拼的表名" "0|orders/r/6 orders/w/4/update orders/w/5/delete orders/w/7/delete|1/update/orders 2/delete/orders 3/insert/orders|" "$RS|$(pf app/p.py)|$(jf "$F" "d.ambiguous.filter(e=>e.file=='app/p.py').map(e=>e.line+'/'+e.verb+'/'+e.table).join(' ')")|$(df app/p.py)"
+eq "JSX 文字里的撇号 / 右括号后的正则字面量 / f 串格式说明里的引号：三个文件都不进 unscanned，文件里后面的真 SQL 照认" "|orders/r/2|refunds/w/2/delete|refunds/w/2/update" "$(jf "$F" "d.unscanned.map(e=>e.file).join(' ')")|$(pf app/j.tsx)|$(pf app/r.js)|$(pf app/f.py)"
+sed -i 's|"codeRoots":\["app"\]|"codeRoots":["../outside"]|' "$S/docs/readable-src/config.json"; facts "$S" "$TMP/s3.json"
+eq "codeRoots 写 ../outside（越出根目录）：退出码 2，不去扫外面" "2" "$RC"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

@@ -14,6 +14,7 @@ eq() {  # eq <标题> <EXPECT> <GOT>
   if [ "$2" = "$3" ]; then PASS=$((PASS + 1)); printf '  [PASS] %s\n' "$1"; else FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n' "$1"; fi
   printf '         EXPECT %s\n         GOT    %s\n' "$2" "$3"
 }
+yn() { if "$@" >/dev/null 2>&1; then printf y; else printf n; fi; }
 run() { RC=0; env -u CLAUDE_PROJECT_DIR ${2:+"$2"} node "$ENGINE" build --root "$1" >"$TMP/out" 2>"$TMP/err" || RC=$?; }
 mk() {  # mk <root>：13 张互不引用的 big_NN、solo_one、orders、order_items（引用 orders），一个 DO 块点到 orders
   mkdir -p "$1/docs/readable-src" "$1/sql"; : >"$1/Product-Spec.md"
@@ -40,7 +41,7 @@ EXT=$(find "$A/docs/readable" -type f -exec sed 's#xmlns="http://www.w3.org/2000
 ABS=$(grep -rlF "$TMP" "$A/docs/readable" | wc -l | tr -d ' ')
 eq "产物里没有 http(s):// / <link / <script src，也没有夹具根目录的绝对路径" "0|0" "$EXT|$ABS"
 # 5 打死：提示没挂、挂错表、或每页都挂
-H=$(for t in orders order_items big_01 solo_one; do grep -q '这张表有' "$D/t-$t.html" 2>/dev/null && printf y || printf n; done)
+H=$(for t in orders order_items big_01 solo_one; do grep -q '要到库里运行时才生效' "$D/t-$t.html" 2>/dev/null && printf y || printf n; done)
 eq "被未合并 DO 块点到的 orders 页有「这张表有」提示；order_items / big_01 / solo_one 没有" "ynnn" "$H"
 # 6 打死：不切页 / 切出超过 12 张 / 切得不均 / 单表前缀不并进其它
 cnt() { grep -oE 't-big_[0-9]+\.html' "$1" 2>/dev/null | sort -u | wc -l | tr -d ' '; }
@@ -52,5 +53,12 @@ H0=$(tree "$A/docs/readable"); L0=$(ls -A "$A/docs"); echo 'CREATE TABLE zeta_ne
 run "$A" READABLE_FAIL_AT=render; R3=$RC; H1=$(tree "$A/docs/readable"); L1=$(ls -A "$A/docs")
 run "$A"; H2=$(tree "$A/docs/readable")
 eq "READABLE_FAIL_AT=render：退出码 3、docs/readable 总哈希不变、docs 下无多出来的临时目录；对照组不注入则哈希会变" "3|same|same|differs" "$R3|$([ "$H0" = "$H1" ] && echo same || echo changed)|$([ "$L0" = "$L1" ] && echo same || echo "$L1")|$([ "$H1" != "$H2" ] && echo differs || echo same)"
+
+# 7 打死：只差大小写的表名在不分大小写的文件系统上互相覆盖 / 文件名里留大写与中文
+X="$TMP/p3"; mk "$X"; { echo 'CREATE TABLE "Orders" (id int PRIMARY KEY);'; echo 'CREATE TABLE pm (id int PRIMARY KEY);'; echo 'ALTER TABLE pm DROP CONSTRAINT IF EXISTS gone_x;'; echo 'CREATE TABLE qm (id int PRIMARY KEY);'; echo 'ALTER TABLE qm DROP CONSTRAINT IF EXISTS c1;'; echo 'ALTER TABLE qm ADD CONSTRAINT c1 CHECK (id > 0);'; } >>"$X/sql/s.sql"; run "$X"; E="$X/docs/readable/db"
+OF=$(grep -lF 'data-anchor="table:Orders"' "$E"/t-*.html 2>/dev/null | xargs -r -n1 basename | tr '\n' ,)
+eq "\"Orders\" 与 orders 各一页（共 19 张表页）：文件名不同，Orders 的页不叫 t-orders.html；db/ 下所有文件名只含小写字母、数字、下划线、连字符与 ~，且不分大小写也无重名" "0|19|ok|||" "$RC|$(ls "$E" | grep -c '^t-')|$([ -n "$OF" ] && [ "$OF" != t-orders.html, ] && echo ok || echo "OF=$OF")|$(ls "$E" | grep -vE '^[a-z0-9_~-]+\.html$' | tr '\n' ,)|$(ls "$E" | tr 'A-Z' 'a-z' | sort | uniq -d | tr '\n' ,)|"
+# 8 打死：maybeDropped 的提示没挂 / 每页都挂 / 先删后加同名的也挂
+eq "按名字删约束没对上的 pm 页有「这张表有 1 条按名字删约束的语句没对上任何约束」并列出 gone_x；先删后加同名的 qm、无关的 order_items 没有" "y|y|n|n" "$(yn grep -qF '这张表有 1 条按名字删约束的语句没对上任何约束' "$E/t-pm.html")|$(yn grep -qF gone_x "$E/t-pm.html")|$(yn grep -qF '按名字删约束' "$E/t-qm.html")|$(yn grep -qF '按名字删约束' "$E/t-order_items.html")"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

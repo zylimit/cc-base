@@ -7,7 +7,7 @@
 // 写说明的是 AI，指纹若能由交进来的内容自带，过期的说明照抄一个新指纹就冒充现行了（架构稿 ADR-2）。
 // 切片的内容变了说明才算过期；绑整张表，加个索引全表的说明都标「待更新」，读者很快就学会无视它。侧车的读写在 notes-store.mjs。
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, posix } from 'node:path';
 import { canonical, cmp, docAnchor, fingerprint, groupAnchor, tableAnchor } from './model.mjs';
 import { ConfigError, MARKER_RE, anchorKind, fileFor, loadNotes, normalizeText, saveNotes } from './notes-store.mjs';
 import { redact, sensitiveKinds } from './sensitive.mjs';
@@ -42,7 +42,16 @@ export function loadConfig(root) {
   };
   const ddl = list('ddl', true), codeRoots = list('codeRoots', false), ignore = list('ignore', false);
   if (cfg.spec != null && (typeof cfg.spec !== 'string' || !cfg.spec)) bad('配置的 spec 该是字符串或 null');
+  // 生成器只读根目录以内的东西（契约 A 节）：绝对路径、用 .. 越出根目录的，退出码 2 并点名，不去读——join 会把它们拼到根目录外面去。
+  const outside = (rel) => {
+    const p = rel.replace(/\\/g, '/');
+    if (isAbsolute(rel) || p.startsWith('/') || /^[A-Za-z]:/.test(p)) return '是绝对路径';
+    const n = posix.normalize(p);
+    return n === '..' || n.startsWith('../') ? '用 .. 越出了根目录' : null;
+  };
   const must = (label, rel, kind) => {
+    const why = outside(rel);
+    if (why) bad(`配置里的 ${label} = ${rel} ${why}，生成器只读根目录以内的东西`);
     const abs = join(root, rel);
     if (!existsSync(abs)) bad(`配置里的路径不存在：${label} = ${rel}`);
     if (kind === 'file' ? !statSync(abs).isFile() : !statSync(abs).isDirectory()) bad(`配置里的 ${label} = ${rel} 该是${kind === 'file' ? '文件' : '目录'}`);

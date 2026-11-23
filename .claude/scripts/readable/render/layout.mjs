@@ -24,9 +24,10 @@ export const origin = (kind) => `<span class="o o-${kind === 'code' ? 'fact' : k
 const JUDGED = { proposed: '项目判断 · AI 提议', confirmed: '项目判断 · 人已确认' };
 export const judged = (status) => (JUDGED[status] ? `<span class="o o-judged">${JUDGED[status]}</span>` : '');
 
-// 文件名由名字推出，同一个名字永远落在同一个地址：只留 ASCII 字母、数字、下划线、连字符，其余写成「~码点」，
-// 免得带引号的表名里的斜杠、空格或中文在别的系统上解压出乱码或断链。
-export const fileSlug = (name) => String(name).replace(/[^A-Za-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
+// 文件名由名字推出，同一个名字永远落在同一个地址：只留小写字母、数字、下划线、连字符，其余写成「~码点」，
+// 免得带引号的表名里的斜杠、空格或中文在别的系统上解压出乱码或断链。大写字母也转码：带引号建的 "Orders" 与 orders
+// 在不分大小写的文件系统上（Windows、macOS 默认）会互相覆盖（契约 C 节「分组」）。
+export const fileSlug = (name) => String(name).replace(/[^a-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
 
 // 属性按给的顺序写出，值转义。核对器靠 data-anchor / data-k / data-note 从页面上把显示的东西读回来（契约 C 节「机器读得回来」）。
 export const attrs = (o) => (o ? Object.entries(o).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '');
