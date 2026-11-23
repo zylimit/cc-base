@@ -32,7 +32,8 @@ export function createIndex(st, ctx, at) {
   if (c.eatW('WHERE')) { if (c.done()) fail('WHERE 后面是空的'); where = c.raw(c.i, c.j); idents = [...idents, ...checkIdents(c, c.i, c.j)]; }
   const t = ctx.tables.get(table);
   if (!t) return orphan(ctx, at, table);
-  if (name && ctx.indexNames.has(name)) { if (!ine) conflict(ctx, at, table, null, 'index-exists', `索引 ${name} 已经有了，保留先前的定义`); return; }
+  // DO 块里守卫着的（at.guarded，sql-do-block.mjs）同 IF NOT EXISTS：已有同名的跳过、不记冲突。
+  if (name && ctx.indexNames.has(name)) { if (!ine && !at.guarded) conflict(ctx, at, table, null, 'index-exists', `索引 ${name} 已经有了，保留先前的定义`); return; }
   if (name) ctx.indexNames.add(name);
   // idents 是列与 WHERE 里点到的名字：删列时点到它的索引一并摘掉（库里部分索引的条件点到这一列也算依赖）。
   t.indexes.push({ name, id: name ?? autoName(c, table, a, b), unique, method, columns: c.raw(a, b), options, where, idents, file: ctx.file, line: at.line });

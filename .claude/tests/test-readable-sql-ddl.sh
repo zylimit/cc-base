@@ -182,5 +182,43 @@ R="$TMP/r6"; mkdir -p "$R/sql"; mkcfg "$R" '["sql/a.sql"]'
 echo 'CREATE TABLE gi (id bigint GENERATED ALWAYS AS IDENTITY, n int, sq int GENERATED ALWAYS AS (n * n) STORED);' >"$R/sql/a.sql"
 run build --facts-json --root "$R"; cp "$TMP/out" "$TMP/f6.json"; FACTS="$TMP/f6.json"
 eq "标识列没写主键也没写 NOT NULL：nullable 为 false（库自动设不可空）；同表的生成列 STORED nullable 为 true、普通列 true（打死标识列误报可空 / 生成列误报不可空）" "false|true|true|0" '[K("gi","id").nullable,K("gi","sq").nullable,K("gi","n").nullable,d.unparsed.length].join("|")'
+# 11 守卫式 DO 块（B 节「读得出的那一种要并进来」）：打死漏并（凡 DO 一律不并）与把推断当事实（动态 / 按条件删 / 循环里 / 守卫不查系统表的也并）
+R7="$TMP/r7"; mkdir -p "$R7/sql"; mkcfg "$R7" '["sql/d.sql"]'; S7="$R7/sql/d.sql"
+cat >"$S7" <<'EOF'
+CREATE TABLE orders (id int PRIMARY KEY);
+CREATE TABLE order_items (id int PRIMARY KEY, order_id int, ref text);
+CREATE TABLE shipments (id int, order_id int);
+CREATE TABLE legacy (id int, CONSTRAINT fk_old CHECK (id > 0));
+CREATE TABLE looped (id int);
+CREATE TABLE flagged (id int);
+EOF
+cat >"$TMP/blk" <<'EOF'
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_items_order') THEN
+        ALTER TABLE order_items ADD CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id);
+    END IF;
+END $$;
+EOF
+cat "$TMP/blk" "$TMP/blk" >>"$S7"
+cat >>"$S7" <<'EOF'
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ux_items_ref') THEN CREATE UNIQUE INDEX ux_items_ref ON order_items (ref); END IF; END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ship_order') THEN ALTER TABLE shipments ADD CONSTRAINT fk_ship_order FOREIGN KEY (order_id) REFERENCES orders(id); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_ship_id') THEN ALTER TABLE shipments ADD CONSTRAINT ck_ship_id CHECK (id > 0); END IF;
+  EXECUTE format('ALTER TABLE %I ADD COLUMN note text', 'shipments');
+END $$;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_old') THEN ALTER TABLE legacy DROP CONSTRAINT fk_old; END IF; END $$;
+DO $$ DECLARE r record; BEGIN FOR r IN SELECT 1 LOOP IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_loop') THEN ALTER TABLE looped ADD CONSTRAINT ck_loop CHECK (id > 0); END IF; END LOOP; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_flags WHERE name = 'x') THEN ALTER TABLE flagged ADD CONSTRAINT ck_flag CHECK (id > 0); END IF; END $$;
+EOF
+run build --facts-json --root "$R7"; cp "$TMP/out" "$TMP/f7.json"; FACTS="$TMP/f7.json"; L1=$(grep -n -m1 'ALTER TABLE order_items' "$S7" | cut -d: -f1); LI=$(grep -n 'CREATE UNIQUE INDEX' "$S7" | cut -d: -f1)
+chk "$RC" "r7 夹具能 build --facts-json（红在这条则下面各条都是连带）" "rc=0" "rc=$RC $(head -c 200 "$TMP/err")"
+eq "守卫式静态外键并进 order_items：名字 fk_items_order、类型 foreign key、line 是 ALTER 那一行（先出现的那份）（打死凡 DO 块一律不并）" "foreign key|$L1" 'const c=T("order_items").constraints.find(x=>x.name==="fk_items_order"); c.type+"|"+c.line'
+eq "同一守卫块连写两遍：约束仍一条、定义冲突 0（打死不按已有同名就跳过）" "1|0" 'T("order_items").constraints.filter(x=>x.name==="fk_items_order").length+"|"+d.conflicts.length'
+eq "守卫里 CREATE UNIQUE INDEX：order_items 多出 ux_items_ref，唯一、line 是该语句所在行" "1|true|$LI" 'const i=T("order_items").indexes.filter(x=>x.name==="ux_items_ref"); i.length+"|"+(i[0]&&i[0].unique)+"|"+(i[0]&&i[0].line)'
+eq "整块并完的不进 unfolded：外键块、索引块都不在清单里，清单只剩四个没并完的块（打死并了不拿掉 / 全并也留）" "4|false" 'd.unfolded.length+"|"+(J(d.unfolded).includes("fk_items_order")||J(d.unfolded).includes("ux_items_ref"))'
+eq "一块两守卫加一句 EXECUTE：两条约束都并进 shipments，动态加的列 note 没并（打死有动态语句就整块不并）" "ck_ship_id,fk_ship_order|id,order_id" 'T("shipments").constraints.map(x=>x.name).sort().join()+"|"+T("shipments").columns.map(c=>c.name).join()'
+eq "同一个块仍在 unfolded 里、tables 恰为 [\"动态表名\"]，不含 shipments（打死并了一部分就把块拿掉 / tables 没收窄）" "1|[\"动态表名\"]" 'const u=d.unfolded.filter(x=>x.tables.includes("动态表名")); u.length+"|"+J(u[0]&&u[0].tables)'
+eq "不该并的三种：按条件删（fk_old 还在）、循环里（looped 没 ck_loop）、守卫查的不是系统表（flagged 没 ck_flag），三块都仍在 unfolded（打死把推断当事实）" "true|0|0|true|true|true" '[T("legacy").constraints.some(x=>x.name==="fk_old"),T("looped").constraints.length,T("flagged").constraints.length,...["legacy","looped","flagged"].map(n=>d.unfolded.some(u=>u.tables.includes(n)))].join("|")'
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

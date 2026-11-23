@@ -9,10 +9,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { emptyFacts, excerpt, finalizeTables, finalizeViews, finalizeFunctions } from '../model.mjs';
-import { ParseFail, fail, lex, statements, fold, Cur, splitTop, skipExpr, unquote } from './sql-lex.mjs';
+import { ParseFail, fail, lex, statements, Cur, splitTop, skipExpr, unquote } from './sql-lex.mjs';
 import { nullsDistinct, refs, tableConstraint, checkIdents, nameInline, nameConstraint, checkText, dropConstraint, settleDrop,
   dropColumnRefs, renameColumnRefs, conflict, orphan } from './sql-constraints.mjs';
-import { createIndex, dropIndex, findIndex, dropColumnIndexes, renameIndexColumns } from './sql-index.mjs';
+import { createIndex, dropIndex, dropColumnIndexes, renameIndexColumns } from './sql-index.mjs';
+import { doBlock } from './sql-do-block.mjs';
 import { isCodeFile, ddlSegments } from './code-scan.mjs';
 
 // ---- 注释归属（契约 B 节「注释从哪来」）----
@@ -141,6 +142,12 @@ function addConstraint(c, t, ctx, at) {
   settleDrop(t, written); // 「先 DROP … IF EXISTS x 再 ADD CONSTRAINT x」：这条语句在，前面那笔待定就销掉，合没合并另有清单
   const lack = con.columns.filter((n) => !t.columns.some((o) => o.name === n));
   if (lack.length) return conflict(ctx, at, t.name, lack.join(', '), 'column-missing', `约束里的列 ${lack.join('、')} 不存在，这条约束没合并`);
+  // DO 块里守卫着的（at.guarded，sql-do-block.mjs）照守卫的意思办：本表已有同名的约束就跳过、不记冲突——守卫就是按名字查有没有。
+  // 表级的与列上的都比，按内部名 id 比（写了名字的 id 就是它）：建表时 order_id 上已写 CONSTRAINT fk_items_order 的，守卫块再加一遍也只留一条。
+  if (at.guarded) {
+    nameConstraint(con, t.name, columnNames(t.columns));
+    if (t.constraints.some((o) => o.id === con.id) || t.columns.some((o) => o.inl.some((x) => x.id === con.id))) return;
+  }
   // 写了名字的与已有的、同样写了名字的表级约束同名，记冲突（原有行为）。补上的名字不拿来比：前面的 DO 块可能在运行时删过它
   // （真数据里有 DO 块先删掉某列没写名字的 CHECK，再在后面用补出来的那个名字重加一条更宽的），静态看撞名、库里不撞；照旧两条都显示，由「未合并」的提示兜。
   if (written && t.constraints.some((o) => o.name === written)) return conflict(ctx, at, t.name, null, 'constraint-exists', `约束 ${written} 已经有了，保留先前的定义`);
@@ -159,8 +166,8 @@ function alterAction(c, t, ctx, at) {
     if (TC_START.has(c.peek()?.up)) return addConstraint(c, t, ctx, at);
     c.eatW('COLUMN');
     const ine = c.eatW('IF', 'NOT', 'EXISTS'), x = c.i, col = parseColumn(c);
-    // 已有的列：有 IF NOT EXISTS 跳过、没有记冲突，都保留先前的定义与位置（契约 B 节「合并成现行结构」）。
-    if (find(col.name) >= 0) { if (!ine) conflict(ctx, at, t.name, col.name, 'column-exists', `列 ${col.name} 已经有了，这条没写 IF NOT EXISTS；保留先前的定义`); return; }
+    // 已有的列：有 IF NOT EXISTS（或在 DO 块的守卫里）跳过、没有记冲突，都保留先前的定义与位置（契约 B 节「合并成现行结构」）。
+    if (find(col.name) >= 0) { if (!ine && !at.guarded) conflict(ctx, at, t.name, col.name, 'column-exists', `列 ${col.name} 已经有了，这条没写 IF NOT EXISTS；保留先前的定义`); return; }
     if (col.primaryKey && (t.columns.some((o) => o.primaryKey) || t.constraints.some((o) => o.type === 'primary key'))) return conflict(ctx, at, t.name, col.name, 'primary-key-exists', '表上已经有主键，这一列没合并');
     nameInline(col, t.name, [...columnNames(t.columns), col.name]); col.inl.forEach((o) => settleDrop(t, o.id));
     // 这一行行尾的 -- 归这一列；语句上方紧贴的 -- 不归列，这一列记进那条改动备注的 addedColumns（被跳过的上面已经返回了）。
@@ -268,37 +275,9 @@ function commentOn(st, ctx, at) {
   return true;
 }
 
-// DO 块是运行时才执行的过程代码，静态合并不了。块里出现契约列的五种碰表结构的语句（ALTER / CREATE / DROP TABLE、CREATE / DROP INDEX）
-// 才进「未合并的动态定义」，带上点到的表名，页面好在那几张表上挂提示；只有 CREATE ROLE 一类的块不是表结构，照旧计进「略过」（契约 B 节）。
-// 动态 SQL 写在字符串里（EXECUTE format('ALTER TABLE %I …')），所以扫块的正文原文，只把 -- 注释抹成空格。
-const DYNAMIC = '动态表名';
-const DO_HIT = /\b(ALTER|CREATE|DROP)\s+(?:(TABLE)|(?:UNIQUE\s+)?INDEX)\b/gi;
-const DO_NAME = /\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?((?:"(?:[^"]|"")*"|[^\s"(),;'])+)/iy;
-function nameAt(s, from) { // 名字是 %I / %s / $1 / 字符串拼接一类占位的记成「动态表名」；模式前缀丢弃
-  DO_NAME.lastIndex = from; const m = DO_NAME.exec(s);
-  if (!m || /[%$|]/.test(m[1].replace(/"(?:[^"]|"")*"/g, ''))) return DYNAMIC;
-  const last = m[1].match(/(?:"(?:[^"]|"")*"|[^."]+)$/)?.[0] ?? '';
-  return (last.startsWith('"') ? last.slice(1, -1).replace(/""/g, '"') : fold(last)) || DYNAMIC;
-}
-function doBlock(st, ctx, at) {
-  const q = ctx.toks.slice(st.a + 1, st.b).find((t) => t.k === 'dollar' || t.k === 'str');
-  const body = q ? unquote(q, new Cur(ctx, st.a, st.b)) : ctx.src.slice(ctx.toks[st.a].e, ctx.toks[st.b - 1].e);
-  let scan = body;
-  for (const cm of lex(body).comments) scan = scan.slice(0, cm.s) + ' '.repeat(cm.e - cm.s) + scan.slice(cm.e);
-  const tables = [], add = (n) => { if (n && !tables.includes(n)) tables.push(n); };
-  let head = -1;
-  for (const m of scan.matchAll(DO_HIT)) {
-    const verb = m[1].toUpperCase(), end = m.index + m[0].length;
-    if (verb === 'ALTER' && !m[2]) continue; // ALTER INDEX 不在契约列的五种里
-    if (head < 0) head = m.index;
-    if (m[2]) add(nameAt(scan, end));
-    else if (verb === 'DROP') { const n = nameAt(scan, end); add(n === DYNAMIC ? n : findIndex(ctx, n)?.t.name); }
-    else { const on = /\bON\b/gi; on.lastIndex = end; const o = on.exec(scan); add(o ? nameAt(scan, o.index + 2) : DYNAMIC); }
-  }
-  if (head < 0) return false;
-  ctx.facts.unfolded.push({ file: ctx.file, line: at.line, head: excerpt(body.slice(head)), tables });
-  return true;
-}
+// DO 块（守卫着的静态语句并进来、其余记进「未合并」）在 sql-do-block.mjs；它认出的语句交回这里，跟顶层语句走同一条路。
+// 改动备注只在同一个守卫里往下接（那边每进一个守卫把 ctx.run 清掉），同 dispatch。
+const guarded = (st, ctx, at) => { const run = ctx.run; ctx.run = null; return ctx.toks[st.a].up === 'ALTER' ? alterTable(st, ctx, at, run) : createIndex(st, ctx, at); };
 
 // 语句开头认不得、里面却有 CREATE TABLE / ALTER TABLE 的词（比如前面粘着一行没分号的 psql 命令）：照「未解析」报，免得一整张表被当成别的语句略过。
 function hidesTable(st, ctx) {
@@ -325,7 +304,7 @@ function dispatch(st, ctx) {
     if (w1 === 'INDEX' || (w1 === 'UNIQUE' && w(2) === 'INDEX')) return createIndex(st, ctx, at);
   } else if (w0 === 'DROP' && w1 === 'INDEX') return dropIndex(st, ctx, at);
   else if (w0 === 'COMMENT' && w1 === 'ON') { if (commentOn(st, ctx, at)) return; }
-  else if (w0 === 'DO') { if (doBlock(st, ctx, at)) return; }
+  else if (w0 === 'DO') { if (doBlock(st, ctx, at, guarded)) return; }
   if ((w0 === 'DROP' && w1 === 'TABLE') || (w0 === 'ALTER' && w1 === 'INDEX')) fail(`${w0} ${w1} 会改表结构，但不在契约认的语句里，没合并`);
   if (hidesTable(st, ctx)) fail('语句开头认不得，里面却有 CREATE TABLE / ALTER TABLE');
   const key = ['CREATE', 'DROP', 'ALTER'].includes(w0) ? `${w0} ${w1}` : w0 || '（非单词开头）';

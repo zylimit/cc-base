@@ -51,6 +51,18 @@
 
 **合并成现行结构**：按文件顺序、文件内按出现顺序执行。`ADD COLUMN IF NOT EXISTS` 遇到已有的列则跳过，保留先前的定义；没有 `IF NOT EXISTS` 而列已存在，记进「定义冲突」清单，仍保留先前的定义。列的顺序是首次出现的顺序。
 
+**`DO` 块里读得出的那一种要并进来**：PostgreSQL 的 `ADD CONSTRAINT` 没有 `IF NOT EXISTS`，所以常见的写法是在 `DO` 块里先查系统表、没有才加——
+
+```sql
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_items_order') THEN
+        ALTER TABLE order_items ADD CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id);
+    END IF;
+END $$;
+```
+
+这种守卫只是为了重复执行不报错，执行完的结果是确定的：那条约束在。所以块体里的语句，凡是套在 `IF NOT EXISTS ( 查系统表 ) THEN … END IF;` 这一层守卫里、自身是完整的静态 `ALTER TABLE …` 或 `CREATE [UNIQUE] INDEX …`（不经 `EXECUTE`、不带 `%I` 这类占位、不在循环里）的，照「已有同名的就跳过」并进现行结构，出处写它在文件里的那一行。守卫查的系统表认 `pg_constraint`、`pg_indexes`、`pg_class`、`information_schema` 下的几张。一个守卫里静态语句不止一条时按顺序逐条并，先 `DROP CONSTRAINT IF EXISTS` 再 `ADD` 的写法也在内。不认的形状照旧进「未合并」：条件不是单独一个 `NOT EXISTS ( … )` 的（前面还 `AND` 着别的判断）、带 `ELSE` / `ELSIF` 的、判断套判断的、块外层带 `EXCEPTION` 的（出了错会被吞掉，执行完那条在不在说不准）、守卫的子查询里连了别的表的。一个块里的语句全并进来了，这个块就不进「未合并」；只并了一部分的，块照旧进「未合并」，`head` 取第一条没并的语句，`tables` 只列没并的那些语句点到的表。下游一个项目的建表文件里 102 条 `ADD CONSTRAINT` 有 87 条是这么写的，其中 47 条外键——不并，整组表之间的关系图就是空的（2026-11-23 实数）。
+
 **读不出的要说**：
 - `DO` 块（`DO $$ … $$`）里出现 `ALTER TABLE`、`CREATE TABLE`、`CREATE INDEX`、`DROP TABLE`、`DROP INDEX` 的，不合并，记进「未合并的动态定义」：文件、起始行、块内首条相关语句的前 80 个字符、块里点到的表名（`ALTER TABLE` / `ON` 后面的名字；名字是 `%I` 这类占位的记成「动态表名」）。块里只有别的东西（比如 `CREATE ROLE`）的不记——那不是表结构。一张表被某个未合并的块点到，就说明它在库里的约束可能与文档不一致：conflation 有一处块在运行时删掉某列的 CHECK 再重加一条更宽的，静态看那张表会同时有新旧两条。
 - 形状是 `CREATE TABLE` 却解析不了的，记进「未解析的语句」：文件、行、前 80 个字符。不猜。
