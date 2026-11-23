@@ -172,7 +172,10 @@ function layers(nodes) {
 
 // 方框可以另给 label（显示的名字，不给就显示 name；name 只当键用，分组关系图里是组 id）与 counts（{被引用的 name: 条数}，写在那条线上）；
 // max 是这张图最多几个方框，默认同组页的 12（分组关系图是 20，契约 F 节）。
-export function diagram(nodes, label, max = DIAGRAM_MAX) {
+// rowGap 给了就用它当行距、底下不留绕线的半格：没有连线的图（需求规格的章节地图）用不着给连线留的大空隙。
+// 不给就照旧——数据库设计的各张图不给，加这个参数之前出的页面与之后逐字节相同。
+export function diagram(nodes, label, max = DIAGRAM_MAX, { rowGap } = {}) {
+  const rowStep = rowGap ?? GAP_Y;
   if (nodes.length > max) throw new Error(`关系图最多 ${max} 个方框，这里给了 ${nodes.length} 个`);
   const box = new Map(nodes.map((n) => {
     const w = Math.ceil(Math.max(120, textW(n.label ?? n.name, FONT + 1), ...n.lines.map((l) => textW(l, FONT))) + PAD * 2);
@@ -206,9 +209,9 @@ export function diagram(nodes, label, max = DIAGRAM_MAX) {
   rows.forEach((r, ri) => {
     let x = M + left + Math.round((W - M * 2 - left - rowW(r)) / 2);
     for (const b of r) { Object.assign(b, { x, y }); x += b.w + GAP_X; }
-    top[ri] = y; bot[ri] = y + Math.max(...r.map((b) => b.h)); y = bot[ri] + GAP_Y;
+    top[ri] = y; bot[ri] = y + Math.max(...r.map((b) => b.h)); y = bot[ri] + rowStep;
   });
-  const H = bot[rows.length - 1] + M + GAP_Y / 2; // 底下留半格，给同一行之间绕下去的连线
+  const H = bot[rows.length - 1] + M + (rowGap == null ? GAP_Y / 2 : 0); // 底下留半格，给同一行之间绕下去的连线
   // 连线两端：父表在上就从子表顶边连到父表底边；父表在下（成环）反过来；同一行从两个底边往下绕。
   // 同一条边上的多个端点按对端的横向位置均匀摊开，免得箭头叠成一个。
   const ends = new Map(), edges = [];

@@ -127,20 +127,23 @@ export function textOf(node, skip = () => false) {
 // 核对连它们一起比（D 节）；不止一处的用空格连起来，比的时候自然对不上。
 // 结构（D 节 spec-structure）也从页面上读：tag 是这一块的标签（标题的级数看它），up 是包着它的最近一个带 data-block 的元素读出的那一块——
 // 列表子项挂在谁下面按元素的嵌套读，不看出页面的代码写的任何父项属性。
-// 只认 data-block / data-anchor / data-k 与表格的标签，不认样式类名。
+// 只认 data-block / data-anchor / data-k / data-fig 与表格的标签，不认样式类名。
+// 图（data-fig 的元素，步骤图与流程链图）整个跳过：嵌在某一块里面的图（子列表的步骤图、句子后面的流程链），它的字不算进那一块，
+// 它的序号（data-k="marker"）也不当那一块的序号；图里的字另由 specFigs 读、核对器另比（D 节 spec-figure）。
+const isFig = (n) => n.attrs['data-fig'] !== undefined;
 export function specBlocks(root) {
   const isBlock = (n) => n.attrs['data-block'] !== undefined, isMark = (n) => n.attrs['data-k'] === 'marker', isInfo = (n) => n.attrs['data-k'] === 'info';
-  const own = (n, pred, out = []) => { for (const c of n.children) { if (!c.tag || isBlock(c)) continue; if (pred(c)) out.push(c); else own(c, pred, out); } return out; };
+  const own = (n, pred, out = []) => { for (const c of n.children) { if (!c.tag || isBlock(c) || isFig(c)) continue; if (pred(c)) out.push(c); else own(c, pred, out); } return out; };
   const out = [];
   const walk = (n, up) => {
     for (const c of n.children) {
-      if (!c.tag) continue;
+      if (!c.tag || isFig(c)) continue;
       if (!isBlock(c)) { walk(c, up); continue; }
-      const b = { n: c.attrs['data-block'], anchor: c.attrs['data-anchor'] ?? null, tag: c.tag, up, text: textOf(c, (x) => isBlock(x) || isMark(x) || isInfo(x)) };
+      const b = { n: c.attrs['data-block'], anchor: c.attrs['data-anchor'] ?? null, tag: c.tag, up, text: textOf(c, (x) => isBlock(x) || isMark(x) || isInfo(x) || isFig(x)) };
       const mk = own(c, isMark), inf = own(c, isInfo);
       if (mk.length) b.marker = mk.map((m) => textOf(m)).join(' ');
       if (inf.length) b.info = inf.map((m) => textOf(m)).join(' ');
-      if (c.tag === 'tr') b.cells = c.children.filter((x) => x.tag === 'td' || x.tag === 'th').map((x) => textOf(x, isBlock));
+      if (c.tag === 'tr') b.cells = c.children.filter((x) => x.tag === 'td' || x.tag === 'th').map((x) => textOf(x, (y) => isBlock(y) || isFig(y)));
       out.push(b);
       walk(c, b);
     }
@@ -150,7 +153,13 @@ export function specBlocks(root) {
 }
 
 // 引用为打印另备的那一份（第二期契约 C、D 节）：带 data-print-of 的元素，of 是它对着的那块屏幕上的 data-block。
-export const specPrints = (root) => findAll(root, (n) => n.attrs['data-print-of'] !== undefined).map((n) => ({ of: n.attrs['data-print-of'], text: textOf(n) }));
+export const specPrints = (root) => findAll(root, (n) => n.attrs['data-print-of'] !== undefined).map((n) => ({ of: n.attrs['data-print-of'], text: textOf(n, isFig) }));
+
+// 页面上的图（第二期契约 C、D 节「图不许编字」）：带 data-fig 的元素，of 是它点名的那几块的全局序号（逗号隔开的原文）；
+// 方框是图里的每一个 SVG <text>，读它显示的字，序号（data-k="marker"）除外。图的说明（<figcaption>、<title>）不是方框。
+export const specFigs = (root) => findAll(root, isFig).map((n) => ({
+  of: n.attrs['data-fig'], boxes: findAll(n, (x) => x.tag === 'text').map((t) => textOf(t, (x) => x.attrs['data-k'] === 'marker')),
+}));
 
 // 来源里一段文字去掉行内记号之后显示出来的样子（第二期契约 D 节）。出页面那边也有一份同样的规矩（render/spec-inline.mjs），
 // 禁边不许这里借它的，照规矩自己写一份，两份对同样的输入出同样的纯文字：

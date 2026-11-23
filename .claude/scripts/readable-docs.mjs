@@ -41,7 +41,7 @@ const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现�
 const CODE_EXT = /\.(py|ts|tsx)$/;
 // 契约 A 节：ddl 依次找这三类，同一目录按文件名排序；三类都收、按这个先后排、去重——
 // 只取先找到的一类会漏掉排在后面的迁移文件，漏表是这一层最贵的错；多收的在配置里一眼看得见、可删。
-// sql/ 与 migrations/ 在任意深度都认：lutetia 的建表文件在 lutetia/sql/001…009_*.sql，只找根目录下的 sql/ 一张表都找不到。
+// sql/ 与 migrations/ 在任意深度都认：有的项目的建表文件在 <项目名>/sql/ 下按编号排（001_*.sql、002_*.sql…），只找根目录下的 sql/ 一张表都找不到。
 const DDL_PATTERNS = [
   ['**/schema.sql', (f) => f.split('/').pop() === 'schema.sql'],
   ['**/sql/*.sql', (f) => /(?:^|\/)sql\/[^/]+\.sql$/.test(f)],

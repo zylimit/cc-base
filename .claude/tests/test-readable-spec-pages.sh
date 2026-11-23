@@ -125,7 +125,7 @@ PB=$(PG "$A" "$N_B"); PH=$(PG "$A" "$N_H")
 eq "含「项乙」的概览章没有有序列表：该页无 <svg；步骤图所在页有 <svg 且两页不同" "0|y|y" \
   "$(grep -c '<svg' "$PB" || true)|$(grep -q '<svg' "$PH" && echo y || echo n)|$([ "$PB" != "$PH" ] && echo y || echo n)"
 # 9c 打死：有序列表的序号丢了 / 改了编号
-PM=$(PG "$A" "$N_2"); MK=$(tr '\n' ' ' <"$PM" | grep -oE 'data-k="marker"[^>]*>[[:space:]]*[0-9]+[.)]' | grep -oE '[0-9]+[.)]$' | tr '\n' ,)
+PM=$(PG "$A" "$N_2"); MK=$(tr '\n' ' ' <"$PM" | grep -oE 'data-block="[0-9]+"[^>]*>(<[^>]*>)*[[:space:]]*<[^>]*data-k="marker"[^>]*>[[:space:]]*[0-9]+[.)]' | grep -oE '[0-9]+[.)]$' | tr '\n' ,)
 R="$TMP/r9c"; cpy "$A" "$R"; mt "$R" mark "$N_2" 2. 9.; ck "$R"
 eq "步骤页上三项带 data-k=\"marker\" 显示原文序号 1. 2. 3.；把第二项序号手改成 9. → 退出码 1、spec-mismatch 恰 1 条（打死页面只画圆点 / 序号不进核对）" "1.,2.,3.,|1|spec-mismatch|1" \
   "$MK|$RC|$(sk)|$(jf "j.problems.filter(p=>p.kind=='spec-mismatch').length")"

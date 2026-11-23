@@ -13,7 +13,7 @@
 // 与引用为打印另备的那一份（缺了、多了、字不同都报 spec-mismatch）。字一个没少、层次却没了，或打印出来的与屏幕上的不同，都是给人看错了。
 import { cmp } from './model.mjs';
 import { redact } from './sensitive.mjs';
-import { squash, specBlocks, specPrints, plainMarks } from './check-read.mjs';
+import { squash, specBlocks, specPrints, specFigs, plainMarks } from './check-read.mjs';
 
 const SPEC_PAGE = /^spec\/s-(\d+)\.html$/; // 契约 C 节：文件名只用序号
 const KIND = { heading: '标题', list: '列表项', table: '表格行', quote: '引用', fence: '围栏', hr: '分隔线', paragraph: '段落' };
@@ -106,13 +106,32 @@ function prints(S, P, matched, all, out) {
   }
 }
 
+// 图里的字取自来源（D 节 spec-figure）：每张图点名的块要在来源里，每个方框的字（去掉末尾表示截断的「…」，压空白、过隐去）
+// 必须是点名的那几块在来源里的文字（去记号、压空白、隐去之后，就是上面配对用的那一份）里的一段。读回各块时图已整个跳过，
+// 所以只改了图里的字，报的是这一项、不是 spec-mismatch。方框与点名的块一样多（步骤图一步一块）时，点到对应的那一块的行。
+function figures(S, all, out) {
+  for (const f of all) {
+    const ns = f.of.split(',').map((x) => x.trim()), idx = ns.map((x) => (/^\d{1,9}$/.test(x) ? Number(x) - 1 : -1));
+    const bad = ns.filter((_, k) => idx[k] < 0 || idx[k] >= S.length);
+    if (!f.of.trim() || bad.length) { out.push({ kind: 'spec-figure', where: f.where, detail: `图点名的第 ${bad.join('、') || '（空）'} 块来源里没有：来源改了没重出，或者有人手改了页面` }); continue; }
+    f.boxes.forEach((box, k) => {
+      let t = squash(box);
+      if (t.endsWith('…')) t = t.slice(0, -1);
+      t = specNorm(t);
+      if (idx.some((i) => S[i].text.includes(t))) return;
+      const at = (f.boxes.length === idx.length ? [idx[k]] : idx).map((i) => S[i].at).join('、');
+      out.push({ kind: 'spec-figure', where: f.where, detail: `图里的方框「${clip(t)}」不是它点名的${at}里的字：图里只许出现来源里的字` });
+    });
+  }
+}
+
 // rd：核对器的目录读取器（check.mjs 的 reader）；spec：重新切的块，没配需求规格的是 null；label：给人看的位置前缀。
 export function specFacts(rd, spec, label) {
   const out = [];
   if (!spec) return { problems: out, read: 0 };
   const num = (rel) => { const m = SPEC_PAGE.exec(rel); return m ? Number(m[1]) : Infinity; };
   const rels = rd.html.filter((r) => r.startsWith('spec/')).sort((a, b) => num(a) - num(b) || cmp(a, b));
-  const seen = new Map(), P = [], at = new Map(), printAll = [];
+  const seen = new Map(), P = [], at = new Map(), printAll = [], figAll = [];
   let read = 0;
   for (const rel of rels) {
     const tree = rd.tree(rel);
@@ -127,6 +146,7 @@ export function specFacts(rd, spec, label) {
       P.push({ where, n: b.n, tag: b.tag, level: h ? Number(h[1]) : null, up: b.up, text, cells, marker, info, key: specKey(text, cells, marker, info) });
     }
     for (const x of specPrints(tree)) printAll.push({ of: x.of, where: `${label}${rel} · 打印用的那一份（data-print-of="${x.of}"）`, text: specNorm(x.text) });
+    for (const x of specFigs(tree)) figAll.push({ ...x, where: `${label}${rel} · 图（data-fig="${x.of}"）` });
   }
   // 包着它的那一块换成 P 里的下标；那一块在页面上是重复的（没进 P）记 -1。
   for (const p of P) p.up = p.up == null ? null : (at.get(p.up) ?? -1);
@@ -167,5 +187,6 @@ export function specFacts(rd, spec, label) {
   }
   structure(S, P, matched, out);
   prints(S, P, matched, printAll, out);
+  figures(S, figAll, out);
   return { problems: out, read };
 }

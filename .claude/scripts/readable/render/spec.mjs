@@ -6,8 +6,9 @@
 // 文件名只用序号（spec/s-<两位序号>.html）：中文章名转码之后是一长串「~529f~80fd」，谁也看不懂，贴进聊天工具里也难看（契约 C 节）。
 // 块怎么排在 spec-blocks.mjs，行内记号与分句在 spec-inline.mjs，隐去在 spec-scrub.mjs。
 import { esc, code, origin, page, table, diagram, DIAGRAM_MAX } from './layout.mjs';
-import { renderBlocks, headId, sameTable, cut, stepFigures, SPEC_CSS } from './spec-blocks.mjs';
-import { plain } from './spec-inline.mjs';
+import { renderBlocks, sameTable, stepFigures, SPEC_CSS } from './spec-blocks.mjs';
+import { flat, cut, blockIds, chainCount } from './spec-figures.mjs';
+import { leadTerm } from './spec-inline.mjs';
 import { scrubSpec } from './spec-scrub.mjs';
 import { REDACTED } from '../sensitive.mjs';
 
@@ -15,8 +16,8 @@ export const SPEC_DOC = '需求规格';
 const LABEL_MAX = 24; // 章节地图方框里的章名最多 24 个字，全名在章节清单里
 const PRE_NAME = '开头'; // 没有一级标题时 s-00 的名字
 const CRUMB = ['文档首页', 'index.html'];
-
-const flat = (s) => plain(s).replace(/\s+/g, ' ').trim();
+const ITEM_MIN = 5, ITEM_CUT = 28; // 契约 C 节「本章条目」：顶层 5 条以上开头是粗体词才列；超过 28 个字的截断加「…」
+const MAP_ROW_GAP = 16; // 章节地图没有连线，行与行之间只留普通的间距（关系图的行距是给连线留的）
 
 // 分章：遇到二级标题起新的一章，别的块（包括后面再出现的一级标题）跟着当前这一章。
 function chapters(blocks) {
@@ -29,22 +30,40 @@ function chapters(blocks) {
   return (pre.blocks.length ? [pre, ...out] : out).map((ch) => {
     const h = ch.blocks[0], titled = h.kind === 'heading' && (ch.no > 0 || h.level === 1);
     const name = (titled && flat(h.text)) || (ch.no ? '（无题）' : PRE_NAME), nn = String(ch.no).padStart(2, '0');
+    // 画进步骤图的那几步不各自画流程链图（spec-blocks.mjs 的 listHtml），数流程链图时同样除开。
+    const steps = stepFigures(ch.blocks), inSteps = new Set(steps.flat().map((b) => b.n));
     return {
       ...ch, nn, name, file: `s-${nn}.html`,
       lists: ch.blocks.filter((b) => b.kind === 'list').length,
       tables: ch.blocks.filter((b, k) => b.kind === 'table' && !sameTable(ch.blocks[k - 1], b)).length,
-      steps: stepFigures(ch.blocks),
+      steps, chains: chainCount(ch.blocks.filter((b) => !inSteps.has(b.n))), ids: blockIds(ch.blocks),
       from: h.line, to: ch.blocks.at(-1).endLine,
     };
   });
 }
 
-function chapterPage(ch, ctx) {
+// 本章目录：三级以下的标题；顶层列表项里有 5 条以上开头是粗体词的，再按来源的先后列出这些粗体词（本章条目），
+// 挂在各自所属的三级标题下面，在第一个三级标题之前的直接列。点了跳到那一条（条目的 id）。粗体词取自条目自己，已过隐去。
+function tocHtml(ch) {
   const heads = ch.blocks.filter((b) => b.kind === 'heading' && b.level >= 3);
-  const toc = heads.length
-    ? `<nav class="toc" aria-label="本章目录"><p class="muted">本章目录</p>\n<ul>\n${heads.map((b) => `<li class="l${Math.min(b.level, 6)}"><a href="#${headId(b)}">${esc(flat(b.text))}</a></li>`).join('\n')}\n</ul></nav>`
-    : '';
-  const body = `<p class="src">本页内容逐块取自 ${code(ctx.file)} 第 ${ch.from}–${ch.to} 行，只是排法不同。</p>\n<div class="spec">\n${renderBlocks(ch.blocks, toc)}\n</div>`;
+  const terms = ch.blocks.filter((b) => b.kind === 'list' && b.parent == null).map((b) => ({ b, t: leadTerm(b.text).replace(/\s+/g, ' ').trim() })).filter((x) => x.t);
+  const items = terms.length >= ITEM_MIN ? new Map(terms.map((x) => [x.b.n, x])) : new Map();
+  if (!heads.length && !items.size) return '';
+  const href = (b) => `#${esc(ch.ids.get(b.n))}`;
+  const direct = [], under = new Map();
+  let h3 = null;
+  for (const b of ch.blocks) {
+    if (b.kind === 'heading' && b.level <= 3) h3 = b.level === 3 ? b.n : null;
+    else if (items.has(b.n)) { const into = h3 == null ? direct : (under.get(h3) ?? under.set(h3, []).get(h3)); into.push(items.get(b.n)); }
+  }
+  const list = (xs) => (xs?.length ? `\n<ul class="it">\n${xs.map((x) => `<li><a href="${href(x.b)}">${esc(cut(x.t, ITEM_CUT))}</a></li>`).join('\n')}\n</ul>` : '');
+  const lead = `<p class="muted">本章目录${items.size ? ` · 本章条目 ${items.size} 条（开头是粗体词的顶层条目）` : ''}</p>`;
+  const tree = heads.length ? `\n<ul>\n${heads.map((b) => `<li class="l${Math.min(b.level, 6)}"><a href="${href(b)}">${esc(flat(b.text))}</a>${list(under.get(b.n))}</li>`).join('\n')}\n</ul>` : '';
+  return `<nav class="toc" aria-label="本章目录">${lead}${list(direct)}${tree}</nav>`;
+}
+
+function chapterPage(ch, ctx) {
+  const body = `<p class="src">本页内容逐块取自 ${code(ctx.file)} 第 ${ch.from}–${ch.to} 行，只是排法不同。</p>\n<div class="spec">\n${renderBlocks(ch.blocks, tocHtml(ch), ch.ids)}\n</div>`;
   return { path: `spec/${ch.file}`, html: page({ title: [ch.name, SPEC_DOC, ctx.title].join(' · '), depth: 1, crumbs: [CRUMB, [SPEC_DOC, 'spec/index.html'], [ch.name]], body, css: SPEC_CSS }) };
 }
 
@@ -53,7 +72,7 @@ function chapterPage(ch, ctx) {
 function redactions(hits, chs) {
   if (!hits.length) return '';
   const where = new Map(chs.flatMap((ch) => ch.blocks.map((b) => [b.n, ch])));
-  const rows = hits.map((h) => { const ch = where.get(h.block); return [`第 ${h.line} 行`, `<a href="${esc(ch.file)}">${esc(`${ch.nn} ${ch.name}`)}</a>`, String(h.n), String(h.chars)]; });
+  const rows = hits.map((h) => { const ch = where.get(h.block); return [`第 ${h.line} 行`, `<a href="${esc(`${ch.file}#${ch.ids.get(h.block)}`)}">${esc(`${ch.nn} ${ch.name}`)}</a>`, String(h.n), String(h.chars)]; });
   const n = hits.reduce((s, h) => s + h.n, 0), chars = hits.reduce((s, h) => s + h.chars, 0);
   return `<div class="notice" role="note"><p>隐去了 ${n} 处、共换掉 ${chars} 个字：来源里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['来源的行', '在哪一章', '处数', '换掉的字'], rows, ['120px', null, '64px', '96px'])}</div>`;
 }
@@ -62,8 +81,10 @@ function indexPage(chs, spec, ctx) {
   const h1 = spec.blocks.find((b) => b.kind === 'heading' && b.level === 1), name = (h1 && flat(h1.text)) || SPEC_DOC;
   const nodes = chs.map((ch, i) => ({ name: String(i).padStart(6, '0'), label: `${ch.nn} ${cut(ch.name, LABEL_MAX)}`, lines: [`${ch.blocks.length} 块，列表项 ${ch.lists} 条`], parents: [], href: ch.file }));
   const rows = chs.map((ch) => [`<a href="${esc(ch.file)}">${esc(`${ch.nn} ${ch.name}`)}</a>`, `第 ${ch.from}–${ch.to} 行`, String(ch.blocks.length), String(ch.lists), String(ch.tables)]);
-  // 导读里提步骤图的那半句，只在这份规格里真画了步骤图时才写（契约 C 节）。
-  const steps = chs.some((ch) => ch.steps.length) ? '，标题下面三步以上的有序列表前面加了一张步骤图' : '';
+  // 导读里提步骤图、流程链图的那半句，只在这份规格里真画了这种图时才写（契约 C 节）。
+  const steps = (chs.some((ch) => ch.steps.length) ? '，三步以上的有序列表前面加了一张步骤图' : '')
+    + (chs.some((ch) => ch.chains) ? '，用「→」连着三段以上的短句后面加了一条流程链图' : '')
+    + (chs.some((ch) => ch.steps.length || ch.chains) ? '（图里的字都取自它旁边的条目）' : '');
   const body = [
     redactions(spec.hits, chs),
     `<h1>${esc(name)}</h1>`,
@@ -73,7 +94,7 @@ function indexPage(chs, spec, ctx) {
     ...(chs.length ? [
       '<h2>章节地图</h2>',
       '<p class="muted">一个方框一章，写章名与这一章有几块、其中列表项几条。点方框到那一章。</p>',
-      `<div class="scroll">${diagram(nodes, `${SPEC_DOC}的章节地图`, Math.max(DIAGRAM_MAX, nodes.length))}</div>`,
+      `<div class="scroll">${diagram(nodes, `${SPEC_DOC}的章节地图`, Math.max(DIAGRAM_MAX, nodes.length), { rowGap: MAP_ROW_GAP })}</div>`,
       '<h2>章节清单</h2>',
       table(['章', '来源的行', '块', '其中列表项', '表格'], rows, [null, '150px', '72px', '104px', '72px']),
     ] : ['<p class="muted">规格里没有内容。</p>']),
