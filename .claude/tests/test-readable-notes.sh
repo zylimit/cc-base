@@ -219,5 +219,18 @@ $SEC_END
 "; G="$G$RC"
 N0=$(yn test -e "$(NOTES "$R")/table/orders.md"); put "$R" "$TO"
 eq "说明正文里带 GitHub 令牌 / AWS 访问键 / Google 接口键 / Slack 令牌 / JWT / 私钥头 / 整块私钥（BEGIN、正文、END）：各退出码 2 且无落盘；干净正文对照 put 退出码 0" "2222222|n|0" "$G|$N0|$RC"
+# 14 打死：整库导读（doc:db）的切片仍只绑各组的 id 与标题（往已有分组里加一张表，导读写着「全库三张表」却不被标待更新）/ 切片绑太宽（加个索引也把导读标过期，逼人白看）/ 重新 put 后仍旧是待更新
+R="$TMP/a14"; mk "$R"; put "$R" "## doc:db
+全库三张表，订单与客户两块。
+"; facts "$R"; D0="$(st doc:db)"
+echo 'CREATE INDEX order_items_qty_idx ON order_items (qty);' >>"$R/sql/s.sql"; facts "$R"; D1="$(st doc:db)"
+echo 'CREATE TABLE shipments (id int PRIMARY KEY, order_id int);' >>"$R/sql/s.sql"
+sed -i 's/"tables":\["orders","order_items"\]/"tables":["orders","order_items","shipments"]/' "$R/docs/readable-src/map.json"
+facts "$R"; D2="$(st doc:db)"; pj "$R"; DP=$(jf "JSON.stringify(j.doc).includes('doc:db')?'listed':'unlisted'")
+put "$R" "## doc:db
+全库三张表，订单与客户两块。
+"; facts "$R"; D3="$(st doc:db)"
+eq "doc:db 的说明：写入后 current；只给已有表加索引仍 current；已有分组里加一张表后 stale 且 pending 列出；同样正文重新 put 后回到 current" \
+  "draft/current|draft/current|draft/stale|listed|draft/current" "$D0|$D1|$D2|$DP|$D3"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

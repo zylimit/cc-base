@@ -118,9 +118,9 @@ const columnSlice = (t, c) => ({
   tableKeys: uniqSorted(t.constraints.filter((k) => (k.columns ?? []).includes(c.name))
     .map((k) => ({ type: k.type, columns: k.columns, references: k.references, check: k.check }))),
 });
-// 组：标题与成员表名（排序后）。doc:db：各组的 id 与标题（按 id 排序）。
+// 组：标题与成员表名（排序后）。doc:db：各组的 id、标题与成员表名（按 id 排序）；加表、删表、表挪组，导读都要重看。
 const groupSlice = (g) => ({ title: g.title, tables: [...g.tables].sort(cmp) });
-const docSlice = (groups) => ({ groups: groups.map((g) => ({ id: g.id, title: g.title })).sort((a, b) => cmp(a.id, b.id)) });
+const docSlice = (groups) => ({ groups: groups.map((g) => ({ id: g.id, ...groupSlice(g) })).sort((a, b) => cmp(a.id, b.id)) });
 
 // 现行文档模型里能挂说明的每个锚点 → {fp：当前切片的指纹, file：它的说明落在哪个侧车文件}。
 export function anchorIndex(model) {
