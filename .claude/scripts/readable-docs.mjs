@@ -27,6 +27,7 @@ import { cmp } from './readable/model.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
 import { extract as extractSpec, SpecLoss } from './readable/sources/md-blocks.mjs';
+import { extract as extractImports } from './readable/sources/code-imports.mjs';
 import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
 import { link } from './readable/links.mjs';
 import { renderDb } from './readable/render/db.mjs';
@@ -162,7 +163,10 @@ function collect(root, cfg, skipped) {
   // ambiguous（契约 F 节「提到了表名、像 SQL 又不像的」）：取事实那边 2026-11-23 正在加，连起来的结果里有就用它，
   // 只有扫描结果里有就用扫描的，都还没有时是空清单——只兜「这个键还没出」这一种，键在而形状不对照样往下报错。
   const ambiguous = linked.ambiguous ?? scan.ambiguous ?? [];
-  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec };
+  // 文件清单、文件头说明与引用边（第三期契约 B 节，2026-11-23 Task 3.1）：交过去的是 codeRoots 下去掉 ignore 的全部文件，
+  // 不只代码文件——别的扩展名要按扩展名报数（「没扫的文件」），不装作扫过。
+  const code = extractImports(cfg, root, [...new Set(cfg.codeRoots.flatMap((d) => walk(root, cfg.ignore, d)))].sort(cmp));
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec, code };
   return { ...facts, ...bindNotes(root, facts) };
 }
 const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
