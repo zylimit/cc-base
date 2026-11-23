@@ -31,6 +31,8 @@ import { extract as extractImports } from './readable/sources/code-imports.mjs';
 import { addRoutes } from './readable/sources/code-routes.mjs';
 import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
 import { link } from './readable/links.mjs';
+import { buildArch } from './readable/links-arch.mjs';
+import { globRe } from './readable/arch-map.mjs'; // ignore 与模块的 paths 同一套通配（第三期契约 A 节）
 import { renderDb } from './readable/render/db.mjs';
 import { renderHome } from './readable/render/layout.mjs';
 import { renderSpec } from './readable/render/spec.mjs';
@@ -38,7 +40,9 @@ import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
 const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
-const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**'];
+// 后三条是测试文件与代码放在一起的写法（第三期契约 A 节）：不排掉，模块图上全是测试库。已有的配置不替人改。
+const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**', '**/*.test.*', '**/*.spec.*', '**/__tests__/**'];
+const ARCH_DOC_FILE = 'Architecture-Design.md'; // init 在根目录有它时填进 archDocs
 const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现行的页超过 10 张只列前 10 张
 const CODE_EXT = /\.(py|ts|tsx)$/;
 // 契约 A 节：ddl 依次找这三类，同一目录按文件名排序；三类都收、按这个先后排、去重——
@@ -83,19 +87,6 @@ function parseArgs(argv) {
   return o;
 }
 
-// 只认三种通配：**（含 **/ 前缀，可为空）、*、?，够 ignore 默认项用。
-function globRe(g) {
-  let re = '';
-  for (let i = 0; i < g.length; i++) {
-    const ch = g[i];
-    if (ch === '*' && g[i + 1] === '*') { if (g[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } else { re += '.*'; i++; } }
-    else if (ch === '*') re += '[^/]*';
-    else if (ch === '?') re += '[^/]';
-    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${re}$`);
-}
-
 // 项目里的文件（相对路径、/ 分隔、按名字定序）。点开头的目录不进：.git、.venv、.claude 里的不是项目的来源
 // （cc-base 自己的 .claude/tests 里就有 SQL 夹具）。符号链接不跟，免得绕圈。sub 给了就只走那个子目录，路径仍相对 root。
 function walk(root, ignore, sub = '') {
@@ -136,7 +127,8 @@ function cmdInit(o) {
   const files = walk(o.root, DEFAULT_IGNORE);
   const ddl = [...new Set(DDL_PATTERNS.flatMap(([, hit]) => files.filter(hit).sort(cmp)))];
   const spec = existsSync(join(o.root, 'Product-Spec.md')) ? 'Product-Spec.md' : null;
-  const cfg = { version: 1, title: basename(resolve(o.root)), spec, ddl, codeRoots: topCodeDirs(files), ignore: DEFAULT_IGNORE };
+  const archDocs = existsSync(join(o.root, ARCH_DOC_FILE)) ? [ARCH_DOC_FILE] : [];
+  const cfg = { version: 1, title: basename(resolve(o.root)), spec, ddl, codeRoots: topCodeDirs(files), ignore: DEFAULT_IGNORE, archDocs };
   const notes = [];
   if (!ddl.length) notes.push(`ddl 没找到建表定义文件（依次找过 ${DDL_PATTERNS.map(([g]) => g).join('、')}），写成空数组，请手填`);
   if (!spec) notes.push('根目录没有 Product-Spec.md，spec 写成 null');
@@ -168,7 +160,9 @@ function collect(root, cfg, skipped) {
   // 不只代码文件——别的扩展名要按扩展名报数（「没扫的文件」），不装作扫过。接口（Task 3.2）从同一批文件里取，填进 code.routes。
   const codeAll = [...new Set(cfg.codeRoots.flatMap((d) => walk(root, cfg.ignore, d)))].sort(cmp);
   const code = addRoutes(extractImports(cfg, root, codeAll), cfg, root, codeAll);
-  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec, code };
+  // 照模块划分汇总（第三期契约 B 节「汇总成模块」，Task 3.3）：划分取自 map.json 的 modules，没有就按目录分；表的写读取自上面的 usage。
+  const arch = buildArch(code, linked.usage, map.arch, cfg.codeRoots);
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec, code, arch };
   return { ...facts, ...bindNotes(root, facts) };
 }
 const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
@@ -202,11 +196,16 @@ function cmdBuild(o) {
   const tally = `表 ${facts.tables.length} 张、列 ${cols} 个；未合并的动态定义 ${facts.unfolded.length}、未解析的语句 ${facts.unparsed.length}、定义冲突 ${facts.conflicts.length}、改了不存在的表 ${facts.orphanAlters.length}`
     + `；分 ${facts.groups.length} 组；代码里写 ${uses[0]} 处、读 ${uses[1]} 处，表名运行时拼的 ${facts.dynamic.length}、代码里建的表 ${facts.codeTables.length}、没扫成的文件 ${facts.unscanned.length}、项目判断里对不上的 ${facts.mapProblems.length}`
     + `；说明 ${Object.keys(facts.notes).length} 段（待更新 ${Object.values(facts.notes).filter((n) => n.state === 'stale').length}）、孤儿 ${facts.orphanNotes.length} 段`;
+  // 架构这一行（第三期 Task 3.3）只在配了 codeRoots 时报：没配的项目不出架构这一份，报数与之前逐字相同。
+  const a = facts.arch, archTally = cfg.codeRoots.length ? `架构：模块 ${a.modules.length} 个（${a.source === 'map' ? '取自项目判断' : '按目录分的，还没有项目判断'}）、未归属的文件 ${a.unassigned.length} 个`
+    + `；循环依赖 ${a.cycles.length} 组、越层引用 ${a.upward.reduce((s, u) => s + u.pairs.length, 0)} 处、接口 ${facts.code.routes.length} 个、项目判断里对不上的 ${a.problems.length} 条`
+    + `；没解析到的引用 ${facts.code.unresolved.length} 处、运行时才定的引用 ${facts.code.dynamic.length} 处` : null;
   const sk = Object.entries(skipped).sort((a, b) => cmp(a[0], b[0]));
   if (o.factsJson) {
     // 不用 process.exit：大块输出写进管道时提前退出会截断，只设退出码让事件循环自己排空。
     process.stdout.write(`${JSON.stringify(facts, null, 2)}\n`);
     console.error(`readable-docs: ${tally}`);
+    if (archTally) console.error(`readable-docs: ${archTally}`);
     if (sk.length) console.error(`readable-docs: 略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
     return;
   }
@@ -216,6 +215,7 @@ function cmdBuild(o) {
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
   console.log(`已生成 ${OUT}/：${files.length} 个页面、${bytes} 字节`);
   console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
+  if (archTally) console.log(`  ${archTally}`);
   if (spec) {
     const k = {};
     for (const b of facts.spec.blocks) k[b.kind] = (k[b.kind] || 0) + 1;
@@ -266,7 +266,9 @@ function cmdPending(o) {
     console.log(`${t.anchor}${what.length ? `  ${what.join('；')}` : ''}`);
     staleLines(t.stale);
   }
-  for (const g of [...r.groups, ...(r.doc ? [r.doc] : [])]) {
+  // 架构的（第三期契约 C 节）接在数据库设计的各项后面、孤儿前面；没有模块的项目一行都不多。
+  if (s.modules || s.archDoc) console.log(`架构要补的：模块 ${s.modules} 个（缺说明 ${s.missingModules} 个）、doc:arch ${s.archDoc ? '要补' : '不用补'}`);
+  for (const g of [...r.groups, ...(r.doc ? [r.doc] : []), ...r.modules, ...(r.archDoc ? [r.archDoc] : [])]) {
     console.log(`${g.anchor}${g.missing ? '  缺说明' : ''}`);
     if (g.stale) staleLines([g.stale]);
   }

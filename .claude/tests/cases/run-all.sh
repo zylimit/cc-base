@@ -197,7 +197,7 @@ fi
 #   都只需 node + git；无 node 时它们自身是 exit 1 而不是 SKIPPED，所以守卫放在这里。
 HOOKS_NOTE=""
 if command -v node >/dev/null 2>&1; then
-    for s in test-hooks-floor.sh test-hooks-node.sh test-hooks-settings.sh test-tier.sh test-tier-hardening.sh test-distribution.sh test-skills-lint-wording.sh test-progress-archive.sh test-plan-archive.sh test-readable-sql-ddl.sh test-readable-db-pages.sh test-readable-code-scan.sh test-readable-notes.sh test-readable-check.sh test-readable-commit-hook.sh test-readable-md-blocks.sh test-readable-spec-pages.sh test-readable-spec-guard.sh test-readable-spec-figures.sh test-readable-code-imports.sh test-readable-code-routes.sh; do
+    for s in test-hooks-floor.sh test-hooks-node.sh test-hooks-settings.sh test-tier.sh test-tier-hardening.sh test-distribution.sh test-skills-lint-wording.sh test-progress-archive.sh test-plan-archive.sh test-readable-sql-ddl.sh test-readable-db-pages.sh test-readable-code-scan.sh test-readable-notes.sh test-readable-check.sh test-readable-commit-hook.sh test-readable-md-blocks.sh test-readable-spec-pages.sh test-readable-spec-guard.sh test-readable-spec-figures.sh test-readable-code-imports.sh test-readable-code-routes.sh test-readable-arch-modules.sh; do
         run_test "$TESTS_DIR/$s" || mark_static_fail "$s"
     done
 else

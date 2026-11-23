@@ -9,8 +9,9 @@ import { cmp, FINGERPRINT_LEN } from './model.mjs';
 export const NOTES = 'docs/readable-src/notes';
 export const STATES = ['draft', 'reviewed']; // 草稿 / 已抽审；已抽审只由 note confirm 记
 export const MARKER_RE = /<!--\s*readable-docs\s*:/i; // 交进来的正文里带着它就拒收（指纹只由命令算）
-const KIND_DIR = { table: 'table', column: 'table', group: 'group', doc: 'doc' };
-const KIND_RANK = { table: 0, column: 1, group: 2, doc: 3 }; // 一个文件里表的说明在前，列的按列名（同一前缀下即按锚点）
+// 第三期加模块：module:<id> 落在 module/<id>.md，doc:arch 同 doc:db 落在 doc/ 下（第三期契约 C 节）。
+const KIND_DIR = { table: 'table', column: 'table', group: 'group', doc: 'doc', module: 'module' };
+const KIND_RANK = { table: 0, column: 1, group: 2, doc: 3, module: 4 }; // 一个文件里表的说明在前，列的按列名（同一前缀下即按锚点）
 const FP_RE = new RegExp(`^[0-9a-f]{${FINGERPRINT_LEN}}$`);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -25,7 +26,7 @@ export const anchorKind = (anchor) => anchor.slice(0, anchor.indexOf(':'));
 // 改推法之前按旧名落的侧车照旧读得到（loadNotes 读整个目录、按锚点认），下次 note put 那段时搬进新名的文件、旧文件里摘掉。
 const slug = (name) => String(name).replace(/[^a-z0-9_-]/gu, (c) => `~${c.codePointAt(0).toString(16)}`);
 
-// 锚点落在哪个文件（相对 notes/）：表与它各列在 table/<表>.md，组在 group/<id>.md，doc:db 在 doc/db.md。
+// 锚点落在哪个文件（相对 notes/）：表与它各列在 table/<表>.md，组在 group/<id>.md，doc:db 在 doc/db.md，模块在 module/<id>.md。
 // owner 是表名（表与列的说明）、组 id 或文档名，由调用方从文档模型里给——列锚点里的表名与列名靠点分不开。
 export const fileFor = (kind, owner) => `${KIND_DIR[kind]}/${slug(owner)}.md`;
 

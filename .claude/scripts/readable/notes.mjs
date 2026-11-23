@@ -6,14 +6,18 @@
 // 说明（notes/，契约 G 节，2026-11-23 Task 1.4）：每段说明绑它所依据的那段来源的切片，指纹只由命令按当时的切片盖——
 // 写说明的是 AI，指纹若能由交进来的内容自带，过期的说明照抄一个新指纹就冒充现行了（架构稿 ADR-2）。
 // 切片的内容变了说明才算过期；绑整张表，加个索引全表的说明都标「待更新」，读者很快就学会无视它。侧车的读写在 notes-store.mjs。
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, posix } from 'node:path';
+// 第三期（2026-11-23 Task 3.3）：modules / layers 在 arch-map.mjs 校验，模块的切片在 notes-arch.mjs；配置的读取搬到 config.mjs，这里照旧转出。
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { canonical, cmp, docAnchor, fingerprint, groupAnchor, tableAnchor } from './model.mjs';
 import { ConfigError, MARKER_RE, anchorKind, fileFor, loadNotes, normalizeText, saveNotes } from './notes-store.mjs';
 import { redact, sensitiveKinds } from './sensitive.mjs';
+import { readJson } from './config.mjs';
+import { readArchMap } from './arch-map.mjs';
+import { archAnchors, pendingArch } from './notes-arch.mjs';
 
 export { ConfigError };
-export const CONFIG = 'docs/readable-src/config.json';
+export { CONFIG, loadConfig } from './config.mjs';
 export const MAP = 'docs/readable-src/map.json';
 export const STATUSES = ['proposed', 'confirmed']; // AI 提议 / 人已确认；confirmed 只由人改
 export const UNGROUPED_ID = '_ungrouped';
@@ -22,58 +26,20 @@ export const CONTEXT_BUDGET = 4096; // pending --json 每张表的上下文控�
 export const TOP_FILES = 5; // 上下文里写它、读它的文件各给引用处最多的这么几个
 
 const bad = (msg) => { throw new ConfigError(msg); };
-
-function readJson(root, rel, what) {
-  try { return JSON.parse(readFileSync(join(root, rel), 'utf8')); }
-  catch (e) { if (e instanceof SyntaxError) bad(`${what}不是合法 JSON：${rel}：${e.message}`); throw e; }
-}
-
-// 配置有错一律退出码 2 并点名是哪一条（契约 A 节）；从入口原样搬来，提示文字不变。
-export function loadConfig(root) {
-  if (!existsSync(join(root, CONFIG))) bad(`配置不存在：${CONFIG}（先跑 init）`);
-  const cfg = readJson(root, CONFIG, '配置');
-  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) bad(`配置的顶层该是对象：${CONFIG}`);
-  if (cfg.version !== 1) bad(`配置的 version 只认 1，现在是 ${JSON.stringify(cfg.version)}`);
-  const list = (key, required) => {
-    const v = cfg[key];
-    if (v === undefined && !required) return [];
-    if (!Array.isArray(v) || v.some((s) => typeof s !== 'string' || !s)) bad(`配置的 ${key} 该是非空字符串的数组`);
-    return v;
-  };
-  const ddl = list('ddl', true), codeRoots = list('codeRoots', false), ignore = list('ignore', false);
-  if (cfg.spec != null && (typeof cfg.spec !== 'string' || !cfg.spec)) bad('配置的 spec 该是字符串或 null');
-  // 生成器只读根目录以内的东西（契约 A 节）：绝对路径、用 .. 越出根目录的，退出码 2 并点名，不去读——join 会把它们拼到根目录外面去。
-  const outside = (rel) => {
-    const p = rel.replace(/\\/g, '/');
-    if (isAbsolute(rel) || p.startsWith('/') || /^[A-Za-z]:/.test(p)) return '是绝对路径';
-    const n = posix.normalize(p);
-    return n === '..' || n.startsWith('../') ? '用 .. 越出了根目录' : null;
-  };
-  const must = (label, rel, kind) => {
-    const why = outside(rel);
-    if (why) bad(`配置里的 ${label} = ${rel} ${why}，生成器只读根目录以内的东西`);
-    const abs = join(root, rel);
-    if (!existsSync(abs)) bad(`配置里的路径不存在：${label} = ${rel}`);
-    if (kind === 'file' ? !statSync(abs).isFile() : !statSync(abs).isDirectory()) bad(`配置里的 ${label} = ${rel} 该是${kind === 'file' ? '文件' : '目录'}`);
-  };
-  ddl.forEach((f, i) => must(`ddl[${i}]`, f, 'file'));
-  codeRoots.forEach((d, i) => must(`codeRoots[${i}]`, d, 'dir'));
-  if (cfg.spec != null) must('spec', cfg.spec, 'file');
-  return { ...cfg, ddl, codeRoots, ignore };
-}
-
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const str = (v) => typeof v === 'string' && v !== '';
 
 // 项目判断（契约 F 节）。tables 是建表定义里有的表名；点名不分大小写，落到建表定义里的写法上。
 // 返回校验过的一份：tableGroups 为 null 表示没有分组判断（照前缀分），每组只剩存在的、先出现的表；
 // dynamicTables 只剩文件存在的条目与存在的表。对不上的每一条进 problems：{where, problem}，按在文件里出现的先后。
+// arch 是 modules 与 layers 的校验结果（arch-map.mjs）：它对不上的另进 arch.problems，上架构那一份，不进数据库设计的清单。
 export function loadMap(root, tables) {
-  const out = { tableGroups: null, dynamicTables: [], problems: [] };
+  const out = { tableGroups: null, dynamicTables: [], problems: [], arch: { modules: null, layers: [], problems: [] } };
   if (!existsSync(join(root, MAP))) return out;
   const m = readJson(root, MAP, '项目判断');
   if (!isObj(m)) bad(`项目判断的顶层该是对象：${MAP}`);
   if (m.version !== 1) bad(`项目判断的 version 只认 1，现在是 ${JSON.stringify(m.version)}：${MAP}`);
+  out.arch = readArchMap(m, STATUSES);
   const known = new Map(tables.map((n) => [n.toLowerCase(), n]));
   const problem = (where, text) => out.problems.push({ where, problem: text });
   const status = (where, v) => {
@@ -165,6 +131,7 @@ export function anchorIndex(model) {
   }
   for (const g of model.groups) idx.set(groupAnchor(g.id), { fp: fingerprint(groupSlice(g)), file: fileFor('group', g.id) });
   idx.set(docAnchor(DB_DOC), { fp: fingerprint(docSlice(model.groups)), file: fileFor('doc', DB_DOC) });
+  archAnchors(model.arch, idx); // module:<id> 与 doc:arch（第三期契约 C 节），切片在 notes-arch.mjs
   return idx;
 }
 
@@ -183,10 +150,10 @@ export function bindNotes(root, model) {
 
 // ———— note put / confirm / drop（契约 G 节「命令」）————
 
-const KINDS = ['table', 'column', 'group', 'doc'];
+const KINDS = ['table', 'column', 'group', 'doc', 'module'];
 function anchorProblem(anchor, idx) {
   if (!anchor) return '「## 」后面没写锚点';
-  if (!KINDS.includes(anchorKind(anchor))) return `认不出锚点「${anchor}」：第一期只认 table:<表>、column:<表>.<列>、group:<组 id>、doc:db`;
+  if (!KINDS.includes(anchorKind(anchor))) return `认不出锚点「${anchor}」：第一期只认 table:<表>、column:<表>.<列>、group:<组 id>、doc:db，第三期加 module:<模块 id>、doc:arch`;
   const near = [...idx.keys()].find((k) => k.toLowerCase() === anchor.toLowerCase());
   return `锚点 ${anchor} 在现行的文档模型里不存在${near ? `（大小写不同的有 ${near}）` : ''}`;
 }
@@ -319,11 +286,15 @@ export function pendingList(root, model) {
   const doc = !stored.has(da) || stale(da)
     ? { anchor: da, missing: !stored.has(da), stale: stale(da), groups: model.groups.map((g) => ({ id: g.id, title: g.title, tables: g.tables.length })) } : null;
   const orphans = [...stored.keys()].filter((a) => !idx.has(a)).sort(cmp).map((a) => ({ anchor: a, text: stored.get(a).text }));
+  const arch = pendingArch(model, stored, stale); // 第三期：要补的模块与 doc:arch，接在原有各项后面，原有的键与值不变
   const summary = {
     tables: tables.length, missingTables: tables.filter((t) => t.missingTable).length, groups: groups.length, doc: doc !== null,
     columns: tables.reduce((s, t) => s + t.missingColumns.length, 0),
-    stale: tables.reduce((s, t) => s + t.stale.length, 0) + groups.filter((g) => g.stale).length + (doc?.stale ? 1 : 0),
+    stale: tables.reduce((s, t) => s + t.stale.length, 0) + groups.filter((g) => g.stale).length + (doc?.stale ? 1 : 0)
+      + arch.modules.filter((x) => x.stale).length + (arch.archDoc?.stale ? 1 : 0),
     orphans: orphans.length, maxContextBytes: tables.reduce((m, t) => Math.max(m, t.contextBytes), 0),
+    modules: arch.modules.length, missingModules: arch.modules.filter((x) => x.missing).length, archDoc: arch.archDoc !== null,
+    maxModuleContextBytes: arch.modules.reduce((m, x) => Math.max(m, x.contextBytes), 0),
   };
-  return { summary, tables, groups, doc, orphans };
+  return { summary, tables, groups, doc, orphans, ...arch };
 }
