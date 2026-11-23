@@ -128,3 +128,4 @@ cc-base 没有 pytest/vitest；测试全是 `.claude/tests/*.sh` 的 bash 脚本
 - **`?`（单字符、无回溯歧义）链本身测不出「超长模式该按字面判」这条长度上限规则**：不管走不走 >512 字面判据分支，纯 `?` 链长度天然远超任何候选名，两条实现路径结果恒是不命中——对这条规则零分辨力。要验长度上限，构造得用「字面前缀吻合某候选名 + 大量 `*`」（如 `.env` + 600 个 `*`）：按 glob 语义会因为尾部星号全匹配空而误判命中，按「超长走字面比对」不会命中——这种输入两条路径结果不同，才真的测得出规则有没有落地。
 - 契约只给视图/函数键名、不给表列键名时，测试按 name/columns 取并用「该列 JSON 含某原文」断言；取事实器类测试用 awk 抽夹具复核「红在实现还是夹具」（2026-11-23 readable-sql-ddl）
 - 人读文档测试：夹具里别拿 $TMP/<单字母> 当输出文件又拿同名当 root（h 曾是目录，grep -c 读到 0 假绿）；输出文件一律起 hout/o 这类不与夹具根同名的名字；索引 columns 实现里是字符串、约束 references 是 columns 数组，断言要先归一再比；check*.mjs 里 render/ 的 import 守卫要匹配 from/import(/require( 引号说明符，注释行里的 import 字样会假红
+- 页面守卫测试（test-readable-spec-guard.sh）：页面手改会先触发 stale-page，断言只看 spec-* 类；口令样字面量连 printf 格式串里的「://%s:%s@」都会被 scan-secrets 拦（只扫 tracked，要 git add -N 才扫得到新文件），用 "svc:$PW" 与 @ 分开传参拼；EXPECT 里 `$RC$(jf …)` 是两位数 00

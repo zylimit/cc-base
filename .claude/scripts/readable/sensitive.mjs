@@ -1,10 +1,19 @@
 // 不带出去的东西：隐去规则只有这一份（契约 G 节「不带出去的东西」）。
 // note put 拒收、页面隐去、核对器比对都用它。
 // 内网地址三段、带口令的地址（用户名为空的 ://:口令@ 也算）、sk-ant- / sk-proj- 开头的串、
-// password / passwd / secret / token / api_key（前后用下划线连着别的词也算，如 AWS_SECRET_ACCESS_KEY、db_password）
-// 后面用 = 或 : 接着八位以上的值（取到空白或引号为止，值里可以有符号）、且带数字或总长不少于十六位的。
+// password / passwd / secret / token / api_key / 密码 / 口令 / 密钥（前后用下划线连着别的词也算，如 AWS_SECRET_ACCESS_KEY、db_password）
+// 后面用 =、: 或全角的 ： 接着八位以上的值（值里可以有符号）、且带数字或总长不少于十六位的。
+// 隐去只换掉口令或地址本身：值与地址里的用户名、口令都只取连着的 ASCII 可见字符，到空白、引号、中文或全角标点为止。
+// 中文里很少有空格，取到空白为止会把口令后面整句话一起换掉，而核对两边换得一样、看不出来（第二期审查实测）。
 
 export const REDACTED = '〔已隐去〕';
+
+// 值里能有的字：ASCII 可见字符去掉三种引号；VAL_ND 再去掉数字（判「带数字」用）。
+// 地址里的用户名与口令同样只认 ASCII 可见字符：用户名不含 / : @ 与引号，口令不含 / @ 与引号（口令里可以有冒号）。
+const VAL = '[!#-&(-_a-~]';
+const VAL_ND = '[!#-&(-/:-_a-~]';
+const URL_USER = '[!#-&(-.0-9;-?A-~]';
+const URL_PASS = '[!#-&(-.0-9:-?A-~]';
 
 // 每条规则：kind 是给人看的原因，re 必须带 g，replace 决定换掉哪一段。
 // 地址前后不许紧挨数字或点，免得把版本号、更长的数串里的一截当成地址。
@@ -16,7 +25,8 @@ const IP_POST = '(?!\\.?\\d)';
 const RULES = [
   {
     kind: '带口令的地址',
-    re: /:\/\/[^\s\/:@'"]*:[^\s\/@'"]+@/g, // redis://:口令@主机 这种只有口令、没有用户名的也是
+    // redis 的 ://:口令@主机 这种只有口令、没有用户名的也是；冒号后面到 @ 之间隔着中文的（网址的端口之后接一句话、再接一个邮箱地址）不算。
+    re: new RegExp(`://${URL_USER}*:${URL_PASS}+@`, 'g'),
     replace: () => `://${REDACTED}@`,
   },
   {
@@ -43,8 +53,9 @@ const RULES = [
     kind: '口令或密钥',
     // 真的密钥几乎都带数字或很长；纯字母又不长的（如英文注释「token: refreshes the login session」里的 refreshes）是正常的词，不当密钥。
     // 关键字前面连着的词（AWS_）不进匹配、原样留着；后面用下划线连着的词（_ACCESS_KEY、_key）进匹配，最多八节，免得一长串 a_a_a… 反复回溯。
-    // 值取到空白或引号为止，可以带符号（hunter2!x9）；列定义里 password_xxx TEXT 这种后面不是 = 或 : 的是列名，不算。
-    re: /(password|passwd|secret|token|api_key)((?:_[A-Za-z0-9]+){0,8})(\s*[=:]\s*['"`]?)(?=[^\s'"`]{8})(?:(?=[^\s'"`\d]*\d)|(?=[^\s'"`]{16}))[^\s'"`]+/gi,
+    // 值只取连着的 ASCII 可见字符，可以带符号（hunter2!x9）；列定义里 password_xxx TEXT 这种后面不是 =、: 或 ： 的是列名，不算。
+    // 「token:Bearer令牌……」里的 Bearer 不够八位，一个字都不换。
+    re: new RegExp(`(password|passwd|secret|token|api_key|密码|口令|密钥)((?:_[A-Za-z0-9]+){0,8})(\\s*[=:：]\\s*['"\`]?)(?=${VAL}{8})(?:(?=${VAL_ND}*\\d)|(?=${VAL}{16}))${VAL}+`, 'gi'),
     replace: (_m, key, tail, sep) => `${key}${tail}${sep}${REDACTED}`,
   },
 ];

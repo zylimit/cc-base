@@ -123,19 +123,34 @@ export function textOf(node, skip = () => false) {
 
 // 需求规格页上的块（第二期契约 docs/readable-spec/phase2-spec-contract.md C、D 节）：带 data-block 的元素按文档先后各读一块。
 // 一块的文字不含嵌在它里面的别的块（列表项里嵌着子项）；表格行（tr）另按格读，一个 th / td 一格。
-// 有序列表项前面显示的序号（data-k="marker"）另读进 marker、不算进文字——核对连序号一起比（D 节）；不止一处的用空格连起来，比的时候自然对不上。
+// 有序列表项前面显示的序号（data-k="marker"）另读进 marker、围栏起始行后面的字（data-k="info"）另读进 info，都不算进文字——
+// 核对连它们一起比（D 节）；不止一处的用空格连起来，比的时候自然对不上。
+// 结构（D 节 spec-structure）也从页面上读：tag 是这一块的标签（标题的级数看它），up 是包着它的最近一个带 data-block 的元素读出的那一块——
+// 列表子项挂在谁下面按元素的嵌套读，不看出页面的代码写的任何父项属性。
 // 只认 data-block / data-anchor / data-k 与表格的标签，不认样式类名。
 export function specBlocks(root) {
-  const isBlock = (n) => n.attrs['data-block'] !== undefined, isMark = (n) => n.attrs['data-k'] === 'marker';
-  const marks = (n, out = []) => { for (const c of n.children) { if (!c.tag || isBlock(c)) continue; if (isMark(c)) out.push(c); else marks(c, out); } return out; };
-  return findAll(root, isBlock).map((n) => {
-    const b = { n: n.attrs['data-block'], anchor: n.attrs['data-anchor'] ?? null, text: textOf(n, (x) => isBlock(x) || isMark(x)) };
-    const mk = marks(n);
-    if (mk.length) b.marker = mk.map((m) => textOf(m)).join(' ');
-    if (n.tag === 'tr') b.cells = n.children.filter((c) => c.tag === 'td' || c.tag === 'th').map((c) => textOf(c, isBlock));
-    return b;
-  });
+  const isBlock = (n) => n.attrs['data-block'] !== undefined, isMark = (n) => n.attrs['data-k'] === 'marker', isInfo = (n) => n.attrs['data-k'] === 'info';
+  const own = (n, pred, out = []) => { for (const c of n.children) { if (!c.tag || isBlock(c)) continue; if (pred(c)) out.push(c); else own(c, pred, out); } return out; };
+  const out = [];
+  const walk = (n, up) => {
+    for (const c of n.children) {
+      if (!c.tag) continue;
+      if (!isBlock(c)) { walk(c, up); continue; }
+      const b = { n: c.attrs['data-block'], anchor: c.attrs['data-anchor'] ?? null, tag: c.tag, up, text: textOf(c, (x) => isBlock(x) || isMark(x) || isInfo(x)) };
+      const mk = own(c, isMark), inf = own(c, isInfo);
+      if (mk.length) b.marker = mk.map((m) => textOf(m)).join(' ');
+      if (inf.length) b.info = inf.map((m) => textOf(m)).join(' ');
+      if (c.tag === 'tr') b.cells = c.children.filter((x) => x.tag === 'td' || x.tag === 'th').map((x) => textOf(x, isBlock));
+      out.push(b);
+      walk(c, b);
+    }
+  };
+  walk(root, null);
+  return out;
 }
+
+// 引用为打印另备的那一份（第二期契约 C、D 节）：带 data-print-of 的元素，of 是它对着的那块屏幕上的 data-block。
+export const specPrints = (root) => findAll(root, (n) => n.attrs['data-print-of'] !== undefined).map((n) => ({ of: n.attrs['data-print-of'], text: textOf(n) }));
 
 // 来源里一段文字去掉行内记号之后显示出来的样子（第二期契约 D 节）。出页面那边也有一份同样的规矩（render/spec-inline.mjs），
 // 禁边不许这里借它的，照规矩自己写一份，两份对同样的输入出同样的纯文字：

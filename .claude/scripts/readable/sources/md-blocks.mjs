@@ -33,7 +33,7 @@ function width(ws) { let w = 0; for (const ch of ws) w = ch === '\t' ? w + TAB -
 function fenceOpen(s) {
   const m = FENCE.exec(s);
   if (!m || (m[1][0] === '`' && m[2].includes('`'))) return null;
-  return { ch: m[1][0], len: m[1].length };
+  return { ch: m[1][0], len: m[1].length, rest: m[2] };
 }
 const fenceClose = (s, f) => { const m = FENCE_END.exec(s); return !!m && m[1][0] === f.ch && m[1].length >= f.len; };
 const isSep = (s) => SEP.test(s) && s.includes('-');
@@ -72,8 +72,9 @@ function cut(lines) {
       // 没收尾的围栏一直算到文件末尾（同 CommonMark），里面的 # 与 - 都是围栏的原文。
       let j = i + 1;
       while (j < lines.length && !fenceClose(lines[j], f)) j++;
-      const closed = j < lines.length;
-      add({ kind: 'fence', line: i, endLine: closed ? j : j - 1, level: null, path, text: lines.slice(i + 1, j).join('\n'), lay: { open: s, close: closed ? lines[j] : null } });
+      // 起始行记号后面的字（text、json，或者一句说明）是来源里的字，进输出的 info；记号连同它前后的空白记进 lay（契约 B 节）。
+      const closed = j < lines.length, rest = s.slice(s.length - f.rest.length), l = lead(rest), info = rest.slice(l.length, rest.length - trail(rest.slice(l.length)).length);
+      add({ kind: 'fence', line: i, endLine: closed ? j : j - 1, level: null, path, text: lines.slice(i + 1, j).join('\n'), info, lay: { open: s.slice(0, s.length - rest.length) + l, post: rest.slice(l.length + info.length), close: closed ? lines[j] : null } });
       i = closed ? j + 1 : j;
     } else if ((m = HEADING.exec(s))) {
       const level = m[1].length;
@@ -142,6 +143,7 @@ function finalize(raw) {
     seen.set(a, c);
     const out = { n: b.n, kind: b.kind, line: b.line + 1, endLine: b.endLine + 1, level: b.level, path: b.path, text: b.text };
     if (b.kind === 'list') out.marker = b.marker; // 不进指纹：指纹的规范形只有种类加文字（契约 B 节）
+    if (b.kind === 'fence' && b.info) out.info = b.info; // 同上不进指纹；起始行后面没有字的不带这个键
     if (b.kind === 'table') { out.cells = b.cells; out.header = b.header; }
     out.parent = b.up ? b.up.n : null;
     out.anchor = nthAnchor(a, c);
@@ -179,7 +181,7 @@ export function restore(lines, blocks, lays, label) {
     } else if (b.kind === 'fence') {
       const inner = b.endLine - b.line - (lay.close === null ? 0 : 1), body = inner ? b.text.split('\n') : [];
       if (body.length !== inner || (!inner && b.text !== '')) lose(`第 ${b.line} 行起的围栏，里面的行数与起止行对不上`);
-      put(b.line, lay.open, b);
+      put(b.line, lay.open + (b.info ?? '') + lay.post, b);
       body.forEach((t, k) => put(b.line + 1 + k, t, b));
       if (lay.close !== null) put(b.endLine, lay.close, b);
     } else {
@@ -202,22 +204,52 @@ function diff(ln, got, want) {
   return `第 ${ln} 行从第 ${d + 1} 个字起对不上（还原出 ${got.length} 个字，原文 ${want.length} 个字）：还原出来是「${at(got)}」，原文是「${at(want)}」`;
 }
 
-// 一份 Markdown 文本 → { blocks, sections }，还原自检过了才返回。开头的 BOM 不是字，先去掉；CRLF 与 LF 一样分行；
+// 被去掉的记号里不许有字（契约 B 节）：还原自检只保证「块加记号拼得回原文」，字要是被归进了记号，拼得回去页面上却没有——
+// 围栏起始行后面的说明就这样丢过一次。所以每一块被去掉的那几段另过一遍：只许是契约列的那几种记号字符与空格、制表符。
+// 列表项的 marker 虽进输出，无序的页面上不显示，一并在这里查。
+const MARK_ONLY = /^(?:[#*+>|:`~ \t-]|\d+[.)])*$/;
+function marksOf(b, lay) {
+  if (b.kind === 'table') return [[b.line, lay.pre], ...lay.seg.flatMap((g) => [[b.line, g.l], [b.line, g.r]]), [b.line, lay.tail], [b.line + 1, lay.sep ?? '']];
+  if (b.kind === 'fence') return [[b.line, lay.open], [b.line, lay.post], [b.endLine, lay.close ?? '']];
+  if (b.kind === 'list') return [[b.line, lay.ind + b.marker + lay.gap], ...lay.pre.slice(1).map((p, k) => [b.line + 1 + k, p])];
+  return lay.pre.map((p, k) => [b.line + k, p]);
+}
+export function marksOnly(blocks, lays, label) {
+  blocks.forEach((b, x) => {
+    for (const [ln, s] of marksOf(b, lays[x])) {
+      if (!MARK_ONLY.test(s)) throw new SpecLoss(`${label}切块把字归进了记号：第 ${ln} 行（第 ${b.n} 块，${b.kind}）被去掉的「${excerpt(s)}」里有记号以外的字，页面上不会有它们`);
+    }
+  });
+}
+
+// 测试注入点 READABLE_FAIL_AT=spec-cut（契约 B 节）：切出来的第一块带字的少最后一个字，还原自检应当拦下并点名到行。
+// 规格里一块带字的都没有就没有字可少，直接报错——注入点不许悄悄什么都不做。
+function injectCut(blocks, label) {
+  if (process.env.READABLE_FAIL_AT !== 'spec-cut') return;
+  const b = blocks.find((x) => x.text !== '');
+  if (!b) throw new SpecLoss(`${label}READABLE_FAIL_AT=spec-cut：没有带字的块可少一个字，按要求模拟失败`);
+  b.text = Array.from(b.text).slice(0, -1).join('');
+}
+
+// 一份 Markdown 文本 → { blocks, sections }，还原自检与记号检查都过了才返回。开头的 BOM 不是字，先去掉；CRLF 与 LF 一样分行；
 // 文件末尾的换行不另算一行，不然没收尾的围栏会多吞一个并不存在的空行。
 export function chunk(src, label = '需求规格') {
   const lines = src.replace(/^﻿/, '').split(/\r?\n/);
   if (lines.length > 1 && lines.at(-1) === '') lines.pop();
-  const raw = cut(lines), { blocks, sections } = finalize(raw);
-  restore(lines, blocks, raw.map((b) => b.lay), label);
+  const raw = cut(lines), { blocks, sections } = finalize(raw), lays = raw.map((b) => b.lay);
+  injectCut(blocks, label);
+  restore(lines, blocks, lays, label);
+  marksOnly(blocks, lays, label);
   return { blocks, sections };
 }
 
-// 取事实（契约 A 节）：配置的 spec 为 null 或文件不存在时没有这份文档，返回 null，不算错。
+// 取事实（契约 A 节）：配置的 spec 为 null 时没有这份文档，返回 null，不算错。
+// 写了路径而文件不存在（或不是文件）时抛错：多半是路径写错了，悄悄不出比报错更坏；入口在读配置时已按退出码 2 点名，这里是兜底。
 // 按严格的 UTF-8 解：坏字节默认会被换成替换符，那就是悄悄丢了字，宁可报错。
 export function extract(cfg, root) {
   if (cfg.spec == null) return null;
   const abs = join(root, cfg.spec);
-  if (!existsSync(abs) || !statSync(abs).isFile()) return null;
+  if (!existsSync(abs) || !statSync(abs).isFile()) throw new SpecLoss(`需求规格 ${cfg.spec} 不存在或不是文件，不切块`);
   let src;
   try { src = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(abs)); }
   catch (e) { if (e instanceof TypeError) throw new SpecLoss(`需求规格 ${cfg.spec} 不是合法的 UTF-8，不切块（${e.message}）`); throw e; }

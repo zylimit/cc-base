@@ -28,3 +28,4 @@
 - [审上游同步脚本 + 派生文件生成器](pattern_vendor-sync-and-generator-attacks.md) — 只写不清孤儿 / 闸失败留半成品 / 自测改仓
 - [审建表取事实 + 页面隐去 + 核对器](pattern_ddl-facts-and-page-redaction.md) — DROP/RENAME 级联漏；补名对不上静默；白名单隐去必漏字段
 - [审「留指针 + 下游读指针」与按缩进认父子](pattern_archive-pointer-and-indent-parsing.md) — 指针整行取编号致 lint 漂移；浅压深吞整段；变异副本喂 $1
+- [审 Markdown 切块→出页面→零丢失核对](pattern_markdown-chunk-render-zero-loss.md) — 共用隐去吞整句；lay 藏内容；只比线性文字；自检零覆盖

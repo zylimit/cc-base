@@ -1,7 +1,7 @@
 // spec-blocks.mjs —— 需求规格的块怎么排（契约 docs/readable-spec/phase2-spec-contract.md C 节）：一块一个带 data-block 的元素，照来源的先后；
 // 列表照树嵌套、表格行成表、引用收进可展开的区、围栏原样等宽、标题下面三步以上的有序列表前面加一张步骤图。
 // 核对器按 data-block 把每块读回来（文字不含嵌在里面的子块），所以块里只放这一块的字：另加的导读——步骤图、目录、
-// 引用的标题、打印用的那一份引用——都不带 data-block，也不放进带 data-block 的元素里。
+// 引用的标题、打印用的那一份引用——都不带 data-block，也不放进带 data-block 的元素里；打印用的那一份带 data-print-of，核对器另比它的字。
 // 引用为什么另备一份打印用的：合着的 <details> 打印时里面的字不出，不用脚本又没有各家浏览器都认的办法让它打印时自己展开
 // （::details-content 太新，内网的旧浏览器不认）；两份是同一个字符串，只有屏幕上那份带 data-block，同一块读回来只有一次。
 import { esc, attrs, textW } from './layout.mjs';
@@ -116,13 +116,21 @@ function tableHtml(rows) {
 function quoteHtml(b) {
   const label = `引用（${b.endLine - b.line + 1} 行）`, head = cut(flat(b.text.split('\n')[0]), QUOTE_HEAD), body = inline(b.text, { split: 'line' });
   return `<details class="q"><summary>${label}${head ? `<span class="qt">：${esc(head)}</span>` : ''}</summary><div class="qb"${mark(b)}>${body}</div></details>\n`
-    + `<div class="print-only"><p class="qt">${label}</p><div class="qb">${body}</div></div>`;
+    + `<div class="print-only"><p class="qt">${label}</p><div class="qb"${attrs({ 'data-print-of': String(b.n) })}>${body}</div></div>`;
+}
+
+// 围栏：原样等宽显示；起始行后面的字（info：text、json，或者一句说明）是来源里的字，显示在它上面、带 data-k="info"，
+// 核对器连它一起比（契约 C、D 节）。没有 info 的照旧只是一个 <pre>。
+function fenceHtml(b) {
+  const code = `<code>${esc(b.text)}</code>`;
+  return b.info ? `<div class="fence"${mark(b)}><p class="fi" data-k="info">${esc(b.info)}</p><pre>${code}</pre></div>` : `<pre${mark(b)}>${code}</pre>`;
 }
 
 const ONE = {
+  // 标题用与来源同级的标签（来源的二级标题就是 <h2>），核对器按标签读级数（契约 C、D 节）。
   heading: (b) => { const L = Math.min(6, Math.max(1, b.level ?? 1)); return `<h${L}${mark(b, { id: headId(b) })}>${inline(b.text)}</h${L}>`; },
   quote: quoteHtml,
-  fence: (b) => `<pre${mark(b)}><code>${esc(b.text)}</code></pre>`,
+  fence: fenceHtml,
   hr: (b) => `<hr${mark(b)}>`,
   paragraph: (b) => `<p${mark(b)}>${inline(b.text, { split: long(b.text) })}</p>`,
 };
@@ -165,6 +173,8 @@ details.q{margin:2px 0;padding:0 10px;border-left:3px solid var(--line)}
 details.q summary{cursor:pointer;color:var(--fg)}
 .qt{color:var(--muted)}
 .qb{white-space:pre-line;font-size:15px;padding:2px 0 8px}
+.fence .fi{margin:12px 0 2px;font-size:14px;color:var(--muted)}
+.fence>pre{margin-top:0}
 table.st th,table.st td:first-child{white-space:normal}
 table.st th{color:var(--fg);background:var(--soft)}
 nav.toc{border:1px solid var(--line);border-radius:4px;padding:6px 16px;margin:12px 0 20px;font-size:15px}

@@ -10,7 +10,8 @@
 // build 落盘前对临时目录跑第 2 项，再把每一页的文字过一遍隐去规则（selfCheck），不过就抛 CheckFailed，
 // publish 删掉临时目录、原有页面不动，入口报退出码 3。
 // 测试注入点：READABLE_FAIL_AT=selfcheck 时，自检拿到的事实里第一张表多一个列，模拟「出页面的代码少出了一个列」；
-// READABLE_FAIL_AT=leak 在出页面那一侧（render/db-scrub.mjs），模拟某个上页面的字段忘了过隐去，由这里的兜底拦下。
+// READABLE_FAIL_AT=leak 在出页面那一侧（render/db-scrub.mjs），模拟某个上页面的字段忘了过隐去，由这里的兜底拦下；
+// READABLE_FAIL_AT=spec-render 也在出页面那一侧（render/spec.mjs），由这里跑的需求规格那一项（check-spec.mjs）拦下。
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { cmp } from './model.mjs';

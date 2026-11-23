@@ -17,6 +17,9 @@
 // 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）；
 // READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）；
 // READABLE_FAIL_AT=leak 时，第一张表的表页上多出一个没隐去的内网地址，模拟某个字段忘了过隐去，落盘前的兜底拦下（在 render/db-scrub.mjs）。
+// READABLE_FAIL_AT=spec-cut 时，需求规格切出来的第一块带字的少一个字，还原自检拦下：build、check、build --facts-json 都退出码 3、
+// 什么都不出（在 sources/md-blocks.mjs，第二期契约 B 节）；READABLE_FAIL_AT=spec-render 时，出页面的代码把第一条带字的列表项的
+// 最后一个字丢掉，落盘前的自检拦下、原有页面不动（在 render/spec.mjs，第二期契约 D 节）。
 // 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；init 起草配置仍在这里。
 import { existsSync, writeFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, basename, dirname } from 'node:path';

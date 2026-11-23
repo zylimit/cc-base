@@ -48,12 +48,14 @@ function chapterPage(ch, ctx) {
   return { path: `spec/${ch.file}`, html: page({ title: [ch.name, SPEC_DOC, ctx.title].join(' · '), depth: 1, crumbs: [CRUMB, [SPEC_DOC, 'spec/index.html'], [ch.name]], body, css: SPEC_CSS }) };
 }
 
-// 隐去了几处、各在第几行（契约 C 节）：只写位置，不写原文。
+// 隐去了几处、各在第几行、换掉了多少个字（契约 C 节）：只写位置与字数，不写原文。
+// 字数写在明处：零丢失的比对按隐去后的文字比，规则要是多吞了后面的话，两边换得一样、核对看不出来，读者看这一栏才知道这一行少了多少。
 function redactions(hits, chs) {
   if (!hits.length) return '';
   const where = new Map(chs.flatMap((ch) => ch.blocks.map((b) => [b.n, ch])));
-  const rows = hits.map((h) => { const ch = where.get(h.block); return [`第 ${h.line} 行`, `<a href="${esc(ch.file)}">${esc(`${ch.nn} ${ch.name}`)}</a>`, String(h.n)]; });
-  return `<div class="notice" role="note"><p>隐去了 ${hits.reduce((s, h) => s + h.n, 0)} 处：来源里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['来源的行', '在哪一章', '处数'], rows, ['120px', null, '64px'])}</div>`;
+  const rows = hits.map((h) => { const ch = where.get(h.block); return [`第 ${h.line} 行`, `<a href="${esc(ch.file)}">${esc(`${ch.nn} ${ch.name}`)}</a>`, String(h.n), String(h.chars)]; });
+  const n = hits.reduce((s, h) => s + h.n, 0), chars = hits.reduce((s, h) => s + h.chars, 0);
+  return `<div class="notice" role="note"><p>隐去了 ${n} 处、共换掉 ${chars} 个字：来源里形如内网地址、带口令的地址或密钥的字样，页面上换成了「${REDACTED}」，原文只在来源里。</p>\n${table(['来源的行', '在哪一章', '处数', '换掉的字'], rows, ['120px', null, '64px', '96px'])}</div>`;
 }
 
 function indexPage(chs, spec, ctx) {
@@ -65,7 +67,8 @@ function indexPage(chs, spec, ctx) {
   const body = [
     redactions(spec.hits, chs),
     `<h1>${esc(name)}</h1>`,
-    `<p>来源：${code(ctx.file)} ${origin('fact')}，共 ${spec.blocks.length} 块，分 ${chs.length} 章：一个二级标题一章，一级标题与第一个二级标题之前的内容归第 00 章。</p>`,
+    // 「归第 00 章」那半句只在真有第 00 章时才写。
+    `<p>来源：${code(ctx.file)} ${origin('fact')}，共 ${spec.blocks.length} 块，分 ${chs.length} 章：一个二级标题一章${chs[0]?.no === 0 ? '，一级标题与第一个二级标题之前的内容归第 00 章' : ''}。</p>`,
     `<p class="lead">这份页面只是把来源换一种排法：一个字不加、一个字不少，没有另写的说明。长条目按句断行，开头的粗体词当小标题，引用收进可展开的区（打印时展开）${steps}——这些只改显示、不改文字，以来源为准。</p>`,
     ...(chs.length ? [
       '<h2>章节地图</h2>',
@@ -78,9 +81,20 @@ function indexPage(chs, spec, ctx) {
   return { path: 'spec/index.html', html: page({ title: `${SPEC_DOC} · ${ctx.title}`, depth: 1, crumbs: [CRUMB, [SPEC_DOC]], body, css: SPEC_CSS }) };
 }
 
+// 测试注入点 READABLE_FAIL_AT=spec-render（契约 D 节）：出页面的代码把第一条带字的列表项的最后一个字丢掉，
+// 落盘前的自检应当拦下（build 退出码 3、原有页面不动）。规格里没有带字的列表项就没有字可丢，直接报错——注入点不许悄悄什么都不做。
+function injectRender(spec) {
+  if (process.env.READABLE_FAIL_AT !== 'spec-render') return spec;
+  const k = spec.blocks.findIndex((b) => b.kind === 'list' && b.text !== '');
+  if (k < 0) throw new Error('READABLE_FAIL_AT=spec-render：规格里没有带字的列表项可丢一个字，按要求模拟失败');
+  const blocks = spec.blocks.slice();
+  blocks[k] = { ...blocks[k], text: Array.from(blocks[k].text).slice(0, -1).join('') };
+  return { ...spec, blocks };
+}
+
 // 入口：模型里的 spec → 需求规格的全部页面，外加首页上那一条目录项；title 是文档集的标题（已隐去）。stats 给命令行报数用。
 export function renderSpec(source, { title }) {
-  const spec = scrubSpec(source), chs = chapters(spec.blocks), ctx = { title, file: spec.file };
+  const spec = injectRender(scrubSpec(source)), chs = chapters(spec.blocks), ctx = { title, file: spec.file };
   return {
     entry: { href: 'spec/index.html', label: SPEC_DOC, summary: `${chs.length} 章、${spec.blocks.length} 块，取自 ${spec.file}` },
     files: [indexPage(chs, spec, ctx), ...chs.map((ch) => chapterPage(ch, ctx))],
