@@ -174,7 +174,9 @@ function layers(nodes) {
 // max 是这张图最多几个方框，默认同组页的 12（分组关系图是 20，契约 F 节）。
 // rowGap 给了就用它当行距、底下不留绕线的半格：没有连线的图（需求规格的章节地图）用不着给连线留的大空隙。
 // 不给就照旧——数据库设计的各张图不给，加这个参数之前出的页面与之后逐字节相同。
-export function diagram(nodes, label, max = DIAGRAM_MAX, { rowGap } = {}) {
+// rows 给了就按它排行（方框的数组的数组，从上到下），不按引用的深浅分层：架构总图按项目判断的层排模块（第三期契约 D 节）。
+// 一行放不下照旧折行，连线的画法不变。不给就照旧，同上。
+export function diagram(nodes, label, max = DIAGRAM_MAX, { rowGap, rows: fixedRows } = {}) {
   const rowStep = rowGap ?? GAP_Y;
   if (nodes.length > max) throw new Error(`关系图最多 ${max} 个方框，这里给了 ${nodes.length} 个`);
   const box = new Map(nodes.map((n) => {
@@ -183,7 +185,7 @@ export function diagram(nodes, label, max = DIAGRAM_MAX, { rowGap } = {}) {
   }));
   const pack = (budget) => {
     const rows = [];
-    for (const L of layers(nodes)) {
+    for (const L of fixedRows ?? layers(nodes)) {
       let row = [], w = 0;
       for (const n of L) {
         const b = box.get(n.name);

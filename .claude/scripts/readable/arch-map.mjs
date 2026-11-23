@@ -55,14 +55,16 @@ export function readArchMap(m, statuses) {
     let status = x.status;
     if (!statuses.includes(status)) { add('format', x.id, `模块 ${x.id} 的 status 是 ${JSON.stringify(status ?? null)}，只认 proposed 或 confirmed；按 proposed（AI 提议）算`); status = 'proposed'; }
     const paths = Array.isArray(x.paths) ? x.paths.filter((p) => typeof p === 'string' && p).map(normPath) : [];
-    if (!Array.isArray(x.paths) || paths.length < x.paths.length) add('format', x.id, `模块 ${x.id} 的 paths 该是通配写法（非空字符串）的数组，${paths.length ? '认不出的几项没用' : '整项没用'}`);
+    const badPaths = !Array.isArray(x.paths) || paths.length < x.paths.length;
+    if (badPaths) add('format', x.id, `模块 ${x.id} 的 paths 该是通配写法（非空字符串）的数组，${paths.length ? '认不出的几项没用' : '整项没用'}`);
     // 有 layers 时每个模块的 layer 必须是其中一个（A 节）；不是的按没有层算，不进越层的判断。没有 layers 时照写。
     let layer = typeof x.layer === 'string' && x.layer ? x.layer : null;
     if (layers.length && !layers.includes(layer)) {
       add('layer', x.id, `模块 ${x.id} 的 layer ${JSON.stringify(x.layer ?? null)} 不在 layers（${layers.join('、')}）里，按没有层算`);
       layer = null;
     } else if (!layers.length && x.layer != null && layer === null) add('format', x.id, `模块 ${x.id} 的 layer 该是层名（字符串），按没有层算`);
-    modules.push({ id: x.id, title, layer, status, paths, res: paths.map(globRe) });
+    // paths 整项没用的（一项也认不出）：文件为空，只记上面那条 format，不再顺带记 empty（A 节）。
+    modules.push({ id: x.id, title, layer, status, paths, res: paths.map(globRe), unformed: badPaths && !paths.length });
   });
   return { modules, layers, problems };
 }
@@ -87,7 +89,7 @@ export function assignByMap(modules, files) {
     return { kind: 'double', module: a, detail: `${list.length} 个文件同时被模块 ${a} 与 ${b} 匹配，按先后归 ${a}：${list.slice(0, 3).join('、')}${list.length > 3 ? ' 等' : ''}` };
   });
   modules.forEach((m, i) => {
-    if (!hits[i]) problems.push({ kind: 'empty', module: m.id, detail: `模块 ${m.id} 的 paths（${m.paths.join('、') || '空'}）一个文件也没匹配到` });
+    if (!hits[i] && !m.unformed) problems.push({ kind: 'empty', module: m.id, detail: `模块 ${m.id} 的 paths（${m.paths.join('、') || '空'}）一个文件也没匹配到` });
   });
   return { owner, problems };
 }

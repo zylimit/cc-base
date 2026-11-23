@@ -213,9 +213,11 @@ function indexPage(model, ctx) {
 
 // 入口：模型 → 数据库设计的全部页面，外加首页上那一条目录项。stats 给命令行报数用。
 // 各页用隐去过的模型与配置副本（db-scrub.mjs），传进来的不动；title 是隐去过的配置标题，文档集首页也用它。
-export function renderDb(source, cfg) {
+// moduleOf（可不给）：架构那一份交来的「文件路径 → {id, title}」，表页上「谁在写、谁在读」的文件标出所属的模块
+// （第三期契约 D 节）；不给就不标，页面与加这个参数之前逐字节相同。
+export function renderDb(source, cfg, { moduleOf } = {}) {
   const { model, cfg: shownCfg, hits } = scrub(source, cfg);
-  const ctx = { ...index(model, shownCfg), hits };
+  const ctx = { ...index(model, shownCfg), hits, moduleOf };
   const files = [indexPage(model, ctx), ...ctx.pages.map((g) => groupPage(g, ctx)), ...model.tables.map((t) => tablePage(t, ctx))];
   return {
     title: shownCfg.title,

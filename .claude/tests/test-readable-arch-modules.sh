@@ -69,10 +69,10 @@ eq "对照：主夹具（全向下、无环）cycles 与 upward 为空，problem
 R="$TMP/c"; mkcfg "$R" '["app"]'; w app/a/x.py 'A=1'; w app/b/y.py 'B=1'; w app/c/z.py 'C=1'; w app/d/w.py 'D=1'; w app/e/v.py 'E=1'; w app/f/u.py 'F=1'
 FM1='{"id":"fmt1","title":"t","layer":"业务","paths":["app/e/**"],"status":"done"}'; FM2='{"id":"fmt2","title":"t","layer":"业务","paths":"app/f/**","status":"proposed"}'
 map "$R" "$LY,\"modules\":[$(mod a 业务 '"app/a/**"'),$(mod ghost 业务 '"nowhere/**"'),$(mod badlayer 不存在 '"app/b/**"'),$(mod Bad_Id 业务 '"app/c/**"'),$(mod a 业务 '"app/d/**"'),$FM1,$FM2,$(mod later 业务 '"app/c/**"')]"
-facts "$R"; C1=$RC; K1=$(J "d.arch.problems.filter(p=>!(p.kind=='empty'&&p.module=='fmt2')).map(p=>p.kind).sort().join()+'|'+M('later').files.join()+'|'+(M('Bad_Id')||{files:[]}).files.includes('app/c/z.py')"); K1=${K1#\"}; G1=$(J "M('ghost').files.length+'|'+M('ghost').layer")
+facts "$R"; C1=$RC; K1=$(J "d.arch.problems.map(p=>p.kind).sort().join()+'|'+M('later').files.join()+'|'+(M('Bad_Id')||{files:[]}).files.includes('app/c/z.py')+'|'+d.arch.problems.filter(p=>p.kind=='empty').map(p=>p.module).join()"); K1=${K1#\"}; G1=$(J "M('ghost').files.length+'|'+M('ghost').layer")
 map "$R" "$LY,\"modules\":[$(mod a 业务 '"app/a/**"'),$(mod b 数据 '"app/b/**"')]"; facts "$R"
-eq "项目判断对不上：空 paths / 层名不在 layers / id 写法 / id 重复 / status 写成 done / paths 写成字符串各一条（不计 fmt2 顺带的 empty；empty,format,format,id,id,layer），退出码 0；id 不合写法的模块整个不用（它的 z.py 归后面的 later、不在它自己里）；ghost 仍在、files 为空；对照干净 map：problems 为空、退出码 0" \
-  "0|empty,format,format,id,id,layer|app/c/z.py|false|0|业务|0|" "$C1|$K1|$G1|$RC|$(J "d.arch.problems.map(p=>p.kind).join()")"
+eq "项目判断对不上：空 paths / 层名不在 layers / id 写法 / id 重复 / status 写成 done / paths 写成字符串各一条（paths 不成形的 fmt2 只记 format、不顺带记 empty；种类恰为 empty,format,format,id,id,layer，那条 empty 属于匹配不到文件的 ghost），退出码 0；id 不合写法的模块整个不用（它的 z.py 归后面的 later、不在它自己里）；ghost 仍在、files 为空；对照干净 map：problems 为空、退出码 0" \
+  "0|empty,format,format,id,id,layer|app/c/z.py|false|ghost|0|业务|0|" "$C1|$K1|$G1|$RC|$(J "d.arch.problems.map(p=>p.kind).join()")"
 
 # 4 打死：循环漏报或成员错 / 越层方向反了 / 向下引用误报 / 拿掉环后残留（三层：up 接口、mid 业务、low 数据）
 R="$TMP/b"; mkcfg "$R" '["p"]'; map "$R" "$LY,\"modules\":[$(mod up 接口 '"p/up/**"'),$(mod mid 业务 '"p/mid/**"'),$(mod low 数据 '"p/low/**"')]"

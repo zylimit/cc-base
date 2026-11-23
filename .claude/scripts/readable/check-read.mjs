@@ -3,6 +3,11 @@
 // 读回来的会跟着错，两边错得一样看不出来。所以这里不 import render/ 下的任何东西，也不是完整的 HTML 解析器：
 // 只认标签、属性与文字，够读 C 节「机器读得回来」的 data-anchor / data-k / data-note / data-state，以及第 4 项要的站内链接。
 // 读不懂的写法不抛错，照字面当文字留着——宁可让比对报一条对不上，也不让一页读不出来就整次失败。
+// 目录读取（reader）与站内链接（danglingLinks）原在 check.mjs，2026-11-23 第三期 Task 3.4 搬来给架构那一项腾地方；
+// 架构这一份的行（sectionRows）照第三期契约 D 节末尾那张表读：data-section 里的 data-row 与 data-k。
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join, posix } from 'node:path';
+import { cmp } from './model.mjs';
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 const RAW = new Set(['script', 'style']);
@@ -160,6 +165,53 @@ export const specPrints = (root) => findAll(root, (n) => n.attrs['data-print-of'
 export const specFigs = (root) => findAll(root, isFig).map((n) => ({
   of: n.attrs['data-fig'], boxes: findAll(n, (x) => x.tag === 'text').map((t) => textOf(t, (x) => x.attrs['data-k'] === 'marker')),
 }));
+
+// 目录下的文件（相对路径、/ 分隔、按名字定序）与按需读成树的页面。
+export function reader(dir) {
+  const files = [];
+  const visit = (d, rel) => {
+    for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => cmp(a.name, b.name))) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) visit(join(d, e.name), r);
+      else if (e.isFile()) files.push(r);
+    }
+  };
+  if (existsSync(dir)) visit(dir, '');
+  const cache = new Map();
+  const tree = (rel) => { if (!cache.has(rel)) cache.set(rel, parse(readFileSync(join(dir, rel), 'utf8'))); return cache.get(rel); };
+  return { dir, files, html: files.filter((f) => f.endsWith('.html')), tree };
+}
+
+// 第 4 项的后一半（第一期契约 H 节）：站内链接的目标文件不在的。带协议的、只有 # 的不是站内的页。
+export function danglingLinks(rd, label) {
+  const out = [], files = new Set(rd.files);
+  for (const rel of rd.html) {
+    for (const a of findAll(rd.tree(rel), (n) => n.tag === 'a' && n.attrs.href !== undefined)) {
+      const href = a.attrs.href.trim(), path = href.split('#')[0].split('?')[0];
+      if (!path || href.startsWith('//') || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(href)) continue;
+      const add = (detail) => out.push({ kind: 'dangling', where: label + rel, detail });
+      let dec;
+      try { dec = decodeURIComponent(path); } catch (e) { if (!(e instanceof URIError)) throw e; add(`链接「${href}」的写法读不懂`); continue; }
+      const target = posix.normalize(posix.join(posix.dirname(rel), dec));
+      if (posix.isAbsolute(dec) || target === '..' || target.startsWith('../')) add(`链接「${href}」指到了文档集外面`);
+      else if (!files.has(target)) add(`链接「${href}」指向的 ${target} 不存在`);
+    }
+  }
+  return out;
+}
+
+// 架构这一份的一段（第三期契约 D 节末尾）：name 为 null 时读整页的行。每行 {key, k}：key 是 data-row 的值，
+// k 是行里各个 data-k 的文字（同一个 data-k 出现几处的，文字用「 | 」连起来，比的时候自然对不上）。
+// 段出现了几处（sections）一并交回：缺了这一段或重了，调用方要点名。
+export function sectionRows(tree, name) {
+  const secs = name == null ? [tree] : findAll(tree, (n) => n.attrs['data-section'] === name);
+  const rows = secs.flatMap((s) => findAll(s, (n) => n.attrs['data-row'] !== undefined)).map((r) => {
+    const k = {};
+    for (const c of findAll(r, (n) => n.attrs['data-k'] !== undefined)) k[c.attrs['data-k']] = k[c.attrs['data-k']] === undefined ? textOf(c) : `${k[c.attrs['data-k']]} | ${textOf(c)}`;
+    return { key: r.attrs['data-row'], k, node: r };
+  });
+  return { sections: secs.length, rows };
+}
 
 // 来源里一段文字去掉行内记号之后显示出来的样子（第二期契约 D 节）。出页面那边也有一份同样的规矩（render/spec-inline.mjs），
 // 禁边不许这里借它的，照规矩自己写一份，两份对同样的输入出同样的纯文字：

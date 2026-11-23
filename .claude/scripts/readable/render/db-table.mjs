@@ -84,13 +84,25 @@ function byFile(entries) {
   return [...m.values()].sort((a, b) => b.lines.length - a.lines.length || cmp(a.file, b.file));
 }
 
-function usageRow(f, writes) {
+// 这个文件所属的模块（第三期契约 docs/readable-spec/phase3-arch-contract.md D 节）：开发领到「给某张表加一个字段」的活，
+// 从这里找到写它的模块（FLOW-1 第 4 步）。data-k="module" 那一块只放模块 id（未归属的写「未归属」），核对器按它读回；
+// 标题跟在后面，链到模块页。of 是入口从架构那一份交进来的「路径 → {id, title}」（renderDb 的 moduleOf 参数带进 ctx）；
+// 没有架构这一份的项目不给，这一块不出，表页与加它之前逐字节相同。
+const ARCH_DIR = '../arch/';
+function moduleMark(of, file) {
+  if (!of) return '';
+  const m = of.get(file);
+  return m ? `<br><span class="muted">模块：</span><a href="${ARCH_DIR}m-${fileSlug(m.id)}.html"><code data-k="module">${esc(m.id)}</code> ${esc(m.title)}</a>`
+    : '<br><span class="muted">模块：<span data-k="module">未归属</span></span>';
+}
+
+function usageRow(f, writes, ctx) {
   const marks = [...['proposed', 'confirmed'].filter((s) => f.judged.has(s)).map(judged),
     f.same ? '<span class="muted">这个文件里另有同名的建表语句，它读写的多半不是主库这张表</span>' : ''].filter(Boolean);
   // 只写处数、不写行号：代码文件的行号不上页面（契约 F 节），代码一改行号就挪、页面跟着变。
   // 项目判断补的条目没有处数：这个文件里的表名是运行时拼的，静态数不出来，处数留空、文件格里写明。
   const note = f.lines.length ? '' : '<span class="muted">这个文件里的表名是运行时拼的，由项目判断归到这张表</span>';
-  const file = pathCode(f.file) + ([...marks, note].filter(Boolean).length ? `<br>${[...marks, note].filter(Boolean).join(' ')}` : '');
+  const file = pathCode(f.file) + moduleMark(ctx.moduleOf, f.file) + ([...marks, note].filter(Boolean).length ? `<br>${[...marks, note].filter(Boolean).join(' ')}` : '');
   const n = f.lines.length ? String(f.lines.length) : '';
   return writes ? [file, VERB_ORDER.filter((v) => f.verbs.has(v)).map((v) => v.toUpperCase()).join('、'), n] : [file, n];
 }
@@ -137,7 +149,7 @@ function usage(t, kind, ctx) {
   const wd = writes ? [null, '200px', '56px'] : [null, '56px'];
   // 一个文件一行，行带 data-row="writer" / "reader"，核对器按它数行（契约 C 节「机器读得回来」）；
   // 只在打印时显示的那一份是重复的，不带标记，免得同一个文件被数两遍。
-  const cells = files.map((f) => usageRow(f, writes)), mark = (r) => ({ attrs: { 'data-row': writes ? 'writer' : 'reader' }, cells: r });
+  const cells = files.map((f) => usageRow(f, writes, ctx)), mark = (r) => ({ attrs: { 'data-row': writes ? 'writer' : 'reader' }, cells: r });
   const rest = cells.slice(USAGE_TOP);
   // 其余的收进 <details>（不用脚本）；打印时 <details> 合着的内容不出，另备一份只在打印时显示的，纸上不丢。
   const more = rest.length

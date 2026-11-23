@@ -12,12 +12,14 @@
 // 测试注入点：READABLE_FAIL_AT=selfcheck 时，自检拿到的事实里第一张表多一个列，模拟「出页面的代码少出了一个列」；
 // READABLE_FAIL_AT=leak 在出页面那一侧（render/db-scrub.mjs），模拟某个上页面的字段忘了过隐去，由这里的兜底拦下；
 // READABLE_FAIL_AT=spec-render 也在出页面那一侧（render/spec.mjs），由这里跑的需求规格那一项（check-spec.mjs）拦下。
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { join, posix } from 'node:path';
+// 有模块的再多一项（第三期契约 E 节，check-arch.mjs）：架构这一份各页与表页上的模块标记读回来与事实比，项目判断里对不上的各算一条。
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { cmp } from './model.mjs';
 import { redact } from './sensitive.mjs';
-import { parse, findAll, textOf, squash, segments } from './check-read.mjs';
+import { findAll, textOf, squash, segments, reader, danglingLinks } from './check-read.mjs';
 import { specFacts } from './check-spec.mjs';
+import { archFacts, archProblems, archSummary, archLine } from './check-arch.mjs';
 
 export class CheckFailed extends Error {
   constructor(problems) {
@@ -54,22 +56,7 @@ function firstDiffLine(got, want) {
   return `第 ${i + 1} 行起`;
 }
 
-// 目录下的文件（相对路径、/ 分隔、按名字定序）与按需读成树的页面。
-function reader(dir) {
-  const files = [];
-  const visit = (d, rel) => {
-    for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => cmp(a.name, b.name))) {
-      const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) visit(join(d, e.name), r);
-      else if (e.isFile()) files.push(r);
-    }
-  };
-  if (existsSync(dir)) visit(dir, '');
-  const cache = new Map();
-  const tree = (rel) => { if (!cache.has(rel)) cache.set(rel, parse(readFileSync(join(dir, rel), 'utf8'))); return cache.get(rel); };
-  return { dir, files, html: files.filter((f) => f.endsWith('.html')), tree };
-}
-
+// 目录读取（reader）与第 4 项的站内链接（danglingLinks）在 check-read.mjs。
 // 第 1 项：重出的与磁盘上的逐文件逐字节比。
 function pagesCurrent(rd, rendered, label) {
   const out = [], want = new Map(rendered.map((f) => [f.path, f.html])), disk = new Set(rd.files);
@@ -185,27 +172,9 @@ function pageFacts(rd, facts, label) {
     noteRegions(rd.tree(rel), anchors, notes, (kind, anchor, detail) => out.push({ kind, where: at(rel, anchor), detail }));
   }
   for (const rel of rd.html) {
-    if (TABLE_PAGE.test(rel) || hosts.has(rel)) continue;
+    if (TABLE_PAGE.test(rel) || hosts.has(rel) || rel.startsWith('arch/')) continue; // arch/ 下的说明区由 check-arch.mjs 读回
     if (/^db\/g-[^/]*\.html$/.test(rel)) { out.push({ kind: 'extra-page', where: at(rel), detail: '这一页对不上任何一个现行的组' }); continue; }
     for (const r of findAll(rd.tree(rel), (n) => n.attrs['data-note'] !== undefined)) out.push({ kind: 'note-mismatch', where: at(rel, r.attrs['data-note']), detail: '这一页不该有这个锚点的说明区' });
-  }
-  return out;
-}
-
-// 第 4 项的后一半：站内链接的目标文件不在的。带协议的、只有 # 的不是站内的页。
-function danglingLinks(rd, label) {
-  const out = [], files = new Set(rd.files);
-  for (const rel of rd.html) {
-    for (const a of findAll(rd.tree(rel), (n) => n.tag === 'a' && n.attrs.href !== undefined)) {
-      const href = a.attrs.href.trim(), path = href.split('#')[0].split('?')[0];
-      if (!path || href.startsWith('//') || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(href)) continue;
-      const add = (detail) => out.push({ kind: 'dangling', where: label + rel, detail });
-      let dec;
-      try { dec = decodeURIComponent(path); } catch (e) { if (!(e instanceof URIError)) throw e; add(`链接「${href}」的写法读不懂`); continue; }
-      const target = posix.normalize(posix.join(posix.dirname(rel), dec));
-      if (posix.isAbsolute(dec) || target === '..' || target.startsWith('../')) add(`链接「${href}」指到了文档集外面`);
-      else if (!files.has(target)) add(`链接「${href}」指向的 ${target} 不存在`);
-    }
   }
   return out;
 }
@@ -231,6 +200,7 @@ function summarize(facts, rd, rendered, problems, specRead) {
   const spec = facts.spec ? { spec: { blocks: facts.spec.blocks.length, read: specRead } } : {};
   return {
     ...spec,
+    ...archSummary(facts),
     pages: rendered.length,
     pagesOnDisk: rd.files.length,
     tables: facts.tables.length,
@@ -257,6 +227,8 @@ export function runCheck({ dir, label, facts, rendered }) {
     ...pagesCurrent(rd, rendered, label),
     ...pageFacts(rd, facts, label),
     ...spec.problems,
+    ...archFacts(rd, facts, label, noteRegions),
+    ...archProblems(facts),
     ...Object.keys(facts.notes || {}).sort(cmp).filter((a) => facts.notes[a].state === 'stale')
       .map((a) => ({ kind: 'note-stale', where: a, detail: '说明的指纹对不上：写于来源的旧版本，要按现在的来源重写后 note put' })),
     ...facts.orphanNotes.map((x) => ({ kind: 'note-orphan', where: x.anchor, detail: '说明的锚点已经不存在：改挂到新锚点（note put）或删掉（note drop）' })),
@@ -281,7 +253,7 @@ function leaks(rd, label) {
     }
     if (!at.size) continue;
     const total = [...at.values()].reduce((a, b) => a + b, 0);
-    out.push({ kind: 'leak', where: label + rel, detail: `页面上有 ${total} 处形如内网地址、带口令的地址或密钥的字样没有隐去（${[...at].map(([k, n]) => `${k} ${n} 处`).join('；')}）：出页面时有一个字段没过隐去，要在 render/${rel.startsWith('spec/') ? 'spec' : 'db'}-scrub.mjs 里补上` });
+    out.push({ kind: 'leak', where: label + rel, detail: `页面上有 ${total} 处形如内网地址、带口令的地址或密钥的字样没有隐去（${[...at].map(([k, n]) => `${k} ${n} 处`).join('；')}）：出页面时有一个字段没过隐去，要在 render/${/^(spec|arch)\//.test(rel) ? rel.slice(0, 4) : 'db'}-scrub.mjs 里补上` });
   }
   return out;
 }
@@ -289,7 +261,7 @@ function leaks(rd, label) {
 // build 落盘前的自检：跑第 2 项，再过一遍隐去的兜底，对的是写好的临时目录。
 export function selfCheck(dir, facts) {
   const rd = reader(dir);
-  const problems = dedupe([...pageFacts(rd, injected(facts), '新出的 '), ...specFacts(rd, facts.spec, '新出的 ').problems, ...leaks(rd, '新出的 ')]);
+  const problems = dedupe([...pageFacts(rd, injected(facts), '新出的 '), ...specFacts(rd, facts.spec, '新出的 ').problems, ...archFacts(rd, facts, '新出的 ', noteRegions), ...leaks(rd, '新出的 ')]);
   if (problems.length) throw new CheckFailed(problems);
 }
 
@@ -324,5 +296,5 @@ export function summaryLine(s) {
   return `核对了 ${s.pages} 页（磁盘上 ${s.pagesOnDisk} 个文件）、表 ${s.tables} 张、列 ${s.columns} 个；说明 ${s.notes.written} 段（待更新 ${s.notes.stale}、孤儿 ${s.notes.orphans}）；`
     + `没写说明的（不算不一致）：表 ${u.tables} 张、缺含义的列 ${u.columns} 个、组 ${u.groups} 个、doc:db ${u.doc ? '没写' : '已写'}；`
     + `文档已明说、不算不一致的：未合并的动态定义 ${d.unfolded}、未解析的语句 ${d.unparsed}、表名运行时拼的 ${d.dynamic}（未归属 ${d.dynamicUnassigned}）`
-    + (s.spec ? `；需求规格 ${s.spec.blocks} 块，页面上读回 ${s.spec.read} 块` : '');
+    + (s.spec ? `；需求规格 ${s.spec.blocks} 块，页面上读回 ${s.spec.read} 块` : '') + archLine(s);
 }

@@ -20,39 +20,30 @@
 // READABLE_FAIL_AT=spec-cut 时，需求规格切出来的第一块带字的少一个字，还原自检拦下：build、check、build --facts-json 都退出码 3、
 // 什么都不出（在 sources/md-blocks.mjs，第二期契约 B 节）；READABLE_FAIL_AT=spec-render 时，出页面的代码把第一条带字的列表项的
 // 最后一个字丢掉，落盘前的自检拦下、原有页面不动（在 render/spec.mjs，第二期契约 D 节）。
-// 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；init 起草配置仍在这里。
-import { existsSync, writeFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve, basename, dirname } from 'node:path';
+// READABLE_FAIL_AT=arch-render 时，出页面的代码在第一个有文件的模块页上漏掉一个文件那一行，落盘前的自检拦下、原有页面不动（在 render/arch-module.mjs，第三期契约 D、E 节）。
+// 配置与项目判断的读取与校验在 notes.mjs（架构稿把 docs/readable-src/ 的读写归 notes，2026-11-23 Task 1.3 从这里搬过去）；
+// init 起草配置与走文件的 walk 在 readable/init.mjs（第三期 Task 3.4 搬过去，给架构这一份腾地方）。
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve, basename } from 'node:path';
 import { cmp } from './readable/model.mjs';
+import { walk, cmdInit } from './readable/init.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
 import { extract as extractSpec, SpecLoss } from './readable/sources/md-blocks.mjs';
 import { extract as extractImports } from './readable/sources/code-imports.mjs';
 import { addRoutes } from './readable/sources/code-routes.mjs';
-import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
+import { ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
 import { link } from './readable/links.mjs';
 import { buildArch } from './readable/links-arch.mjs';
-import { globRe } from './readable/arch-map.mjs'; // ignore 与模块的 paths 同一套通配（第三期契约 A 节）
 import { renderDb } from './readable/render/db.mjs';
+import { renderArch } from './readable/render/arch.mjs';
 import { renderHome } from './readable/render/layout.mjs';
 import { renderSpec } from './readable/render/spec.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
 const USAGE = 'readable-docs.mjs <init | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
 const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
-// 后三条是测试文件与代码放在一起的写法（第三期契约 A 节）：不排掉，模块图上全是测试库。已有的配置不替人改。
-const DEFAULT_IGNORE = ['**/tests/**', '**/node_modules/**', '**/*.test.*', '**/*.spec.*', '**/__tests__/**'];
-const ARCH_DOC_FILE = 'Architecture-Design.md'; // init 在根目录有它时填进 archDocs
 const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现行的页超过 10 张只列前 10 张
-const CODE_EXT = /\.(py|ts|tsx)$/;
-// 契约 A 节：ddl 依次找这三类，同一目录按文件名排序；三类都收、按这个先后排、去重——
-// 只取先找到的一类会漏掉排在后面的迁移文件，漏表是这一层最贵的错；多收的在配置里一眼看得见、可删。
-// sql/ 与 migrations/ 在任意深度都认：有的项目的建表文件在 <项目名>/sql/ 下按编号排（001_*.sql、002_*.sql…），只找根目录下的 sql/ 一张表都找不到。
-const DDL_PATTERNS = [
-  ['**/schema.sql', (f) => f.split('/').pop() === 'schema.sql'],
-  ['**/sql/*.sql', (f) => /(?:^|\/)sql\/[^/]+\.sql$/.test(f)],
-  ['**/migrations/*.sql', (f) => /(?:^|\/)migrations\/[^/]+\.sql$/.test(f)],
-];
 
 function die(code, msg) { console.error(`readable-docs: ${msg}`); process.exit(code); }
 const usage = (msg) => die(2, `${msg}（用法：${USAGE}）`);
@@ -87,61 +78,8 @@ function parseArgs(argv) {
   return o;
 }
 
-// 项目里的文件（相对路径、/ 分隔、按名字定序）。点开头的目录不进：.git、.venv、.claude 里的不是项目的来源
-// （cc-base 自己的 .claude/tests 里就有 SQL 夹具）。符号链接不跟，免得绕圈。sub 给了就只走那个子目录，路径仍相对 root。
-function walk(root, ignore, sub = '') {
-  const res = ignore.map(globRe), skip = (rel) => res.some((r) => r.test(rel)), out = [];
-  const visit = (dir, rel) => {
-    for (const d of readdirSync(dir, { withFileTypes: true }).sort((a, b) => cmp(a.name, b.name))) {
-      if (d.name.startsWith('.')) continue;
-      const r = rel ? `${rel}/${d.name}` : d.name;
-      if (d.isDirectory()) { if (!skip(`${r}/`)) visit(join(dir, d.name), r); }
-      else if (d.isFile() && !skip(r)) out.push(r);
-    }
-  };
-  const start = sub.replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '');
-  visit(start ? join(root, start) : root, start);
-  return out;
-}
-
 // 扫谁写谁读的文件（契约 F 节）：codeRoots 下的 .py 与 JS 一族，去掉 ignore 命中的；几个 codeRoots 重叠的只扫一次。
 const codeFiles = (root, cfg) => [...new Set(cfg.codeRoots.flatMap((d) => walk(root, cfg.ignore, d)).filter(isCodeFile))].sort(cmp);
-
-// codeRoots：含 .py / .ts / .tsx 最多的两个顶层目录（契约 A 节），同数按名字。
-function topCodeDirs(files) {
-  const n = new Map();
-  for (const f of files) {
-    const k = f.indexOf('/');
-    if (k > 0 && CODE_EXT.test(f)) n.set(f.slice(0, k), (n.get(f.slice(0, k)) || 0) + 1);
-  }
-  return [...n].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).slice(0, 2).map(([d]) => d);
-}
-
-function cmdInit(o) {
-  const p = join(o.root, CONFIG);
-  if (existsSync(p)) {
-    if (o.json) process.stdout.write(`${JSON.stringify({ created: false, path: CONFIG, message: '配置已存在' })}\n`);
-    else console.log(`配置已存在：${CONFIG}（一个字节没动）`);
-    return;
-  }
-  const files = walk(o.root, DEFAULT_IGNORE);
-  const ddl = [...new Set(DDL_PATTERNS.flatMap(([, hit]) => files.filter(hit).sort(cmp)))];
-  const spec = existsSync(join(o.root, 'Product-Spec.md')) ? 'Product-Spec.md' : null;
-  const archDocs = existsSync(join(o.root, ARCH_DOC_FILE)) ? [ARCH_DOC_FILE] : [];
-  const cfg = { version: 1, title: basename(resolve(o.root)), spec, ddl, codeRoots: topCodeDirs(files), ignore: DEFAULT_IGNORE, archDocs };
-  const notes = [];
-  if (!ddl.length) notes.push(`ddl 没找到建表定义文件（依次找过 ${DDL_PATTERNS.map(([g]) => g).join('、')}），写成空数组，请手填`);
-  if (!spec) notes.push('根目录没有 Product-Spec.md，spec 写成 null');
-  if (!cfg.codeRoots.length) notes.push('没找到含 .py / .ts / .tsx 文件的顶层目录，codeRoots 写成空数组');
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, `${JSON.stringify(cfg, null, 2)}\n`, { flag: 'wx' }); // wx：万一同时有人建了，宁可报错也不覆盖
-  if (o.json) { process.stdout.write(`${JSON.stringify({ created: true, path: CONFIG, config: cfg, notes })}\n`); return; }
-  console.log(`已起草 ${CONFIG}（title：${cfg.title}）`);
-  console.log(`  ddl（按执行顺序，${ddl.length} 个）：`);
-  ddl.forEach((f, i) => console.log(`    ${i + 1}. ${f}`));
-  console.log(`  codeRoots：${cfg.codeRoots.join('、') || '（空）'}`);
-  notes.forEach((t) => console.log(`  提示：${t}`));
-}
 
 // 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来
 // → 绑说明（契约 G 节：notes 按现行的切片判现行、待更新、孤儿，交给页面与 --facts-json 的是同一份）。
@@ -171,11 +109,14 @@ const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
 // 配置里没写 title 时用根目录名，同 init 起草的口径；页面上不出现根目录的绝对路径。
 // 首页的标题用 renderDb 隐去过的那一份（契约 G 节：配置的标题也过隐去）。
 // 配了需求规格的再出 spec/ 下的页面，首页的文档清单多一项（第二期契约 C 节，2026-11-23 Task 2.2）；spec 为 null 的一页都不出、首页不列。
+// 有模块的（配了 codeRoots、取得到代码文件）再出 arch/ 下的页面，首页清单里排在数据库设计后面（接手的人先看库、再看架构），
+// 表页上「谁在写、谁在读」的文件标出所属的模块：所属关系经 renderDb 的 moduleOf 参数带给表页（第三期契约 D 节）。没有模块的一页不出、表页不变。
 function pages(root, cfg, facts) {
   const page = { ...cfg, title: typeof cfg.title === 'string' && cfg.title ? cfg.title : basename(resolve(root)) };
-  const db = renderDb(facts, page), spec = facts.spec ? renderSpec(facts.spec, { title: db.title }) : null;
-  const docs = [db.entry, ...(spec ? [spec.entry] : [])];
-  return { db, spec, files: [renderHome(db.title, docs), ...db.files, ...(spec ? spec.files : [])] };
+  const arch = facts.arch.modules.length ? renderArch(facts, { title: page.title }) : null;
+  const db = renderDb(facts, page, arch ? { moduleOf: arch.moduleOf } : {}), spec = facts.spec ? renderSpec(facts.spec, { title: db.title }) : null;
+  const docs = [db.entry, ...(arch ? [arch.entry] : []), ...(spec ? [spec.entry] : [])];
+  return { db, spec, arch, files: [renderHome(db.title, docs), ...db.files, ...(arch ? arch.files : []), ...(spec ? spec.files : [])] };
 }
 
 // 核对（契约 H 节）：四项都在 check.mjs；这里只取事实、重出一遍交过去、出结果、定退出码。
@@ -209,13 +150,14 @@ function cmdBuild(o) {
     if (sk.length) console.error(`readable-docs: 略过的非结构语句：${sk.map(([k, n]) => `${k} ${n}`).join('、')}`);
     return;
   }
-  const { db, spec, files } = pages(o.root, cfg, facts);
+  const { db, spec, arch, files } = pages(o.root, cfg, facts);
   // 落盘前对临时目录跑核对第 2 项（契约 H 节），不过就不换上，CheckFailed 往上抛成退出码 3。
   publish(o.root, files, (tmp) => selfCheck(tmp, facts));
   const bytes = files.reduce((s, f) => s + Buffer.byteLength(f.html), 0);
   console.log(`已生成 ${OUT}/：${files.length} 个页面、${bytes} 字节`);
   console.log(`  数据库设计：${tally}；组页 ${db.stats.groupPages} 页，最大一页 ${db.stats.largest} 张表`);
   if (archTally) console.log(`  ${archTally}`);
+  if (arch) console.log(`  架构设计：${arch.stats.pages} 页（首页、接口总表，模块页 ${arch.stats.modules} 页）；隐去 ${arch.stats.hidden} 处`);
   if (spec) {
     const k = {};
     for (const b of facts.spec.blocks) k[b.kind] = (k[b.kind] || 0) + 1;
