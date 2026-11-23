@@ -21,6 +21,7 @@ _Last updated: 2026-11-23_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-11-23: [#140] 人读文档第一期收尾：Task 1.4 说明与指纹、1.5 核对器入库；整期 code-review 一轮 3 条 HIGH 连同中低级别修完；readable-docs skill、主控与两份规则的入口、指南第 16 章入库（evidence：`e7f763c`、`101b7dc` 与本提交；五套契约测试 101 条通过，run-all rc 0；下游副本 `check` 不一致 0 条）
 - 2026-11-23: [#140] 人读文档第一期 Task 1.1–1.3 入库：建表定义的取事实器、数据库页面、谁写谁读与按项目判断分组（evidence：`2a7dac4`、`7051ef9`；三套契约测试 56 条通过，run-all rc 0；下游副本实测 79 张表、写 293 处读 1215 处、抽 10 张表对照无漏报）
 - 2026-11-22: [#140] 人读文档的规格 v1.0 与架构稿写成：11 条需求、四条 ADR，并入了第二个模型独立出的骨架；规格复述已过，架构待用户批准（evidence：`docs/readable-spec/Product-Spec.md`、`docs/readable-spec/Architecture-Design.md`；spec-lint、predev-lint、adr-check 均 rc 0）
 - 2026-11-22: [#141] 发版前自检三项毕业进 dev-workflow-details.md [发布阶段]（evidence：feedback `2026-11-08-self-check-before-asking-release.md`，用户同日「毕业进框架」）
@@ -53,6 +54,8 @@ _Last updated: 2026-11-23_
 （归档指针：累计搬出 69 条，最近一次 2026-11-23 搬 1 条；原文见 progress.archive.md「Archived Done」）
 
 ## Decisions
+- 2026-11-23: **人读文档的隐去加一道页面级兜底：`build` 落盘前把每一页的文字再过一遍规则，有命中就不替换、退出并点名那一页。**依据：整期审查实测函数签名与清单的「原因」两处漏隐——逐个字段点名去隐，新加一个上页面的字段就可能漏，而核对器两边都没隐、看不出来。适用范围：人读文档的全部页面。取代：契约 G 节原先只靠逐字段隐去的做法。
+- 2026-11-23: **代码里认 SQL：动词全大写的照认；小写的要后面像 SQL 才算，不像的进「像 SQL 又不像的」清单，不静默丢。**依据：审查实测日志与报错里的「failed to delete from orders」被记成删表；下游副本修前修后写 293 处、读 1215 处逐条相同，没有误伤它的小写 SQL。适用范围：人读文档的代码扫描。取代：契约 F 节原先「不分大小写一律照认」。
 - 2026-11-23: **人读文档的页面不写生成时间，只标来源内容的指纹。**依据：生成物入库，同样的来源必须生成同样的文件，否则每次重出都是一批没有内容的差异；实测两次生成总哈希相同。适用范围：人读文档的全部页面。取代：规格「数据与权限」表原写的「对应的来源版本与生成时间」（已改，澄清记录有一行）。主 Agent 决定，用户可否决。
 - 2026-11-23: **取事实器算不准的不上页面：没写名字的约束补的名字只在内部用来对 `DROP CONSTRAINT`，页面写「未命名」；`ALTER` 上方的注释记成那张表的改动备注，不归给列。**依据：下游副本实测，补出来的名字 24 个超过 63 字节（库里会截短），一段四行的注释被整段挂到一个不相干的列上；规格「绝不能做：把推断写成事实」。适用范围：人读文档的建表定义取事实器与数据库页面。取代：契约 B 节 2026-11-23 上午「补的名字进输出」「归这条语句加进来的列」两句。
 - 2026-11-23: **cc-base 是公开仓，下游项目的真实表名、列名、客户地域、业务规则正文不写进入库的文件；实数与项目名可以写，举例用合成名字。**依据：`gh repo view` 实查 PUBLIC；下游合规红线「真实设计与运营商数据仅内网，不上公网」。适用范围：cc-base 入库的文档、测试夹具、代码注释、progress 与 feedback；用下游真数据跑出来的产物只放仓外。取代：无（此前没有成文）。这是主 Agent 的理解，用户没有逐条说过。
@@ -75,15 +78,8 @@ _Last updated: 2026-11-23_
 - 2026-11-07: **归档脚本对 Done / Notes / Decisions 各段按首条与末条日期判排列方向，搬走的永远是最旧的 N 条之外的部分；只对过线的段判；首末同日判断不出时整次拒绝（含 `--check`，rc 1，两份文件一字节不动），不做「能搬的先搬」**——依据：lutetia 2026-11-07 实测两种写法都真实存在（下游 Decisions / Notes 最旧在上，本仓三段最新在上），模板写法与本仓实践不一致，旧脚本一律「留前 N 条」把 15 条现行决策搬进归档；fra 修单明定「不要猜」。适用范围：`progress-archive.mjs` 与 `test-progress-archive.sh` / `test-progress-archive-direction.sh` 两份归档用例。取代：无（2026-09-19「归档由脚本机械搬、先写后核再删」不变，本条是它的补充）。
 - 2026-11-04: **运行态标记的排除口径以机器对拍兜底（test-exclusions-parity）：`.claude/.gitignore` 每条必须在 `exclusions.json` 有对应、清单里不许有标记文件名、排除表里的运行态标记 git 也要忽略**——依据：同一天漏了两条（`.three-file-sync-advised`、`.tdd-gate-advised`），第二条随 fae05c3 污染过清单；教训 config-defects-recur-across-sibling-instances。适用范围：`exclusions.json` / `.claude/.gitignore` / `FRAMEWORK-MANIFEST` 三者。取代：无。
 - 2026-11-04: **hook 的 string form 一律写相对路径 `node .claude/hooks/<name>.mjs`，不写 `$CLAUDE_PROJECT_DIR`**——依据：相对路径是唯一不依赖 shell 展开语法的写法（`$VAR` / `$env:VAR` / `%VAR%` 三家不同）；Claude Code 与 Cursor 的 hook 进程 cwd 都是项目根（当天 `claude -p` 与 `cursor-agent -p` 实测）；该前提已写进 `hook-form.mjs` 头注释。适用范围：`hook-form.mjs` 的 string 模板、所有 Cursor 场景安装。取代：无。
-- 2026-11-04: **`setup.sh` / `setup.ps1` 不传 `--hook-form` 时沿用目标已有形态（merge 前探测；mixed 统一成 string；显式参数优先），装完统一按最终形态转一遍**——依据：code review 复现，string form 的目标升级后新 hook 以 exec 合入变 mixed，Cursor 下新闸不跑。适用范围：安装器升级路径。取代：A2 初版「默认写死 exec」（实现草案，progress.md 内无对应旧条）。
-- 2026-11-04: **merge 去重键只在逐字命中两个框架模板时才按 hook 名（与 `hook-form.mjs` classify 同口径），其余按 command + args**——依据：code review Medium，用户自定义「同脚本 + 额外参数」的条目会被当成已存在、框架那条合不进来。适用范围：`setup.sh` 的 jq 与 `setup.ps1` 的 Get-HookId。取代：无。
-- 2026-11-04: **tdd-gate 的 PreToolUse matcher 放宽为 `Agent|Task`**——依据：Cursor 派子代理的工具名是 Task，其 tool_input 与 Claude Code 的 Agent 同名字段（description / prompt / subagent_type，实测），放宽后两边都生效，不搭桥。适用范围：`settings.json`、HS-4。取代：无（放宽 2026-09-15 挂 PreToolUse(Agent) 的 matcher，不推翻）。
-- 2026-11-04: **cursor-base 适配层不加 beforeSubmitPrompt 桥接 release-gate；AGENTS.md 写明 Cursor 下发布前主 Agent 自查 `.claude/.needs-review`**——依据：`cursor-agent -p` 模式下连原生 beforeSubmitPrompt / stop / afterAgentResponse 都不触发（实测），本机证明不了桥接会响，「拦不住的闸不进家底」。适用范围：cursor-base；交互模式 / IDE 验证后再议，见 TODO #113。取代：2026-11-04「Cursor 不支持的三个事件」条里 release-gate 由 beforeSubmitPrompt 桥接那一半。
-- 2026-11-04: **Cursor 场景子代理模型一律 `model: inherit`，由 `.cursor/agents/`（`gen-agents.mjs` 从 `.claude/agents` 生成）承载；要钉模型写 `.cursor/agents-models.json`**——依据：用户 Cursor 账号 Claude 周配额用尽，`model: sonnet` 的子代理起不来（实测）；Cursor 不认 `skills:` / `memory:` 字段，生成版把「先读技能」「记忆位置」写进正文。适用范围：cursor-base。取代：无。
-- 2026-11-04: **cursor-base 仓库重建为「cc-base 全量内容 + Cursor 适配层」；旧治理引擎（src/ 约 1.07 万行 TS、harness/、tests/、13 篇英文 docs）打 tag `v2.1.1-legacy` 后从 main 删除；cursor-base 的 docs/feedback 教训并入 cc-base 的 `.claude/feedback`**——依据：用户实际体验 cursor-base「不听使唤」；查证根因是它设计上不带路（AGENTS.md 68 行英文、规则多为 glob 触发、人设 / 固定流程 / 中文三条被 2026-09-16 否决）叠加 cc-base 的 hook 在 Cursor 下全哑；官方文档与实测确认 Cursor 原生读 `.claude/skills`、`.claude/agents`、`.claude/settings.json` hooks 与 CLAUDE.md。适用范围：cursor-base 仓库与所有要在 Cursor 里用 cc-base 的项目。取代：无（cc-base 侧首次出现）。
-- 2026-11-04: **hook 注册面认两种形态并可互转：exec form（现状，cc-base 默认不变）与 string form（`"command": "node .claude/hooks/<name>.mjs"`，无 args 键，路径相对项目根）；新增 `.claude/scripts/hook-form.mjs` 双向转换，`setup.sh` 加 `--hook-form`，四套形态测试与 fix-platform / doctor / merge 去重认两种形态**——依据：实测 Cursor 不认 args 键（exec form 下 hook 一个都没跑，string form 全跑、exit 2 拦截生效、CLAUDE_PROJECT_DIR 有）；Claude Code 两种都认（`claude -p` 实测 cwd=项目根）。适用范围：`.claude/settings.json` 的 hook 条目；Pinned 11「hook 命令走 exec form」保持为默认，已补一句 string form 为 Cursor 场景的显式可选形态。取代：无（细化 Pinned 11，不推翻）。
 - （更早的 132 条 Decisions，2026-06-14 至 2026-09-10，2026-09-15 首批 119 条、2026-09-18 再搬 1 条、2026-09-19 再搬 4 条，原文搬迁至 ./progress.archive.md「Archived Decisions」。仍在生效的硬约束已在 Pinned；主 Agent recap 默认不读归档，按需查。）
-（归档指针：累计搬出 50 条，最近一次 2026-11-22 搬 16 条；原文见 progress.archive.md「Archived Decisions」）
+（归档指针：累计搬出 57 条，最近一次 2026-11-23 搬 7 条；原文见 progress.archive.md「Archived Decisions」）
 
 ## 单模型 vs CCB（诚实定位）
 - 客观轴（TDD/测试/静态闸/证据验收）：与 CCB 持平，模型无关。
@@ -92,7 +88,7 @@ _Last updated: 2026-11-23_
 
 ## 当前断点
 
-**断点（2026-11-23）**：人读文档第一期（数据库设计）五个 Task 全部实现并入库推送（`2a7dac4`、`7051ef9`、`e7f763c`），下游副本上 130 段说明落盘、`check` 不一致 0 条，小样已交用户看。整期 code-review 一轮回来 3 条 HIGH（函数签名没过隐去、删列与改列名没连带改约束），连同一批中低级别已逐条写进契约，取事实与页面两侧各一单在修、测试同步，未提交。下一步：两单回来亲跑全量 → 同一位审查员复核 HIGH → 提交 → 写 readable-docs skill、主控与规则里的入口（会升 strict）→ Phase 结论写回 DEV-PLAN。小样工作区在仓外 `~/readable-samples/conflation`（不入任何仓）。等用户看小样后定的：说明的详略对不对路、14 个分组的划分；另两件旧的：一字不丢与不出内网地址的冲突、先给哪些模块补设计详述。
+**断点（2026-11-23）**：人读文档第一期（数据库设计）五个 Task 与整期审查的修复全部入库推送（`2a7dac4`、`7051ef9`、`e7f763c`、`101b7dc`），readable-docs skill 与主控、规则里的入口已加，使用指南第 16 章已写。四步走结论 CONCERNS：审查一轮的 3 条 HIGH 已修并由主 Agent 用原复现与测试核过，审查员的复核轮被用户中止；残留 #142。小样在仓外 `~/readable-samples/conflation`（130 段说明、`check` 不一致 0 条），已交用户看，**等用户回话**：说明的详略对不对路（定了才铺开剩下 67 张表）、14 个分组的划分；另两件旧的：一字不丢与不出内网地址的冲突、先给哪些模块补设计详述。下一步（用户回话后）：铺开说明 → 第二期（架构文档与人读版需求规格）开计划。
 
 ## TODO
 - [P2][OPEN][#129] **setup.sh merge_settings 不同步已有框架 hook 的 matcher / args，dry-run 却报 settings.json update**（2026-11-06）：jq merge 按 hook 名去重，只追加目标没有的 hook；已装过的 tdd-gate 在 d9d9fdf 把 matcher 改成 `Agent|Task`，升级到 digifiber-conflation 时被当成已存在跳过，装后 settings.json 与升级前一字不差，而 dry-run 只按文件内容比、报的是 update——计划与实际对不上。影响：老项目切 Cursor 后 tdd-gate 匹配不到 Task，静默失效；以后模板里任何已有 hook 的 matcher / args 改动都到不了老项目。修法方向：已有框架条目（按 hook 名认出的）把 matcher 同步成模板值，用户自定义条目不动；dry-run 的 update / skip 按合并结果判；setup.ps1 对等。安装器缺陷，按 MEDIUM 档 + 红锁用例走。Context：`setup.sh:478` merge_settings；同族 #110。（原 mac 侧编号 #115，2026-11-08 合并时因与本仓 #115 撞号改为 #129）

@@ -21,6 +21,8 @@ paths:
     ├── progress.archive.md                # 过线的决策与完成原文（progress-archive.mjs 搬来；搬过才有，recap 不读）
     ├── domain/                            # 领域口径库（可选，副产品；一域一文件，见 .claude/rules/domain-rulings.md）
     ├── docs/design/                       # 设计详述（可选，一个复杂模块一份 <模块名>-设计.md：规则编号 + 代码位置 + 常量 + 测试，见 .claude/rules/design-detail.md）
+    ├── docs/readable/                     # 人读文档的页面（可选，readable-docs.mjs build 生成，入库不手改；给没参与开发的人用浏览器看）
+    ├── docs/readable-src/                 # 人读文档的配置 config.json、项目判断 map.json 与 AI 写的说明 notes/（可选；notes/ 只经 note put 落盘）
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
     │   ├── src/
     │   ├── package.json
@@ -44,7 +46,7 @@ paths:
         │   └── progress-recorder.md       # 项目记忆 Sub-Agent
         ├── EVOLUTION.md                   # 进化引擎
         ├── feedback/                      # 经验教训
-        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / collect-feedback 收下游 feedback / progress-archive 归档搬运 / plan-archive 做完的 Phase 归档 / project-status 现在到哪与活文档体积 / design-trace 设计详述规则 ↔ 测试 ↔ 常量核对 / statusline 状态行 / supervisor 进程守护）
+        ├── scripts/                       # 质量脚本（doctor 自检 / plan-lint / predev-lint 前期五文档闸 / ui-audit 设计稿渲染审计 / fast-mode 开关 / gate-audit / collect-feedback 收下游 feedback / progress-archive 归档搬运 / plan-archive 做完的 Phase 归档 / project-status 现在到哪与活文档体积 / design-trace 设计详述规则 ↔ 测试 ↔ 常量核对 / readable-docs 人读文档生成器（取事实、出页面、说明落盘、核对，模块在 scripts/readable/）/ statusline 状态行 / supervisor 进程守护）
         ├── tests/                         # 框架自测三十来套（selftest 引擎自测 / 安装器与跨平台 / hook 行为与注册面 / 档位 / 闸与证据层红锁 / 审计脚本 / 发布装配 / 前期文档闸与设计稿审计），每套头一行标 `# risk:`，cases/run-all.sh 统一跑（默认 high，`--level all` 跑全）——清单以目录实际内容为准，不在本文件逐个列
         └── skills/
             ├── product-spec-builder/      # 需求收集
@@ -64,6 +66,7 @@ paths:
             ├── feedback-writer/           # 记录用户反馈
             ├── evolution-engine/          # 进化引擎扫描
             ├── domain-rulings/            # 领域口径库入口（四象限分诊 / 查 / 待复核 / 手工收录）
+            ├── readable-docs/             # 人读文档入口（数据库设计：跑生成器、提业务分组、写说明、核对）
             ├── progress-recorder/         # 项目记忆维护（sub-agent 调用）
             ├── record/                    # /record 入口：派 progress-recorder 合并本轮增量
             ├── archive/                   # /archive 入口：跑 progress-archive.mjs 归档

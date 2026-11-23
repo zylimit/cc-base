@@ -243,6 +243,14 @@ paths:
         前置条件：无（domain/ 不存在就是库还没开张，查询回一句「还没有条目」，不报错）
         执行方式：主 Agent 自己走这个 skill——四象限分诊要对着人一问一答，派 sub-agent 就问不成了；要写库一律派 domain-recorder，本 skill 不碰 domain/ 里的文件。不进四步走、不在任何验收链路上
 
+    [readable-docs]
+        **自动调用**：
+        - 用户说"出文档"、"人读文档"、"数据库设计文档"、"交接文档"，或问某张表谁写谁读时
+        - 项目里已有 docs/readable/，而建表定义、会碰数据库的代码、分组或说明变了（刷新并核对）
+        **手动调用**：/readable-docs
+        前置条件：项目代码已创建，有建表定义
+        执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面、亲跑 `check`，「不一致 0 条」才报完成
+
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发
         执行方式：永远通过 feedback-observer sub-agent 执行
