@@ -248,6 +248,16 @@ sg_cfg "$SD" 'null' '[]' '[]' '["docs/arch-old.md"]'; sg_run "$SD"; G4="rc=$RCS 
 sg_cfg "$SD" '"Product-Spec.md"' '[]' '[]' '["docs/arch-old.md","Architecture-Design.md"]'; sg_run "$SD"; G5="rc=$RCS $(sg_get)"
 W4='rc=1 [false,[],[],"Product-Spec.md",["Architecture-Design.md"]]'; W5='rc=0 [true,[],[],null,[]]'
 chk "$([ "$G4" = "$W4" ] && [ "$G5" = "$W5" ] && echo 0 || echo 1)" "init --suggest：spec 为 null 而根目录有 Product-Spec.md、archDocs 里缺根目录的 Architecture-Design.md，各自报出（已列的 docs/arch-old.md 不报）；填好后退出码 0" "$W4 | $W5" "$G4 | $G5"
+# 12e 打死：spec 写 null / 架构文档有意不出时，把文件名写进 ignore 仍照报（没有出口，每次提交都报、照填就改回用户的决定）；ignore 一份却把两份都排掉，或排掉后退出码不是 0 / 不写「没有漏项」
+se_cfg() {  # se_cfg <root> <ignore JSON>
+  printf '{"version":1,"title":"t","spec":null,"ddl":[],"codeRoots":[],"ignore":%s,"archDocs":[]}\n' "$2" >"$1/docs/readable-src/config.json"
+}
+SE="$TMP/se"; mkdir -p "$SE/docs/readable-src"; : >"$SE/Product-Spec.md"; : >"$SE/Architecture-Design.md"
+se_cfg "$SE" '["Product-Spec.md","Architecture-Design.md"]'; run init --suggest --root "$SE"; HE=$RC; HET=$(grep -cF '配置跟得上项目，没有漏项' "$TMP/out" || true); sg_run "$SE"; E1="rc=$RCS $(sg_get)"
+se_cfg "$SE" '["Product-Spec.md"]'; sg_run "$SE"; E2="rc=$RCS $(sg_get)"
+se_cfg "$SE" '["Architecture-Design.md"]'; sg_run "$SE"; E3="rc=$RCS $(sg_get)"
+WE1='rc=0 [true,[],[],null,[]]'; WE2='rc=1 [false,[],[],null,["Architecture-Design.md"]]'; WE3='rc=1 [false,[],[],"Product-Spec.md",[]]'
+chk "$([ "$HE" = 0 ] && [ "$HET" -ge 1 ] && [ "$E1" = "$WE1" ] && [ "$E2" = "$WE2" ] && [ "$E3" = "$WE3" ] && echo 0 || echo 1)" "init --suggest：spec 为 null、根目录有两份文档，ignore 写了两个文件名则不报（退出码 0、人读写「没有漏项」）；拿掉 Architecture-Design.md 只报它；拿掉 Product-Spec.md 只报它" "人读 rc=0 含「没有漏项」 | $WE1 | $WE2 | $WE3" "人读 rc=$HE 含=$HET | $E1 | $E2 | $E3"
 # 12d 打死：--suggest 悄悄改配置或往项目里落文件（含 --json 与人读两种）；没有配置时退出码不是 2、或顺手建了配置
 sg_cfg "$SA" '"Product-Spec.md"' '["sql/001_a.sql"]' '["svc"]' '[]'; T0=$(tree "$SA"); H0=$(sha256sum "$SA/docs/readable-src/config.json")
 run init --suggest --root "$SA"; RCH=$RC; run init --suggest --json --root "$SA"; RCJ2=$RC; T1=$(tree "$SA"); H1c=$(sha256sum "$SA/docs/readable-src/config.json")

@@ -7,7 +7,7 @@
     引导用户走完产品开发全流程，每步一个 Skill：需求收集 product-spec-builder → 架构 arch-designer / DFX dfx-designer / 设计 design-brief-builder + design-maker（可选）→ 开发计划 dev-planner → 项目开发 dev-builder → bug-fixer / code-review / test-builder（按需）→ 发布 release-builder。各阶段的完整步骤、签字闸、输出话术在 .claude/rules/dev-workflow-details.md，执行任何阶段之前先读它。
 
 [文件结构]
-    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md + DESIGN.md（可选）/ DEV-PLAN.md / progress.md / domain/（可选）/ docs/readable/ + docs/readable-src/（可选）/ <project-name>/（项目代码）/ .claude/。完整目录树见 .claude/rules/file-structure.md，生成或核对结构之前先读它。
+    项目根：Product-Spec.md / Product-Spec-CHANGELOG.md / Architecture-Design.md（可选）/ DFX-Spec.md（可选）/ Design-Brief.md + DESIGN.md（可选）/ DEV-PLAN.md / progress.md / domain/（可选）/ docs/readable/ + docs/readable-src/（默认有，用户明说不出的没有）/ <project-name>/（项目代码）/ .claude/。完整目录树见 .claude/rules/file-structure.md，生成或核对结构之前先读它。
 
 [运行模型——纯 Claude Code + Sub-Agent]
     不依赖任何外部编排进程。主 Agent 是**唯一编排者**：需求分析、拆任务、写派单、验收；implementer / code-reviewer / tester / deployer 各司其职，每次派发都是 fresh 实例，互不继承上下文。Sub-Agent 不再派 Sub-Agent；Workflow 由主 Agent 写，嵌套只许一层。派发形态、七字段派单包、回执信封、升级阶梯全在 .claude/rules/subagent-dispatch.md，派发前先读。
@@ -56,7 +56,7 @@
     - /red-blue-review - 手动：/red-blue-review（用户说"红蓝审查 / 对抗审查"才调）。前置：一批已成型的改动
     - /branch-finisher - 自动：Phase 或功能完成后建议用户敲；用户说"收尾 / 合并分支"时回指请用户确认。手动：/branch-finisher。前置：项目代码
     - /domain-rulings - 自动：用户说"记一条"、问某字段或规则"现在按什么算"、要列待复核或看某条被谁依赖；沟通里冒出说不清归哪儿的领域知识。手动：/domain-rulings
-    - /readable-docs - 自动：用户说"出文档 / 人读文档 / 数据库设计文档 / 人读版需求规格 / 人读版架构设计 / 交接文档"、问某张表谁写谁读、某个模块管什么；项目里已有 docs/readable/ 而建表定义、需求规格、分组、模块划分或说明变了；需求规格生成之后、dev-builder 开工时项目还没有 docs/readable-src/（只跑 init 与 build）。手动：/readable-docs。前置：项目代码与建表定义（只出需求规格的有需求规格即可，只出架构设计的配了代码目录即可）
+    - /readable-docs - 自动：用户说"出文档 / 人读文档 / 数据库设计文档 / 人读版需求规格 / 人读版架构设计 / 交接文档"、问某张表谁写谁读、某个模块管什么；项目里已有 docs/readable/ 而建表定义、需求规格、分组、模块划分或说明变了；需求规格生成之后、dev-builder 开工时项目还没有 docs/readable-src/（只跑 init 与 build，用户说过不出的除外）。手动：/readable-docs。前置：项目代码与建表定义（只出需求规格的有需求规格即可，只出架构设计的配了代码目录即可）
     - /skill-builder - 自动：EVOLUTION.md 提议创建新 Skill 且用户确认。手动：/skill-builder
     - /feedback-writer - 由 feedback-observer 调用，不由用户直接触发
     - /evolution-engine - 手动：/evolution-engine

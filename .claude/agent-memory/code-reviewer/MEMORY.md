@@ -30,3 +30,4 @@
 - [审「留指针 + 下游读指针」与按缩进认父子](pattern_archive-pointer-and-indent-parsing.md) — 指针整行取编号致漂移；浅压深吞整段
 - [审 Markdown 切块→出页面→零丢失核对](pattern_markdown-chunk-render-zero-loss.md) — 共用隐去吞整句；只比线性文字；自检零覆盖
 - [审代码取引用 / 接口→模块页→核对](pattern_arch-facts-and-display-check.md) — 按隐藏属性比键；包当代码根；未挂载路由器当最外层；说明文字带行号
+- [审漏项建议器 / 切片改动 / 默认开启的流程文字](pattern_drift-suggester-and-default-on-flow.md) — existsSync 绕过 ignore；升级全体过期；全局 0 条 vs 局部职责

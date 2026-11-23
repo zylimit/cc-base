@@ -96,8 +96,8 @@ export function suggest(root) {
   // 代码根是 . 时整个项目都扫到了，哪个顶层目录都不算漏。
   const covered = (d) => roots.some((r) => r === '.' || r === d || r.startsWith(`${d}/`));
   const codeRoots = [...codeCounts(files)].filter(([d, n]) => n >= MIN_CODE_FILES && !covered(d)).map(([d]) => d).sort(cmp);
-  const spec = cfg.spec == null && existsSync(join(root, SPEC_FILE)) ? SPEC_FILE : null;
-  const archDocs = existsSync(join(root, ARCH_DOC_FILE)) && !cfg.archDocs.map(norm).includes(ARCH_DOC_FILE) ? [ARCH_DOC_FILE] : [];
+  const spec = cfg.spec == null && files.includes(SPEC_FILE) ? SPEC_FILE : null;
+  const archDocs = files.includes(ARCH_DOC_FILE) && !cfg.archDocs.map(norm).includes(ARCH_DOC_FILE) ? [ARCH_DOC_FILE] : [];
   return { ok: !ddl.length && !codeRoots.length && !spec && !archDocs.length, missing: { ddl, codeRoots, spec, archDocs } };
 }
 

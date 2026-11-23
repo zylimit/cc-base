@@ -103,7 +103,7 @@ hcfg() { mkdir -p "$1/sql" "$1/docs/readable-src"; : >"$1/Product-Spec.md"; for 
 hps() { HP_RC=0; ( cd "$1" && env -u CLAUDE_PROJECT_DIR node "$1/.claude/scripts/project-status.mjs" --root "$1" "${@:2}" >"$TMP/hp.out" 2>/dev/null ) || HP_RC=$?; }
 hline() { grep -F '人读文档' "$TMP/hp.out" | head -1 || true; }
 # S4 打死：没配置的项目也报数 / 不报「未初始化」；有配置的不报页数与没写说明的表数（或报错数）；--json 里没有这一项；状态命令写了文件
-H0="$TMP/h0"; mkdir -p "$H0"; hx "$H0"; hps "$H0"; N_RC=$HP_RC; N_L=$(hline); hps "$H0" --json; N_J=$(jf "$TMP/hp.out" 'command')
+H0="$TMP/h0"; mkdir -p "$H0"; hx "$H0"; hps "$H0"; N_RC=$HP_RC; N_L=$(hline); hps "$H0" --json
 HK=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(Object.keys(d).filter(k=>/readable|人读/i.test(k)).join())' "$TMP/hp.out" 2>/dev/null || true)
 H1="$TMP/h1"; mkdir -p "$H1"; hx "$H1"; hcfg "$H1"; node "$H1/.claude/scripts/readable-docs.mjs" build --root "$H1" >/dev/null 2>&1
 PG=$(find "$H1/docs/readable" -type f | wc -l | tr -d ' '); B4=$(find "$H1" -type f | LC_ALL=C sort | xargs sha256sum | sha256sum)

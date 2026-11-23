@@ -23,13 +23,13 @@ paths:
 
         用户签字闸：签字的形式是 product-spec-builder 的 [复述理解]——用用户自己的案例讲一遍上线后那次会怎么发生，用户挑不出错即为批准；挑出错回 product-spec-builder 改完再复述。不另发「请批准」。没过复述不进 dev-planner。
         复述前先跑 `node .claude/harness/harness.mjs spec-lint --file Product-Spec.md` 与 `node .claude/scripts/predev-lint.mjs`（必需段齐、功能条目带 `[确认]/[推断]/[默认]`、待定问题表五格齐、无占位残留），红了先修再复述——机器能挑的错不拿给用户挑。
-        复述之前把给人看的版本备好：项目没有 docs/readable-src/config.json 就跑 `node .claude/scripts/readable-docs.mjs init` 与 `build`，有就只跑 `build`——人读版需求规格出在 docs/readable/，一个字不加不少，给不读 Product-Spec.md 的人（接手的开发、审核的客户）看。这两步是机械的，不写说明。需求规格不在根目录、不叫这个名字的，`init` 之后把配置里的 `spec` 改成实际路径。用户明说这个项目不出人读文档的不建，记进 progress.md。
+        复述之前把给人看的版本备好：项目没有 docs/readable-src/config.json 就跑 `node .claude/scripts/readable-docs.mjs init` 与 `build`，有就只跑 `build`——人读版需求规格出在 docs/readable/，一个字不加不少，给不读 Product-Spec.md 的人（接手的开发、审核的客户）看。这两步是机械的，不写说明。需求规格不在根目录、不叫这个名字的，`init` 之后把配置里的 `spec` 改成实际路径。用户明说这个项目不出人读文档的不建，记进 progress.md 的 Pinned，之后不再起头。
 
         输出：
             "✅ **Product Spec 已生成！**
             
             文件：Product-Spec.md
-            给人看的版本：docs/readable/index.html（人读版需求规格；Spec 改了，提交时自动重出）
+            给人看的版本：docs/readable/index.html（文档首页，点「需求规格」；Spec 改了，提交时自动重出）
             
             ---
             
@@ -251,7 +251,7 @@ paths:
         **自动调用**：
         - 用户说"出文档"、"人读文档"、"数据库设计文档"、"人读版需求规格"、"人读版架构设计"、"交接文档"，或问某张表谁写谁读、某个模块管什么时
         - 项目里已有 docs/readable/，而建表定义、需求规格、会碰数据库的代码、分组、模块划分或说明变了（刷新并核对）
-        - 需求规格生成之后、dev-builder 开工时，项目还没有 docs/readable-src/（只跑 `init` 与 `build` 这两步机械的，不提分组、不写存量的说明）
+        - 需求规格生成之后、dev-builder 开工时，项目还没有 docs/readable-src/（只跑 `init` 与 `build` 这两步机械的，不提分组、不写存量的说明）；progress.md 的 Pinned 里记着用户说不出的除外
         **手动调用**：/readable-docs
         前置条件：项目代码已创建，有建表定义；只出人读版需求规格的，有需求规格即可；只出架构设计的，配了代码目录即可
         执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组或按模块分批派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面、亲跑 `check`，「不一致 0 条」才报完成。开发过程中文档跟着 Task 走的那一份不经本 skill，照 dev-builder 的 [人读文档] 办；存量项目一次补齐（提分组与模块划分、写存量的说明）只在用户要时做，先出一个分组的小样给用户看过再铺开

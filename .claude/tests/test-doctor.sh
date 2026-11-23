@@ -89,6 +89,17 @@ run_doctor; EDIT_RC=$DOC_RC; EDIT_OUT="$DOC_OUT"
 ok=1; case "$CFG_OUT" in *人读文档*) : ;; *) case "$EDIT_OUT" in *人读文档*build*|*build*人读文档*) [ "$CFG_RC" = "$BASE_RC" ] && [ "$EDIT_RC" = "$CFG_RC" ] && ok=0 ;; esac ;; esac
 chk "$ok" "④ 有配置：页面现行时不提示；手改 docs/readable/db/index.html 之后提示「人读文档……build」，整份自检退出码与不手改时相同（不判红）" \
     "现行：无提示 rc=$BASE_RC；手改：有提示、rc 同 $BASE_RC" "现行 rc=$CFG_RC 提示行=$(printf '%s\n' "$CFG_OUT" | grep -c '人读文档' || true)；手改 rc=$EDIT_RC 提示行=$(printf '%s\n' "$EDIT_OUT" | grep '人读文档' | head -2 | tr '\n' '|')"
+# ⑤ 有待更新的说明、页面现行：提示一句带段数；整份自检退出码与没有待更新时相同；没有待更新时（④ 的现行输出）不多这一句
+RDM="env -u CLAUDE_PROJECT_DIR node $SB/.claude/scripts/readable-docs.mjs"
+printf '## table:a1\n一号表。\n' | $RDM note put --root "$SB" >/dev/null 2>&1
+echo 'ALTER TABLE a1 ADD COLUMN extra int;' >>"$SB/sql/s.sql"
+$RDM build --root "$SB" >/dev/null 2>&1
+PN=$($RDM pending --json --root "$SB" 2>/dev/null | grep -o '"stale"' | wc -l | tr -d ' ')
+run_doctor; PEND_RC=$DOC_RC; PEND_OUT="$DOC_OUT"
+PL=$(printf '%s\n' "$PEND_OUT" | grep '待更新' | head -3)
+ok=1; if [ "$PN" -ge 1 ] && printf '%s\n' "$PL" | grep -qE '(^|[^0-9])1([^0-9]|$)' && [ "$PEND_RC" = "$BASE_RC" ] && ! printf '%s\n' "$CFG_OUT" | grep -q '待更新'; then ok=0; fi
+chk "$ok" "⑤ 有一段说明待更新、页面现行：自检输出有提到「待更新」并带段数 1 的一句，退出码与无待更新时相同（不判红）；没有待更新的项目（④ 现行输出）不含「待更新」" \
+    "待更新行含段数 1；rc=$BASE_RC；无待更新时 0 行" "夹具待更新标记数=$PN；待更新行=$(printf '%s' "$PL" | tr '\n' '|')；rc=$PEND_RC；无待更新时待更新行数=$(printf '%s\n' "$CFG_OUT" | grep -c '待更新' || true)"
 rm -rf "$SB/docs" "$SB/sql" "$SB/Product-Spec.md"
 echo ""
 echo "==== test-doctor：PASS=$PASS FAIL=$FAIL ===="

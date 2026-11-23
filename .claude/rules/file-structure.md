@@ -21,8 +21,8 @@ paths:
     ├── progress.archive.md                # 过线的决策与完成原文（progress-archive.mjs 搬来；搬过才有，recap 不读）
     ├── domain/                            # 领域口径库（可选，副产品；一域一文件，见 .claude/rules/domain-rulings.md）
     ├── docs/design/                       # 设计详述（可选，一个复杂模块一份 <模块名>-设计.md：规则编号 + 代码位置 + 常量 + 测试，见 .claude/rules/design-detail.md）
-    ├── docs/readable/                     # 人读文档的页面（可选，readable-docs.mjs build 生成，入库不手改；给没参与开发的人用浏览器看）
-    ├── docs/readable-src/                 # 人读文档的配置 config.json、项目判断 map.json 与 AI 写的说明 notes/（可选；notes/ 只经 note put 落盘）
+    ├── docs/readable/                     # 人读文档的页面（默认有，用户明说不出的没有；readable-docs.mjs build 生成，入库不手改；给没参与开发的人用浏览器看）
+    ├── docs/readable-src/                 # 人读文档的配置 config.json、项目判断 map.json 与 AI 写的说明 notes/（随上一行；notes/ 只经 note put 落盘）
     ├── <project-name>/                    # 项目代码（以项目名命名的子文件夹）
     │   ├── src/
     │   ├── package.json

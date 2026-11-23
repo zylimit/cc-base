@@ -13,7 +13,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     可选（缺了标降级模式继续，不阻塞）：Design-Brief.md、DESIGN.md（有则 token 直接进主题配置，不凭感觉配色）、设计工具 MCP、gh CLI、playwright。
     必需依赖缺失或版本不够，自己判断安装方式直接装；要用户权限或交互认证的才提示用户。
     进已有项目或脚手架先读它自带的 AGENTS.md / CLAUDE.md，按项目的规矩来，不用自己的默认覆盖。
-    人读文档：项目没有 docs/readable-src/config.json 就先跑 `node .claude/scripts/readable-docs.mjs init` 与 `build`（机械的两步，不写说明），文档从这一轮开发起跟着长；用户明说不出的不建。已经有配置的跑一次 `init --suggest`，它报的漏项（配置起草之后新出现的建表文件、代码目录）填进 config.json 再开工。
+    人读文档：项目没有 docs/readable-src/config.json 就先跑 `node .claude/scripts/readable-docs.mjs init` 与 `build`（机械的两步，不写说明），文档从这一轮开发起跟着长；用户明说不出的不建（progress.md 的 Pinned 里记着这一条的，不再起头）。已经有配置的跑一次 `init --suggest`，它报的漏项（配置起草之后新出现的建表文件、代码目录）填进 config.json 再开工；用户有意不出的那一项（比如不出人读版需求规格）不填，把那个文件或目录写进 `ignore`，它就不再报。
 
 [第一性原则]
     **修改纪律**：改代码前先评估影响范围（这个改动会牵动哪些现有功能，列出来），改完回归验证。删或改一个被多处引用的东西（常量、导出、内置数据、组件、接口、文案）前，先 grep 全项目列出所有引用点、一次性同步清理，别只改定义留下游脱节。改完跑全套测试（类型检查 + 单测 + e2e），类型检查过不代表单测 / e2e 不挂。改的东西若会被持久化（写进 db、本地存储、缓存、配置文件），要连存量数据一起管——加启动迁移或做兼容，否则老数据变成「代码已删、却顽固显示、还删不掉」的僵尸；删持久化数据的改动配一条迁移测试。CSS 改动重点查 overflow-hidden 裁切弹出层、z-index 层叠、flex-shrink 布局。
@@ -60,7 +60,8 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
     [人读文档]
         - 项目有 docs/readable-src/ 时，Task 碰了建表定义或读写表的代码，或者给一个模块加了文件、接口、跨模块的引用，就带着文档一起交：改完跑 `node .claude/scripts/readable-docs.mjs build`，`pending` 里因这次改动缺的、过期的说明当场补齐（`note put`），`check` 报「不一致 0 条」才算完成。说明由改代码的人写——他最清楚为什么这么改，事后再补只能靠猜
         - 派单时把这一条写进 Verification；主 Agent 验收亲跑 `check`，不拿回执里的「0 条」当数
-        - 新加的表进哪个业务分组、新加的文件归哪个模块，改的人在 docs/readable-src/map.json 里就近归位，`status` 写 `proposed`；现有的组与模块都不合适的，回执里说一句，留给主 Agent 在 Phase 收尾时定
+        - 派单之前主 Agent 先跑一次 `check` 与 `pending` 记基线：派单前就有的（升级带来的待更新、存量没写的说明）不算这个 Task 的；验收看两样——`check` 里没有比派单前多出来的，`pending` 的缺口数不比派单前多。没写说明不算不一致，只看 `check` 看不出新加的表忘了写说明
+        - 新加的表进哪个业务分组、新加的文件归哪个模块，改的人在 docs/readable-src/map.json 里就近归位，`status` 写 `proposed`（map.json 的写法见 readable-docs SKILL.md [文件结构]；项目还没有 map.json 的不用新建）；现有的组与模块都不合适的，回执里说一句，留给主 Agent 在 Phase 收尾时定
         - 只对这次新加、改到的表、列、模块负责；存量里没写的说明不在开发 Task 里补——没写的只报数、不算不一致，要一次补齐是用户要时走 /readable-docs 的事
         - 没碰表结构、也没改模块的文件清单、接口与依赖的改动不用写说明，页面由提交前检查自动重出，见 [Git 工作流]；写法与边界见 readable-docs SKILL.md
 
@@ -90,7 +91,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
 [Phase 完成度判断]
     所有 Task 完成后过四步走，每步附当场跑出的证据：
     一、Code Review：对照 DEV-PLAN 该 Phase 的交付清单逐项确认，检查有无超出 Phase 范围的改动
-    二、测试完整性：计划的功能都实现、无半成品；派 tester 写测（写测 ≠ 被测作者），测要真覆盖到交互层和故障路径，不止纯函数和顺畅路径。每条「绿」要能证明行为真的对——核对用例前提与生产一致（量纲、单位、输入可达性、断言方向），用假前提或不可达输入把缺陷盖成预期的等于没测；功能声明的错误态、空态、边界要有用例真的走到，不只在实现里留分支；存在但没跑的测试算缺；项目有 docs/design/ 设计详述时跑 `node .claude/scripts/design-trace.mjs`，rc 1 记 CONCERNS、缺口清单进残留，rc 2 / 3 是脚本用错或自身出错，修好再跑、不当缺口记；项目有 docs/readable/ 人读文档时跑 `node .claude/scripts/readable-docs.mjs check`，不是「不一致 0 条」先重出、补齐说明到 0 条，补不齐的记 CONCERNS；首页「未归属的文件」与还没进分组的表在这一步归位（`proposed`），`init --suggest` 报的配置漏项补上，整库与整个系统的导读过期了的重写
+    二、测试完整性：计划的功能都实现、无半成品；派 tester 写测（写测 ≠ 被测作者），测要真覆盖到交互层和故障路径，不止纯函数和顺畅路径。每条「绿」要能证明行为真的对——核对用例前提与生产一致（量纲、单位、输入可达性、断言方向），用假前提或不可达输入把缺陷盖成预期的等于没测；功能声明的错误态、空态、边界要有用例真的走到，不只在实现里留分支；存在但没跑的测试算缺；项目有 docs/design/ 设计详述时跑 `node .claude/scripts/design-trace.mjs`，rc 1 记 CONCERNS、缺口清单进残留，rc 2 / 3 是脚本用错或自身出错，修好再跑、不当缺口记；项目有 docs/readable/ 人读文档时跑 `node .claude/scripts/readable-docs.mjs check`，不是「不一致 0 条」先重出、补齐说明到 0 条，补不齐的记 CONCERNS；这个 Phase 新加而还没归位的表与文件在这一步归位（`proposed`）——存量的分组与模块划分不在这里补，那是用户要时走 /readable-docs 的事；`init --suggest` 报的配置漏项补上，整库与整个系统的导读过期了的重写
     三、编译验证：前端 tsc --noEmit 零错误；后端 ruff check 零错误，无 ruff 则 python3 -m py_compile 全过；混合栈两栈都验，各自附证据
     四、功能测试：启动 dev server 无错误输出，新功能可用，现有功能未破坏；有交互的页面自己用真实浏览器把核心流程点一遍（Playwright，或本机装着的 Chrome / Edge 走调试端口都算），不把这一步推给用户去按 F12——说本机没有浏览器之前先实查，WSL 下 Windows 那一侧装的也算；真没有浏览器引擎才报「交互验证缺席」，缺席不算通过。纯接口的用 curl 查返回
     中间有任何改动，四步重新来。验证中发现的问题修完用 `fix:` 提交。
