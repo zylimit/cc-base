@@ -74,6 +74,7 @@ description: DEV-PLAN.md 输出模板。分析 Product Spec 后按此结构填�
 
 - 每完成一个 Phase 走四步走：Code Review → 测试完整性 → 编译验证 → 功能测试
 - 四步走全部通过才算 Phase 完成
+- 人读文档跟着 Task 走：碰了表结构、读写表的代码或模块的文件与接口的 Task，交付时带着说明，`readable-docs.mjs check` 报「不一致 0 条」（项目不出人读文档的删掉这一行）
 - Commit message 格式：`phase-N: 简要描述`
 - 包管理器：[pnpm/npm/yarn]
 ```

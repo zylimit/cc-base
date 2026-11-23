@@ -20,6 +20,7 @@ description: 当需求内容已确认（默认 Product-Spec.md，用户指定的
     - DESIGN.md → token 落地按实际需要折进相关 UI Task 的改动范围，不强行为每个项目单开一个固定的「token Task」
     - 设计工具 MCP 或仓库内已有原型 → 有则 Phase 拆分与关键文件以设计稿 / 原型的实际页面结构为准，不只看 Spec 文字
     - 已有项目代码 → 扫描现有结构、清单与已实现能力作为约束，进迭代模式
+    - docs/readable-src/（人读文档，装了框架的项目默认出）→ 「开发规则」带上人读文档那一行；各 Phase 的验收不另写，四步走第二步已经含 `check`。用户明说不出的项目不带
 
 [文件结构]
     dev-planner/

@@ -23,11 +23,13 @@ paths:
 
         用户签字闸：签字的形式是 product-spec-builder 的 [复述理解]——用用户自己的案例讲一遍上线后那次会怎么发生，用户挑不出错即为批准；挑出错回 product-spec-builder 改完再复述。不另发「请批准」。没过复述不进 dev-planner。
         复述前先跑 `node .claude/harness/harness.mjs spec-lint --file Product-Spec.md` 与 `node .claude/scripts/predev-lint.mjs`（必需段齐、功能条目带 `[确认]/[推断]/[默认]`、待定问题表五格齐、无占位残留），红了先修再复述——机器能挑的错不拿给用户挑。
+        复述之前把给人看的版本备好：项目没有 docs/readable-src/config.json 就跑 `node .claude/scripts/readable-docs.mjs init` 与 `build`，有就只跑 `build`——人读版需求规格出在 docs/readable/，一个字不加不少，给不读 Product-Spec.md 的人（接手的开发、审核的客户）看。这两步是机械的，不写说明。需求规格不在根目录、不叫这个名字的，`init` 之后把配置里的 `spec` 改成实际路径。用户明说这个项目不出人读文档的不建，记进 progress.md。
 
         输出：
             "✅ **Product Spec 已生成！**
             
             文件：Product-Spec.md
+            给人看的版本：docs/readable/index.html（人读版需求规格；Spec 改了，提交时自动重出）
             
             ---
             
@@ -121,12 +123,14 @@ paths:
           · **MEDIUM**（50 到 300 行，或碰上述路径之一，或引新依赖）：implementer → code-reviewer 一轮只跑 Stage 0 + Stage 1（做对了没有）→ 只 HIGH 阻断，修完由同一轮复核一次即收口 → commit。
           · **HIGH**（> 300 行，或碰两类以上上述路径，或线上 bug / 数据迁移 / 安全相关）：implementer（派单传 `model: opus`）→ code-reviewer 全三 Stage → 有 HIGH 派修 + 同一轮复核 → tester 补关键逻辑测试（写测 ≠ 作者）→ commit。
         任何档的 Medium / Low finding 记进 progress.md 残留随后续 Task 顺手修，不开新一轮；回执带反例或报告含「❓ 需求存疑」则调 product-spec-builder 迭代模式（反例进 Spec 的规则与例外，签字后回流本链）。同一套流水线一律套全档是 2026-09-15 前的写法，被这张表取代：审一个小 diff 便宜，贵的是仪式。
+        人读文档跟着每个 Task 走，不攒到最后：项目有 docs/readable-src/ 而 Task 碰了建表定义、读写表的代码或模块的文件、接口、跨模块引用的，派单的 Verification 带上「`readable-docs.mjs build`、补说明、`check` 报 0 条」，主 Agent 验收亲跑 `check`；页面由提交前检查自动重出，配置漏列了新出现的建表文件或代码目录时它会提醒，看到就填进 config.json。细则在 dev-builder SKILL.md [开发规则清单] 的 [人读文档]。
         所有 Task 完成 → Phase 四步走验证（dev-builder SKILL.md [Phase 完成度判断]；第 2 步「测试完整性」派 tester，重点看跨 Task 的导入关系、文件依赖、命名一致性；发现问题派 bug-fixer 修、`fix:` 提交、四步重来）→ 四态门收尾（PASS / CONCERNS / FAIL / WAIVED，结论写回 DEV-PLAN 该 Phase 标题行）→ 交给用户三行加几步怎么点 → 用户确认 Phase 完成 → 进入下一个 Phase，或提示可调用 /release-builder。
         手动入口：用户调 /code-review → 派 code-reviewer 审一轮 → 报告给用户，由用户定修复范围；用户调 /bug-fixer 或报 bug → bug-fixer skill 修复 → 修完建议 /code-review 验证。用户可随时介入切手动模式。
 
     [发布阶段]
         触发：用户调用 /release-builder（skill 设 disable-model-invocation，主 Agent 不代触发，回指该命令请用户亲自敲）
         回指之前：主 Agent 先核三项并把结果写进回复——`.claude/.needs-review` 为 clean（审查闭环真走完才写）、`git status --short` 为空、远端分支等于本地 HEAD；任一不满足先补齐，不让用户敲了再被 release-gate 拦（用户 2026-11-08「你能不能每次检查一下」，见 feedback/2026-11-08-self-check-before-asking-release.md）
+        项目有 docs/readable-src/ 的，回指之前再核一项：`node .claude/scripts/readable-docs.mjs check` 报「不一致 0 条」——跟着这一版交出去的文档要与这一版的代码对得上；不是 0 条先重出、补说明。
         执行：release-gate 先查待审清单与测试卡点，未过不许打包；打包 / 构建 / 部署派 deployer Sub-Agent 执行。
         验收：主 Agent 独立核查三件套（镜像 tag + 容器创建时间戳、健康检查端点响应、live 冒烟验证新功能产物），deployer 的自报状态不作判据；通过后展示发布结果。
 
@@ -247,9 +251,10 @@ paths:
         **自动调用**：
         - 用户说"出文档"、"人读文档"、"数据库设计文档"、"人读版需求规格"、"人读版架构设计"、"交接文档"，或问某张表谁写谁读、某个模块管什么时
         - 项目里已有 docs/readable/，而建表定义、需求规格、会碰数据库的代码、分组、模块划分或说明变了（刷新并核对）
+        - 需求规格生成之后、dev-builder 开工时，项目还没有 docs/readable-src/（只跑 `init` 与 `build` 这两步机械的，不提分组、不写存量的说明）
         **手动调用**：/readable-docs
         前置条件：项目代码已创建，有建表定义；只出人读版需求规格的，有需求规格即可；只出架构设计的，配了代码目录即可
-        执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组或按模块分批派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面、亲跑 `check`，「不一致 0 条」才报完成
+        执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组或按模块分批派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面、亲跑 `check`，「不一致 0 条」才报完成。开发过程中文档跟着 Task 走的那一份不经本 skill，照 dev-builder 的 [人读文档] 办；存量项目一次补齐（提分组与模块划分、写存量的说明）只在用户要时做，先出一个分组的小样给用户看过再铺开
 
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发
