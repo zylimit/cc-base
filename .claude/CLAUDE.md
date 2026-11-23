@@ -56,7 +56,7 @@
     - /red-blue-review - 手动：/red-blue-review（用户说"红蓝审查 / 对抗审查"才调）。前置：一批已成型的改动
     - /branch-finisher - 自动：Phase 或功能完成后建议用户敲；用户说"收尾 / 合并分支"时回指请用户确认。手动：/branch-finisher。前置：项目代码
     - /domain-rulings - 自动：用户说"记一条"、问某字段或规则"现在按什么算"、要列待复核或看某条被谁依赖；沟通里冒出说不清归哪儿的领域知识。手动：/domain-rulings
-    - /readable-docs - 自动：用户说"出文档 / 人读文档 / 数据库设计文档 / 交接文档"、问某张表谁写谁读；项目里已有 docs/readable/ 而建表定义、分组或说明变了。手动：/readable-docs。前置：项目代码与建表定义
+    - /readable-docs - 自动：用户说"出文档 / 人读文档 / 数据库设计文档 / 人读版需求规格 / 交接文档"、问某张表谁写谁读；项目里已有 docs/readable/ 而建表定义、需求规格、分组或说明变了。手动：/readable-docs。前置：项目代码与建表定义（只出需求规格的有需求规格即可）
     - /skill-builder - 自动：EVOLUTION.md 提议创建新 Skill 且用户确认。手动：/skill-builder
     - /feedback-writer - 由 feedback-observer 调用，不由用户直接触发
     - /evolution-engine - 手动：/evolution-engine

@@ -66,7 +66,7 @@ paths:
             ├── feedback-writer/           # 记录用户反馈
             ├── evolution-engine/          # 进化引擎扫描
             ├── domain-rulings/            # 领域口径库入口（四象限分诊 / 查 / 待复核 / 手工收录）
-            ├── readable-docs/             # 人读文档入口（数据库设计：跑生成器、提业务分组、写说明、核对）
+            ├── readable-docs/             # 人读文档入口（数据库设计与人读版需求规格：跑生成器、提业务分组、写说明、核对）
             ├── progress-recorder/         # 项目记忆维护（sub-agent 调用）
             ├── record/                    # /record 入口：派 progress-recorder 合并本轮增量
             ├── archive/                   # /archive 入口：跑 progress-archive.mjs 归档
