@@ -56,10 +56,16 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
         - migration 用 ALTER TABLE，执行前查列或表是否已存在
         - 参数化查询防注入，不裸拼 SQL；频繁查询的字段加索引，不滥加
 
+    [人读文档]
+        - 项目有 docs/readable-src/ 时，Task 碰了建表定义或读写表的代码，就带着文档一起交：改完跑 `node .claude/scripts/readable-docs.mjs build`，`pending` 里因这次改动缺的、过期的说明当场补齐（`note put`），`check` 报「不一致 0 条」才算完成。说明由改代码的人写——他最清楚为什么这么改，事后再补只能靠猜
+        - 派单时把这一条写进 Verification；主 Agent 验收亲跑 `check`，不拿回执里的「0 条」当数
+        - 没碰表结构的改动不用写说明，页面由提交前检查自动重出，见 [Git 工作流]；写法与边界见 readable-docs SKILL.md
+
     [Git 工作流]
         - 原子提交：每完成一个独立功能就 commit，一个 commit 一个逻辑变更，不攒到 Phase 结束
         - commit message 前缀：`phase-N:` / `feat:` / `fix:` / `refactor:` / `chore:`
         - 提交门槛：本次改动涉及的栈编译或语法检查通过才许 commit（前端 tsc --noEmit 零错误，后端 ruff check 或 py_compile 通过），由 pre-commit-check 按栈自动卡
+        - 项目有 docs/readable-src/ 时，pre-commit-check 在提交前自动把人读文档的页面重出一遍；重出后 docs/readable/ 有变化就拦下这次 commit，`git add docs/readable` 之后重提即可。页面是生成物，跟着来源一起入库，不手改
         - push 由 hook 处理，保护分支不自动推
         - 宿主或编排层已把工作树钉在某个分支上时，就在这棵树、这个分支上提交，不另开或切换分支；只有自己管工作树时才自行决定开不开分支
         - 工作目录含多个独立 repo 时，各自 add / commit / push 分开执行、各自验收远程状态，不耦合进同一条命令——细则见 feedback/multi-repo-commit-isolation.md
@@ -81,7 +87,7 @@ description: 当 DEV-PLAN.md 就绪、用户说要开始写代码或继续开发
 [Phase 完成度判断]
     所有 Task 完成后过四步走，每步附当场跑出的证据：
     一、Code Review：对照 DEV-PLAN 该 Phase 的交付清单逐项确认，检查有无超出 Phase 范围的改动
-    二、测试完整性：计划的功能都实现、无半成品；派 tester 写测（写测 ≠ 被测作者），测要真覆盖到交互层和故障路径，不止纯函数和顺畅路径。每条「绿」要能证明行为真的对——核对用例前提与生产一致（量纲、单位、输入可达性、断言方向），用假前提或不可达输入把缺陷盖成预期的等于没测；功能声明的错误态、空态、边界要有用例真的走到，不只在实现里留分支；存在但没跑的测试算缺；项目有 docs/design/ 设计详述时跑 `node .claude/scripts/design-trace.mjs`，rc 1 记 CONCERNS、缺口清单进残留，rc 2 / 3 是脚本用错或自身出错，修好再跑、不当缺口记
+    二、测试完整性：计划的功能都实现、无半成品；派 tester 写测（写测 ≠ 被测作者），测要真覆盖到交互层和故障路径，不止纯函数和顺畅路径。每条「绿」要能证明行为真的对——核对用例前提与生产一致（量纲、单位、输入可达性、断言方向），用假前提或不可达输入把缺陷盖成预期的等于没测；功能声明的错误态、空态、边界要有用例真的走到，不只在实现里留分支；存在但没跑的测试算缺；项目有 docs/design/ 设计详述时跑 `node .claude/scripts/design-trace.mjs`，rc 1 记 CONCERNS、缺口清单进残留，rc 2 / 3 是脚本用错或自身出错，修好再跑、不当缺口记；项目有 docs/readable/ 人读文档时跑 `node .claude/scripts/readable-docs.mjs check`，不是「不一致 0 条」先重出、补齐说明到 0 条，补不齐的记 CONCERNS
     三、编译验证：前端 tsc --noEmit 零错误；后端 ruff check 零错误，无 ruff 则 python3 -m py_compile 全过；混合栈两栈都验，各自附证据
     四、功能测试：启动 dev server 无错误输出，新功能可用，现有功能未破坏；有交互的页面自己用真实浏览器把核心流程点一遍（Playwright，或本机装着的 Chrome / Edge 走调试端口都算），不把这一步推给用户去按 F12——说本机没有浏览器之前先实查，WSL 下 Windows 那一侧装的也算；真没有浏览器引擎才报「交互验证缺席」，缺席不算通过。纯接口的用 curl 查返回
     中间有任何改动，四步重新来。验证中发现的问题修完用 `fix:` 提交。

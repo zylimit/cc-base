@@ -8,7 +8,6 @@ import { noteSection, noteMark, noteHtml, noteState } from './note.mjs';
 
 export const DOC = '数据库设计';
 export const USAGE_TOP = 20; // 契约 F 节：谁写谁读超过 20 个文件的，其余收进可展开的区
-export const LINES_MAX = 8; // 契约 F 节：一个文件最多列 8 个行号，多的写「等 N 处」
 const CON_TYPE = { 'primary key': '主键', unique: '唯一', 'foreign key': '外键', check: 'CHECK' };
 // 没写名字的约束（name 为 null）：库里实际的名字静态算不准，取事实器不给，页面老实写「未命名」。这是常态，灰字不抢眼。
 const UNNAMED = '<span class="muted">未命名</span>';
@@ -88,13 +87,12 @@ function byFile(entries) {
 function usageRow(f, writes) {
   const marks = [...['proposed', 'confirmed'].filter((s) => f.judged.has(s)).map(judged),
     f.same ? '<span class="muted">这个文件里另有同名的建表语句，它读写的多半不是主库这张表</span>' : ''].filter(Boolean);
-  const uniq = [...new Set(f.lines)].sort((a, b) => a - b);
-  const lines = uniq.length
-    ? `第 ${uniq.slice(0, LINES_MAX).join('、')} 行${uniq.length > LINES_MAX ? ` 等 ${f.lines.length} 处` : ''}`
-    : '<span class="muted">没有行号：这个文件里的表名是运行时拼的，由项目判断归到这张表</span>';
-  const file = pathCode(f.file) + (marks.length ? `<br>${marks.join(' ')}` : '');
+  // 只写处数、不写行号：代码文件的行号不上页面（契约 F 节），代码一改行号就挪、页面跟着变。
+  // 项目判断补的条目没有处数：这个文件里的表名是运行时拼的，静态数不出来，处数留空、文件格里写明。
+  const note = f.lines.length ? '' : '<span class="muted">这个文件里的表名是运行时拼的，由项目判断归到这张表</span>';
+  const file = pathCode(f.file) + ([...marks, note].filter(Boolean).length ? `<br>${[...marks, note].filter(Boolean).join(' ')}` : '');
   const n = f.lines.length ? String(f.lines.length) : '';
-  return writes ? [file, VERB_ORDER.filter((v) => f.verbs.has(v)).map((v) => v.toUpperCase()).join('、'), n, lines] : [file, n, lines];
+  return writes ? [file, VERB_ORDER.filter((v) => f.verbs.has(v)).map((v) => v.toUpperCase()).join('、'), n] : [file, n];
 }
 
 // 「它引用了谁」「谁引用了它」：前 8 条列出，其余收进 <details>，免得把字段表挤到几屏之后；
@@ -135,8 +133,8 @@ function usage(t, kind, ctx) {
     const n = ctx.dynamicOpen, u = ctx.unscannedN;
     return `${head}\n<p class="muted">没有找到${what}这张表的代码。${n ? `另有 ${n} 处表名是运行时拼的，<a href="index.html#dynamic">见清单</a>。` : ''}${u ? `另有 ${u} 个文件没扫成，<a href="index.html#unscanned">见清单</a>。` : ''}</p>`;
   }
-  const hd = writes ? ['文件', '动作', '处数', '行号'] : ['文件', '处数', '行号'];
-  const wd = writes ? [null, '200px', '56px', '30%'] : [null, '56px', '34%'];
+  const hd = writes ? ['文件', '动作', '处数'] : ['文件', '处数'];
+  const wd = writes ? [null, '200px', '56px'] : [null, '56px'];
   // 一个文件一行，行带 data-row="writer" / "reader"，核对器按它数行（契约 C 节「机器读得回来」）；
   // 只在打印时显示的那一份是重复的，不带标记，免得同一个文件被数两遍。
   const cells = files.map((f) => usageRow(f, writes)), mark = (r) => ({ attrs: { 'data-row': writes ? 'writer' : 'reader' }, cells: r });
@@ -145,7 +143,7 @@ function usage(t, kind, ctx) {
   const more = rest.length
     ? `<details class="more"><summary>还有 ${rest.length} 个文件</summary>\n${table(hd, rest.map(mark), wd)}\n</details>\n<div class="print-only"><p class="muted">还有 ${rest.length} 个文件：</p>\n${table(hd, rest, wd)}\n</div>`
     : '';
-  const lead = `<p class="muted">${files.length} 个文件，按${what}这张表的处数从多到少排${rest.length ? `，前 ${USAGE_TOP} 个列在这里、其余在下面展开` : ''}；行号是 SQL 动词所在的行。</p>`;
+  const lead = `<p class="muted">${files.length} 个文件，按${what}这张表的处数从多到少排${rest.length ? `，前 ${USAGE_TOP} 个列在这里、其余在下面展开` : ''}；处数是这个文件里引用它的 SQL 语句有几处。</p>`;
   return [head, lead, table(hd, cells.slice(0, USAGE_TOP).map(mark), wd), more].filter(Boolean).join('\n');
 }
 

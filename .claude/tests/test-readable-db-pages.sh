@@ -60,5 +60,14 @@ OF=$(grep -lF 'data-anchor="table:Orders"' "$E"/t-*.html 2>/dev/null | xargs -r 
 eq "\"Orders\" 与 orders 各一页（共 19 张表页）：文件名不同，Orders 的页不叫 t-orders.html；db/ 下所有文件名只含小写字母、数字、下划线、连字符与 ~，且不分大小写也无重名" "0|19|ok|||" "$RC|$(ls "$E" | grep -c '^t-')|$([ -n "$OF" ] && [ "$OF" != t-orders.html, ] && echo ok || echo "OF=$OF")|$(ls "$E" | grep -vE '^[a-z0-9_~-]+\.html$' | tr '\n' ,)|$(ls "$E" | tr 'A-Z' 'a-z' | sort | uniq -d | tr '\n' ,)|"
 # 8 打死：maybeDropped 的提示没挂 / 每页都挂 / 先删后加同名的也挂
 eq "按名字删约束没对上的 pm 页有「这张表有 1 条按名字删约束的语句没对上任何约束」并列出 gone_x；先删后加同名的 qm、无关的 order_items 没有" "y|y|n|n" "$(yn grep -qF '这张表有 1 条按名字删约束的语句没对上任何约束' "$E/t-pm.html")|$(yn grep -qF gone_x "$E/t-pm.html")|$(yn grep -qF '按名字删约束' "$E/t-qm.html")|$(yn grep -qF '按名字删约束' "$E/t-order_items.html")"
+# 9 打死：代码文件的行号写进页面（F 节）。代码第 23 行读 orders；对照：建表文件的行号照旧；顶上加三行空行重出，整个 docs/readable 总哈希不变
+Y="$TMP/p4"; mk "$Y"; mkdir -p "$Y/app/api"; sed -i 's#"codeRoots":\[\]#"codeRoots":["app"]#' "$Y/docs/readable-src/config.json"
+{ for i in $(seq 1 22); do echo "# pad $i"; done; echo '    cur.execute("SELECT id FROM orders WHERE id = 1")'; } >"$Y/app/api/report.py"
+run "$Y"; P="$Y/docs/readable/db/t-orders.html"; HA=$(tree "$Y/docs/readable"); nd() { env -u CLAUDE_PROJECT_DIR node "$ENGINE" build --facts-json --root "$Y"; }
+L0=$(nd 2>/dev/null | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(j.usage.orders.reads.map(r=>r.line).join())')
+{ printf '\n\n\n'; cat "$Y/app/api/report.py"; } >"$Y/x.py"; mv "$Y/x.py" "$Y/app/api/report.py"; run "$Y"; HB=$(tree "$Y/docs/readable")
+L1=$(nd 2>/dev/null | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(j.usage.orders.reads.map(r=>r.line).join())')
+eq "表页「谁在读」有 app/api/report.py、整页无「第 23 行」、建表文件仍写「第 N 行」；代码顶上加三行后事实里的行号 23 变 26，而 docs/readable 总哈希不变" \
+  "y|n|y|23>26|same" "$(sed "s#<wbr>##g" "$P" | grep -qF app/api/report.py && printf y || printf n)|$(yn grep -qF '第 23 行' "$P")|$(yn grep -qE '第 ?[0-9]+ ?行' "$P")|$L0>$L1|$([ "$HA" = "$HB" ] && echo same || echo changed)"
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

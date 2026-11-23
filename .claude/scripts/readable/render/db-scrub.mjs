@@ -27,6 +27,8 @@ export function scrub(model, cfg) {
     return o.text;
   };
   const at = (x) => ({ file: x.file, line: x.line ?? null });
+  // 代码文件的行号不上页面（契约 F 节「页面」）：代码一改行号就挪，页面跟着变；隐去清单里代码一侧的条目只记文件。
+  const atCode = (x) => ({ file: x.file, line: null });
   const tables = model.tables.map((t) => ({
     ...t,
     comment: r(t.comment, at(t), `表 ${t.name} 的注释`),
@@ -82,10 +84,10 @@ export function scrub(model, cfg) {
       unparsed: issues(model.unparsed, '未解析的语句'),
       conflicts: issues(model.conflicts, '定义冲突'),
       orphanAlters: issues(model.orphanAlters, '改了不存在的表'),
-      dynamic: model.dynamic.map((d) => ({ ...d, head: r(d.head, at(d), '表名是运行时拼的原文开头') })),
+      dynamic: model.dynamic.map((d) => ({ ...d, head: r(d.head, atCode(d), '表名是运行时拼的原文开头') })),
       // 取事实那边还没出这个键时按「没有」处理（契约 F 节，2026-11-23 另一位在加），页面上这张清单就不显示。
-      ambiguous: (model.ambiguous || []).map((a) => ({ ...a, head: r(a.head, at(a), '提到了表名、像 SQL 又不像的原文开头') })),
-      unscanned: model.unscanned.map((u) => ({ ...u, reason: r(u.reason, at(u), '没扫成的原因') })),
+      ambiguous: (model.ambiguous || []).map((a) => ({ ...a, head: r(a.head, atCode(a), '提到了表名、像 SQL 又不像的原文开头') })),
+      unscanned: model.unscanned.map((u) => ({ ...u, reason: r(u.reason, atCode(u), '没扫成的原因') })),
       mapProblems: model.mapProblems.map((p) => ({ ...p, where: r(p.where, map, '项目判断里对不上的位置'), problem: r(p.problem, map, '项目判断里对不上的问题描述') })),
     },
     cfg: page,

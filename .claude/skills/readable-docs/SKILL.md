@@ -38,6 +38,7 @@ description: 当用户说要出人读文档、数据库设计文档、给接手�
     写的时候发现代码与注释、需求规格对不上的地方，单列出来交给用户，不悄悄按其中一边写。
 
 [来源变了之后]
+    边开发边写，不攒到开发完再补：碰了建表定义或读写表的代码的 Task，说明由改代码的那一位当场补齐，验收看 `check`（见 dev-builder SKILL.md [开发规则清单] 的 [人读文档]）；页面不用人记着重出，pre-commit-check 在每次提交前自动重出一遍，有变化会拦下来让你 `git add docs/readable` 后重提。
     改了建表定义、会碰数据库的代码、map.json 或说明之后：`build` → `pending`（过期的说明会带着旧正文列出来）→ 照新的来源重写后 `note put` → `build` → `check` 报 0 条。表被删了，它的说明成了孤儿：改挂到新的锚点，或者 `note drop`。
     交出去之前由用户或他指定的人抽审，`note confirm <锚点…> --by <名字>`。AI 不替人 confirm，也不往 map.json 里写 `confirmed`。
 

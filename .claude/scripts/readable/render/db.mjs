@@ -163,11 +163,11 @@ const ISSUES = [
 // 谁写谁读这一侧的四张清单（契约 F 节），空的不显示。每项 [模型里的键, 页内锚点, 标题, 说明, 表头, 一行]。
 const CODE_LISTS = [
   ['dynamic', 'dynamic', '表名是运行时拼的', '代码里的 SQL 动词后面跟的是占位（如 <code>{table}</code>、<code>%s</code>），或字符串到动词就结束、后面接着拼接，或写表接口的第一个实参不是字符串——静态看不出是哪张表，表页上「取自来源」的写读里没有这几处。项目判断（<code>docs/readable-src/map.json</code> 的 <code>dynamicTables</code>）把这个文件归到具体表上的标「已归属」，那些表的页面上列着这个文件。',
-    ['出处', '动作', '原文开头', '归属'], (d) => [at(d.file, d.line), esc(String(d.verb ?? '').toUpperCase()), code(d.head), d.assigned ? '<span class="o">已归属</span>' : '']],
+    ['文件', '动作', '原文开头', '归属'], (d) => [code(d.file), esc(String(d.verb ?? '').toUpperCase()), code(d.head), d.assigned ? '<span class="o">已归属</span>' : '']],
   ['ambiguous', 'ambiguous', '提到了表名、像 SQL 又不像的', '代码的字符串里，动词不是全大写、后面跟着建表定义里的表名，再往后却不像一条 SQL 语句（比如日志、报错里的「failed to delete from orders, will retry」）——没有算进任何一张表的谁写谁读。列在这里而不丢掉，万一是一种没见过的写法。',
-    ['出处', '动作', '表', '原文开头'], (a, ctx) => [at(a.file, a.line), esc(String(a.verb ?? '').toUpperCase()), ctx.tables.has(a.table) ? tLink(a.table, ctx) : code(a.table), code(a.head)]],
+    ['文件', '动作', '表', '原文开头'], (a, ctx) => [code(a.file), esc(String(a.verb ?? '').toUpperCase()), ctx.tables.has(a.table) ? tLink(a.table, ctx) : code(a.table), code(a.head)]],
   ['codeTables', 'code-tables', '代码里建的表', '代码的字符串里出现的 <code>CREATE TABLE</code>（带 <code>TEMP</code> 的不算），没有并进上面的表结构。配置的 <code>ddl</code> 列了的代码文件，里面的建表语句会并进来，不在这里。',
-    ['出处', '表名'], (c, ctx) => [at(c.file, c.line), ctx.tables.has(c.name) ? tLink(c.name, ctx) : code(c.name)]],
+    ['文件', '表名'], (c, ctx) => [code(c.file), ctx.tables.has(c.name) ? tLink(c.name, ctx) : code(c.name)]],
   ['mapProblems', 'map-problems', '项目判断里对不上的', '<code>docs/readable-src/map.json</code> 里点到不存在的表或文件、一张表进了两个组、档位写错的，不拦生成，列在这里。',
     ['在哪', '怎么对不上'], (p) => [code(p.where), esc(p.problem)]],
   ['unscanned', 'unscanned', '没扫成的文件', '切到末尾还有没闭合的字符串，整个文件没扫，不出半截结果；这些文件里的写读不在任何一张表的页面上。',
