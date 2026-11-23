@@ -17,6 +17,13 @@ export const viewAnchor = (view) => `view:${view}`;
 // 说明还挂在这两种锚点上（契约 G 节）：组的 id 取自文档模型的 groups，文档第一期只有 doc:db。
 export const groupAnchor = (id) => `group:${id}`;
 export const docAnchor = (doc) => `doc:${doc}`;
+// 需求规格的块（第二期契约 docs/readable-spec/phase2-spec-contract.md B 节）：显式编号 req:<编号>；列表项开头是粗体词的
+// spec:<章节路径>/<粗体词>；别的 spec:<章节路径>#<在本章里的序号>。章节路径是它上面各级标题的文字，用 / 连。
+// 同一个锚点第 k 次出现（k ≥ 2）接 ~k，第一次的不带后缀——先出现的那条锚点不因为后面多写了一条同名的而变。
+export const reqAnchor = (id) => `req:${id}`;
+export const specBoldAnchor = (path, word) => `spec:${path.join('/')}/${word}`;
+export const specSeqAnchor = (path, n) => `spec:${path.join('/')}#${n}`;
+export const nthAnchor = (anchor, k) => (k === 1 ? anchor : `${anchor}~${k}`);
 
 // 按码点截而不按 UTF-16 码元：中文注释里偶有四字节字符，按码元截会切出半个代理对，落进 JSON 成了乱码。
 export const excerpt = (text) => Array.from(text.slice(0, EXCERPT_LEN * 2)).slice(0, EXCERPT_LEN).join('');

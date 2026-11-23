@@ -21,6 +21,9 @@ _Last updated: 2026-11-23_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-11-23: [#140] ai-ts 的 digifiber-conflation 框架升到 79c991c 并正式生成人读文档：96 个页面、1003 段说明，`check` 不一致 0 条，与本机小样逐字节相同；已在那边提交 `3b29b8f`（192 个文件），未推送（evidence：远端 `git log -1`、doctor 通过、两边页面目录总哈希 c428cb91…）
+- 2026-11-23: [#140] 人读文档第一期（数据库设计）完成：用户看过全量小样「小样可以，继续」；结论 CONCERNS——审查员复核轮未做、残留 #142（evidence：`docs/readable-spec/DEV-PLAN.md` Phase 1 标题行；下游副本 79 张表 1003 段说明、`check` 不一致 0 条）
+- 2026-11-23: [#140] 守卫式约束并入：下游副本外键 96 → 143、表级约束 142 → 219、「未合并」16 → 9；因此过期的 29 段说明逐段复核，13 段原文重交、16 段各改一句（evidence：`79c991c`；六套契约测试 118 条通过，run-all rc 0；下游副本 `check` 不一致 0 条）
 - 2026-11-23: [#140] 人读文档「边开发边写」三处落点入库：pre-commit-check 提交前自动重出页面、dev-builder 任务验收带文档、页面不写代码行号（evidence：`25e6939`；六套契约测试 110 条、test-hooks-node 57 条通过，run-all rc 0）
 - 2026-11-23: [#140] 下游副本 79 张表的说明全部写完并落盘，待补清单归零（evidence：仓外 `~/readable-samples/conflation/docs/readable-src/notes/`；14 位写说明的 Sub-Agent 各自回执）
 - 2026-11-23: [#140] 人读文档第一期收尾：Task 1.4 说明与指纹、1.5 核对器入库；整期 code-review 一轮 3 条 HIGH 连同中低级别修完；readable-docs skill、主控与两份规则的入口、指南第 16 章入库（evidence：`e7f763c`、`101b7dc` 与本提交；五套契约测试 101 条通过，run-all rc 0；下游副本 `check` 不一致 0 条）
@@ -92,7 +95,7 @@ _Last updated: 2026-11-23_
 
 ## 当前断点
 
-**断点（2026-11-23）**：人读文档第一期（数据库设计）已入库推送到 `25e6939`：五个 Task、整期审查的修复、readable-docs skill 与入口、「边开发边写」三处落点（提交前自动重出、任务验收带文档、页面不写代码行号）。下游副本上 79 张表的说明全部写完（约 230 段表与组的说明、九百来个字段），在仓外 `~/readable-samples/conflation`，写说明时翻出的不一致记在同目录的 `写说明时发现的问题.md`。正在做、未提交：建表文件里「先查系统表、没有才加」的守卫式约束并进现行结构（下游 102 条 ADD CONSTRAINT 有 87 条是这么写的，47 条外键没上图）；导读按各组核到的事实统一改。下一步：并入后把因此过期的表说明原文重盖指纹 → 重出小样、`check` 到 0 条、亲眼看 → 交用户看全量小样。等用户定的两件旧事：一字不丢与不出内网地址的冲突、先给哪些模块补设计详述。
+**断点（2026-11-23）**：人读文档第一期（数据库设计）完成并入库（cc-base `79c991c`），用户看过全量小样「小样可以，继续」。ai-ts 上实际在用的 digifiber-conflation 已升到 79c991c、正式生成并提交 `3b29b8f`（未推送，那个仓的远端是私有的）；别的七处下游仍在 dd8ff4e。正在做：第二期开计划——先做人读版需求规格（Product-Spec.md 逐块投影、零丢失核对），再做架构文档。两件旧事用户三次没有回话，按主 Agent 的建议当默认走：需求规格里的内网地址生成时隐去并标「已隐去」、核对按隐去后的文字比；算法设计补哪些模块到第三期由主 Agent 提名单。小样工作区仍在仓外 `~/readable-samples/conflation`，写说明时翻出的不一致在同目录 `写说明时发现的问题.md`（没进任何仓，等用户说放不放进 conflation）。
 
 ## TODO
 - [P2][OPEN][#129] **setup.sh merge_settings 不同步已有框架 hook 的 matcher / args，dry-run 却报 settings.json update**（2026-11-06）：jq merge 按 hook 名去重，只追加目标没有的 hook；已装过的 tdd-gate 在 d9d9fdf 把 matcher 改成 `Agent|Task`，升级到 digifiber-conflation 时被当成已存在跳过，装后 settings.json 与升级前一字不差，而 dry-run 只按文件内容比、报的是 update——计划与实际对不上。影响：老项目切 Cursor 后 tdd-gate 匹配不到 Task，静默失效；以后模板里任何已有 hook 的 matcher / args 改动都到不了老项目。修法方向：已有框架条目（按 hook 名认出的）把 matcher 同步成模板值，用户自定义条目不动；dry-run 的 update / skip 按合并结果判；setup.ps1 对等。安装器缺陷，按 MEDIUM 档 + 红锁用例走。Context：`setup.sh:478` merge_settings；同族 #110。（原 mac 侧编号 #115，2026-11-08 合并时因与本仓 #115 撞号改为 #129）

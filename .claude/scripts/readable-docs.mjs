@@ -23,6 +23,7 @@ import { join, resolve, basename, dirname } from 'node:path';
 import { cmp } from './readable/model.mjs';
 import { extract as extractDdl } from './readable/sources/sql-ddl.mjs';
 import { extract as extractCode, isCodeFile } from './readable/sources/code-scan.mjs';
+import { extract as extractSpec, SpecLoss } from './readable/sources/md-blocks.mjs';
 import { CONFIG, ConfigError, loadConfig, loadMap, bindNotes, putNotes, confirmNotes, dropNotes, pendingList } from './readable/notes.mjs';
 import { link } from './readable/links.mjs';
 import { renderDb } from './readable/render/db.mjs';
@@ -146,7 +147,9 @@ function cmdInit(o) {
 
 // 取事实（契约 B、F 节）：建表定义（含 ddl 里列的代码文件）→ 项目判断（notes 读与校验）→ 代码里的写读 → 连起来
 // → 绑说明（契约 G 节：notes 按现行的切片判现行、待更新、孤儿，交给页面与 --facts-json 的是同一份）。
+// 需求规格的切块（第二期契约 B 节）最先做：还原自检不过就抛 SpecLoss，后面的都不必跑，也不会打出半份结果；没配 spec 的是 null。
 function collect(root, cfg, skipped) {
+  const spec = extractSpec(cfg, root);
   const ddl = extractDdl(cfg, root, skipped);
   const map = loadMap(root, ddl.tables.map((t) => t.name));
   const scan = extractCode(cfg, root, codeFiles(root, cfg), [...ddl.tables, ...ddl.views].map((x) => x.name));
@@ -155,7 +158,7 @@ function collect(root, cfg, skipped) {
   // ambiguous（契约 F 节「提到了表名、像 SQL 又不像的」）：取事实那边 2026-11-23 正在加，连起来的结果里有就用它，
   // 只有扫描结果里有就用扫描的，都还没有时是空清单——只兜「这个键还没出」这一种，键在而形状不对照样往下报错。
   const ambiguous = linked.ambiguous ?? scan.ambiguous ?? [];
-  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems };
+  const facts = { ...ddl, groups: linked.groups, usage: linked.usage, dynamic: linked.dynamic, ambiguous, codeTables: linked.codeTables, unscanned, mapProblems: map.problems, spec };
   return { ...facts, ...bindNotes(root, facts) };
 }
 const loadFacts = (o) => collect(o.root, loadConfig(o.root), {});
@@ -269,5 +272,7 @@ try {
   if (e instanceof ConfigError) { console.error(`readable-docs: ${e.message}`); process.exitCode = 2; }
   // build 落盘前的自检不过：新页面没换上，说明哪一页哪一项对不上，退出码 3（契约 H 节）。
   else if (e instanceof CheckFailed) { console.error(`readable-docs: ${e.message}`); process.exitCode = 3; }
+  // 需求规格切块的还原自检不过（第二期契约 B 节）：点名哪一行对不上，退出码 3，什么都不出。
+  else if (e instanceof SpecLoss) { console.error(`readable-docs: ${e.message}`); process.exitCode = 3; }
   else { console.error(`readable-docs: 脚本自身出错：${e?.stack || e}`); process.exitCode = 3; }
 }
