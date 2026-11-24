@@ -16,6 +16,7 @@ description: 当 Product-Spec.md 已批准、需要做软件架构设计，或�
 
     可选（降级模式）：
     - 已有项目代码 → 有则先跑 `node .claude/harness/harness.mjs arch-check`（如已有 catalog）摸清现状依赖图，进入「演进模式」：先读够真实代码，尊重并 ratify 现存约定，只画增量与迁移路径，不推倒重来
+    - docs/readable/（人读文档）→ 有则架构首页的模块清单、循环依赖与越层引用，各模块页的依赖与读写的表，是代码现状照出来的样子，演进模式先读它；它与已声明的设计意图对不上的地方点出来
     - 已有 Architecture-Design.md / ADR → 代表已声明的设计意图，不代表代码现状；连同上一条的代码现状（实现事实）与 Product-Spec 业务规则，三者分开核对——不一致处点出来，不能把目录结构或旧 ADR 当成当然还成立的业务分工
     - DFX-Spec.md → 有则把质量属性场景作为架构驱动因子（没有就在关键决策处标注 [待 DFX 补充]，并在收尾引导 /dfx-designer）
     - Design-Brief.md → 有则页面与组件数量、Class C 复杂交互（画布 / 时间线）是模块边界与 spike 的输入
