@@ -241,7 +241,7 @@ observer 用 `feedback-writer` skill，按 5 个观察维度判有没有信号�
 
 `check-evolution.mjs`（SessionStart）数的就是索引里两种前缀都不带的行。有待处理的，开场你会看到一句：`📋 项目有 N 条待处理 feedback（共 M 条）。建议派发 evolution-runner 检查是否有进化建议。`
 
-**下游项目的 feedback 怎么回到框架**：项目里的 skills / CLAUDE.md 是清单管的框架副本，往里毕业下次 `setup.sh` 就报 conflict，所以下游的方法类教训只在项目里记、不在项目里毕业。框架仓跑 `bash .claude/scripts/collect-feedback.sh <项目路径…>` 把它们收进来——同名同内容跳过（只补 `origin`）、同名不同内容落 `<名>.from-<项目>.md`、frontmatter 写 `origin: <项目>`、索引自动追加，`--dry-run` 只算不写——再派 evolution-runner 毕业到本仓的 skill。三个下游项目 35 份 feedback 三个月 0 毕业（2026-10-30 实数）就是这条链断着的样子；`setup.sh` 从此只在目标没有 `FEEDBACK-INDEX.md` 时才建，不再每次升级重置成空模板（#87）。
+**下游项目的 feedback 怎么回到框架**：项目里的 skills / CLAUDE.md 是清单管的框架副本，往里毕业下次 `setup.sh` 就报 conflict，所以下游的方法类教训只在项目里记、不在项目里毕业。框架仓跑 `bash .claude/scripts/collect-feedback.sh <项目路径…>` 把它们收进来——同名同内容跳过（只补 `origin`）、同名不同内容落 `<名>.from-<项目>.md`、frontmatter 写 `origin: <项目>`、索引自动追加，`--dry-run` 只算不写——再派 evolution-runner 毕业到本仓的 skill。三个下游项目 35 份 feedback 三个月 0 毕业（2026-10-30 实数）就是这条链断着的样子；`setup.sh` 从此只在目标没有 `FEEDBACK-INDEX.md` 时才建，不再每次升级重置成空模板（#87）。 同一条命令末尾还给每个项目报一行「人读文档」的状态，行首带 `!` 的是文档没跟上开发的项目（核对有不一致、有说明待更新或配置漏了新目录）。
 
 ### evolution-runner：什么时候跑、看三类信号
 

@@ -153,7 +153,7 @@
 
 ---
 
-## Phase 4: 接进开发流程（2026-11-24 六个 Task、一轮审查与修复都已完成，CONCERNS：复核轮未做、Task 4.5 与 4.6 没过审查轮、残留 #147）
+## Phase 4: 接进开发流程（2026-11-24 七个 Task、一轮审查与修复都已完成，CONCERNS：复核轮未做、Task 4.5～4.7 没过审查轮、残留 #147）
 
 **交付内容**：
 - 装了框架的项目照常开发，人读文档自动跟着生成、跟着更新：需求规格一生成就出人读版；配置跟得上后来出现的建表文件与代码目录；计划、派单、编码、审查、收尾、发版各带着文档的那一份
@@ -173,6 +173,7 @@
 - `.claude/rules/dev-workflow-details.md`、`.claude/skills/dev-builder/SKILL.md` 等八处 — 流程里的落点
 - `.claude/scripts/page-shots.mjs` — 看页面：把页面截成图给 Agent 读
 - `.claude/tests/cases/dev-flow-carries-readable-docs.sh` — 真跑用例：全新会话照常开发，文档跟没跟上（默认不跑）
+- `.claude/scripts/collect-feedback.sh`、`.claude/scripts/collect-feedback-docs.mjs` — 回流时每个下游项目报一行文档状态
 
 **Task 清单**：
 - **Task 4.1：配置跟上项目、状态与升级提示（REQ-DOC-006）** — `init --suggest`、提交前提醒、`project-status` 的「人读文档」一行、`doctor.sh` 的不同步提示；按第一期契约 I 节第 5、10、11 条
@@ -199,6 +200,10 @@
   - Business Context：用户 2026-11-24「你是让后续的，Agent开发过程能正常，自动生成这些文档」。Task 4.4 验的是实现者一侧；起头、派单、验收这些是主 Agent 的事，子 Agent 不能再派子 Agent，只有全新的会话才演得了主 Agent。存量项目的开发计划都是这个功能之前写的，所以计划里故意不提
   - 依赖类型：功能前置＝Task 4.1、4.2、4.5
   - 证据产生者：主 Agent 搭夹具、起会话、亲自在跑完的项目上核对；用例由 tester 写，断言对着录下来的那一次离线核、各条先红
+- **Task 4.7：下游的文档状态随回流一起报（REQ-DOC-006）** — `collect-feedback.sh` 给每个下游项目多报一行「人读文档」的状态，没跟上的行首标 `!`；进化引擎的技能里写明把它当信号；按第一期契约 I 节第 13 条
+  - Business Context：用户 2026-11-24「这个持续搞吧」——真实项目上的验证持续做。下游各自的会话照常开发，文档应当自己跟上；框架这边要能持续看到跟没跟上，不靠谁想起来去每个项目里跑一遍。最贵的错是某个下游的文档悄悄不同步而框架这边一直不知道
+  - 依赖类型：功能前置＝Task 4.1（状态与配置检查的机器可读输出）
+  - 证据产生者：MEDIUM 档——implementer 自检加 tester 写契约测试；没过审查轮，主 Agent 亲跑验收并对本机在用的下游仓干跑一遍
 
 **验收标准**：
 - 合成项目上那一单做完：页面里有新加的表与接口，新表、新列有说明，`check` 报不一致 0 条，`project-status` 报得出这些数
