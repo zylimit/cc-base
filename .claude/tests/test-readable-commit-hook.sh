@@ -72,5 +72,54 @@ chk "$([ "$RC|$(has audit_log.sql)" = "0|y" ] && echo 0 || echo 1)" "配置没�
 # 10 打死：没有漏项也多说话（提醒太吵，人就不看了）。对照基线 = 同一提交里只多一个无关文件、页面现行的输出；漏项那条的输出里多出的部分才是新提醒，这里要求没有
 N="$TMP/a10"; mk "$N"; echo x >"$N/n.txt"; G "$N" add n.txt; hook "$N" "$CM"; NOISE=$(printf '%s' "$OUT" | grep -cE '漏|suggest|配置跟' || true)
 chk "$([ "$RC|$NOISE|${#OUT}" = "0|0|0" ] && echo 0 || echo 1)" "配置跟得上项目、页面现行：退出码 0、输出为空（这一段不多说一个字）" "0|0|0" "$RC|$NOISE|${#OUT}"
+# ===== 契约 I 节第 14 条：结构变坏当场提醒（只提醒不拦；放行那回才比；记 [advise] 结构变坏： 且不带「人读文档」）。
+# 夹具 mks：五个模块（api 接口 / core 业务 / store 数据 / aa / bb 业务），一处存量越层（store→api）、无环；cyc 起手 aa⇄bb 成环，nocode 起手没配代码根（上一提交没有架构首页）
+mm() { printf '{"id":"%s","title":"%s 模块","layer":"%s","paths":["app/%s/**"],"status":"proposed"}' "$1" "$1" "$2" "$1"; }
+wf() { local r=$1 f=$2; shift 2; mkdir -p "$(dirname "$r/$f")"; printf '%s\n' "$@" >"$r/$f"; }
+mks() {  # mks <root> [cyc|nocode]
+  local r="$1" cr='["app"]'; [ "${2:-}" = nocode ] && cr='[]'
+  mkdir -p "$r/sql" "$r/.claude/scripts" "$r/.claude/harness" "$r/docs/readable-src"; git -C "$r" init -q; : >"$r/Product-Spec.md"
+  cp "$SCRIPTS/readable-docs.mjs" "$r/.claude/scripts/"; cp -r "$SCRIPTS/readable" "$r/.claude/scripts/"
+  cp "$REPO_ROOT/.claude/harness/profile.json" "$r/.claude/harness/" 2>/dev/null || true
+  sql "$r"; printf '{"version":1,"title":"t","spec":"Product-Spec.md","ddl":["sql/s.sql"],"codeRoots":%s,"ignore":[]}\n' "$cr" >"$r/docs/readable-src/config.json"
+  printf '{"version":1,"tableGroups":[],"dynamicTables":[],"layers":["接口","业务","数据"],"modules":[%s,%s,%s,%s,%s]}\n' "$(mm api 接口)" "$(mm core 业务)" "$(mm store 数据)" "$(mm aa 业务)" "$(mm bb 业务)" >"$r/docs/readable-src/map.json"
+  wf "$r" app/api/web.py 'def ping(): pass'; wf "$r" app/core/svc.py 'from ..store.db import save' 'def run(): save()'; wf "$r" app/store/db.py 'from ..api.web import ping' 'def save(): pass'
+  wf "$r" app/aa/a.py 'from ..bb.b import y' 'def x():' '    return 1'; wf "$r" app/bb/b.py 'def y(): pass'
+  [ "${2:-}" = cyc ] && wf "$r" app/bb/b.py 'from ..aa.a import x' 'def y(): pass'
+  nd build --root "$r" >/dev/null 2>&1 || true; G "$r" add -A; G "$r" commit -qm init
+}
+logn() { local n; n=$(grep -c '结构变坏' "$1/.claude/evidence/gate-block.log" 2>/dev/null || true); echo "${n:-0}"; }
+hs1() { printf '%s' "$1" | grep -qF -- "$2" && printf y || printf n; }
+# st <root>：改动已改好。第一回 = 页面没暂存（RC1 / OUT1 / L1），第二回 = 页面都暂存后放行的那回（RC2 / OUT2 / L2）；L 是日志里「结构变坏」行数
+st() { G "$1" add -A; hook "$1" "$CM"; RC1=$RC; OUT1=$OUT; L1=$(logn "$1"); G "$1" add -A; hook "$1" "$CM"; RC2=$RC; OUT2=$OUT; L2=$(logn "$1"); }
+X="$TMP/s1"; mks "$X"; wf "$X" app/bb/b.py 'from ..aa.a import x' 'def y(): pass'; st "$X"
+SL=$(printf '%s\n' "$OUT2" | grep -m1 '^人读文档·结构：这次提交多了' || true); LG=$(awk -F'\t' '/结构变坏/{print $2 "|" (index($3,"[advise] 结构变坏：")==1 ? "y" : "n") "|" ($3 ~ /人读文档/ ? "有" : "无")}' "$X/.claude/evidence/gate-block.log" 2>/dev/null || true)
+chk "$([ "$RC2|$(hs1 "$SL" 人读文档·结构：这次提交多了)|$(hs1 "$SL" aa)|$(hs1 "$SL" bb)|$L2|$LG" = "0|y|y|y|1|pre-commit-check|y|无" ] && echo 0 || echo 1)" "新多一组循环依赖（aa⇄bb）、页面已暂存：放行（0）；输出有以「人读文档·结构：这次提交多了」开头的一行并点名 aa、bb；日志恰多一行，闸名 pre-commit-check、原因以「[advise] 结构变坏：」开头且不含「人读文档」" "0|y|y|y|1|pre-commit-check|y|无" "$RC2|$(hs1 "$SL" 人读文档·结构：这次提交多了)|$(hs1 "$SL" aa)|$(hs1 "$SL" bb)|$L2|$LG"
+chk "$([ "$RC1|$(hs1 "$OUT1" 人读文档·结构)|$L1" = "2|n|0" ] && echo 0 || echo 1)" "同一次改动、页面没暂存的那一回：照旧被拦（2）、输出无结构提醒、日志里没有「结构变坏」行（放行那回才比）" "2|n|0" "$RC1|$(hs1 "$OUT1" 人读文档·结构)|$L1"
+nf() { echo "$RC2/$(hs1 "$OUT2" 人读文档·结构)/$L2"; }
+Y="$TMP/s2a"; mks "$Y"; wf "$Y" app/aa/a.py 'from ..bb.b import y' 'def x():' '    z = 2' '    return z'; st "$Y"; NA=$(nf)
+Y="$TMP/s2b"; mks "$Y" cyc; wf "$Y" app/bb/b.py 'def y(): pass'; st "$Y"; NB=$(nf)
+Y="$TMP/s2c"; mks "$Y" nocode; sed -i 's/"codeRoots":\[\]/"codeRoots":["app"]/' "$Y/docs/readable-src/config.json"; wf "$Y" app/bb/b.py 'from ..aa.a import x' 'def y(): pass'; st "$Y"; NC=$(nf); FC=$([ -f "$Y/docs/readable/arch/index.html" ] && echo 有架构页 || echo 无架构页)
+chk "$([ "$NA|$NB|$NC|$FC" = "0/n/0|0/n/0|0/n/0|有架构页" ] && echo 0 || echo 1)" "不该响的三种都放行、无提醒、日志不记：只改函数体 / 把循环依赖消掉 / 上一个提交里没有架构首页（这回起手出文档，带新环）。GOT 按「放行码/有无结构提醒/日志行数」分开报" "0/n/0|0/n/0|0/n/0|有架构页" "函数体:$NA 消环:$NB 首次出:$NC $FC"
+Y="$TMP/s3"; mks "$Y"; wf "$Y" app/store/db2.py 'from ..api.web import ping' 'def save2(): pass'; st "$Y"; SL=$(printf '%s\n' "$OUT2" | grep -m1 '^人读文档·结构：这次提交多了' || true)
+chk "$([ "$RC2|$(hs1 "$SL" store)|$L2" = "0|y|1" ] && echo 0 || echo 1)" "越层引用同一对（store→api）文件对数 1→2：放行（0）、有「人读文档·结构：这次提交多了」一行点名 store、日志恰一行" "0|y|1" "$RC2|$(hs1 "$SL" store)|$L2"
+Y="$TMP/s3b"; mks "$Y"; wf "$Y" app/misc/stray.py 'S = 1'; seq 1 1100 | sed 's/^/x=/' >"$Y/app/core/big.py"
+node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/map.json",m=JSON.parse(fs.readFileSync(f));m.modules.push({id:"ghost",title:"ghost 模块",layer:"业务",paths:["nowhere/**"],status:"proposed"});fs.writeFileSync(f,JSON.stringify(m))' "$Y"; st "$Y"; SL=$(printf '%s\n' "$OUT2" | grep -m1 '^人读文档·结构：这次提交多了' || true)
+chk "$([ "$RC2|$(hs1 "$SL" app/misc/stray.py)|$(hs1 "$SL" app/core/big.py)|$(hs1 "$SL" 对不上)|$L2" = "0|y|y|y|1" ] && echo 0 || echo 1)" "一次提交同时多出未归属的文件（app/misc/stray.py）、超过 1000 行的文件（app/core/big.py）、项目判断里对不上的条数（ghost 模块路径匹配不到）：放行、同一行提醒点名两个文件名并提到「对不上」、日志恰一行" "0|y|y|y|1" "$RC2|未归属=$(hs1 "$SL" app/misc/stray.py)|超千行=$(hs1 "$SL" app/core/big.py)|对不上=$(hs1 "$SL" 对不上)|$L2"
+Y="$TMP/s3c"; mks "$Y" cyc; wf "$Y" app/aa/a2.py 'from ..bb.b import y' 'def x2(): pass'; st "$Y"; SL=$(printf '%s\n' "$OUT2" | grep -m1 '^人读文档·结构：这次提交多了' || true)
+chk "$([ "$RC2|$(hs1 "$SL" 人读文档·结构：这次提交多了)|$(hs1 "$SL" aa)|$(hs1 "$SL" bb)|$L2" = "0|y|y|y|1" ] && echo 0 || echo 1)" "同一组循环依赖（aa⇄bb）里文件对数变多（aa 里再加一个文件引用 bb，2→3 对）：放行、有「人读文档·结构：这次提交多了」一行点名这一组（aa、bb）、日志恰一行" "0|y|y|y|1" "$RC2|提醒行=$(hs1 "$SL" 人读文档·结构：这次提交多了)|aa=$(hs1 "$SL" aa)|bb=$(hs1 "$SL" bb)|$L2"
+Y="$TMP/s4"; mks "$Y"; mv "$Y/.claude/scripts/readable-docs.mjs" "$Y/.claude/scripts/readable-docs-real.mjs"
+cat >"$Y/.claude/scripts/readable-docs.mjs" <<'EOF'
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const a = process.argv.slice(2);
+if (a[0] === 'structure') { process.stdout.write('@@乱码{{\n'); process.exit(1); }
+const r = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'readable-docs-real.mjs'), ...a], { stdio: 'inherit' });
+process.exit(r.status === null ? 1 : r.status);
+EOF
+wf "$Y" app/bb/b.py 'from ..aa.a import x' 'def y(): pass'; st "$Y"; STK=$(printf '%s\n' "$OUT1$OUT2" | grep -cE '^[[:space:]]+at |Error:|node:internal' || true)
+chk "$([ "$RC1|$RC2|$(hs1 "$OUT2" 没比成结构)|$(hs1 "$OUT2" 退出码)|$(hs1 "$OUT2" 这次提交多了)|$(hs1 "$OUT1" 没比成结构)|$STK|$L2" = "2|0|y|y|n|n|0|0" ] && echo 0 || echo 1)" "取结构那步坏了（项目里的生成器换成包装：别的子命令照转，structure 一律退 1 并打印乱码）——比不成：页面没暂存仍拦（2、输出无「没比成结构」）；暂存后放行（0），输出有「没比成结构」且带原因（退出码），无「这次提交多了」、无异常栈，日志不记 [advise] 结构变坏" "2|0|y|y|n|n|0|0" "$RC1|$RC2|$(hs1 "$OUT2" 没比成结构)|$(hs1 "$OUT2" 退出码)|$(hs1 "$OUT2" 这次提交多了)|$(hs1 "$OUT1" 没比成结构)|$STK|$L2"
+
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

@@ -316,5 +316,25 @@ eq "没配 codeRoots（没有架构这一份）而配了 archDocs：build 退出
 # 32 打死：现有架构文档的页面不确定（时间、遍历顺序）；对照：页面确实出了（否则「相同」是空话）
 cp -r "$AX/docs/readable" "$TMP/snapx"; bd "$AX"; DX=$(diff -r "$TMP/snapx" "$AX/docs/readable" >/dev/null 2>&1 && echo same || echo differ)
 eq "同一输入再 build 一次：整个 docs/readable（含 arch/doc-01、doc-02）逐字节相同；对照 doc-01、doc-02 的清单页确实存在" "same|y|y" "$DX|$(yn test -f "$AX/docs/readable/arch/doc-01/index.html")|$(yn test -f "$AX/docs/readable/arch/doc-02/index.html")"
+# ===== 契约 phase1-db-contract.md I 节第 14 条：structure 子命令（只读、从架构首页读回五样）。夹具 = 带环夹具 C 再加：另一组环（aa、bb 互引）、一个 1100 行的文件、store 回引 api（越层，1 对文件）、stray.py（未归属）
+SF="$TMP/sf"; cp -r "$TMP/b" "$SF"; R=$SF; w app/store/back.py 'from ..api.web import ping'; mapedit "$SF" aa 戊层 'app/aa/**'; mapedit "$SF" bb 己层 'app/bb/**'
+w app/aa/a.py 'from ..bb.b import y' 'def x(): pass'; w app/bb/b.py 'from ..aa.a import x' 'def y(): pass'; seq 1 1100 | sed 's/^/x=/' >"$SF/app/core/big.py"
+BL=$(nd build --root "$SF" 2>&1 | grep '架构：模块' | head -1)
+SRC=0; nd structure --json --root "$SF" >"$TMP/st.json" 2>/dev/null || SRC=$?; HUM=$(nd structure --root "$SF" 2>/dev/null | head -1 || true)
+CN() { node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log([Object.keys(j).sort().join(),JSON.stringify(j.cycles.map(c=>[Object.keys(c).sort().join("+"),c.key,c.pairs])),JSON.stringify(j.upward.map(u=>[Object.keys(u).sort().join("+"),u.key,u.pairs])),j.unassigned.join(";"),j.big.join(";"),j.problems].join("|"))}catch(e){console.log("NOJSON")}' "$1"; }
+eq "structure（带两组环 / 一处越层 / 一个未归属 / 一个超千行文件的夹具，build 之后）：--json 的键恰为 cycles / upward / unassigned / big / problems，环一组一条（key=成员 id 空格连且排序，pairs=文件对数：aa bb 为 2、api core store 为 3）、越层一条 key=「从 到」pairs=1、未归属与超千行的文件名对、对不上 0；人读一行五个数照契约措辞，且环的组数 2、越层的文件对数 1 与同一次 build 报数行里架构那一行的口径一致" \
+  "0|big,cycles,problems,unassigned,upward|[[\"key+pairs\",\"aa bb\",2],[\"key+pairs\",\"api core store\",3]]|[[\"key+pairs\",\"store api\",1]]|app/misc/stray.py|app/core/big.py|0|结构：循环依赖 2 组、越层引用 1 处、未归属的文件 1 个、超过 1000 行的文件 1 个、项目判断里对不上的 0 条|2 1" \
+  "$SRC|$(CN "$TMP/st.json")|$HUM|$(printf '%s' "$BL" | sed -n 's/.*循环依赖 \([0-9]*\) 组、越层引用 \([0-9]*\) 处.*/\1 \2/p')"
+SP="$TMP/sp"; cp -r "$SF" "$SP"; cp "$SP/docs/readable/arch/index.html" "$TMP/elsewhere.html"; rm "$SP/docs/readable/arch/index.html"
+PRC=0; nd structure --json --page "$TMP/elsewhere.html" --root "$SP" >"$TMP/st2.json" 2>/dev/null || PRC=$?
+eq "--page 指向别处的架构首页（原处页面已删）：读那一张，退出码 0、输出与默认位置那张读出来的逐字相同" "0|same" "$PRC|$([ -s "$TMP/st2.json" ] && [ "$(cat "$TMP/st.json")" = "$(cat "$TMP/st2.json")" ] && echo same || echo differ)"
+s2() { local o c=0; o=$("$@" 2>&1) || c=$?; echo "$c|$([ -n "$o" ] && ! printf "%s" "$o" | grep -qF 未知子命令 && echo 有说明 || echo 无说明)|$(printf '%s' "$o" | grep -qF '"cycles"' && echo 半截JSON || echo 无JSON)"; }
+printf '<html><body><h1>旧版页面</h1></body></html>\n' >"$TMP/oldfmt.html"
+SN="$TMP/sn"; cp -r "$SF" "$SN"; rm -rf "$SN/docs/readable"; node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/config.json",c=JSON.parse(fs.readFileSync(f));c.codeRoots=[];fs.writeFileSync(f,JSON.stringify(c))' "$SN"; bd "$SN"
+eq "退出码 2 三种：页面不在 / 是没有读回标记的 HTML（只有 h1）/ 项目没配代码根——各带说明（不是「未知子命令」的用法串）、输出里没有 JSON 的半截" "2|有说明|无JSON|2|有说明|无JSON|2|有说明|无JSON" \
+  "$(s2 nd structure --json --root "$SP")|$(s2 nd structure --json --page "$TMP/oldfmt.html" --root "$SF")|$(s2 nd structure --json --root "$SN")"
+H0=$(hp "$SF"); X1=0; X2=0; X3=0; nd structure --root "$SF" >/dev/null 2>&1 || X1=$?; nd structure --json --root "$SF" >/dev/null 2>&1 || X2=$?; nd structure --json --page "$TMP/elsewhere.html" --root "$SF" >/dev/null 2>&1 || X3=$?; H1=$(hp "$SF")
+eq "只读：人读 / --json / --page 三种各跑一遍（都退出码 0），项目目录的文件清单加内容哈希前后不变" "0|0|0|same" "$X1|$X2|$X3|$([ "$H0" = "$H1" ] && echo same || echo changed)"
+
 echo "===== 汇总：PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

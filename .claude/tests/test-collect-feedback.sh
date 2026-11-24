@@ -164,7 +164,7 @@ if command -v node >/dev/null 2>&1 && [ -f "$ROOT/setup.sh" ]; then
 
   proj p3; run13 "$PJ"
   pg=$(cd "$PJ" && node .claude/scripts/project-status.mjs --json --root "$PJ" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).readable.pages)))')
-  ok=1; printf '%s\n' "$ln" | grep -Eq "^  人读文档  shelfy：${pg} 页，核对不一致 0 条，没写说明的表 [0-9]+ 张、模块 [0-9]+ 个，待更新 0 段、孤儿 0 段，配置漏项 0 处，近 7 天提交前被拦 0 次\$" && ok=0
+  ok=1; printf '%s\n' "$ln" | grep -Eq "^  人读文档  shelfy：${pg} 页，核对不一致 0 条，没写说明的表 [0-9]+ 张、模块 [0-9]+ 个，待更新 0 段、孤儿 0 段，配置漏项 0 处，近 7 天提交前被拦 0 次(；结构：.*)?\$" && ok=0
   last=$(printf '%s\n' "$out" | tail -1); case "$last" in 'collect-feedback: new='*) ;; *) ok=1 ;; esac
   chk "$ok" "I13-3 全好：两空格开头、页数取自项目自己的 status、各项 0、统计行仍是最后一行" "^  人读文档  shelfy：${pg} 页，核对不一致 0 条…配置漏项 0 处，近 7 天提交前被拦 0 次；末行 collect-feedback: new=" "$(show "$ln") | 末行=$(show "$last")"
 
@@ -191,6 +191,41 @@ if command -v node >/dev/null 2>&1 && [ -f "$ROOT/setup.sh" ]; then
   run13 --dry-run "$PJ"; s2=$(cd "$PJ" && find . -path ./.git -prune -o -type f -exec cksum {} + | sort)
   ln1=$ln; run13 "$PJ"; s3=$(cd "$PJ" && find . -path ./.git -prune -o -type f -exec cksum {} + | sort)
   chk "$(printf '%s\n' "$ln1" | grep -Eq "^  人读文档  shelfy：[0-9]+ 页，" && [ "$s1" = "$s2" ] && [ "$s1" = "$s3" ] && echo 0 || echo 1)" "I13-8 --dry-run 同样报这一行；dry-run 与正式跑前后下游文件清单+内容哈希不变" "dry-run 有「N 页，」行；s1=s2=s3" "dry-run行=$(show "$ln1") 同=$([ "$s1" = "$s2" ] && [ "$s1" = "$s3" ] && echo y || echo n)"
+
+  # ---- 契约 I 节第 14 条：回流那一行末尾的结构一截（I14-1..3）----
+  # arch14：把 $PJ 改成「2 组环（api→core→store→api、aa⇄bb）、1 处越层（store→api）、3 个未归属文件」后用项目自己装的生成器重出
+  arch14() {
+    local mmm='{"id":"%s","title":"%s 模块","layer":"%s","paths":["app/%s/**"],"status":"proposed"}' r="$1"
+    printf '{"version":1,"tableGroups":[],"dynamicTables":[],"layers":["接口","业务","数据"],"modules":[%s,%s,%s,%s,%s]}\n' "$(printf "$mmm" api api 接口 api)" "$(printf "$mmm" core core 业务 core)" "$(printf "$mmm" store store 数据 store)" "$(printf "$mmm" aa aa 业务 aa)" "$(printf "$mmm" bb bb 业务 bb)" >"$r/docs/readable-src/map.json"
+    mkdir -p "$r/app/api" "$r/app/core" "$r/app/store" "$r/app/aa" "$r/app/bb"
+    printf 'from ..core.svc import run\ndef ping(): pass\n' >"$r/app/api/web.py"; printf 'from ..store.db import save\ndef run(): save()\n' >"$r/app/core/svc.py"; printf 'from ..api.web import ping\ndef save(): pass\n' >"$r/app/store/db.py"
+    printf 'from ..bb.b import y\ndef x(): pass\n' >"$r/app/aa/a.py"; printf 'from ..aa.a import x\ndef y(): pass\n' >"$r/app/bb/b.py"; printf 'S = 1\n' >"$r/app/s1.py"; printf 'S = 2\n' >"$r/app/s2.py"
+    ( cd "$r" && node .claude/scripts/readable-docs.mjs build --root "$r" >/dev/null 2>&1 )
+  }
+  TAIL0='；结构：循环依赖 2 组、越层引用 1 处、未归属的文件 3 个，近 7 天变坏提醒 0 次'
+  proj q1; arch14 "$PJ"; run13 "$PJ"
+  js=$(cd "$PJ" && node .claude/scripts/readable-docs.mjs structure --json --root "$PJ" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(j.cycles.length+" "+j.upward.reduce((a,u)=>a+u.pairs,0)+" "+j.unassigned.length)}catch(e){console.log("NOJSON")}})')
+  chk "$(case "$ln" in "${PRE}"*"${TAIL0}") [ "$js" = "2 1 3" ] && echo 0 || echo 1 ;; *) echo 1 ;; esac)" "I14-1 有配置、出了架构设计：行首仍两空格、原来那一段不变，末尾是「；结构：循环依赖 A 组、越层引用 B 处、未归属的文件 C 个，近 7 天变坏提醒 J 次」，A B C 与项目自己的 structure --json 一致（2 1 3）、J=0" "${PRE}…${TAIL0}；structure --json 的 A B C = 2 1 3" "$(show "$ln") | json=$js"
+
+  proj q2; arch14 "$PJ"; mkdir -p "$PJ/.claude/evidence"
+  printf '%s\tpre-commit-check\t[advise] 结构变坏：这次提交多了 1 组循环依赖\n%s\tpre-commit-check\t[advise] 结构变坏：这次提交多了 1 处越层引用\n%s\tstop-gate\t[advise] 结构变坏：别的闸\n' "$(ago 2)" "$(ago 10)" "$(ago 1)" >"$PJ/.claude/evidence/gate-block.log"
+  run13 "$PJ"; kb=$(printf '%s' "$ln" | sed -n 's/.*提交前被拦 \([0-9][0-9]*\) 次.*/\1/p'); jj=$(printf '%s' "$ln" | sed -n 's/.*变坏提醒 \([0-9][0-9]*\) 次.*/\1/p')
+  chk "$([ "${ln#'! 人读文档  shelfy：'}" != "$ln" ] && [ "$jj" = 1 ] && [ "$kb" = 0 ] && echo 0 || echo 1)" "I14-2 近 7 天内 / 外各一条 pre-commit-check 的「[advise] 结构变坏：」+ 别的闸一条 → 变坏提醒只数 1、行首 !，且提交前被拦仍是 0（这种行不算被拦）" "行首「! 」，变坏提醒 1 次，提交前被拦 0 次" "J=${jj:-空} K=${kb:-空} $(show "$ln")"
+
+  FRONT="^  人读文档  shelfy：[0-9]+ 页，核对不一致 0 条，没写说明的表 [0-9]+ 张、模块 [0-9]+ 个，待更新 0 段、孤儿 0 段，配置漏项 0 处，近 7 天提交前被拦 0 次\$"
+  proj q3; arch14 "$PJ"; GS=shim
+  T3="$TMP/oldgen"; rm -rf "$T3"; mkdir -p "$T3"
+  if git -C "$ROOT" archive 3e56a21 .claude/scripts/readable-docs.mjs .claude/scripts/readable 2>/dev/null | tar -x -C "$T3" 2>/dev/null && [ -f "$T3/.claude/scripts/readable-docs.mjs" ]; then
+    rm -rf "$PJ/.claude/scripts/readable"; cp "$T3/.claude/scripts/readable-docs.mjs" "$PJ/.claude/scripts/readable-docs.mjs"; cp -r "$T3/.claude/scripts/readable" "$PJ/.claude/scripts/readable"; GS=旧版3e56a21
+  else
+    mv "$PJ/.claude/scripts/readable-docs.mjs" "$PJ/.claude/scripts/readable-docs-real.mjs"
+    printf 'import { spawnSync } from "node:child_process";\nimport path from "node:path";\nimport { fileURLToPath } from "node:url";\nconst a = process.argv.slice(2);\nif (a[0] === "structure") { console.error("未知子命令：structure"); process.exit(3); }\nconst r = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "readable-docs-real.mjs"), ...a], { stdio: "inherit" });\nprocess.exit(r.status === null ? 1 : r.status);\n' >"$PJ/.claude/scripts/readable-docs.mjs"
+  fi
+  ( cd "$PJ" && node .claude/scripts/readable-docs.mjs build --root "$PJ" >/dev/null 2>&1 ); run13 "$PJ"; l3a=$ln
+  proj q4; node -e 'const fs=require("fs"),f=process.argv[1]+"/docs/readable-src/config.json",c=JSON.parse(fs.readFileSync(f));c.codeRoots=[];fs.writeFileSync(f,JSON.stringify(c))' "$PJ"; rm -rf "$PJ/docs/readable"
+  ( cd "$PJ" && node .claude/scripts/readable-docs.mjs build --root "$PJ" >/dev/null 2>&1 ); run13 "$PJ"; l3b=$ln
+  ok=1; printf '%s\n' "$l3a" | grep -Eq "$FRONT" && printf '%s\n' "$l3b" | grep -Eq "$FRONT" && ok=0
+  chk "$ok" "I14-3 项目装的生成器没有 structure 子命令（$GS）/ 项目没配代码根：结构那一截整个不出，前面那一段照旧（不是「取不到」）" "两行都是 ${PRE}N 页，核对不一致 0 条，…近 7 天提交前被拦 0 次（行尾无「；结构」）" "无子命令=$(show "$l3a") | 无代码根=$(show "$l3b")"
 else
   echo "  [SKIPPED] 契约 I.13 八条：缺 node 或仓库根 setup.sh"
 fi

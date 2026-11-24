@@ -13,9 +13,11 @@
 //   note confirm <锚点…> | --all  --by <名字>  指纹对得上的记成 reviewed；对不上的不改、列出来，退出码 1
 //   note drop <锚点…>                         删掉这几段说明
 //   check [--json]       逐项比对文档与来源（2026-11-23 Task 1.5，契约 H 节），一条一行「在哪：怎么不一致」，末行「不一致 N 条」；摘要走标准错误
+//   structure [--page <架构首页文件>] [--json]  只读：从一张架构首页读回结构的五样（2026-11-24，契约 I 节第 14 条），不给 --page 读 docs/readable/arch/index.html；
+//                        页面不在、是没有读回标记的旧格式、项目没出架构设计都是退出码 2
 //   --root   目标目录，默认 $CLAUDE_PROJECT_DIR，再默认当前目录
-//   --json   init（含 --suggest）、pending 与 check 的结果只出一份 JSON（标准输出只有它）
-// 退出码：0 成功；1 有不一致（check 的清单不空、note confirm 遇到指纹对不上的）；2 用法或配置错（含 note put 整批被拒）；3 脚本自身出错（含页面落盘失败、build 落盘前的自检不过）
+//   --json   init（含 --suggest）、pending、check 与 structure 的结果只出一份 JSON（标准输出只有它）
+// 退出码：0 成功；1 有不一致（check 的清单不空、note confirm 遇到指纹对不上的）；2 用法或配置错（含 note put 整批被拒、structure 取不到结构）；3 脚本自身出错（含页面落盘失败、build 落盘前的自检不过）
 // 测试注入点：READABLE_FAIL_AT=render 时，build 在写完一半页面时模拟失败（契约 C 节「原子落盘」）；
 // READABLE_FAIL_AT=selfcheck 时，build 落盘前的自检拿到的事实多一个列，模拟出页面的代码少出了一个列（在 check.mjs）；
 // READABLE_FAIL_AT=leak 时，第一张表的表页上多出一个没隐去的内网地址，模拟某个字段忘了过隐去，落盘前的兜底拦下（在 render/db-scrub.mjs）。
@@ -49,7 +51,8 @@ import { renderSpec } from './readable/render/spec.mjs';
 import { renderArchDocs } from './readable/render/arch-docs.mjs';
 import { OUT, publish } from './readable/render/publish.mjs'; // 原子落盘归 render 模块（契约 C 节），入口只调用它
 import { CheckFailed, runCheck, selfCheck, lines, summaryLine } from './readable/check.mjs';
-const USAGE = 'readable-docs.mjs <init [--suggest] | build [--facts-json] | check | pending | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
+import { StructureUnreadable, readStructure, structureLine } from './readable/structure.mjs';
+const USAGE = 'readable-docs.mjs <init [--suggest] | build [--facts-json] | check | pending | structure [--page <架构首页文件>] | note put [--file <文件>] | note confirm <锚点…>|--all --by <名字> | note drop <锚点…>> [--root <目录>] [--json]';
 const NOTE_ACTIONS = ['put', 'confirm', 'drop'];
 const CHECK_PAGE_CAP = 10; // 契约 H 节：check 的人读输出里不是现行的页超过 10 张只列前 10 张
 
@@ -60,7 +63,7 @@ function parseArgs(argv) {
   const sub = argv[0];
   if (!sub || sub.startsWith('-')) usage('缺子命令');
   if (!Object.hasOwn(COMMANDS, sub)) usage(`未知子命令：${sub}`);
-  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, suggest: false, action: null, file: null, by: null, all: false, anchors: [] };
+  const o = { sub, root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), json: false, factsJson: false, suggest: false, action: null, file: null, by: null, all: false, anchors: [], page: null };
   const value = (i, flag) => { if (argv[i] === undefined) usage(`${flag} 缺值`); return argv[i]; };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
@@ -68,6 +71,7 @@ function parseArgs(argv) {
     else if (a === '--json') o.json = true;
     else if (a === '--facts-json' && sub === 'build') o.factsJson = true;
     else if (a === '--suggest' && sub === 'init') o.suggest = true;
+    else if (a === '--page' && sub === 'structure') o.page = value(++i, '--page');
     else if (sub === 'note' && !o.action && NOTE_ACTIONS.includes(a)) o.action = a;
     else if (o.action === 'put' && a === '--file') o.file = value(++i, '--file');
     else if (o.action === 'confirm' && a === '--by') o.by = value(++i, '--by').trim();
@@ -235,12 +239,25 @@ function cmdPending(o) {
   for (const x of r.orphans) console.log(`孤儿 ${x.anchor}（锚点已经不存在），正文：\n${indent(x.text)}`);
 }
 
+// 取结构（契约 I 节第 14 条）：只读，读法在 readable/structure.mjs。不给 --page 读本项目的架构首页，先看配置——没配 codeRoots 的项目不出架构设计；
+// 给了 --page（提交前那一段把上一个提交里的首页写到临时文件交进来）只读那一页、不看配置，相对路径照当前目录算（同 note put --file）。
+function cmdStructure(o) {
+  if (o.page === null && !loadConfig(o.root).codeRoots.length) return refuse('这个项目没出架构设计（配置里 codeRoots 是空的），没有结构可取');
+  const file = o.page ?? join(o.root, OUT, 'arch', 'index.html'), label = o.page ?? `${OUT}/arch/index.html`;
+  if (!existsSync(file) || !statSync(file).isFile()) return refuse(`架构首页不在：${label}${o.page === null ? '（还没出过架构设计，先跑 build）' : ''}`);
+  let s;
+  try { s = readStructure(readFileSync(file, 'utf8')); } catch (e) { if (e instanceof StructureUnreadable) return refuse(`${label}：${e.message}`); throw e; }
+  if (o.json) process.stdout.write(`${JSON.stringify(s, null, 2)}\n`);
+  else console.log(structureLine(s));
+}
+
 // 子命令表：后续 Task 在这里换掉桩（build 的页面分支在 cmdBuild 里）。
 const COMMANDS = {
   init: (o) => (o.suggest ? cmdSuggest(o) : cmdInit(o)),
   build: cmdBuild,
   check: cmdCheck,
   pending: cmdPending,
+  structure: cmdStructure,
   note: cmdNote,
 };
 

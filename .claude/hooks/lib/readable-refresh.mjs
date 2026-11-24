@@ -11,10 +11,16 @@
 //   - 配置没跟上项目（init --suggest 报出漏列的建表文件、代码目录、需求规格或架构文档）→ 不拦，一句话列出漏的。
 //     配置是在还没有代码时起草的，之后冒出来的建表文件与代码目录没人填，数据库设计与架构设计就一直是空的；
 //     没有漏项时一个字不多，它自己出错、超时同 build 失败一样报出来、放行。
+//   - 结构变坏（2026-11-24 加，契约 I 节第 14 条）：只在放行的那一回比——页面都已暂存、不再拦；被拦的那一回不比，
+//     免得同一次改动提醒两遍、日志记两行。拿上一个提交里的架构首页与刚重出的一张各跑一次 structure --page --json，比条目不比个数，
+//     多出来的提醒一句、记一行 [advise]，只提醒不拦，任何档都一样——数从 3 变成 4 没人会去翻页面，提交这一刻点名是哪次改动弄坏的。
+//     上一个提交里没有这一页（第一次出）、哪一张是旧格式或项目没出架构设计（structure 退出码 2）：不比、一个字不多；
+//     真没跑成（超时、别的退出码、输出不对）只带一句原因，不记账、不拦。
 // 超时压得比 settings.json 给整道闸的 30 秒小得多：tsc 与大仓门也在这 30 秒里，重出占满了，
 // 宿主会把整道闸杀掉，编译门的判决也跟着丢。真项目上 build 不到一秒、check 约 0.3 秒，十倍余量还有富余；
-// init --suggest 只走一遍文件清单，给得最少。
+// init --suggest 只走一遍文件清单，给得最少；structure 只读一页，两张页面一字不差时一次都不跑。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { run, git, say, errText } from './io.mjs';
 import { gateLog } from './gatelog.mjs';
@@ -25,10 +31,15 @@ const OUT = 'docs/readable';
 const BUILD_TIMEOUT_MS = 10000;
 const CHECK_TIMEOUT_MS = 5000;
 const SUGGEST_TIMEOUT_MS = 3000;
+const STRUCT_TIMEOUT_MS = 3000;
 // 核对的 JSON 全文要读进来再数，spawnSync 默认 1MB 截断会让子进程被杀、解析失败
 const MAX_BUFFER = 64 * 1024 * 1024;
 const LIST_CAP = 5;
 const OUT_OF_SYNC = '人读文档这次没重出，现在与来源不同步';
+const ARCH_INDEX = `${OUT}/arch/index.html`;
+const NAME_CAP = 3; // 结构变坏每样最多点名三条，其余给个数（契约 I 节第 14 条）
+const WORSE_HEAD = '人读文档·结构：这次提交多了';
+const WORSE_LOG = '[advise] 结构变坏：'; // 不带「人读文档」四个字，免得被回流那一行（第 13 条）数成提交被拦
 
 /** 相对项目根的正斜杠路径 → 本机路径（Windows 上换成反斜杠）。 */
 const local = (root, rel) => path.join(root, ...rel.split('/'));
@@ -92,6 +103,85 @@ function configGaps(root) {
   return gaps.length ? { gaps } : { error: 'init --suggest --json 退出码 1，输出里却认不出漏了什么' };
 }
 
+/** 一张架构首页的结构：{ s } 取到了；{ skip } 退出码 2（旧格式、没出架构设计、生成器没有这条子命令）；{ error } 没跑成。 */
+function structureOf(root, page) {
+  const r = runDocs(root, ['structure', '--page', page, '--json'], STRUCT_TIMEOUT_MS);
+  if (!r.error && r.status === 2) return { skip: true };
+  if (r.error) return { error: `readable-docs.mjs structure ${failReason(r, STRUCT_TIMEOUT_MS)}` };
+  if (r.status !== 0) {
+    const first = `${r.stderr}${r.stdout}`.split(/\r?\n/).find((l) => l.trim());
+    return { error: `readable-docs.mjs structure 退出码 ${r.status}${first ? `：${first.trim()}` : '（无输出）'}` };
+  }
+  let s;
+  try { s = JSON.parse(r.stdout); } catch (e) { return { error: `structure --json 的输出不是 JSON：${errText(e)}` }; }
+  const ok = s && ['cycles', 'upward', 'unassigned', 'big'].every((k) => Array.isArray(s[k])) && Number.isInteger(s.problems)
+    && [...s.cycles, ...s.upward].every((u) => u && typeof u.key === 'string' && Number.isInteger(u.pairs));
+  return ok ? { s } : { error: 'structure --json 的输出里五样不全或形状不对' };
+}
+
+/**
+ * 这一张比上一张多出来的，逐样一句；没有多出来的是空清单。循环依赖与越层引用多出来的是新的一条，或同一条的文件对数变多——
+ * 存量项目多半不是新出一个环，是在已有的环里越缠越紧。循环依赖按排过序的成员认，不看页面上成员的先后（模块清单换了顺序不算新的一组）。
+ */
+function worsened(prev, cur) {
+  const members = (c) => c.split(' ').sort().join(' ');
+  const fresh = (was, now) => { const had = new Set(was); return now.filter((x) => !had.has(x)); };
+  const grew = (was, now, norm, what) => {
+    const before = new Map(was.map((x) => [norm(x.key), x.pairs]));
+    return now.filter((x) => !before.has(norm(x.key)) || x.pairs > before.get(norm(x.key)))
+      .map((x) => `「${x.key}」${before.has(norm(x.key)) ? `文件对 ${before.get(norm(x.key))}→${x.pairs}` : `${what}、${x.pairs} 对文件`}`);
+  };
+  const cycles = grew(prev.cycles, cur.cycles, members, '新的一组'), upward = grew(prev.upward, cur.upward, (k) => k, '新的一对');
+  const named = (what, unit, list) => (list.length ? `${what} ${list.length} ${unit}：${list.slice(0, NAME_CAP).join('、')}${list.length > NAME_CAP ? `，另 ${list.length - NAME_CAP} ${unit}` : ''}` : null);
+  const q = (xs) => xs.map((x) => `「${x}」`);
+  return [
+    named('循环依赖', '组', cycles),
+    named('越层引用', '对模块', upward),
+    named('未归属的文件', '个', q(fresh(prev.unassigned, cur.unassigned))),
+    named('超过 1000 行的文件', '个', q(fresh(prev.big, cur.big))),
+    cur.problems > prev.problems ? `项目判断里对不上的 ${prev.problems}→${cur.problems} 条` : null,
+  ].filter(Boolean);
+}
+
+/** 上一个提交里的架构首页：{ text } 有；{ skip } 没有上一个提交或那里没有这一页；{ error } git 没跑成。HEAD:./ 照项目根算，项目是父仓子目录时也对。 */
+function headPage(root) {
+  const v = git(['rev-parse', '-q', '--verify', `HEAD:./${ARCH_INDEX}`], { cwd: root });
+  if (!v.error && v.status === 1) return { skip: true };
+  const c = v.status === 0 ? git(['cat-file', 'blob', v.stdout.trim()], { cwd: root, maxBuffer: MAX_BUFFER }) : v;
+  if (c.error || c.status !== 0) return { error: `git 取不出上一个提交里的 ${ARCH_INDEX}（${c.error ? errText(c.error) : (c.stderr.trim() || `退出码 ${c.status}`)}）` };
+  return { text: c.stdout };
+}
+
+/** 结构变坏当场提醒（见文件头）。只说、只记账，不改拦不拦；自身的意外也在这里接住，不让它冲掉前面几段的判决与提醒。 */
+function structureWatch(root) {
+  let tmp = null;
+  try {
+    const curFile = local(root, ARCH_INDEX);
+    if (!fs.existsSync(curFile)) return;
+    const head = headPage(root);
+    if (head.skip) return;
+    // 比不成的原因只留首行、最多 120 个字（契约「原因首行」）：structure 以异常退出时标准错误是一整段栈，不往提交的输出里倒
+    const brief = (why) => Array.from(String(why).split(/\r?\n/)[0]).slice(0, 120).join('');
+    const cannot = (why) => say(`⚠️ 人读文档已重出，但没比成结构（${brief(why)}）——不拦这次提交。`);
+    if (head.error) { cannot(head.error); return; }
+    if (head.text === fs.readFileSync(curFile, 'utf8')) return;
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'readable-structure-'));
+    const prevFile = path.join(tmp, 'index.html');
+    fs.writeFileSync(prevFile, head.text);
+    const prev = structureOf(root, prevFile), cur = structureOf(root, curFile);
+    if (prev.error || cur.error) { cannot(prev.error || cur.error); return; }
+    if (prev.skip || cur.skip) return;
+    const more = worsened(prev.s, cur.s);
+    if (!more.length) return;
+    say(`${WORSE_HEAD} ${more.join('；')}——是有意的在提交说明里写明原因，不是就先理顺再提交。`);
+    gateLog('pre-commit-check', `${WORSE_LOG}${more.join('；')}`);
+  } catch (e) {
+    say(`⚠️ 人读文档已重出，但比结构那一步自身出错（${Array.from(errText(e).split(/\r?\n/)[0]).slice(0, 120).join('')}）——不拦这次提交。`);
+  } finally {
+    if (tmp) try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { say(`⚠️ 比结构用的临时目录没删掉（${tmp}：${errText(e)}）`); }
+  }
+}
+
 function reportChanges(paths, mode) {
   const n = (what) => paths.filter(([, k]) => k === what).length;
   const head = `docs/readable/ 有 ${paths.length} 页重出后变了、还没暂存（改动 ${n('改动')}、新增 ${n('新增')}、删掉 ${n('删掉')}）`;
@@ -140,6 +230,9 @@ function refresh(root, mode) {
   else if (cfg.gaps.length) {
     say(`⚠️ 人读文档的配置没跟上项目：${cfg.gaps.join('；')}——不拦这次提交，填进 ${CONFIG}（不该算的写进 ignore）后重出（node ${SCRIPT} init --suggest 看清单）。`);
   }
+
+  // 结构变坏只在放行的那一回比：页面都已暂存（查不了暂存状态的、fast 档页面没暂存而放行的都不算，页面不在这次提交里）。
+  if (!ch.error && !ch.paths.length) structureWatch(root);
   return held;
 }
 

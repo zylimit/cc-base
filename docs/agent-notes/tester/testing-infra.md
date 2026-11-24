@@ -133,3 +133,4 @@ cc-base 没有 pytest/vitest；测试全是 `.claude/tests/*.sh` 的 bash 脚本
 - readable 页面读回类断言：先拿 git archive HEAD 的旧脚本跑出「新加几条红」再对工作树；h.js 的 cells(row,k) 用平衡标签取 data-k 格的显示字（别用非贪婪正则，嵌套同名标签会截断）；令牌夹具用 "gh""p_"$(printf …) 运行时拼，整份测试文件 grep 不到完整令牌；夹具总行数要核在「约 N 行」进位边之下再测「顶上加三行页面不变」。
 - 真触发 case 不在仓库根跑：临时目录 git init + 仓根 setup.sh 装框架 + claude -p，本机实测能触发 Skill；`${BASH_SOURCE[0]%/*}` 在裸文件名调用时不是目录，用 dirname；status 前后对比会被并发改动误红，只判生成物路径（2026-11-24 readable-docs）
 - 「旧代码红」造法：git archive HEAD .claude/scripts .claude/hooks 解到临时目录，hook 测试把 $1 当钩子、生成器取同棵 .claude/scripts；project-status 夹具把被测脚本目录整拷进 <项目>/.claude/scripts 再跑，才控得住「生成器装没装」；`cut -c1-6` 按字节切中文会假红，用 grep '^现在到哪：'
+- 给「还不存在的功能」写人读文档回归：旧码对未知子命令 rc=2（不是 3），「退出码 2」断言会被撑绿，必须配「说明里不含 未知子命令」；守卫类断言（不该响）在旧码天然绿，牙靠 /tmp 变异副本（改 readable-refresh.mjs 的比较门与方向）验；提交钩子夹具要先拦后放（两回 hook）才走得到「放行才比」（2026-11-25 结构变坏）
