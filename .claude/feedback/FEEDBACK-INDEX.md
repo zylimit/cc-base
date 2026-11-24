@@ -103,3 +103,4 @@
 - [检查器结果只看结尾就下结论，少报了 19 条](read-full-checker-output-before-count.md) — 汇报 plan-lint 结果只看了输出结尾就说「两条」，实际 21 条；报任何检查器结果前要读完整输出并先数条数
 - ✅[已毕业] [让用户敲 /release-builder 之前先自检](2026-11-08-self-check-before-asking-release.md) — 请用户敲 /release-builder 之前，主 Agent 先自己核审查标记、工作区、远端三项并写明结果，任一不满足不让用户敲
 - [做完一项能力，验收的是技能，不是某个项目生成出来的文档](2026-11-24-acceptance-target-is-the-skill-not-generated-output.md) — 用户原话「我在乎的不是生成的文档，是你的skill」；主 Agent 按文档种类数进度，技能只有 68 行、无触发用例、会话里的做法没写进技能；流程缺「让没参与的新实例照技能跑一遍」一步，方向是 skill-builder 或 dev-builder Phase 收尾
+- [人读文档的说明一定要认真写，写不顺是模块没分好的信号](2026-11-24-write-docs-carefully-and-let-hard-to-write-drive-module-split.md) — 用户原话「那是非常值得，而且一定要认真写，这也促使你去更好划分模块，避免文档难写」；再花的力气不省不绕，说明照现在的代码认真写；一句话说不清一张表或一个模块，回头调划分或把边界划顺，不拿绕的说明盖过去（后三条为主 Agent 解读）
