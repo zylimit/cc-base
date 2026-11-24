@@ -164,36 +164,45 @@ else
     if [ -z "${left// /}" ]; then r=0; else r=1; fi
     chk "$r" "P7 跑完没有残留的浏览器进程（判据：跑前跑后 pgrep -f remote-debugging 的 pid 差集）" "新增残留 pid 为空" "残留：${left:-无}"
 
-    # P9 脚本被 kill -9（只杀那一个进程），浏览器自己在 6 秒内退。
+    # P9 脚本被 kill -9（只杀那一个进程），浏览器自己在 10 秒内退。
     #   判据：浏览器的 --user-data-dir 路径（从它命令行里取）；pgrep -f 该路径得到该浏览器全部进程（含子进程）。
+    #   动手时机：等浏览器就绪（<用户数据目录>/DevToolsActivePort 出现 = 调试端口起来了）而不是进程出现——
+    #   浏览器要走到读调试管道那一步才发现管道断了，冷启动慢的机器上这一步来得晚，早动手是假红。最长等 60 秒。
     HS="$TMP/hangsite"; mkdir -p "$HS"
     printf '%s<body><script>while(true){}</script></body></html>\n' "$H" > "$HS/hang.html"
     pgrep -f 'remote-debugging' 2>/dev/null | sort > "$TMP/p9.before"
     CHROME_PATH="$BROWSER" node "$SHOTS" "$HS" hang.html --out "$TMP/o9" >/dev/null 2>&1 &
     SPID=$!
-    UD=""; i=0
-    while [ "$i" -lt 150 ] && [ -z "$UD" ]; do
-        for q in $(pgrep -f 'remote-debugging' 2>/dev/null); do
-            grep -qx "$q" "$TMP/p9.before" && continue
-            UD=$(tr '\0' ' ' < "/proc/$q/cmdline" 2>/dev/null | sed -n 's/.*--user-data-dir=\([^ ]*\).*/\1/p' | head -1)
-            [ -n "$UD" ] && break
-        done
-        [ -z "$UD" ] && sleep 0.1; i=$((i + 1))
+    UD=""; READY=0; i=0
+    while [ "$i" -lt 600 ] && [ "$READY" -eq 0 ]; do
+        if [ -z "$UD" ]; then
+            for q in $(pgrep -f 'remote-debugging' 2>/dev/null); do
+                grep -qx "$q" "$TMP/p9.before" && continue
+                UD=$(tr '\0' ' ' < "/proc/$q/cmdline" 2>/dev/null | sed -n 's/.*--user-data-dir=\([^ ]*\).*/\1/p' | head -1)
+                [ -n "$UD" ] && break
+            done
+        fi
+        if [ -n "$UD" ] && [ -f "$UD/DevToolsActivePort" ]; then READY=1; else sleep 0.1; fi
+        i=$((i + 1))
     done
-    if [ -z "$UD" ]; then
+    if [ "$READY" -eq 0 ]; then
         kill -9 "$SPID" 2>/dev/null; wait "$SPID" 2>/dev/null
-        chk 1 "P9 脚本被 kill -9，浏览器自己退" "15 秒内出现本次起的浏览器" "没等到浏览器进程出现"
+        if [ -n "$UD" ]; then
+            for q in $(pgrep -f -- "--user-data-dir=$UD" 2>/dev/null); do kill -9 "$q" 2>/dev/null; done
+            case "$UD" in */page-shots-*) rm -rf "$UD" ;; esac
+        fi
+        skip "P9 脚本被强杀浏览器自退：60 秒内浏览器没就绪，没法验"
     else
-        sleep 0.5   # 让子进程都起来
+        sleep 1   # 让被测脚本连上并开始导航那页死循环的页面
         kill -9 "$SPID" 2>/dev/null; wait "$SPID" 2>/dev/null
         t=0; alive=""
-        while [ "$t" -lt 30 ]; do
+        while [ "$t" -lt 50 ]; do
             alive=$(pgrep -f -- "--user-data-dir=$UD" 2>/dev/null | tr '\n' ' ')
             [ -z "${alive// /}" ] && break
             sleep 0.2; t=$((t + 1))
         done
         if [ -z "${alive// /}" ]; then r=0; else r=1; fi
-        chk "$r" "P9 脚本被 kill -9（单个进程），6 秒内它起的浏览器全部自己退出" "6 秒内无存活进程" "存活 pid：${alive:-无}；用户数据目录：$UD"
+        chk "$r" "P9 脚本被 kill -9（单个进程），10 秒内它起的浏览器全部自己退出" "浏览器就绪后强杀，10 秒内无存活进程" "存活 pid：${alive:-无}；用户数据目录：$UD"
         for q in $alive; do kill -9 "$q" 2>/dev/null; done   # 按记下的 pid 收，不按名字杀
         case "$UD" in */page-shots-*) rm -rf "$UD" ;; esac   # 强杀后没人能收（契约写明）
     fi

@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const NAV_MS = 30000;      // 单页导航到 load 事件的上限，超了这一页算失败
-const LAUNCH_MS = 20000;   // 浏览器起到调试端口连得上的上限
+const LAUNCH_MS = 60000;   // 浏览器起到调试端口连得上的上限：装好后第一次启动要建缓存，慢机器上不止 20 秒
 const SHOT_MS = 30000;     // 单个 CDP 调用（量尺寸、截一段）的上限
 const VIEW_H = 900;        // 窗口高度取常见的一屏；切段靠截图的 clip，不靠窗口高度
 const MAX_DIR = 62;        // 用户数据目录路径的上限：完整版 Chromium 在里面建套接字，再长一启动就崩（实测 62 行、63 崩）
