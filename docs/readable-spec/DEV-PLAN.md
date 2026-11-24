@@ -153,7 +153,7 @@
 
 ---
 
-## Phase 4: 接进开发流程（2026-11-24 四个 Task、一轮审查与修复都已完成，CONCERNS：复核轮未做、残留 #146 #147；主 Agent 一侧的新实例试跑等用户定）
+## Phase 4: 接进开发流程（2026-11-24 五个 Task、一轮审查与修复都已完成，CONCERNS：复核轮未做、Task 4.5 没过审查轮、残留 #147）
 
 **交付内容**：
 - 装了框架的项目照常开发，人读文档自动跟着生成、跟着更新：需求规格一生成就出人读版；配置跟得上后来出现的建表文件与代码目录；计划、派单、编码、审查、收尾、发版各带着文档的那一份
@@ -170,6 +170,7 @@
 - `.claude/scripts/project-status.mjs`、`.claude/scripts/doctor.sh` — 状态与升级后的提示
 - `.claude/skills/readable-docs/` — 技能正文与三份参考文件
 - `.claude/rules/dev-workflow-details.md`、`.claude/skills/dev-builder/SKILL.md` 等八处 — 流程里的落点
+- `.claude/scripts/page-shots.mjs` — 看页面：把页面截成图给 Agent 读
 
 **Task 清单**：
 - **Task 4.1：配置跟上项目、状态与升级提示（REQ-DOC-006）** — `init --suggest`、提交前提醒、`project-status` 的「人读文档」一行、`doctor.sh` 的不同步提示；按第一期契约 I 节第 5、10、11 条
@@ -188,6 +189,10 @@
   - Business Context：用户在乎的是技能——「我在乎的不是生成的文档，是你的skill」。主 Agent 自己会做不算数，要看没参与的实例只凭技能与规则做成什么样
   - 依赖类型：功能前置＝Task 4.1、4.2
   - 证据产生者：主 Agent 搭夹具、派单、亲看结果；卡住的地方回头补进技能
+- **Task 4.5：看页面的工具（REQ-DOC-006）** — 新建 `.claude/scripts/page-shots.mjs`，用本机已有的浏览器把点名的页面切成一段一段的图；技能里「亲眼看页面」指到它；按第一期契约 I 节第 12 条
+  - Business Context：技能要求出完文档亲眼看页面，而框架里现成的页面审计要装 playwright——没参与过的 Agent 在没装的机器上只能跳过这一步或者谎称看过。最贵的错是没看成却报看过，其次是留下僵尸浏览器
+  - 依赖类型：无前置
+  - 证据产生者：MEDIUM 档——implementer 自检加 tester 写契约测试；没过审查轮，主 Agent 亲跑验收
 
 **验收标准**：
 - 合成项目上那一单做完：页面里有新加的表与接口，新表、新列有说明，`check` 报不一致 0 条，`project-status` 报得出这些数

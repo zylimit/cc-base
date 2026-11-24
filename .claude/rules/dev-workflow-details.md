@@ -254,7 +254,7 @@ paths:
         - 需求规格生成之后、dev-builder 开工时，项目还没有 docs/readable-src/（只跑 `init` 与 `build` 这两步机械的，不提分组、不写存量的说明）；progress.md 的 Pinned 里记着用户说不出的除外
         **手动调用**：/readable-docs
         前置条件：项目代码已创建，有建表定义；只出人读版需求规格的，有需求规格即可；只出架构设计的，配了代码目录即可
-        执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组或按模块分批派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面、亲跑 `check`，「不一致 0 条」才报完成。开发过程中文档跟着 Task 走的那一份不经本 skill，照 dev-builder 的 [人读文档] 办；存量项目一次补齐（提分组与模块划分、写存量的说明）只在用户要时做，先出一个分组的小样给用户看过再铺开
+        执行方式：主 Agent 自己跑 `.claude/scripts/readable-docs.mjs` 的各条子命令（机械命令，不算编码）；说明量大时按分组或按模块分批派 Sub-Agent 去写，各自经 `note put` 落盘；主 Agent 亲眼看页面（`page-shots.mjs` 截成图一张一张读，它报缺席就明说没看过）、亲跑 `check`，「不一致 0 条」才报完成。开发过程中文档跟着 Task 走的那一份不经本 skill，照 dev-builder 的 [人读文档] 办；存量项目一次补齐（提分组与模块划分、写存量的说明）只在用户要时做，先出一个分组的小样给用户看过再铺开
 
     [feedback-writer]
         由 feedback-observer sub-agent 调用，不由用户直接触发

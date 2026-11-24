@@ -46,6 +46,8 @@ node .claude/scripts/readable-docs.mjs check    # 核对页面与来源，「不
 
 `build` 之后用浏览器打开 `docs/readable/index.html`。页面是静态的，不联网、不带脚本，可以整个目录拷走，也可以打印。这个目录随项目入库，接手的人拉下仓库就能看；**不要手改它**，下次生成会覆盖。
 
+AI 出完文档自己也要看一遍页面，不拿「核对 0 条」当看过：`node .claude/scripts/page-shots.mjs docs/readable index.html db/index.html` 用本机已有的 Chrome / Chromium / Edge 把点名的页面切成一段一段的图给它读，不用另装东西。本机没有浏览器时它退出码 3、明说「看页面缺席」，AI 会如实告诉你页面没看过。
+
 ### 页面上有什么
 
 | 页面 | 内容 |
