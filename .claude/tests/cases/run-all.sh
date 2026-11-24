@@ -360,6 +360,7 @@ for c in "$DIR"/*.sh; do
     [ "$(basename "$c")" = "run-all.sh" ] && continue
     [ "$(basename "$c")" = "test-harness.sh" ] && continue   # 已在第二段跑（只需 node，不需 claude CLI）
     [ "$(basename "$c")" = "test-skill-behavior.sh" ] && continue  # opt-in（RUN_LIVE_SKILL=1），默认不跑，单独执行
+    [ "$(basename "$c")" = "dev-flow-carries-readable-docs.sh" ] && continue  # opt-in（CCBASE_RUN_DEV_FLOW_CASE=1），一次约十五分钟、几美元，太贵，单独执行
     RAN=$((RAN+1))
     echo ""
     echo "----- 运行 case：$(basename "$c") -----"
