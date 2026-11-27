@@ -1,7 +1,7 @@
 ---
 name: domain-recorder
 description: 主 Agent 裁定某条领域口径要收录后派发。按 .claude/rules/domain-rulings.md 的七栏把口径写进项目根 domain/，并维护条目之间的依赖关系。
-model: sonnet
+model: inherit
 color: pink
 disallowedTools: Bash, Task
 maxTurns: 25

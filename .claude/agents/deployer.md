@@ -2,7 +2,7 @@
 name: deployer
 description: 需要打包、构建镜像、部署上线时，由主 Agent 派发。使用 release-builder skill 执行打包/部署，输出结果与产物清单返回给主 Agent（主 Agent 独立核查三件套验收）。
 skills: release-builder
-model: opus
+model: inherit
 color: orange
 disallowedTools: Task
 maxTurns: 60

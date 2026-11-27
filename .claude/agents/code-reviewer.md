@@ -2,7 +2,7 @@
 name: code-reviewer
 description: 当需要代码审查时由主 Agent 派发。使用 code-review skill 对照 Spec 和设计稿审查代码，输出结构化报告返回给主 Agent。
 skills: code-review
-model: opus
+model: inherit
 color: red
 disallowedTools: NotebookEdit, Task
 memory: project

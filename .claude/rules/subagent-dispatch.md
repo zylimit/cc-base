@@ -9,7 +9,7 @@ paths:
     - **Task 直派（默认）**：用 Task/Agent 工具启动一个 Sub-Agent，传完整任务上下文，等结构化报告回来由主 Agent 验收。Sub-Agent 默认后台跑（spawn 即返回，完成时结果自动回传进主 Agent 上下文并通知），派发后可继续别的编排，但**验收必须等结果到手才做**，不许拿"已派发"当"已完成"。
     - **Workflow 编排**：多个无依赖单位（一个 Phase 多 Task、多审查维度、多文件批处理）的 fan-out 上层，须用户显式 opt-in（多 Agent 耗 token ~15x）。写或提议任何 workflow 之前必须先读 .claude/rules/workflow-orchestration.md。
     - **记录类角色走 fork**：progress-recorder / feedback-observer 这类必须看见对话原文的角色，用 Task 工具 `subagent_type: "fork"` 继承主对话全文，省掉主 Agent 手工转述这层失真；执行类四角色 fork 是污染不是红利，一律 fresh。
-    - **模型分档**：默认模型写在各 agent frontmatter——implementer / tester 是 sonnet，code-reviewer / deployer 是 opus，记录类全 sonnet；Task 定为 HIGH 档（见 rules/dev-workflow-details.md [项目开发阶段] 的三档表）时派单显式传 `model: opus` 升级，纯机械任务（改文案 / 样式微调 / 搬运）可传 haiku。四个执行角色一律 opus 是 2026-09-15 前的默认，按档升级取代它。
+    - **模型继承**：各 agent frontmatter 默认统一为 `model: inherit`（自动继承主会话当前模型，兼容单模型权限、自建网关与多宿主桥接复用）；派单默认不显式传 `model` 参数覆盖，仅在用户主动指定按档切模型时才传参。
 
 [隔离原则]
     - 每个 Task 用 **fresh 实例**，不复用之前的 Sub-Agent——防 Task A 的错误假设污染 Task B。这不是可选最佳实践，是隔离保证。

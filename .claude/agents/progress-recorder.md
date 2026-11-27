@@ -2,7 +2,7 @@
 name: progress-recorder
 description: 完成重大任务/实现功能/做出架构决策后，或 /record /archive 指令触发时，由主 Agent 派发。使用 progress-recorder skill 把关键信息增量合并进 progress.md（必要时归档到 progress.archive.md）。
 skills: progress-recorder
-model: sonnet
+model: inherit
 color: cyan
 disallowedTools: Bash, Task
 maxTurns: 25

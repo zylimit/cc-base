@@ -1,6 +1,6 @@
 # Project: cc-base（Claude Code 单机框架脚手架，Windows + Linux）
 
-_Last updated: 2026-11-25_
+_Last updated: 2026-11-27_
 > 从 ccb-base（多 Agent/CCB，仅 Linux）派生的**单机版**：用 Claude Code 原生 in-session subagent（implementer / code-reviewer / tester / deployer），不依赖 CCB daemon/tmux/派单。跨平台（Windows 经 Git Bash 跑 hooks）。
 
 ## Pinned（必守）
@@ -21,6 +21,7 @@ _Last updated: 2026-11-25_
 - **.ps1 hook 读 stdin 须先设 UTF-8 InputEncoding**（2026-09-06 起 hook 全 `.mjs`，node 读 stdin 无此问题；本条只对剩余 `.ps1` 脚本适用）：中文 Windows pwsh 默认 GB2312/936，读 UTF-8 JSON 会乱码（2026-07-29 真机 codepage 936）。#15 已统一 10 个读 stdin 的 .ps1 hook（含 tdd-gate）加 `[Console]::InputEncoding=UTF8`；新 .ps1 hook 照抄，勿漏。
 
 ## Done
+- 2026-11-27: 子代理默认模型统一改为继承主会话（`model: inherit`）：8 个 `.claude/agents/*.md` frontmatter 的硬编码 `sonnet` / `opus` 统一改为 `inherit`，同步对齐 `CLAUDE.md`、`rules/subagent-dispatch.md`、`rules/dev-workflow-details.md` 的调度表与模型继承说明（派单默认不传 `model` 覆盖，兼容单模型权限、自建网关与多宿主桥接复用），重出 `FRAMEWORK-MANIFEST.txt`（evidence：`agents/*.md` 8 处 `model: inherit` 且零 `sonnet|opus|haiku` 残留，`gen-manifest.sh --check`、`harness.mjs selftest`、`scan-secrets`、`scan-instructions`、`doctor.sh`、`test-distribution.sh`、`test-doctor.sh`、`test-setup.sh` 全绿）
 - 2026-11-25: 原生子代理事件识别补齐：`io.mjs` 新增 `subagentIdOf(ev)`，统一从事件自身识别 `agent_id`、`…/subagents/<id>.jsonl` 轨迹路径与 `parent_tool_call_id`（不读外层环境变量），`no-direct-code-guard.mjs` 与 `record-authorship.mjs` 改调该函数，消除 Cursor IDE 下 `implementer` 写 `src/` 被误拦的缺口；同步重出 `FRAMEWORK-MANIFEST.txt`（evidence：`test-hooks-node.sh` 新增 ND-2 断言覆盖子会话放行与主会话轨迹拦截，`gen-manifest.sh --check`、`test-distribution.sh`、`doctor.sh` 全过）
 - 2026-11-25: [#140] 下游八处对齐到 `ce58c6b`（带「说明认真写」「文档即代码」的文字与结构变坏当场提醒），逐处试装零冲突、自检全过；装之前先在本机那个出了文档的下游副本上试跑钩子里的那一段——干净工作树上返回放行、3.1 秒、没动工作树也没多记日志，对它上一版旧格式的页面取结构退出码 2（钩子会安静跳过）。**真实项目上的第一条回流**：rog-ts 上的 OFR-ARIANE 在升级后几个小时（2026-11-24 23:47），那边自己的会话在开发中把人读文档起了头并提交——66 页（人读版需求规格、按目录分的 21 个模块与 137 个接口、项目自己的一份架构文档），核对 0 条、配置没有漏项，存量的说明没补（照设计只报数）；没有人提醒它。它的结构读数：循环依赖 2 组、超过 1000 行的文件 4 个
 - 2026-11-25: [#149] 结构变坏当场提醒：只读子命令 `readable-docs.mjs structure` 从架构首页读回结构（循环依赖与越层引用带文件对数、未归属的文件、超过 1000 行的文件、项目判断里对不上的）；提交前自动重出的那一段在放行的那一回与上一个提交比，新多出来的当场点名并记一行 `[advise] 结构变坏：`，只提醒不拦；回流那一行末尾带上结构的数与近 7 天提醒的次数；流程文字里「比结构的数」统一指到这条命令（evidence：契约 I 节第 14 条；四套测试 40 / 17 / 15 / 34 条通过，新断言对旧代码先红；三处突变被拦——被拦的那一回也比、提醒里漏掉两样、文件对数变多不算；主 Agent 在合成项目上重放时查出契约的一个缺口并补上——往已有的环里再加一处互相引用原先不提醒，现在报「文件对 6→7」；真实规模的小样上取结构 0.06 秒，读出循环依赖 3 组各缠着 5、14、102 对文件。没过审查轮，主 Agent 逐行读了钩子库的改动）

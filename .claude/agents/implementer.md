@@ -2,7 +2,7 @@
 name: implementer
 description: 当项目规模较大，主 Agent 需要将 Phase 拆分为独立 Task 分别执行时派发。使用 dev-builder skill 编码，每个 Task 一个 fresh 实例。
 skills: dev-builder
-model: sonnet
+model: inherit
 color: green
 disallowedTools: Task
 maxTurns: 100

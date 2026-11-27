@@ -2,7 +2,7 @@
 name: evolution-runner
 description: session 初始化时自动派发，或用户手动触发。使用 evolution-engine skill 扫描 feedback 并生成进化建议。
 skills: evolution-engine
-model: sonnet
+model: inherit
 color: purple
 disallowedTools: Task
 maxTurns: 30

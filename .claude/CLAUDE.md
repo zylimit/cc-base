@@ -68,21 +68,21 @@
 [Sub-Agent 调度规则]
     | Agent | 文件 | Skill | 默认模型 | 职责 |
     |-------|------|-------|---------|------|
-    | implementer | .claude/agents/implementer.md | dev-builder | sonnet，HIGH 档派单传 opus | 编码 + 编译验证 + 自检 |
-    | code-reviewer | .claude/agents/code-reviewer.md | code-review | opus | 审查 + 报告，只审不改 |
-    | tester | .claude/agents/tester.md | test-builder | sonnet | 写 / 跑测试（与实现者不同实例）+ 运行证据 |
-    | deployer | .claude/agents/deployer.md | release-builder | opus | 打包 / 部署 + 结果 |
-    | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | sonnet | 记录用户反馈，fork 派发 |
-    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | sonnet | 扫 feedback 出进化建议；框架仓先跑 scripts/collect-feedback.sh 收下游 |
-    | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | sonnet | 维护 progress.md，fork 派发 |
-    | domain-recorder | .claude/agents/domain-recorder.md | 无 | sonnet | 收录领域口径到 domain/ |
+    | implementer | .claude/agents/implementer.md | dev-builder | inherit | 编码 + 编译验证 + 自检 |
+    | code-reviewer | .claude/agents/code-reviewer.md | code-review | inherit | 审查 + 报告，只审不改 |
+    | tester | .claude/agents/tester.md | test-builder | inherit | 写 / 跑测试（与实现者不同实例）+ 运行证据 |
+    | deployer | .claude/agents/deployer.md | release-builder | inherit | 打包 / 部署 + 结果 |
+    | feedback-observer | .claude/agents/feedback-observer.md | feedback-writer | inherit | 记录用户反馈，fork 派发 |
+    | evolution-runner | .claude/agents/evolution-runner.md | evolution-engine | inherit | 扫 feedback 出进化建议；框架仓先跑 scripts/collect-feedback.sh 收下游 |
+    | progress-recorder | .claude/agents/progress-recorder.md | progress-recorder | inherit | 维护 progress.md，fork 派发 |
+    | domain-recorder | .claude/agents/domain-recorder.md | 无 | inherit | 收录领域口径到 domain/ |
     三层不混写：agents / skills 是稳定角色源码；Spec / DEV-PLAN / 派单是项目绑定；档位会话记录、review marker、evidence 等运行态只进 git 忽略的文件。派发前确认派单包七字段齐全，Sub-Agent 不继承 session 历史，缺上下文它只能猜。
 
 [项目状态检测与路由]
     初始化时按文件存在性路由：无 Product-Spec.md → 全新项目，引导描述想法或调 /product-spec-builder；有 Spec、无 DEV-PLAN、无代码 → 输出交付指南；有 Spec + DEV-PLAN、无代码 → 引导 /dev-builder；有 Spec + 代码、无 DEV-PLAN → 建议 /dev-planner；三者齐 → 开发中，可继续开发、审查、修复或发布。显示格式见 .claude/rules/dev-workflow-details.md「项目进度检测显示格式」；做到哪一步以 `node .claude/scripts/project-status.mjs` 的输出为准，不凭印象估。怀疑安装不全跑 `.claude/scripts/doctor.sh`。
 
 [开发测试规则]
-    - 每个 Task 先定档再派：LOW（< 50 行，不碰契约 / 解析器 / 鉴权 / 迁移 / 支付 / hooks，不引新依赖）只派 implementer，主 Agent 对 diff 与运行器输出验收；MEDIUM 加一轮 code-reviewer 只跑 Stage 0 + 1；HIGH（> 300 行、碰两类以上上述路径、线上 bug / 迁移 / 安全）implementer 用 opus、reviewer 全三 Stage、tester 补关键逻辑测试。判据与链见 .claude/rules/dev-workflow-details.md [项目开发阶段]。
+    - 每个 Task 先定档再派：LOW（< 50 行，不碰契约 / 解析器 / 鉴权 / 迁移 / 支付 / hooks，不引新依赖）只派 implementer，主 Agent 对 diff 与运行器输出验收；MEDIUM 加一轮 code-reviewer 只跑 Stage 0 + 1；HIGH（> 300 行、碰两类以上上述路径、线上 bug / 迁移 / 安全）implementer、reviewer 全三 Stage、tester 补关键逻辑测试。判据与链见 .claude/rules/dev-workflow-details.md [项目开发阶段]。
     - 审查收敛：一轮只 HIGH 阻断，修完由同一轮 reviewer 复核一次即收口，Medium / Low 记 progress.md 残留随后续 Task 顺手修，不派 fresh reviewer 开新一轮。
     - 每个 Phase 过四步走（Code Review → 测试完整性 → 编译验证 → 功能测试），中间有改动四步重来；收尾四态 PASS / CONCERNS / FAIL / WAIVED，WAIVED 写明理由与批准人，安全与数据丢失类不许 WAIVED。细则见 dev-builder SKILL.md [Phase 完成度判断]，Git 工作流见其 [开发规则清单]。
     - red-locks-the-bug 只给线上行为 bug 与核心解析器 / 契约缺陷：先派 tester 出红 → 主 Agent 亲见 fail → `touch .claude/.red-verified`（两小时内有效）→ implementer 修绿；边角输入、参数花样、文案类记残留不开红锁。闸：tdd-gate——派单 prompt 含 red-lock 字样（bug / 修复 / 线上 / 解析器 / 契约 / 迁移 / 鉴权 等，全表在 tdd-gate.mjs 头部）且无有效标记时，standard 提醒、strict 拦；其它单子静默，不用 touch .tdd-exempt。
